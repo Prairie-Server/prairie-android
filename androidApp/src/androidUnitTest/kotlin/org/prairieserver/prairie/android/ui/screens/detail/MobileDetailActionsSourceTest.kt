@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.common.downloads.DownloadEnqueuer
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.LeafItemUserData
@@ -20,6 +21,7 @@ import io.ktor.client.engine.mock.respond
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -110,11 +112,19 @@ class MobileDetailActionsSourceTest {
         assertTrue(itemDetail.contains("explicitSubtitleIndex,"))
     }
 
+    // Cancel viewModelScope coroutines BEFORE resetting Main: they dispatch
+    // on Dispatchers.Main, and one still alive when resetMain/setMain runs
+    // throws IllegalStateException from TestMainDispatcher — the CI flake
+    // that failed watchedToggleRevertsOnLatestFailureOnly.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
     private fun runItemDetailTest(block: suspend kotlinx.coroutines.test.TestScope.() -> Unit) = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             block()
         } finally {
+            createdViewModels.forEach { it.viewModelScope.cancel() }
+            createdViewModels.clear()
             Dispatchers.resetMain()
         }
     }
@@ -132,7 +142,7 @@ class MobileDetailActionsSourceTest {
                 org.prairieserver.prairie.network.api.DefaultMetadataAiApi(dummyHttpClient()),
             ),
             savedStateHandle = SavedStateHandle(),
-        )
+        ).also { createdViewModels += it }
 
     @Suppress("UNCHECKED_CAST")
     private fun ItemDetailViewModel.seedDetail(played: Boolean) {

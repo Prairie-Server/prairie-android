@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.personal.Collection
 import org.prairieserver.prairie.model.personal.CollectionGroup
 import org.prairieserver.prairie.model.personal.CollectionsResponse
@@ -17,6 +18,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -35,14 +37,30 @@ import kotlin.test.assertTrue
 class CollectionsViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     private fun vm(handler: (io.ktor.client.request.HttpRequestData) -> Pair<HttpStatusCode, String>): CollectionsViewModel {
         val client = HttpClient(MockEngine { req ->
             val (status, body) = handler(req)
             respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
         }) { install(ContentNegotiation) { json(PrairieJson) } }
-        return CollectionsViewModel(CollectionRepository(CollectionApi(client)))
+        return track(CollectionsViewModel(CollectionRepository(CollectionApi(client))))
     }
 
     @Test

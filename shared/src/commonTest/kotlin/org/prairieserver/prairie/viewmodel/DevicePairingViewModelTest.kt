@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.auth.DeviceLoginDecisionResponse
 import org.prairieserver.prairie.model.auth.DeviceLoginLookupResponse
 import org.prairieserver.prairie.model.auth.DeviceLoginPollResponse
@@ -8,6 +9,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.DeviceLoginApi
 import org.prairieserver.prairie.repository.DeviceLoginRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -24,7 +26,23 @@ import kotlin.test.assertTrue
 class DevicePairingViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     private fun api(
         lookup: ApiResult<DeviceLoginLookupResponse> = ApiResult.Success(
@@ -61,19 +79,19 @@ class DevicePairingViewModelTest {
 
     @Test
     fun lookupApproveAndDenyHappyPath() = runTest(dispatcher) {
-        val vm = DevicePairingViewModel(DeviceLoginRepository(api()), initialToken = "tok", initialCode = null)
+        val vm = track(DevicePairingViewModel(DeviceLoginRepository(api()), initialToken = "tok", initialCode = null))
         assertEquals("TV", vm.uiState.value.lookup?.deviceName)
         assertFalse(vm.uiState.value.isLoading)
         vm.approve()
         assertEquals("approved", vm.uiState.value.completedStatus)
-        val denyVm = DevicePairingViewModel(DeviceLoginRepository(api()), initialToken = null, initialCode = "ABCD")
+        val denyVm = track(DevicePairingViewModel(DeviceLoginRepository(api()), initialToken = null, initialCode = "ABCD"))
         denyVm.deny()
         assertEquals("denied", denyVm.uiState.value.completedStatus)
     }
 
     @Test
     fun codeChangesAndErrors() = runTest(dispatcher) {
-        val vm = DevicePairingViewModel(DeviceLoginRepository(api()), initialToken = null, initialCode = null)
+        val vm = track(DevicePairingViewModel(DeviceLoginRepository(api()), initialToken = null, initialCode = null))
         assertFalse(vm.uiState.value.canSubmit)
         vm.lookup()
         assertTrue(vm.uiState.value.error!!.contains("Enter the code"))
@@ -81,18 +99,18 @@ class DevicePairingViewModelTest {
         assertEquals("ABCD", vm.uiState.value.code)
         assertTrue(vm.uiState.value.canSubmit)
 
-        val errVm = DevicePairingViewModel(
+        val errVm = track(DevicePairingViewModel(
             DeviceLoginRepository(api(lookup = ApiResult.Error(401, "x", "nope"))),
             initialToken = "t",
             initialCode = null,
-        )
+        ))
         assertTrue(errVm.uiState.value.error!!.contains("Sign in"))
 
-        val netVm = DevicePairingViewModel(
+        val netVm = track(DevicePairingViewModel(
             DeviceLoginRepository(api(lookup = ApiResult.NetworkError(IllegalStateException("x")))),
             initialToken = "t",
             initialCode = null,
-        )
+        ))
         assertTrue(netVm.uiState.value.error!!.contains("Network"))
     }
 }

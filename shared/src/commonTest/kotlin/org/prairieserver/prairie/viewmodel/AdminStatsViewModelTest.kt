@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.admin.AdminAuditPage
 import org.prairieserver.prairie.model.admin.AdminLogPage
 import org.prairieserver.prairie.model.admin.AdminSession
@@ -19,6 +20,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.AdminApi
 import org.prairieserver.prairie.repository.AdminRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -36,7 +38,23 @@ class AdminStatsViewModelTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     private fun stats() = AdminStats(
         totalItems = 10, totalFiles = 20, totalUsers = 3,
@@ -47,7 +65,7 @@ class AdminStatsViewModelTest {
 
     @Test fun `loads stats on init`() = runTest(dispatcher) {
         val api = FakeAdminApi(ApiResult.Success(stats()))
-        val state = AdminStatsViewModel(AdminRepository(api)).uiState.value
+        val state = track(AdminStatsViewModel(AdminRepository(api))).uiState.value
         assertFalse(state.isLoading)
         assertNull(state.error)
         assertEquals(2, state.stats?.activeStreams)
@@ -56,7 +74,7 @@ class AdminStatsViewModelTest {
 
     @Test fun `refresh requests a server recompute`() = runTest(dispatcher) {
         val api = FakeAdminApi(ApiResult.Success(stats()))
-        val vm = AdminStatsViewModel(AdminRepository(api))
+        val vm = track(AdminStatsViewModel(AdminRepository(api)))
         vm.refresh()
         assertEquals(true, api.calls.last()) // refresh=true
         assertFalse(vm.uiState.value.isRefreshing)
@@ -64,12 +82,12 @@ class AdminStatsViewModelTest {
 
     @Test fun `error surfaces server message with fallback`() = runTest(dispatcher) {
         val api = FakeAdminApi(ApiResult.Error(code = 500, error = "internal", message = ""))
-        assertEquals("Failed to load admin stats", AdminStatsViewModel(AdminRepository(api)).uiState.value.error)
+        assertEquals("Failed to load admin stats", track(AdminStatsViewModel(AdminRepository(api))).uiState.value.error)
     }
 
     @Test fun `network failure surfaces standard copy`() = runTest(dispatcher) {
         val api = FakeAdminApi(ApiResult.NetworkError(IllegalStateException("offline")))
-        assertEquals("Network error. Check your connection.", AdminStatsViewModel(AdminRepository(api)).uiState.value.error)
+        assertEquals("Network error. Check your connection.", track(AdminStatsViewModel(AdminRepository(api))).uiState.value.error)
     }
 }
 

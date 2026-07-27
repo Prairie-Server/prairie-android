@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.admin.AdminAuditPage
 import org.prairieserver.prairie.model.admin.AdminLogPage
 import org.prairieserver.prairie.model.admin.AdminSession
@@ -18,6 +19,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.AdminApi
 import org.prairieserver.prairie.repository.AdminRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -34,7 +36,23 @@ class AdminUsersViewModelTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
     @BeforeTest fun setUp() { Dispatchers.setMain(dispatcher) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @AfterTest
+    fun tearDown() {
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        createdViewModels.clear()
+        Dispatchers.resetMain()
+    }
+
+    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
+    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
+    // throws IllegalStateException from TestMainDispatcher.
+    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
+
+    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
+        createdViewModels += viewModel
+        return viewModel
+    }
+
 
     private fun u(id: Int, name: String, enabled: Boolean = true) = AdminUser(
         id = id, username = name, email = "$name@x.io", role = "user",
@@ -43,13 +61,13 @@ class AdminUsersViewModelTest {
 
     @Test fun `loads users on init`() = runTest(dispatcher) {
         val api = FakeAdminUsersApi(users = mutableListOf(u(1, "a"), u(2, "b")))
-        val vm = AdminUsersViewModel(AdminRepository(api))
+        val vm = track(AdminUsersViewModel(AdminRepository(api)))
         assertEquals(2, vm.uiState.value.users.size)
     }
 
     @Test fun `delete removes user and surfaces message`() = runTest(dispatcher) {
         val api = FakeAdminUsersApi(users = mutableListOf(u(1, "a"), u(2, "b")))
-        val vm = AdminUsersViewModel(AdminRepository(api))
+        val vm = track(AdminUsersViewModel(AdminRepository(api)))
         vm.deleteUser(1)
         assertTrue(vm.uiState.value.users.none { it.id == 1 })
         assertEquals("User deleted", vm.uiState.value.message)
@@ -60,7 +78,7 @@ class AdminUsersViewModelTest {
             users = mutableListOf(u(1, "a")),
             deleteError = ApiResult.Error(code = 403, error = "forbidden", message = "Cannot delete"),
         )
-        val vm = AdminUsersViewModel(AdminRepository(api))
+        val vm = track(AdminUsersViewModel(AdminRepository(api)))
         vm.deleteUser(1)
         assertTrue(vm.uiState.value.users.any { it.id == 1 })
         assertEquals("Cannot delete", vm.uiState.value.message)
@@ -68,7 +86,7 @@ class AdminUsersViewModelTest {
 
     @Test fun `error surfaces server message`() = runTest(dispatcher) {
         val api = FakeAdminUsersApi(listError = ApiResult.Error(code = 500, error = "x", message = ""))
-        assertEquals("Failed to load users", AdminUsersViewModel(AdminRepository(api)).uiState.value.error)
+        assertEquals("Failed to load users", track(AdminUsersViewModel(AdminRepository(api))).uiState.value.error)
     }
 }
 
