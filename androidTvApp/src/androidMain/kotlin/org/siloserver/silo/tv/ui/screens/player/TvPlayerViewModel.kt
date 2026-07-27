@@ -864,6 +864,11 @@ class TvPlayerViewModel(
                 subtitleRemountReselection.arm(localMountIdentity, subtitleMountGeneration)
                 subtitleSnapshotSettlement.reset()
                 lastAdapterMountIdentity = localMountIdentity
+                // In-stream captions can already be present and need no media
+                // rebuild, so settle them against the current snapshot now.
+                _uiState.value.subtitleTracks
+                    .takeIf(List<PlayerTrackEntry>::isNotEmpty)
+                    ?.let(::resolveSubtitleRemountReselection)
             } else if (localMountIdentity == null) {
                 lastAdapterMountIdentity = null
             }
@@ -3649,7 +3654,7 @@ class TvPlayerViewModel(
      * mid-playback by dropping already-buffered cues).
      */
     fun onSubtitleDelayChanged(delayMs: Int) {
-        viewModelScope.launch { playerSettingsStore.setSubtitleSyncMs(delayMs) }
+        viewModelScope.launch { playerSettingsStore.setSubtitleSyncMsFor(contentId, delayMs) }
     }
 
     // ---- Sleep timer setters ---------------------------------------------------

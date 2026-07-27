@@ -17,29 +17,29 @@ import kotlin.test.assertEquals
 class SubtitleManagerAppearanceTest {
 
     @Test
-    fun defaultSubtitleStyleIsWhiteOutlinedTextWithoutABox() {
+    fun defaultSubtitleStyleIsWhiteTextWithASoftShadow() {
         val style = captionStyleFor(SubtitleAppearance.DEFAULT)
 
         assertEquals(0xFFFFFFFF.toInt(), style.foregroundColor)
         assertEquals(0x00000000, style.backgroundColor)
         assertEquals(0x00000000, style.windowColor)
-        assertEquals(CaptionStyleCompat.EDGE_TYPE_OUTLINE, style.edgeType)
+        assertEquals(CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, style.edgeType)
         assertEquals(0xFF000000.toInt(), style.edgeColor)
     }
 
     @Test
-    fun subtitleTextFractionsUseTheStandardScale() {
+    fun subtitleTextFractionsMatchTheWebScale() {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "fractionalSizeFor",
             SubtitleFontSizePreset::class.java,
         )
         method.isAccessible = true
 
-        assertEquals(0.032f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Small) as Float)
-        assertEquals(0.040f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Medium) as Float)
-        assertEquals(0.050f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Large) as Float)
-        assertEquals(0.060f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.XLarge) as Float)
-        assertEquals(0.072f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.XXLarge) as Float)
+        assertEquals(20f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Small) as Float)
+        assertEquals(26f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Medium) as Float)
+        assertEquals(32f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Large) as Float)
+        assertEquals(40f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.XLarge) as Float)
+        assertEquals(48f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.XXLarge) as Float)
     }
 
     @Test

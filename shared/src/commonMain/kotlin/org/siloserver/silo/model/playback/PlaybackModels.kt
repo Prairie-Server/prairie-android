@@ -261,6 +261,8 @@ data class PlaybackSourceMetadata(
     @SerialName("color_range") val colorRange: String? = null,
     @SerialName("dolby_vision_profile") val dolbyVisionProfile: Int? = null,
     @SerialName("subtitle_codec") val subtitleCodec: String? = null,
+    @SerialName("letterbox_top_fraction") val letterboxTopFraction: Double = 0.0,
+    @SerialName("letterbox_bottom_fraction") val letterboxBottomFraction: Double = 0.0,
 )
 
 @Serializable

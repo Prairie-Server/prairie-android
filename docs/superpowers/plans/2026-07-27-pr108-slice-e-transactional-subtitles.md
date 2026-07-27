@@ -169,3 +169,14 @@ Java/JNI libass bridge, Android local unit tests.
   Critical/Important finding test-first and repeat the full gate.
 - [ ] Push `split/108-e-subtitles` and create a draft PR based on
   `split/108-d-player-foundation`; do not merge.
+
+## Forward-port mapping
+
+| Local commit | PR 108 sources |
+| --- | --- |
+| `e1f7730f` | `65c4b316` typed subtitle identity/transition subset |
+| `fbb001fd` | `65c4b316`, `d7241141`, `8403b8b8`, `c8481f1c`, `ac14e51a` |
+| `5096cb7a` | `65c4b316`, `f609c431`, `4add279c`, `1ad970c9`, `274ffc61`, `823ca359` |
+| `74907f1c` | `65c4b316`, `a36c7211`, `370c5a79`, `38584061`, corrected `4add279c` boundary |
+| `23df27e4` | `f0bc39fe`, `6a904254`, `eebe9dd3`, `a02d5622`, `05df9c34`, `e080df48`, `f3888bee` |
+| pending appearance/insets commit | `8e42f428`, `8cb8ed3f`, `a910f0d9`, `4b87b24c`, `8c2339c4`, `dcfbece5`, `e22e3190` |

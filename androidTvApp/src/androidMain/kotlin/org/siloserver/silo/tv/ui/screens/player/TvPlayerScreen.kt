@@ -88,6 +88,7 @@ import org.siloserver.silo.common.player.DisplayHdrProbe
 import org.siloserver.silo.common.player.HdrDisplayController
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackPreflightListener
+import org.siloserver.silo.common.player.LetterboxInsets
 import org.siloserver.silo.common.player.SessionState
 import org.siloserver.silo.common.player.SleepTimerState
 import org.siloserver.silo.common.player.SubtitleManager
@@ -1412,6 +1413,7 @@ fun TvPlayerScreen(
         val plan = state.playbackPlan
         val delivery = plan?.delivery ?: state.delivery
         val mediaSpec = VideoPlayerMediaSpec(
+            contentId = contentId,
             streamUrl = url,
             playMethod = method,
             delivery = delivery,
@@ -1467,6 +1469,7 @@ fun TvPlayerScreen(
         val plan = state.playbackPlan
         val delivery = plan?.delivery ?: state.delivery
         val mediaSpec = VideoPlayerMediaSpec(
+            contentId = contentId,
             streamUrl = url,
             playMethod = method,
             delivery = delivery,
@@ -1554,8 +1557,15 @@ fun TvPlayerScreen(
         sessionPlayer,
         state.videoFillMode,
         state.subtitleTracks.firstOrNull { it.isSelected }?.index,
+        state.playbackPlan?.source?.letterboxTopFraction,
+        state.playbackPlan?.source?.letterboxBottomFraction,
     ) {
         val pv = playerViewRef ?: return@LaunchedEffect
+        subtitleManager.letterbox = LetterboxInsets(
+            topFraction = (state.playbackPlan?.source?.letterboxTopFraction ?: 0.0).toFloat(),
+            bottomFraction = (state.playbackPlan?.source?.letterboxBottomFraction ?: 0.0).toFloat(),
+        )
+        subtitleManager.titleSafeFraction = 0.05f
         subtitleManager.applyAppearance(pv, subtitleAppearance)
     }
 
@@ -1860,6 +1870,8 @@ fun TvPlayerScreen(
                             audioDelayEnabled = state.playbackPlan?.claims?.audio?.passthrough != true,
                             onAudioDelayChanged = viewModel::onAudioDelayChanged,
                             subtitleDelayMs = subtitleDelayMs,
+                            subtitleDelayEnabled =
+                                state.committedSubtitleIdentity !is SubtitleIdentity.ServerBurnIn,
                             onSubtitleDelayChanged = viewModel::onSubtitleDelayChanged,
                             subtitleAppearance = subtitleAppearance,
                             onSubtitleAppearanceChanged = viewModel::onSetSubtitleAppearance,

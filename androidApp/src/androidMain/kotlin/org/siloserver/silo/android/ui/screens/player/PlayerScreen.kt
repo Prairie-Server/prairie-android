@@ -561,6 +561,7 @@ fun PlayerScreen(
         val delivery = plan?.delivery ?: uiState.delivery
 
         val mediaSpec = VideoPlayerMediaSpec(
+            contentId = uiState.contentId,
             streamUrl = effectiveStreamUrl,
             // Local files play as progressive (DIRECT), regardless of how
             // the server originally provisioned the session.
@@ -621,6 +622,7 @@ fun PlayerScreen(
         val delivery = plan?.delivery ?: uiState.delivery
 
         val mediaSpec = VideoPlayerMediaSpec(
+            contentId = uiState.contentId,
             streamUrl = effectiveStreamUrl,
             playMethod = playMethod,
             delivery = delivery,

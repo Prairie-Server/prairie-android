@@ -46,6 +46,20 @@ class SubtitleManager(
 
     private val videoRectSyncs = WeakHashMap<PlayerView, SubtitleVideoRectSync>()
 
+    var letterbox: LetterboxInsets = LetterboxInsets.NONE
+        set(value) {
+            if (field == value) return
+            field = value
+            videoRectSyncs.values.forEach { it.letterbox = value }
+        }
+
+    var titleSafeFraction: Float = 0f
+        set(value) {
+            if (field == value) return
+            field = value
+            videoRectSyncs.values.forEach { it.titleSafeFraction = value }
+        }
+
     /**
      * Builds MediaItem.SubtitleConfiguration entries for external subtitle tracks.
      *
@@ -257,7 +271,11 @@ class SubtitleManager(
         playerView.subtitleView?.let { libassBridge?.attachTo(it) }
         val existing = videoRectSyncs[playerView]
         val sync = if (existing?.isDisposed == true || existing == null) {
-            SubtitleVideoRectSync(playerView).also { videoRectSyncs[playerView] = it }
+            SubtitleVideoRectSync(playerView).also {
+                it.letterbox = letterbox
+                it.titleSafeFraction = titleSafeFraction
+                videoRectSyncs[playerView] = it
+            }
         } else {
             existing
         }
@@ -309,20 +327,21 @@ class SubtitleManager(
 
     private fun fractionalSizeFor(preset: SubtitleFontSizePreset): Float {
         return when (preset) {
-            SubtitleFontSizePreset.Small -> 0.032f
-            SubtitleFontSizePreset.Medium -> 0.040f
-            SubtitleFontSizePreset.Large -> 0.050f
-            SubtitleFontSizePreset.XLarge -> 0.060f
-            SubtitleFontSizePreset.XXLarge -> 0.072f
+            SubtitleFontSizePreset.Small -> 20f / 720f
+            SubtitleFontSizePreset.Medium -> 26f / 720f
+            SubtitleFontSizePreset.Large -> 32f / 720f
+            SubtitleFontSizePreset.XLarge -> 40f / 720f
+            SubtitleFontSizePreset.XXLarge -> 48f / 720f
         }
     }
 
     private fun bottomPaddingFor(position: SubtitlePositionPreset): Float {
-        return when (position) {
+        val base = when (position) {
             SubtitlePositionPreset.Bottom -> 0.09f
             SubtitlePositionPreset.LowerThird -> 0.18f
             SubtitlePositionPreset.Top -> 0.74f
         }
+        return (base - titleSafeFraction).coerceAtLeast(0.02f)
     }
 
     private fun parseHexColor(hex: String, alpha: Int = 255): Int {
@@ -548,6 +567,20 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     )
     private var observedPlayer: Player? = null
 
+    var letterbox: LetterboxInsets = LetterboxInsets.NONE
+        set(value) {
+            if (field == value) return
+            field = value
+            update()
+        }
+
+    var titleSafeFraction: Float = 0f
+        set(value) {
+            if (field == value) return
+            field = value
+            update()
+        }
+
     var isDisposed: Boolean = false
         private set
 
@@ -623,7 +656,7 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     private fun applyRect(playerView: PlayerView) {
         val subtitleView = playerView.subtitleView ?: return
         val videoSize = playerView.player?.videoSize ?: VideoSize.UNKNOWN
-        val rect = playerView.contentFrameSubtitleRect()
+        val rect = (playerView.contentFrameSubtitleRect()
             ?: displayedSubtitleVideoRect(
                 viewWidth = playerView.width,
                 viewHeight = playerView.height,
@@ -631,7 +664,7 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
                 videoHeight = videoSize.height,
                 videoPixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
                 resizeMode = playerView.resizeMode,
-            )
+            )).insetByLetterbox(letterbox).insetByTitleSafe(titleSafeFraction)
         val current = subtitleView.layoutParams as? FrameLayout.LayoutParams
         val params = current ?: FrameLayout.LayoutParams(rect.width, rect.height)
         val gravity = Gravity.TOP or Gravity.START

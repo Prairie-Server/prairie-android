@@ -3324,7 +3324,14 @@ class PlayerViewModel(
      * the new offset at every cue parse.
      */
     fun onSetSubtitleDelay(value: Int) {
-        viewModelScope.launch { playerSettingsStore.setSubtitleSyncMs(value) }
+        val contentId = _uiState.value.contentId.takeIf(String::isNotBlank)
+        viewModelScope.launch {
+            if (contentId == null) {
+                playerSettingsStore.setSubtitleSyncMs(value)
+            } else {
+                playerSettingsStore.setSubtitleSyncMsFor(contentId, value)
+            }
+        }
     }
 
     // ---- Sleep timer setters ---------------------------------------------------
