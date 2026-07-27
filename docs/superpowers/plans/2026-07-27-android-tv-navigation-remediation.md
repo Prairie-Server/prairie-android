@@ -34,12 +34,12 @@
 - Produces:
 
 ```kotlin
-internal data class HomeSectionHydration(
+data class HomeSectionHydration(
     val sections: List<ResolvedSection>,
     val fullyResolved: Boolean,
 )
 
-internal suspend fun hydrateHomeSections(
+suspend fun hydrateHomeSections(
     sections: List<ResolvedSection>,
     maxConcurrency: Int = 4,
     fetchItems: suspend (String) -> ApiResult<HomeSectionItemsResponse>,

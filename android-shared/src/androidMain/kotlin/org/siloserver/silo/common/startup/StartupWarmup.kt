@@ -12,6 +12,7 @@ import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.SectionRepository
 import org.siloserver.silo.repository.port.HomeCachePort
+import org.siloserver.silo.viewmodel.hydrateHomeSections
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -138,23 +139,12 @@ private suspend fun CoroutineScope.warmHome(
 ) {
     when (val result = sectionRepository.getHomeSections()) {
         is ApiResult.Success -> {
-            val resolvedPairs: List<Pair<ResolvedSection, Boolean>> =
-                result.data.sections.map { section ->
-                    async {
-                        when (val itemsResult = sectionRepository.getHomeSectionItems(section.id)) {
-                            is ApiResult.Success -> (itemsResult.data.section ?: section) to true
-                            is ApiResult.Error,
-                            is ApiResult.NetworkError -> section to false
-                        }
-                    }
-                }.awaitAll()
-
-            if (resolvedPairs.all { it.second }) {
-                val resolved = resolvedPairs.map { it.first }.filter { it.items.isNotEmpty() }
-                if (resolved.isNotEmpty()) {
-                    homeCache.cacheHome(resolved)
-                    warmHomeArtwork(context, resolved, artworkPlan)
-                }
+            val hydration = hydrateHomeSections(result.data.sections) { sectionId ->
+                sectionRepository.getHomeSectionItems(sectionId)
+            }
+            if (hydration.fullyResolved && hydration.sections.isNotEmpty()) {
+                homeCache.cacheHome(hydration.sections)
+                warmHomeArtwork(context, hydration.sections, artworkPlan)
             }
         }
         is ApiResult.Error,
