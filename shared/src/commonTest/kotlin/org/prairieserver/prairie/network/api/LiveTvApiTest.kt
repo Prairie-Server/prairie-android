@@ -86,7 +86,7 @@ class LiveTvApiTest {
         val captured = Captured()
         val result = api(
             captured,
-            body = """{"session_id":"s1","playback_ticket":"t1","hls_url":"/hls/s1.m3u8"}""",
+            body = """{"session_id":"s1","playback_ticket":"t1","hls_url":"/api/v1/livetv/live-hls/t1/index.m3u8","transport":"hls"}""",
             status = HttpStatusCode.Created,
         ).startSession("ch-9")
 
@@ -95,7 +95,25 @@ class LiveTvApiTest {
         val success = assertIs<ApiResult.Success<*>>(result)
         val session = success.data as org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
         assertEquals("s1", session.sessionId)
-        assertEquals("/hls/s1.m3u8", session.playableUrl)
+        assertEquals("hls", session.transport)
+        assertTrue(session.isHls)
+        assertEquals("/api/v1/livetv/live-hls/t1/index.m3u8", session.playableUrl)
+    }
+
+    @Test
+    fun startSessionMpegtsPrefersStreamUrl() = runTest {
+        val captured = Captured()
+        val result = api(
+            captured,
+            body = """{"session_id":"s2","playback_ticket":"s2","stream_url":"/api/v1/livetv/sessions/s2/stream","transport":"mpegts"}""",
+            status = HttpStatusCode.Created,
+        ).startSession("ch-1")
+
+        val success = assertIs<ApiResult.Success<*>>(result)
+        val session = success.data as org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
+        assertEquals("mpegts", session.transport)
+        assertTrue(!session.isHls)
+        assertEquals("/api/v1/livetv/sessions/s2/stream", session.playableUrl)
     }
 
     @Test

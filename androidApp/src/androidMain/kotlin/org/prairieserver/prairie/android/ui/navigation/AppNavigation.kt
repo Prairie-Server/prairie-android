@@ -534,6 +534,9 @@ fun AppNavigation(
                         Route.LiveTvPlayer(channel.id, channel.displayName).route,
                     )
                 },
+                onPlayLibraryItem = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
             )
         }
         composable(

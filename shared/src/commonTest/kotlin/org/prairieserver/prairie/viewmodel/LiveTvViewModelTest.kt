@@ -110,7 +110,8 @@ class LiveTvViewModelTest {
             startResult = ApiResult.Success(
                 LiveTvSessionStartResponse(
                     sessionId = "s1",
-                    hlsUrl = "/api/v1/livetv/hls/s1.m3u8",
+                    hlsUrl = "/api/v1/livetv/live-hls/s1/index.m3u8",
+                    transport = "hls",
                 ),
             ),
             releaseResult = ApiResult.Success(LiveTvSession(id = "s1", status = "released")),
@@ -121,7 +122,8 @@ class LiveTvViewModelTest {
         advanceUntilIdle()
 
         assertEquals("s1", viewModel.uiState.value.session?.sessionId)
-        assertEquals("/api/v1/livetv/hls/s1.m3u8", viewModel.uiState.value.session?.playableUrl)
+        assertEquals("/api/v1/livetv/live-hls/s1/index.m3u8", viewModel.uiState.value.session?.playableUrl)
+        assertTrue(viewModel.uiState.value.session?.isHls == true)
         assertNull(viewModel.uiState.value.error)
 
         viewModel.stop()
