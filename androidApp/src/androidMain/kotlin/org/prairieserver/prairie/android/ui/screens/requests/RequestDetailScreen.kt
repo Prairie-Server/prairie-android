@@ -46,6 +46,11 @@ import org.prairieserver.prairie.model.request.requestPosterUrl
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -205,6 +210,12 @@ private fun RequestDetailContent(
                         color = MaterialTheme.colorScheme.error,
                     )
                     OutlinedButton(onClick = onRetry) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Retry")
                     }
                 }
@@ -278,6 +289,12 @@ private fun RequestActions(
         when {
             libraryContentId != null -> {
                 Button(onClick = { onLibraryItemClick(libraryContentId) }) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Open Library Item")
                 }
             }
@@ -286,6 +303,12 @@ private fun RequestActions(
                     onClick = onRequest,
                     enabled = !isSubmitting,
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(if (isSubmitting) "Requesting..." else "Request")
                 }
             }

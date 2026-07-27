@@ -48,6 +48,11 @@ import org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsConsentMode
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsUiState
 import org.prairieserver.prairie.common.diagnostics.TimedCaptureStatus
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
 
 @Composable
 fun DiagnosticsSettingsScreen(
@@ -151,17 +156,45 @@ internal fun DiagnosticsSettingsContent(
                             )
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = onStopCapture) { Text("Stop & review") }
-                                OutlinedButton(onClick = onCancelCapture) { Text("Cancel") }
+                                Button(onClick = onStopCapture) {
+                                    Icon(
+                                        imageVector = Icons.Default.Stop,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Stop & review")
+                                }
+                                OutlinedButton(onClick = onCancelCapture) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Cancel")
+                                }
                             }
                         }
                     } else {
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Button(onClick = onSendNow, enabled = model.canCapture) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text("Send diagnostics now")
                             }
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(onClick = onStartCapture, enabled = model.canCapture) {
+                                Icon(
+                                    imageVector = Icons.Default.FiberManualRecord,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text("Start diagnostic capture")
                             }
                             Text(
@@ -252,7 +285,13 @@ internal fun DiagnosticsSettingsContent(
                 }) { Text("Always send") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmAlways = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmAlways = false }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             },
         )
     }

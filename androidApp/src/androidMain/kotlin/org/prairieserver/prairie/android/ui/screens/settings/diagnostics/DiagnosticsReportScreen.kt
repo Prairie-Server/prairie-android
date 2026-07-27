@@ -42,6 +42,11 @@ import org.prairieserver.prairie.android.ui.screens.settings.SettingsSectionCard
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsSectionHeader
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsUploadDecision
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Send
 
 @Composable
 fun DiagnosticsReportScreen(
@@ -145,12 +150,28 @@ fun DiagnosticsReportScreen(
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
-                            ) { Text(if (uploading) "Sending…" else "Send") }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(if (uploading) "Sending…" else "Send")
+                            }
                             OutlinedButton(
                                 enabled = !uploading,
                                 onClick = { confirmDelete = true },
                                 modifier = Modifier.weight(1f),
-                            ) { Text("Delete") }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Delete")
+                            }
                         }
                     }
                 }
@@ -167,9 +188,27 @@ fun DiagnosticsReportScreen(
                 TextButton(onClick = {
                     confirmDelete = false
                     viewModel.delete(report.id, onBackClick)
-                }) { Text("Delete") }
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Delete")
+                }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Cancel")
+                }
+            },
         )
     }
 }
@@ -208,7 +247,15 @@ private fun DiagnosticsSentConfirmation(
                 )
             }
         }
-        Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+        Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Done")
+        }
     }
 }
 

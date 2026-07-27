@@ -62,6 +62,7 @@ import org.prairieserver.prairie.discovery.DiscoveryHit
 import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Close
 
 /**
  * Server list — first-run connect (scan + branding) and multi-server management.
@@ -281,7 +282,13 @@ fun ServerListScreen(
                 }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { removeTarget = null }) { Text("Cancel") }
+                TextButton(onClick = { removeTarget = null }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             },
             containerColor = MaterialTheme.colorScheme.primaryContainer,
         )
@@ -574,7 +581,13 @@ private fun RenameDialog(
                     )
                 }
             } else {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             }
         },
         containerColor = MaterialTheme.colorScheme.primaryContainer,

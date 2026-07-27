@@ -47,6 +47,9 @@ import org.prairieserver.prairie.catalog.filter.CatalogFacet
 import org.prairieserver.prairie.catalog.filter.CatalogFilterState
 import org.prairieserver.prairie.catalog.filter.facetOptionPairs
 import org.prairieserver.prairie.model.catalog.CatalogFiltersResponse
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.RestartAlt
 
 /**
  * Browse filter sheet, mirroring iOS `FilterView`:
@@ -123,6 +126,12 @@ fun FilterSheet(
                     onClick = { draft = draft.resetFilters() },
                     enabled = draft.canResetFilters,
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.RestartAlt,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Reset")
                 }
             }
@@ -301,7 +310,13 @@ private fun FacetValuePicker(
             modifier = Modifier.weight(1f),
         )
         if (selected.isNotEmpty()) {
-            TextButton(onClick = onClear) { Text("Clear") }
+            TextButton(onClick = onClear) { Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Clear") }
         }
     }
     if (options.size > 12) {

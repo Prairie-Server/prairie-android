@@ -48,6 +48,7 @@ import org.prairieserver.prairie.model.watchtogether.RoomPlaybackState
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.watchtogether.RoomTransportIntent
 import org.prairieserver.prairie.watchtogether.roomTransportAuthorized
+import androidx.compose.material.icons.filled.Close
 
 /**
  * Full-screen overlay composable that layers gesture handling, transport controls,
@@ -454,7 +455,13 @@ fun PlayerOverlay(
                 }) { Text("Close room") }
             },
             dismissButton = {
-                TextButton(onClick = { showCloseConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showCloseConfirm = false }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             },
         )
     }

@@ -45,6 +45,7 @@ import org.prairieserver.prairie.model.download.DownloadMediaType
 import org.prairieserver.prairie.model.download.DownloadStatus
 import org.prairieserver.prairie.model.ebook.ebookFormatKey
 import org.prairieserver.prairie.model.ebook.isInAppReadableEbookFormat
+import androidx.compose.material.icons.filled.OpenInNew
 
 internal enum class DownloadRowAction {
     None,
@@ -399,7 +400,13 @@ private fun SingleRow(
                     }
                     if (showExternalAction) {
                         TextButton(onClick = onOpenExternalDownload) {
-                            Text("Open")
+                            Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Open")
                         }
                     }
                 }

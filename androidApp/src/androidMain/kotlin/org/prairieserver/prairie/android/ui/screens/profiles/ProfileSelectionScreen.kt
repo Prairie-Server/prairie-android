@@ -66,6 +66,9 @@ import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
 import org.prairieserver.prairie.model.profile.Profile
 import androidx.compose.runtime.remember
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Check
 
 /**
  * Grid of profile avatars shown after login.
@@ -122,11 +125,23 @@ fun ProfileSelectionScreen(
             },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmDeleteProfile) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissDeleteDialog) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissDeleteDialog) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             },
         )
     }
@@ -203,6 +218,13 @@ fun ProfileSelectionScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 TextButton(onClick = viewModel::toggleManageMode) {
+                    Icon(
+                        imageVector = if (state.isManageMode) Icons.Default.Check else Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = AuthColors.OnBackground,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (state.isManageMode) "Done" else "Manage Profiles",
                         fontSize = 15.sp,

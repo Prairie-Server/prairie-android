@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -203,6 +204,7 @@ fun ServerSetupScreen(
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Connecting…" else "Connect",
                 onClick = viewModel::onConnectClick,
+                icon = Icons.Default.Link,
                 isLoading = state.isLoading,
                 modifier = Modifier.padding(top = 4.dp),
             )

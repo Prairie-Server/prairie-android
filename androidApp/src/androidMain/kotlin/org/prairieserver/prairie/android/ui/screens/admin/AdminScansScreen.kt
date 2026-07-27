@@ -61,6 +61,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Radar
 
 // ---------------------------------------------------------------------------
 // ViewModel (co-located, LibrariesViewModel idiom; registered in AndroidModule)
@@ -324,6 +326,12 @@ private fun LibraryScanRow(
                     enabled = !isBusy,
                     modifier = Modifier.weight(1f),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Radar,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Scan")
                 }
                 OutlinedButton(
@@ -331,6 +339,12 @@ private fun LibraryScanRow(
                     enabled = !isBusy,
                     modifier = Modifier.weight(1f),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel")
                 }
             }

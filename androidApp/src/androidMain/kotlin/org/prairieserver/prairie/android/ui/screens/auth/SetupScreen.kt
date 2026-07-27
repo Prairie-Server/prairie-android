@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
@@ -130,6 +131,7 @@ fun SetupScreen(
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Creating…" else "Create account",
                 onClick = viewModel::onCreateAccountClick,
+                icon = Icons.Default.PersonAdd,
                 isLoading = state.isLoading,
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -62,6 +62,13 @@ import org.prairieserver.prairie.android.ui.components.LoadingIndicator
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Refresh
 
 /**
  * Downloads tab. Header card shows section counts + storage usage; the list
@@ -259,7 +266,14 @@ fun DownloadsScreen(
                                 bottom = 16.dp + LocalBottomChromeInset.current,
                             ),
                     ) {
-                        Text("Delete ${selectedEntryIds.size} · Free ${formatBytes(selectedBytes)}")
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Delete ${selectedEntryIds.size
+                    } · Free ${formatBytes(selectedBytes)}")
                     }
                 }
             }
@@ -284,6 +298,13 @@ fun DownloadsScreen(
                         exitSelectMode()
                     },
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (ids.size == 1) "Delete Download" else "Delete ${ids.size} Downloads",
                         color = MaterialTheme.colorScheme.error,
@@ -291,7 +312,13 @@ fun DownloadsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingBulkDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingBulkDelete = null }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             },
         )
     }
@@ -314,11 +341,23 @@ fun DownloadsScreen(
                     enabled = plan.count > 0 && !state.isReclaiming,
                     onClick = viewModel::reclaimWatched,
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
                     Text("Reclaim")
                 }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::clearReclaimPlan) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(if (plan.count == 0) "Close" else "Cancel")
                 }
             },
@@ -389,6 +428,12 @@ private fun DownloadsSelectBar(
     ) {
         if (isSelecting) {
             TextButton(onClick = onToggleSelectAll) {
+                Icon(
+                    imageVector = if (allSelected) Icons.Default.Clear else Icons.Default.CheckBox,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(if (allSelected) "Clear" else "Select All")
             }
             Spacer(modifier = Modifier.weight(1f))
@@ -397,10 +442,22 @@ private fun DownloadsSelectBar(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
             )
-            TextButton(onClick = onDone) { Text("Done") }
+            TextButton(onClick = onDone) { Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Done") }
         } else {
             Spacer(modifier = Modifier.weight(1f))
-            TextButton(onClick = onEnterSelect) { Text("Select") }
+            TextButton(onClick = onEnterSelect) { Icon(
+                        imageVector = Icons.Default.CheckBox,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Select") }
         }
     }
 }
@@ -425,6 +482,12 @@ private fun DownloadsActionRow(
             enabled = hasMonitoredDownloads && !isRunningMonitoredDownloads,
             modifier = Modifier.weight(1f),
         ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(if (isRunningMonitoredDownloads) "Checking..." else "Check Monitored")
         }
         if (showReclaimWatched) {
@@ -433,6 +496,12 @@ private fun DownloadsActionRow(
                 enabled = !isReclaiming,
                 modifier = Modifier.weight(1f),
             ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(if (isReclaiming) "Reclaiming..." else "Reclaim Watched")
             }
         }

@@ -42,6 +42,9 @@ import org.prairieserver.prairie.model.request.RequestMediaType
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -223,6 +226,12 @@ private fun RequestSearchPanel(
             )
         }
         Button(onClick = onSearch, enabled = !isLoading) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(if (isLoading) "Searching..." else "Search")
         }
         error?.let {
@@ -327,6 +336,12 @@ private fun RequestErrorState(
         )
         Spacer(modifier = Modifier.height(20.dp))
         Button(onClick = onRetry) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Retry")
         }
     }

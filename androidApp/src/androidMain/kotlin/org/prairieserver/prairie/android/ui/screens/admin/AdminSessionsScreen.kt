@@ -66,6 +66,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Send
 
 // ---------------------------------------------------------------------------
 // ViewModel (co-located, LibrariesViewModel idiom; registered in AndroidModule)
@@ -257,11 +260,24 @@ fun AdminSessionsScreen(
                     viewModel.control(session.sessionId, SessionControlAction.Terminate)
                     terminateTarget = null
                 }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Terminate", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { terminateTarget = null }) { Text("Cancel") }
+                TextButton(onClick = { terminateTarget = null }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             },
         )
     }
@@ -412,11 +428,23 @@ private fun MessageDialog(
                 onClick = { onSend(title, body) },
                 enabled = body.isNotBlank(),
             ) {
+                Icon(
+                    imageVector = Icons.Default.Send,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Send")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
         },
     )
 }

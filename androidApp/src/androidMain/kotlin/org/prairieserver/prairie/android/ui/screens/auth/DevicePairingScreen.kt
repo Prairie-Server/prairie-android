@@ -33,6 +33,9 @@ import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.viewmodel.DevicePairingViewModel
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 
 @Composable
 fun DevicePairingScreen(
@@ -104,6 +107,12 @@ fun DevicePairingScreen(
                 if (error.startsWith("Sign in")) {
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(onClick = onSignIn, modifier = Modifier.fillMaxWidth()) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Login,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Sign In")
                     }
                 }
@@ -165,6 +174,12 @@ fun DevicePairingScreen(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = AuthColors.Primary),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Done")
                 }
             }

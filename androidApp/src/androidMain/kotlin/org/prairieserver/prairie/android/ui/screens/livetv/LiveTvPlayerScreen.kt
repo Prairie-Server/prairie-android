@@ -35,6 +35,12 @@ import org.prairieserver.prairie.common.player.PrairiePlayerFactory
 import org.prairieserver.prairie.model.playback.PlayMethod
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.Refresh
 
 /**
  * Live TV player: POST channel session → HLS via [PrairiePlayerFactory],
@@ -157,6 +163,12 @@ fun LiveTvPlayerScreen(
                     .align(Alignment.BottomCenter)
                     .padding(24.dp),
             ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Retry")
             }
         }

@@ -43,6 +43,8 @@ import org.prairieserver.prairie.tv.ui.components.TvTextInputDialog
 import org.prairieserver.prairie.viewmodel.DevicePairingViewModel
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.foundation.layout.size
 
 /**
  * TV Device Pairing — a signed-in TV user approves or denies another device's
@@ -133,7 +135,15 @@ fun TvPairDeviceScreen(
                 )
                 if (error.startsWith("Sign in")) {
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = onSignIn) { Text("Sign In") }
+                    Button(onClick = onSignIn) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Login,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sign In")
+                    }
                 }
             }
 
@@ -191,6 +201,12 @@ fun TvPairDeviceScreen(
                     onClick = onDone,
                     modifier = Modifier.focusRequester(firstActionFocus),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Done")
                 }
             }

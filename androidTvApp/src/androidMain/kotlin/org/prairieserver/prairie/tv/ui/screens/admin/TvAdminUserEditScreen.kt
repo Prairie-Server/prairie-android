@@ -42,6 +42,11 @@ import org.prairieserver.prairie.viewmodel.ADMIN_USER_ROLES
 import org.prairieserver.prairie.viewmodel.AdminUserEditViewModel
 import org.prairieserver.prairie.viewmodel.roleDisplayName
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.foundation.layout.size
+import androidx.tv.material3.Icon
 
 /**
  * TV admin user create (userId == null) / edit form over the shared
@@ -232,6 +237,12 @@ fun TvAdminUserEditScreen(
                     enabled = !state.isSaving && !state.isLoading && (!isEdit || editLoaded),
                     modifier = Modifier.widthIn(min = 240.dp),
                 ) {
+                    Icon(
+                        imageVector = if (isEdit) Icons.Default.Save else Icons.Default.PersonAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = when {
                             state.isSaving -> "Saving…"

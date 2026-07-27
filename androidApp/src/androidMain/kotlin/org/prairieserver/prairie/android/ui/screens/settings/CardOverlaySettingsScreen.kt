@@ -73,6 +73,7 @@ import org.prairieserver.prairie.overlays.OverlayRegistry
 import org.prairieserver.prairie.overlays.OverlaySchema
 import org.prairieserver.prairie.overlays.PresetId
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.filled.RestartAlt
 
 /**
  * Phone Card Overlays settings. Android port of Apple's
@@ -704,6 +705,13 @@ private fun ResetFooter(
             onClick = { scope.launch { store.resetToDefaults() } },
             enabled = hasUserOverride,
         ) {
+            Icon(
+                imageVector = Icons.Default.RestartAlt,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.error,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "Reset to Defaults",
                 style = MaterialTheme.typography.titleSmall,
