@@ -16,6 +16,8 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.NotificationsRepository
 import org.prairieserver.prairie.repository.ProfileRepository
+import org.prairieserver.prairie.update.AppUpdateChecker
+import org.prairieserver.prairie.update.AppUpdateStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,6 +90,10 @@ data class SettingsUiState(
     val notifyWatchlist: Boolean = true,
     val notifyContinueWatching: Boolean = true,
     val notifyNextUp: Boolean = true,
+
+    // App version / update status (GitHub Releases for this client family).
+    val appVersionName: String = "",
+    val appUpdateStatus: AppUpdateStatus = AppUpdateStatus.Checking,
 )
 
 class SettingsViewModel(
@@ -97,9 +103,13 @@ class SettingsViewModel(
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
     private val overlayPrefsStore: OverlayPrefsStore,
     private val notificationsRepository: NotificationsRepository,
+    private val appUpdateChecker: AppUpdateChecker,
+    private val appVersionName: String,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(SettingsUiState())
+    private val _uiState = MutableStateFlow(
+        SettingsUiState(appVersionName = appVersionName),
+    )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
@@ -107,6 +117,20 @@ class SettingsViewModel(
         observePlayerSettings()
         observePlaybackBehaviorSettings()
         observeNotifications()
+        checkForAppUpdate()
+    }
+
+    private fun checkForAppUpdate() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    appVersionName = appVersionName,
+                    appUpdateStatus = AppUpdateStatus.Checking,
+                )
+            }
+            val status = appUpdateChecker.check(appVersionName)
+            _uiState.update { it.copy(appUpdateStatus = status) }
+        }
     }
 
     private fun loadUserInfo() {
