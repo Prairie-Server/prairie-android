@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import org.siloserver.silo.model.watchtogether.MemberRole
 import org.siloserver.silo.model.watchtogether.RoomSelectionMode
 import org.siloserver.silo.model.watchtogether.Suggestion
+import org.siloserver.silo.watchtogether.isVoteRoom
+import org.siloserver.silo.watchtogether.roomVoteWinner
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -64,7 +67,7 @@ fun WatchTogetherLobbyScreen(
     val context = LocalContext.current
 
     // Auto-navigate into the synced player when the room starts playing.
-    LaunchedEffect(room?.phase, room?.selectedContentId) {
+    LaunchedEffect(room?.phase, room?.selectedContentId, room?.memberCount, room?.selfRole) {
         val snapshot = room ?: return@LaunchedEffect
         lobbyPlayerDestinationOrNull(snapshot)?.let { onNavigateToPlayer(it) }
     }
@@ -131,12 +134,27 @@ fun WatchTogetherLobbyScreen(
                 }
 
                 HorizontalDivider()
+                val isVoteRoom = room.isVoteRoom()
+                val winner = roomVoteWinner(suggestions)
+                if (isVoteRoom && canManage) {
+                    Button(
+                        onClick = { winner?.let { viewModel.promote(it.id) } },
+                        enabled = winner != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            winner?.let { "Start winner: ${it.title}" }
+                                ?: "Start winner — no votes yet",
+                        )
+                    }
+                }
                 Text("Suggestions", style = MaterialTheme.typography.titleSmall)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(suggestions, key = { it.id }) { s ->
                         SuggestionRow(
                             suggestion = s,
                             canManage = canManage,
+                            isWinning = isVoteRoom && winner?.id == s.id,
                             onVote = { if (s.votedByMe) viewModel.unvote(s.id) else viewModel.vote(s.id) },
                             onPromote = { viewModel.promote(s.id) },
                             onRemove = { viewModel.removeSuggestion(s.id) },
@@ -158,6 +176,7 @@ private fun selectionModeLabel(mode: RoomSelectionMode): String = when (mode) {
 private fun SuggestionRow(
     suggestion: Suggestion,
     canManage: Boolean,
+    isWinning: Boolean,
     onVote: () -> Unit,
     onPromote: () -> Unit,
     onRemove: () -> Unit,
@@ -166,6 +185,9 @@ private fun SuggestionRow(
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(suggestion.title, style = MaterialTheme.typography.bodyLarge)
+                if (isWinning) {
+                    Text("WINNING", style = MaterialTheme.typography.labelSmall)
+                }
                 if (suggestion.subtitle.isNotBlank()) {
                     Text(suggestion.subtitle, style = MaterialTheme.typography.bodySmall)
                 }

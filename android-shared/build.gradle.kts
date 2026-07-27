@@ -111,6 +111,7 @@ kotlin {
             // SQLite implementation, neither of which the default unit-test
             // stubs provide. androidx-test-core supplies ApplicationProvider.
             implementation(libs.androidx.test.core)
+            implementation(libs.androidx.room.testing)
             implementation(libs.robolectric)
             implementation(libs.media3.test.utils)
             implementation(libs.media3.test.utils.robolectric)
@@ -121,6 +122,7 @@ kotlin {
             implementation(libs.ktor.client.mock)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.json)
+            implementation(libs.okhttp.mockwebserver)
         }
     }
 }
@@ -128,6 +130,7 @@ kotlin {
 android {
     namespace = "org.siloserver.silo.common"
     compileSdk = 36
+    sourceSets.getByName("debug").assets.srcDir("$projectDir/schemas")
     defaultConfig {
         minSdk = 24
         // Gate for preferring FFmpeg audio decoders over platform decoders.
@@ -150,6 +153,7 @@ android {
     }
     testOptions {
         unitTests {
+            isIncludeAndroidResources = true
             // Default to safe no-op stubs for android.* classes (e.g. android.util.Log.w)
             // so tests can exercise code paths that touch them without requiring Robolectric.
             isReturnDefaultValues = true

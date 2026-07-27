@@ -158,6 +158,9 @@ data class PlaybackSourceDescriptorV3(
      * reports the window produced so far, not the runtime.
      */
     @SerialName("duration_seconds") val durationSeconds: Double? = null,
+    @SerialName("color_range") val colorRange: String? = null,
+    @SerialName("letterbox_top_fraction") val letterboxTopFraction: Double = 0.0,
+    @SerialName("letterbox_bottom_fraction") val letterboxBottomFraction: Double = 0.0,
 )
 
 @Serializable

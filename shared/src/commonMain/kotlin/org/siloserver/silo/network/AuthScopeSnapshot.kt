@@ -20,6 +20,11 @@ import io.ktor.util.AttributeKey
  * refresh tokens are read live from the captured credential slot at send time
  * because they rotate on refresh; freezing their values would break the second
  * op in a drain after the first triggers a token rotation.
+ *
+ * [identityGeneration] changes before every server, account, profile, or
+ * temporary-scope mutation. It distinguishes a later login that happens to
+ * reuse the same server/profile identifiers from the credential identity that
+ * was active when this snapshot was captured.
  */
 data class AuthScopeSnapshot(
     val serverId: String,
@@ -27,7 +32,30 @@ data class AuthScopeSnapshot(
     val serverUrl: String,
     val profileToken: String?,
     val credentialGenerationId: String? = null,
-)
+    val identityGeneration: Long = 0L,
+    /**
+     * Bumped every time this server's PERSISTENT credentials are written or
+     * cleared — i.e. by sign-in and sign-out, but deliberately NOT by a
+     * remote-playback overlay beginning or ending.
+     *
+     * Persistent scopes are keyed by serverId alone, so without this a snapshot
+     * captured before a sign-out would still read — and overwrite — whatever the
+     * next login stored for that same server. [identityGeneration] cannot serve:
+     * it moves for overlays too, and an overlay must leave a pinned persistent
+     * scope working.
+     *
+     * `0L` means "not stamped from a live snapshot"; hand-built scopes keep the
+     * pre-existing behaviour rather than failing closed on a value they never
+     * recorded.
+     */
+    val credentialEpoch: Long = 0L,
+) {
+    override fun toString(): String =
+        "AuthScopeSnapshot(" +
+            "serverId=<redacted>, profileId=<redacted>, serverUrl=<redacted>, " +
+            "profileToken=<redacted>, credentialGenerationId=<redacted>, " +
+            "identityGeneration=<redacted>, credentialEpoch=<redacted>)"
+}
 
 /** Attribute carrying the [AuthScopeSnapshot] that [SiloAuthPlugin] honors. */
 val AuthScopeAttributeKey: AttributeKey<AuthScopeSnapshot> = AttributeKey("SiloAuthScope")
@@ -41,9 +69,22 @@ val AuthScopeAttributeKey: AttributeKey<AuthScopeSnapshot> = AttributeKey("SiloA
  */
 val SkipSiloAuthAttributeKey: AttributeKey<Boolean> = AttributeKey("SiloSkipAuth")
 
+/**
+ * Marks a same-origin request as unsafe to send without a Silo bearer.
+ *
+ * This is intentionally opt-in: public endpoints and [skipSiloAuth] requests
+ * retain their existing behavior.
+ */
+internal val RequireSiloAuthAttributeKey: AttributeKey<Boolean> = AttributeKey("SiloRequireAuth")
+
 /** Pin this request to [snapshot]'s scope; [SiloAuthPlugin] uses it verbatim. */
 fun HttpRequestBuilder.authScope(snapshot: AuthScopeSnapshot) {
     attributes.put(AuthScopeAttributeKey, snapshot)
+}
+
+/** Abort before the engine if the request's exact auth scope has no access token. */
+internal fun HttpRequestBuilder.requireSiloAuth() {
+    attributes.put(RequireSiloAuthAttributeKey, true)
 }
 
 /** Opt this request out of Silo auth/profile headers and auth-refresh handling. */

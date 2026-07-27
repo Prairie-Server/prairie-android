@@ -10,6 +10,7 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import okhttp3.internal.http2.ErrorCode
 import okhttp3.internal.http2.StreamResetException
 
@@ -242,5 +243,23 @@ class MediaLoadRetryPolicyTest {
     @Test
     fun `retry window eventually expires`() {
         assertEquals(C.TIME_UNSET, siloMediaLoadRetryDelayMs(responseCode = 503, errorCount = 20))
+    }
+
+    @Test
+    fun `time spent inside failed attempts counts against the window`() {
+        // The count-derived estimate only sums the delays BETWEEN attempts, so
+        // on the second error it believes ~1s has passed. A 30s-socket-timeout
+        // server burns far more than that per attempt, and the window silently
+        // stretched to minutes of spinner before an error surfaced.
+        assertEquals(
+            C.TIME_UNSET,
+            siloMediaLoadRetryDelayMs(
+                responseCode = 503,
+                errorCount = 2,
+                observedElapsedMs = MEDIA_LOAD_RETRY_WINDOW_MS,
+            ),
+        )
+        // Unmeasured callers keep the previous derived behaviour.
+        assertTrue(siloMediaLoadRetryDelayMs(responseCode = 503, errorCount = 2) > 0L)
     }
 }

@@ -5,6 +5,7 @@ import org.siloserver.silo.model.watchtogether.RoomPhase
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
 import org.siloserver.silo.model.watchtogether.RoomSelectionMode
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
+import org.siloserver.silo.model.watchtogether.MemberRole
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import org.junit.runner.RunWith
@@ -49,5 +50,16 @@ class WatchTogetherEntryDestinationTest {
     fun selection_set_but_no_fileId_still_routes_to_player() {
         val dest = watchTogetherDestination(snapshot(selectedContentId = "c2", selectedFileId = null))
         assertEquals(Route.Player(contentId = "c2", fileId = null, roomId = "room-1").route, dest)
+    }
+
+    @Test
+    fun host_alone_with_selection_stays_in_lobby_to_share_invite() {
+        val dest = watchTogetherDestination(
+            snapshot(selectedContentId = "c1").copy(
+                selfRole = MemberRole.Host,
+                memberCount = 1,
+            ),
+        )
+        assertEquals(Route.WatchTogetherLobby(roomId = "room-1").route, dest)
     }
 }

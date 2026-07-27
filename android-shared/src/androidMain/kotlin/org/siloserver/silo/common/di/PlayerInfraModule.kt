@@ -4,6 +4,7 @@ import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.pip.SiloPictureInPictureCoordinator
 import org.siloserver.silo.common.player.ActivePlayerHolder
 import org.siloserver.silo.common.player.AudiobookSettingsStore
+import org.siloserver.silo.common.player.FinalPlaybackPositionWriter
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.diagnostics.DiagnosticsPlaybackSessionTracker
 import org.siloserver.silo.common.player.SleepTimerController
@@ -45,6 +46,24 @@ val playerInfraModule = module {
     single { ActivePlayerHolder() }
 
     single { SiloPictureInPictureCoordinator() }
+
+    single {
+        val userItemState = get<org.siloserver.silo.repository.port.UserItemStatePort>()
+        val syncScheduler = get<org.siloserver.silo.common.data.sync.OutboxSyncScheduler>()
+        FinalPlaybackPositionWriter(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            scopeProvider = { get<TokenManager>().snapshotCurrentScope() },
+        ) { snapshot ->
+            val written = userItemState.recordPosition(
+                snapshot.scope,
+                snapshot.contentId,
+                snapshot.fileId,
+                snapshot.positionSeconds,
+                snapshot.durationSeconds,
+            )
+            if (written) syncScheduler.requestSync()
+        }
+    }
 
     // Long-lived application-scope flusher: debounced server writes survive
     // ViewModel teardown. Uses Dispatchers.IO since flushOne does network work.

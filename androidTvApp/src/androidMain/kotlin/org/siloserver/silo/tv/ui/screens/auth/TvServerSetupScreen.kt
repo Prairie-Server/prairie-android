@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -167,6 +168,36 @@ fun TvServerSetupScreen(
             }
             null -> Unit
         }
+    }
+
+    state.pendingCleartextUrl?.let { origin ->
+        AlertDialog(
+            onDismissRequest = viewModel::cancelCleartextConnection,
+            title = { Text("Use unencrypted HTTP?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(origin, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "This connection is not encrypted. Anyone on the network may see or change " +
+                            "traffic, including your sign-in. Continue only on a network you trust.",
+                    )
+                }
+            },
+            confirmButton = {
+                AuroraPrimaryButton(
+                    label = "Use HTTP",
+                    onClick = viewModel::confirmCleartextConnection,
+                    modifier = Modifier.width(180.dp),
+                    enabled = !state.isLoading,
+                )
+            },
+            dismissButton = {
+                AuroraGhostButton(
+                    label = "Cancel",
+                    onClick = viewModel::cancelCleartextConnection,
+                )
+            },
+        )
     }
 
     Box(

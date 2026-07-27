@@ -29,12 +29,15 @@ import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStarter
 import org.siloserver.silo.common.network.AndroidDeviceMetadataProvider
+import org.siloserver.silo.common.network.CleartextConsentStore
+import org.siloserver.silo.common.network.DataStoreCleartextConsentStore
 import org.siloserver.silo.common.settings.AndroidServerSettingsCache
 import android.content.SharedPreferences
 import org.siloserver.silo.network.AndroidServerRegistry
 import org.siloserver.silo.network.EncryptedTokenManagerImpl
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.TokenManager
+import org.siloserver.silo.network.CleartextOriginConsent
 import org.siloserver.silo.network.createSecureSharedPrefs
 import org.siloserver.silo.android.push.AndroidPushRegistrar
 import org.siloserver.silo.android.push.AndroidPushTokenProvider
@@ -100,6 +103,8 @@ import org.koin.dsl.module
  * the viewModel DSL for proper lifecycle integration.
  */
 val androidModule = module {
+    single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
+    single<CleartextOriginConsent> { get<CleartextConsentStore>() }
     // Single encrypted prefs handle shared between the server registry and the
     // token manager — opening it twice means two MasterKey lookups + decryption
     // passes on cold start.
@@ -308,7 +313,7 @@ val androidModule = module {
     }
 
     // ViewModels
-    factory {
+    viewModel {
         PlayerViewModel(
             videoPlaybackCoordinator = get(),
             catalogRepository = get(),
@@ -326,7 +331,7 @@ val androidModule = module {
             sleepTimer = get(),
             subtitlesRepository = get(),
             userItemStatePort = get(),
-            outboxSyncScheduler = get(),
+            finalPlaybackPositionWriter = get(),
             sectionRepository = get(),
             castPlaybackPreparer = get(),
         )
@@ -402,7 +407,7 @@ val androidModule = module {
     viewModel { AdminScansViewModel(get(), get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { org.siloserver.silo.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
-    viewModel { ServerSetupViewModel(get()) }
+    viewModel { ServerSetupViewModel(get(), get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }
     viewModel { SignupViewModel(get()) }
@@ -463,10 +468,12 @@ val androidModule = module {
         )
     }
     viewModel { org.siloserver.silo.android.ui.screens.watchtogether.WatchTogetherEntryViewModel(get()) }
+    viewModel { org.siloserver.silo.android.ui.screens.watchtogether.SuggestToRoomViewModel(get()) }
     viewModel { params ->
         org.siloserver.silo.android.ui.screens.watchtogether.WatchTogetherLobbyViewModel(
             roomId = params.get(),
             repository = get(),
+            roomSession = get(),
         )
     }
 }

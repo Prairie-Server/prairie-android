@@ -1,5 +1,6 @@
 package org.siloserver.silo.tv.ui.screens.detail
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -34,6 +35,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -96,8 +98,10 @@ import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.ebook.MediaRelatedItem
+import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.siloserver.silo.model.section.SectionItem
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
+import org.siloserver.silo.model.watchtogether.RoomSelectionMode
 import org.siloserver.silo.tv.ui.components.TvDialogOption
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvHeroActionPill
@@ -110,6 +114,10 @@ import org.siloserver.silo.tv.ui.components.TvSquareToggleButton
 import org.siloserver.silo.tv.ui.components.TvPillVariant
 import org.siloserver.silo.tv.ui.components.TvRowStyle
 import org.siloserver.silo.tv.ui.screens.audiobook.formatAudiobookTime
+import org.siloserver.silo.tv.ui.screens.watchtogether.TvJoinCodeDialog
+import org.siloserver.silo.tv.ui.screens.watchtogether.TvSuggestToRoomViewModel
+import org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherEntryDialog
+import org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
 import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.theme.TvControlCorner
 import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
@@ -118,7 +126,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.compose.koinInject
-import androidx.compose.runtime.LaunchedEffect
 import org.siloserver.silo.metadata.DescriptionTranslationPhase
 import org.siloserver.silo.model.feature.MetadataAiFeatureStore
 import org.siloserver.silo.model.metadata.MetadataAiOnView
@@ -190,6 +197,7 @@ fun TvItemDetailScreen(
             onItemDetailReplace = onItemDetailReplace,
             onSeriesClick = onSeriesClick,
             onSeasonClick = onSeasonClick,
+            onWatchTogether = onWatchTogether,
             onOpenPerson = onOpenPerson,
         )
     }
@@ -206,6 +214,7 @@ private fun TvDetailContent(
     onItemDetailReplace: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
+    onWatchTogether: (RoomSnapshot) -> Unit,
     onOpenPerson: (personId: Long) -> Unit,
 ) {
     val playFocus = remember { FocusRequester() }
@@ -448,6 +457,7 @@ private fun TvDetailContent(
                                     onPlay = onPlay,
                                     onSeriesClick = onSeriesClick,
                                     onSeasonClick = onSeasonClick,
+                                    onWatchTogether = onWatchTogether,
                                 )
                             },
                         )
@@ -728,8 +738,23 @@ private fun HeroActionRow(
     onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
+    onWatchTogether: (RoomSnapshot) -> Unit,
 ) {
+    val suggestViewModel: TvSuggestToRoomViewModel = koinViewModel()
+    val activeRoom by suggestViewModel.room.collectAsState()
+    val suggestState by suggestViewModel.uiState.collectAsState()
+    val suggestContext = LocalContext.current
+    LaunchedEffect(suggestState.notice, suggestState.error) {
+        val message = suggestState.notice ?: suggestState.error
+        if (message != null) {
+            Toast.makeText(suggestContext, message, Toast.LENGTH_SHORT).show()
+            suggestViewModel.consumeNotice()
+            suggestViewModel.clearError()
+        }
+    }
     var moreOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var watchTogetherOpen by remember(detail.contentId) { mutableStateOf(false) }
+    var joinCodeOpen by remember(detail.contentId) { mutableStateOf(false) }
     var playLaunchPending by remember(detail.contentId) { mutableStateOf(false) }
     LaunchedEffect(playLaunchPending) {
         if (playLaunchPending) {
@@ -766,7 +791,11 @@ private fun HeroActionRow(
     // `TVSeasonDetailView.moreMenu`). Movies do not show an overflow button.
     val hasSeriesNavigation = detail.type in setOf("episode", "season") && detail.seriesId != null
     val hasOverflowNavigation = hasSeriesNavigation
-    val hasOverflowMenu = hasOverflowNavigation
+    val hasWatchTogether =
+        CLIENT_WATCH_TOGETHER_SURFACE_ENABLED && !isAudiobookItemType(detail.type)
+    val hasSuggestionTarget = detail.type in setOf("movie", "episode") || nextUp != null
+    val canSuggestToRoom = activeRoom != null && hasSuggestionTarget
+    val hasOverflowMenu = hasOverflowNavigation || hasWatchTogether || canSuggestToRoom
 
     // Version set + selection state driving the selector row / Play file id.
     // Series/season use the next-up episode's versions + the next-up selection;
@@ -958,6 +987,38 @@ private fun HeroActionRow(
 
     if (moreOpen && hasOverflowMenu) {
         val options = buildList {
+            if (canSuggestToRoom) {
+                add(
+                    TvDialogOption(
+                        key = "suggest-to-room",
+                        title = "Suggest to Watch Together",
+                        subtitle = "Add to the room you are in",
+                        onClick = {
+                            moreOpen = false
+                            suggestViewModel.suggest(
+                                contentId = playContentId,
+                                contentType = playType,
+                                title = nextUp?.title ?: detail.title,
+                                subtitle = if (nextUp != null) detail.title else detail.seriesTitle,
+                                posterUrl = nextUp?.stillUrl ?: detail.posterUrl,
+                            )
+                        },
+                    ),
+                )
+            }
+            if (hasWatchTogether) {
+                add(
+                    TvDialogOption(
+                        key = "watch-together",
+                        title = "Watch Together",
+                        subtitle = "Host a room or join by code",
+                        onClick = {
+                            moreOpen = false
+                            watchTogetherOpen = true
+                        },
+                    ),
+                )
+            }
             if (hasOverflowNavigation) {
                 detail.seriesId?.let { seriesId ->
                     // "Go to Season" is episode-only — a season page is already at
@@ -996,6 +1057,52 @@ private fun HeroActionRow(
             options = options,
             onDismiss = { moreOpen = false },
         )
+    }
+
+    if (watchTogetherOpen && hasWatchTogether) {
+        val watchTogetherViewModel: TvWatchTogetherViewModel = koinViewModel()
+        val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
+
+        LaunchedEffect(watchTogetherState.result) {
+            val room = watchTogetherState.result ?: return@LaunchedEffect
+            watchTogetherViewModel.consumeResult()
+            watchTogetherOpen = false
+            joinCodeOpen = false
+            onWatchTogether(room)
+        }
+
+        if (joinCodeOpen) {
+            TvJoinCodeDialog(
+                isBusy = watchTogetherState.isBusy,
+                error = watchTogetherState.error,
+                onJoin = watchTogetherViewModel::joinRoom,
+                onDismiss = {
+                    watchTogetherViewModel.clearError()
+                    joinCodeOpen = false
+                },
+            )
+        } else {
+            TvWatchTogetherEntryDialog(
+                isBusy = watchTogetherState.isBusy,
+                error = watchTogetherState.error,
+                onHost = { watchTogetherViewModel.createRoom(playContentId, playFileId) },
+                onHostVote = {
+                    watchTogetherViewModel.createRoom(
+                        playContentId,
+                        playFileId,
+                        RoomSelectionMode.Vote,
+                    )
+                },
+                onJoin = {
+                    watchTogetherViewModel.clearError()
+                    joinCodeOpen = true
+                },
+                onDismiss = {
+                    watchTogetherViewModel.clearError()
+                    watchTogetherOpen = false
+                },
+            )
+        }
     }
 }
 

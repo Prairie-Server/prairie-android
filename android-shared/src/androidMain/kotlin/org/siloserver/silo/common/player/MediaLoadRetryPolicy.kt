@@ -34,8 +34,21 @@ import okhttp3.internal.http2.StreamResetException
 @UnstableApi
 internal class SiloMediaLoadErrorHandlingPolicy(
     private val isResumableProgressiveDirectPlay: (Uri) -> Boolean = { false },
+    private val nowMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
 ) : DefaultLoadErrorHandlingPolicy() {
     private val attemptBytesTracker = MediaLoadAttemptBytesTracker()
+
+    /**
+     * When this load task first failed, so the retry window can be measured
+     * rather than inferred.
+     *
+     * `mediaLoadElapsedBeforeRetryMs` reconstructs elapsed time from the retry
+     * count alone — it counts the delays *between* attempts and nothing spent
+     * inside them. With a 30s socket timeout per attempt the real elapsed time
+     * runs several times the 90s window, so a dead server kept a spinner up far
+     * longer than intended before surfacing an error.
+     */
+    private val firstErrorAtByLoadTask = ConcurrentHashMap<Long, Long>()
 
     override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
         val invalidResponse = loadErrorInfo.exception as? HttpDataSource.InvalidResponseCodeException
@@ -47,6 +60,9 @@ internal class SiloMediaLoadErrorHandlingPolicy(
         val resumableDirectPlay = isResumableProgressiveDirectPlay(
             loadErrorInfo.loadEventInfo.dataSpec.uri,
         )
+        val firstErrorAt = firstErrorAtByLoadTask.computeIfAbsent(
+            loadErrorInfo.loadEventInfo.loadTaskId,
+        ) { nowMs() }
         val delayMs = siloMediaLoadRetryDelayMs(
             responseCode = invalidResponse?.responseCode,
             retryAfterHeaders = invalidResponse?.retryAfterHeaders().orEmpty(),
@@ -54,6 +70,7 @@ internal class SiloMediaLoadErrorHandlingPolicy(
             errorCount = loadErrorInfo.errorCount,
             isResumableProgressiveDirectPlay = resumableDirectPlay,
             bytesLoaded = bytesLoaded,
+            observedElapsedMs = (nowMs() - firstErrorAt).coerceAtLeast(0L),
         )
         logProgressiveResumeDecision(
             loadErrorInfo = loadErrorInfo,
@@ -66,6 +83,7 @@ internal class SiloMediaLoadErrorHandlingPolicy(
 
     override fun onLoadTaskConcluded(loadTaskId: Long) {
         attemptBytesTracker.onLoadTaskConcluded(loadTaskId)
+        firstErrorAtByLoadTask.remove(loadTaskId)
         super.onLoadTaskConcluded(loadTaskId)
     }
 
@@ -141,6 +159,7 @@ internal fun siloMediaLoadRetryDelayMs(
     isResumableProgressiveDirectPlay: Boolean = false,
     bytesLoaded: Long = 0L,
     retryWindowMs: Long = MEDIA_LOAD_RETRY_WINDOW_MS,
+    observedElapsedMs: Long = 0L,
 ): Long {
     if (
         !isRetryableMediaLoadFailure(
@@ -155,7 +174,11 @@ internal fun siloMediaLoadRetryDelayMs(
 
     val delayMs = retryAfterHeaders.firstNotNullOfOrNull(::parseRetryAfterDelayMs)
         ?: mediaLoadBackoffDelayMs(errorCount)
-    val elapsedBeforeRetry = mediaLoadElapsedBeforeRetryMs(errorCount)
+    // Whichever is larger: the time we can prove has passed, or the sum of the
+    // delays we intended between attempts. The measured value includes time
+    // spent inside failed attempts (socket timeouts dominate here); the derived
+    // one keeps the bound meaningful for callers that cannot measure.
+    val elapsedBeforeRetry = maxOf(observedElapsedMs, mediaLoadElapsedBeforeRetryMs(errorCount))
     return if (elapsedBeforeRetry + delayMs <= retryWindowMs) delayMs else C.TIME_UNSET
 }
 

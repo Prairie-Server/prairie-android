@@ -44,6 +44,22 @@ interface TokenManager {
     suspend fun invalidateSession()
 
     /**
+     * Invalidates [scope] without ever clearing a different active identity.
+     *
+     * Single-scope implementations may use this default. Implementations that
+     * support server switching must override it with an atomic scope check and
+     * mutation.
+     *
+     * @return true only when the captured scope was invalidated.
+     */
+    suspend fun invalidateSessionForScope(scope: AuthScopeSnapshot): Boolean {
+        val current = snapshotCurrentScope()
+        if (current != null && current != scope) return false
+        invalidateSession()
+        return true
+    }
+
+    /**
      * Emits [Unit] each time [invalidateSession] runs. Does NOT fire for
      * plain [clearTokens] calls — manual signout flows own their own nav.
      *

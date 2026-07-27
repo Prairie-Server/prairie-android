@@ -6,9 +6,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.siloserver.silo.common.io.checkedLimitedByteCount
+import org.siloserver.silo.common.io.copyToLimited
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.net.URI
 import java.security.MessageDigest
@@ -17,6 +20,7 @@ import java.security.MessageDigest
  *  fallback body, so the reader must not cache it as the converted format. */
 private const val EBOOK_CONVERSION_HEADER = "X-Silo-Ebook-Conversion"
 private const val EBOOK_CONVERSION_FAILED = "failed"
+internal const val MAX_READER_INPUT_BYTES = 2L * 1024 * 1024 * 1024
 
 /** SHA-1 cache key for a reader URL — the one shared copy of the helper
  *  the readers previously duplicated five times. */
@@ -65,9 +69,15 @@ internal fun cacheReaderFile(
             tmp.delete()
         }
     }
-    if (validate != null && !validate(target)) {
-        target.delete()
-        throw IOException("Cached reader file failed validation")
+    if (validate != null) {
+        try {
+            if (!validate(target)) {
+                throw IOException("Cached reader file failed validation")
+            }
+        } catch (throwable: Throwable) {
+            target.delete()
+            throw throwable
+        }
     }
     return target
 }
@@ -91,17 +101,31 @@ internal suspend fun resolveReaderFile(
 ): File = withContext(Dispatchers.IO) {
     val requestUrl = resolveReaderRequestUrl(url, serverUrl)
     when (readerRequestKind(url, serverUrl)) {
-        ReaderRequestKind.File -> return@withContext readerFileFromFileUrl(requestUrl)
+        ReaderRequestKind.File -> {
+            val file = readerFileFromFileUrl(requestUrl)
+            validateReaderDeclaredLength(file.length())
+            return@withContext file
+        }
         ReaderRequestKind.Content,
         ReaderRequestKind.Remote -> Unit
     }
     val cacheDir = File(context.cacheDir, "readers")
     val fileName = readerCacheFileName(url, serverUrl, extension)
-    val validate = readerCacheValidatorFor(extension)
+    val formatValidator = readerCacheValidatorFor(extension)
+    val validate: (File) -> Boolean = { file ->
+        file.length() <= MAX_READER_INPUT_BYTES &&
+            (formatValidator == null || formatValidator(file))
+    }
     if (requestUrl.startsWith("content://")) {
+        val declaredLength = runCatching {
+            context.contentResolver.openAssetFileDescriptor(Uri.parse(requestUrl), "r")?.use { descriptor ->
+                descriptor.length
+            }
+        }.getOrNull()
+        if (declaredLength != null) validateReaderDeclaredLength(declaredLength)
         return@withContext cacheReaderFile(cacheDir, fileName, validate) { out ->
             context.contentResolver.openInputStream(Uri.parse(requestUrl))?.use { input ->
-                input.copyTo(out)
+                input.copyReaderInputTo(out)
             } ?: error("Could not open content reader file")
         }
     }
@@ -115,8 +139,28 @@ internal suspend fun resolveReaderFile(
                 error("Server could not convert this book for in-app reading")
             }
             val body = resp.body ?: error("Empty body fetching reader file")
-            body.byteStream().copyTo(out)
+            validateReaderDeclaredLength(body.contentLength())
+            body.byteStream().use { input -> input.copyReaderInputTo(out) }
         }
+    }
+}
+
+internal fun InputStream.copyReaderInputTo(
+    output: OutputStream,
+    maxBytes: Long = MAX_READER_INPUT_BYTES,
+): Long = copyToLimited(output, maxBytes)
+
+internal fun validateReaderDeclaredLength(
+    length: Long,
+    maxBytes: Long = MAX_READER_INPUT_BYTES,
+) {
+    if (length >= 0) {
+        checkedLimitedByteCount(
+            currentBytes = 0,
+            additionalBytes = length,
+            maxBytes = maxBytes,
+            limitName = "reader input",
+        )
     }
 }
 

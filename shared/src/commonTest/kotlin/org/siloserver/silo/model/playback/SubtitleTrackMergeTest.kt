@@ -64,13 +64,76 @@ class SubtitleTrackMergeTest {
         assertEquals("srt", first.codec)
         assertEquals("Dune.Part.Three.WEB-DL (opensubtitles)", first.label)  // `${release_name} (${provider})`
         assertEquals("downloaded", first.source)
+        assertEquals(312, first.downloadId)
         assertNull(first.forced)
         assertEquals("/stream/sess-1/subtitles/2.vtt", first.url)
 
         val second = merged[3]
         assertEquals(3, second.index)
+        assertEquals(313, second.downloadId)
         assertEquals("Dune Part Three (subdl)", second.label)
         assertEquals("/stream/sess-1/subtitles/3.ass", second.url)
+    }
+
+    @Test
+    fun `download identity survives provider result reordering`() {
+        val first = mergeDownloadedSubtitles(
+            existing = listOf(track(0, source = "embedded")),
+            downloaded = listOf(downloaded(id = 312), downloaded(id = 313)),
+            sessionId = "sess-1",
+            serverUrl = "https://silo.example",
+        )
+        val reordered = mergeDownloadedSubtitles(
+            existing = listOf(track(0, source = "embedded")),
+            downloaded = listOf(downloaded(id = 313), downloaded(id = 312)),
+            sessionId = "sess-1",
+            serverUrl = "https://silo.example",
+        )
+
+        assertEquals(1, first.single { it.downloadId == 312 }.index)
+        assertEquals(2, reordered.single { it.downloadId == 312 }.index)
+        assertEquals(312, reordered.single { it.label == "Release.312 (opensubtitles)" }.downloadId)
+    }
+
+    @Test
+    fun `download identity survives deletion of an earlier provider result`() {
+        val beforeDeletion = mergeDownloadedSubtitles(
+            existing = listOf(track(0, source = "embedded")),
+            downloaded = listOf(downloaded(id = 312), downloaded(id = 313)),
+            sessionId = "sess-1",
+            serverUrl = "https://silo.example",
+        )
+        val afterDeletion = mergeDownloadedSubtitles(
+            existing = listOf(track(0, source = "embedded")),
+            downloaded = listOf(downloaded(id = 313)),
+            sessionId = "sess-1",
+            serverUrl = "https://silo.example",
+        )
+
+        assertEquals(2, beforeDeletion.single { it.downloadId == 313 }.index)
+        assertEquals(1, afterDeletion.single { it.source == "downloaded" }.index)
+        assertEquals(313, afterDeletion.single { it.source == "downloaded" }.downloadId)
+    }
+
+    @Test
+    fun `download identity survives catalog artifact count changes`() {
+        val shortCatalog = mergeDownloadedSubtitles(
+            existing = listOf(track(0, source = "embedded")),
+            downloaded = listOf(downloaded(id = 312)),
+            sessionId = "sess-1",
+            serverUrl = "https://silo.example",
+        )
+        val expandedCatalog = mergeDownloadedSubtitles(
+            existing = listOf(track(0, source = "embedded"), track(7, source = "external")),
+            downloaded = listOf(downloaded(id = 312)),
+            sessionId = "sess-1",
+            serverUrl = "https://silo.example",
+        )
+
+        assertEquals(1, shortCatalog.single { it.source == "downloaded" }.index)
+        assertEquals(8, expandedCatalog.single { it.source == "downloaded" }.index)
+        assertEquals(312, shortCatalog.single { it.source == "downloaded" }.downloadId)
+        assertEquals(312, expandedCatalog.single { it.source == "downloaded" }.downloadId)
     }
 
     @Test

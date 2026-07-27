@@ -17,6 +17,9 @@ import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.android.BuildConfig
 import org.siloserver.silo.model.catalog.WatchDetail
+import org.siloserver.silo.model.playback.ClientCodecCapabilities
+import org.siloserver.silo.model.playback.ClientPlaybackContext
+import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.model.playback.buildPlaybackSubtitleChoices
 import org.siloserver.silo.model.playback.applyResumeRewind
 import org.siloserver.silo.model.playback.resolvePlaybackStartRequestPosition
@@ -24,9 +27,31 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.ProfileRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
-class MobileVideoPlaybackStarter(
+internal data class MobileVideoSessionAllocation(
+    val fileId: Int,
+    val profileId: String,
+    val capabilities: ClientCodecCapabilities,
+    val clientPlaybackContext: ClientPlaybackContext,
+    val audioTrackIndex: Int?,
+    val subtitleTrackIndex: Int?,
+    val qualityPreference: String?,
+    val startPosition: Double?,
+)
+
+internal fun interface MobileVideoSessionAllocator {
+    suspend fun allocate(request: MobileVideoSessionAllocation): ApiResult<VideoSessionStartV3>
+}
+
+internal fun interface MobileVideoSessionAdopter {
+    suspend fun adopt(params: StartParams, session: PlaybackSessionResponse)
+}
+
+internal class MobileVideoPlaybackStarter(
     private val catalogRepository: CatalogRepository,
     private val playbackSessionManager: PlaybackSessionManager,
     private val profileRepository: ProfileRepository,
@@ -34,6 +59,8 @@ class MobileVideoPlaybackStarter(
     private val playerSettingsStore: PlayerSettingsStore,
     private val sessionLifecycle: PlaybackSessionLifecycle,
     private val reachabilityMonitor: ServerReachabilityMonitor,
+    private val sessionAllocator: MobileVideoSessionAllocator? = null,
+    private val sessionAdopter: MobileVideoSessionAdopter? = null,
 ) : VideoPlaybackStarter {
 
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult {
@@ -44,6 +71,8 @@ class MobileVideoPlaybackStarter(
         if (!shouldReachServerForPlayback(reachabilityMonitor, request.force)) {
             return VideoPlaybackStartResult.ServerUnreachable(request.contentId)
         }
+        val ownershipEpoch = sessionLifecycle.acquireOwnershipEpoch()
+        var allocatedButUnpublishedSessionId: String? = null
         return try {
             val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
                 is ApiResult.Success -> r.data
@@ -125,7 +154,18 @@ class MobileVideoPlaybackStarter(
             )
 
             val v3Start = when (
-                val r = playbackSessionManager.startVideoSessionV3(
+                val r = sessionAllocator?.allocate(
+                    MobileVideoSessionAllocation(
+                        fileId = version.fileId,
+                        profileId = profileId,
+                        capabilities = capabilities,
+                        clientPlaybackContext = playbackContext,
+                        audioTrackIndex = request.audioTrackIndex,
+                        subtitleTrackIndex = request.subtitleTrackIndex,
+                        qualityPreference = playbackQualityIntent,
+                        startPosition = startRequestPosition,
+                    ),
+                ) ?: playbackSessionManager.startVideoSessionV3(
                     fileId = version.fileId,
                     profileId = profileId,
                     capabilities = capabilities,
@@ -164,6 +204,7 @@ class MobileVideoPlaybackStarter(
             }
             val session = readyV3.session
             val resolved = session
+            allocatedButUnpublishedSessionId = resolved.sessionId
             val effectiveFileId = resolved.mediaFileId.takeIf { it > 0 }
                 ?: readyV3.plan.effectiveMediaFileId
                 ?: version.fileId
@@ -185,22 +226,44 @@ class MobileVideoPlaybackStarter(
                 ?: startRequestPosition
                 ?: playerStartPos
 
-            sessionLifecycle.adoptActiveSession(
-                params = StartParams(
-                    contentId = request.contentId,
-                    fileId = effectiveFileId,
-                    capabilities = capabilities,
-                    audioTrackIndex = request.audioTrackIndex ?: resolved.audioTrackIndex,
-                    subtitleTrackIndex = request.subtitleTrackIndex,
-                    qualityPreference = playbackQualityIntent,
-                    startPosition = sourceStartPos,
-                    clientPlaybackContext = playbackContext,
-                ),
-                session = resolved,
-                renewMissingSessionWithLegacyStart = false,
+            val startParams = StartParams(
+                contentId = request.contentId,
+                fileId = effectiveFileId,
+                capabilities = capabilities,
+                audioTrackIndex = request.audioTrackIndex ?: resolved.audioTrackIndex,
+                subtitleTrackIndex = request.subtitleTrackIndex,
+                qualityPreference = playbackQualityIntent,
+                startPosition = sourceStartPos,
+                clientPlaybackContext = playbackContext,
             )
+            val adopted = if (sessionAdopter != null) {
+                sessionAdopter.adopt(startParams, resolved)
+                true
+            } else {
+                try {
+                    sessionLifecycle.adoptActiveSessionIfCurrent(
+                        params = startParams,
+                        session = resolved,
+                        renewMissingSessionWithLegacyStart = false,
+                        expectedOwnershipEpoch = ownershipEpoch,
+                    )
+                } catch (cancellation: CancellationException) {
+                    // The lifecycle owns cancellation cleanup once adoption begins.
+                    allocatedButUnpublishedSessionId = null
+                    throw cancellation
+                }
+            }
+            if (!adopted) {
+                // Rejected lifecycle adoption closes the candidate itself.
+                allocatedButUnpublishedSessionId = null
+                return failure(
+                    request.contentId,
+                    "Playback start was superseded.",
+                    diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST,
+                )
+            }
 
-            VideoPlaybackStartResult.Ready(
+            val result = VideoPlaybackStartResult.Ready(
                 contentId = request.contentId,
                 fileId = effectiveFileId,
                 versions = watchDetail.versions,
@@ -238,9 +301,26 @@ class MobileVideoPlaybackStarter(
                 seasonNumber = watchDetail.seasonNumber,
                 episodeNumber = watchDetail.episodeNumber,
             )
+            allocatedButUnpublishedSessionId = null
+            result
+        } catch (e: CancellationException) {
+            stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId)
+            throw e
         } catch (e: Exception) {
+            stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId)
             Log.e(TAG, "Error loading content", e)
             failure(request.contentId, "Unexpected error: ${e.message}", e, PlaybackDiagnosticsCode.UNEXPECTED)
+        }
+    }
+
+    private suspend fun stopAllocatedButUnpublishedSession(sessionId: String?) {
+        val allocatedSessionId = sessionId?.takeIf { it.isNotBlank() } ?: return
+        withContext(NonCancellable) {
+            try {
+                playbackSessionManager.stopSession(allocatedSessionId)
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not stop unpublished playback session $allocatedSessionId", error)
+            }
         }
     }
 

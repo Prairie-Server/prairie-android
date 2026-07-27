@@ -24,7 +24,12 @@ import org.siloserver.silo.repository.RequestsRepository
 import org.siloserver.silo.repository.SectionRepository
 import org.siloserver.silo.repository.SettingsRepository
 import org.siloserver.silo.repository.WatchTogetherRepository
+import org.siloserver.silo.network.TokenManager
+import org.siloserver.silo.watchtogether.RoomSession
 import org.koin.dsl.module
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Koin module providing all repository and domain use case instances.
@@ -89,17 +94,31 @@ val repositoryModule = module {
     }
 
     // One room's snapshot/suggestions state + WS lifecycle. The realtime factory
-    // builds the per-room socket client from the shared HttpClient + TokenManager
-    // (query-param auth). Lazy so a socket is only minted when connect() runs.
+    // builds the per-room socket client from the shared HttpClient + TokenManager.
+    // Access auth is supplied by the same-origin Silo auth plugin; the room/profile
+    // query fields are a residual server contract. Lazy so a socket is only minted
+    // when connect() runs.
     single {
+        val tokenManager: TokenManager = get()
         WatchTogetherRepository(
             api = get(),
+            authScopeProvider = { tokenManager.snapshotCurrentScope() },
             realtimeFactory = {
                 org.siloserver.silo.network.DefaultWatchTogetherRealtimeClient(
                     client = get(),
-                    tokenManager = get(),
+                    tokenManager = tokenManager,
                 )
             },
+        )
+    }
+    // Eager so the identity-transition privacy gate is installed before any
+    // profile/server/token mutation can occur. This process-lifetime scope,
+    // rather than a screen scope, owns connection replacement and teardown.
+    single(createdAtStart = true) {
+        RoomSession(
+            repository = get<WatchTogetherRepository>(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            identityTransitions = get(),
         )
     }
 

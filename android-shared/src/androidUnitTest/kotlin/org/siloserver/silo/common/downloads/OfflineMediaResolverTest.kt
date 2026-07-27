@@ -46,7 +46,7 @@ class OfflineMediaResolverTest {
     @Test
     fun `findLocalMedia returns completed original-named download`() = runTest {
         val storage = newStorage()
-        storage.prepareWrite("srv1", "profA", 42, fileName = "Novel.epub").writeTargetBytes(ByteArray(10))
+        storage.writeCompleted("srv1", "profA", 42, "Novel.epub")
         metadata.writeSidecar("srv1", "profA", sidecar(42, contentId = "book-1", fileName = "Novel.epub"))
 
         val media = resolver(storage).findLocalMedia("srv1", "profA", "book-1", requestedFileId = 42)
@@ -74,7 +74,7 @@ class OfflineMediaResolverTest {
     @Test
     fun `findLocalMedia honors requested file id when fallback is disabled`() = runTest {
         val storage = newStorage()
-        storage.prepareWrite("srv1", "profA", 1, fileName = "A.epub").writeTargetBytes(ByteArray(10))
+        storage.writeCompleted("srv1", "profA", 1, "A.epub")
         metadata.writeSidecar("srv1", "profA", sidecar(1, contentId = "book-1", fileName = "A.epub"))
 
         assertNull(
@@ -91,9 +91,9 @@ class OfflineMediaResolverTest {
     @Test
     fun `findLocalMedia stays inside the requested server profile scope`() = runTest {
         val storage = newStorage()
-        storage.prepareWrite("srv1", "profA", 42, fileName = "Wrong.epub").writeTargetBytes(ByteArray(10))
+        storage.writeCompleted("srv1", "profA", 42, "Wrong.epub")
         metadata.writeSidecar("srv1", "profA", sidecar(42, contentId = "book-1", fileName = "Wrong.epub"))
-        storage.prepareWrite("srv1", "profB", 42, fileName = "Right.epub").writeTargetBytes(ByteArray(10))
+        storage.writeCompleted("srv1", "profB", 42, "Right.epub")
         metadata.writeSidecar("srv1", "profB", sidecar(42, contentId = "book-1", fileName = "Right.epub"))
 
         val media = resolver(storage).findLocalMedia(
@@ -110,11 +110,11 @@ class OfflineMediaResolverTest {
     @Test
     fun `listLocalMedia returns every completed local candidate for content`() = runTest {
         val storage = newStorage()
-        storage.prepareWrite("srv1", "profA", 7, fileName = "Book.mobi").writeTargetBytes(ByteArray(10))
+        storage.writeCompleted("srv1", "profA", 7, "Book.mobi")
         metadata.writeSidecar("srv1", "profA", sidecar(7, contentId = "book-1", fileName = "Book.mobi"))
-        storage.prepareWrite("srv1", "profA", 8, fileName = "Book.epub").writeTargetBytes(ByteArray(10))
+        storage.writeCompleted("srv1", "profA", 8, "Book.epub")
         metadata.writeSidecar("srv1", "profA", sidecar(8, contentId = "book-1", fileName = "Book.epub"))
-        storage.prepareWrite("srv1", "profA", 9, fileName = "Other.epub").writeTargetBytes(ByteArray(10))
+        storage.writeCompleted("srv1", "profA", 9, "Other.epub")
         metadata.writeSidecar("srv1", "profA", sidecar(9, contentId = "book-2", fileName = "Other.epub"))
 
         val media = resolver(storage).listLocalMedia("srv1", "profA", "book-1")
@@ -150,5 +150,16 @@ class OfflineMediaResolverTest {
 
     private fun DownloadTarget.writeTargetBytes(bytes: ByteArray) {
         openOutputStream().use { it.write(bytes) }
+    }
+
+    private fun DownloadStorage.writeCompleted(
+        serverId: String,
+        profileId: String,
+        fileId: Int,
+        fileName: String,
+    ) {
+        val target = prepareWrite(serverId, profileId, fileId, fileName = fileName)
+        target.writeTargetBytes(ByteArray(10))
+        completeWrite(target.uriString)
     }
 }

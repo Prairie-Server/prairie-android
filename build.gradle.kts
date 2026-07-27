@@ -13,3 +13,22 @@ plugins {
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.androidx.baselineprofile) apply false
 }
+
+allprojects {
+    dependencyLocking {
+        lockAllConfigurations()
+    }
+}
+
+tasks.register("resolveAndLockAll") {
+    description = "Resolves every resolvable configuration so dependency locks can be written."
+    group = "build setup"
+
+    doLast {
+        rootProject.allprojects.forEach { project ->
+            project.configurations
+                .filter { it.isCanBeResolved }
+                .forEach { it.incoming.resolutionResult.allComponents }
+        }
+    }
+}
