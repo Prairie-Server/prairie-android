@@ -28,3 +28,14 @@ fun canonicalSubtitleCodecFamily(codecOrMime: String?): String? {
         else -> normalized
     }
 }
+
+/**
+ * Whether [family] is a text subtitle family. Server-materialized text
+ * artifacts are served as WebVTT regardless of their catalog source format;
+ * bitmap families remain exact-match only.
+ */
+fun isTextSubtitleCodecFamily(family: String?): Boolean =
+    when (canonicalSubtitleCodecFamily(family)) {
+        "subrip", "webvtt", "ssa", "ttml", "tx3g" -> true
+        else -> false
+    }

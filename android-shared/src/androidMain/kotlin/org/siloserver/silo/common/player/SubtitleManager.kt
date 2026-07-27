@@ -24,6 +24,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import org.siloserver.silo.libass.LibassBridge
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import org.siloserver.silo.model.playback.SubtitleIdentity
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
@@ -71,10 +72,27 @@ class SubtitleManager(
                 return@mapNotNull null
             }
 
-            MediaItem.SubtitleConfiguration.Builder(Uri.parse(absoluteUrl))
+            val builder = MediaItem.SubtitleConfiguration.Builder(Uri.parse(absoluteUrl))
+            val stableTrackId = if (subtitle.isDownloadedSubtitleArtifact()) {
+                subtitle.downloadId?.let(::downloadedSubtitleArtifactTrackId)
+            } else {
+                subtitleArtifactTrackId(subtitle.index)
+            }
+            if (stableTrackId != null) {
+                builder.setId(stableTrackId)
+            }
+            builder
                 .setMimeType(mimeType)
                 .setLanguage(subtitle.language)
-                .setLabel(subtitle.label ?: subtitle.language ?: "Track ${subtitle.index}")
+                // Preserve the catalog label when a server-side artifact has a
+                // generic runtime label. The mounted label also carries SDH/CC
+                // semantics used by exact identity reconciliation.
+                .setLabel(
+                    subtitle.catalogLabel
+                        ?: subtitle.label
+                        ?: subtitle.language
+                        ?: "Track ${subtitle.index}",
+                )
                 .setSelectionFlags(
                     if (subtitle.forced == true) C.SELECTION_FLAG_FORCED else 0
                 )
@@ -135,11 +153,35 @@ class SubtitleManager(
         }
 
         val selection = resolveSubtitleSelection(player.currentTracks, subtitle)
-            ?: resolveSubtitleSelection(player.currentTracks, subtitleIndex)
         if (selection == null) {
             Log.w(
                 TAG,
                 "selectSubtitle failed: app index=$subtitleIndex metadata=${subtitle.label ?: subtitle.language} " +
+                    "tracks=${player.currentTracks.describeTextTracks()}",
+            )
+            return false
+        }
+
+        applySubtitleSelection(player, selection)
+        return true
+    }
+
+    /**
+     * Selects a track already present in the Media3 snapshot by its complete
+     * domain identity. This path never converts the identity back to an app
+     * list ordinal, so exact artifact and Format ids survive list reordering.
+     */
+    fun selectSubtitle(player: Player, identity: SubtitleIdentity): Boolean {
+        if (identity == SubtitleIdentity.Off || identity is SubtitleIdentity.ServerBurnIn) {
+            disableSubtitles(player)
+            return true
+        }
+
+        val selection = resolveSubtitleSelection(player.currentTracks, identity)
+        if (selection == null) {
+            Log.w(
+                TAG,
+                "selectSubtitle failed: identity=$identity " +
                     "tracks=${player.currentTracks.describeTextTracks()}",
             )
             return false
@@ -160,9 +202,7 @@ class SubtitleManager(
         subtitleIndex: Int,
     ): String? {
         val subtitle = subtitles.getOrNull(subtitleIndex) ?: return null
-        val selection = resolveSubtitleSelection(player.currentTracks, subtitle)
-            ?: resolveSubtitleSelection(player.currentTracks, subtitleIndex)
-            ?: return null
+        val selection = resolveSubtitleSelection(player.currentTracks, subtitle) ?: return null
         return selection.mediaTrackGroup.getFormat(selection.trackIndex).id
     }
 
@@ -658,66 +698,54 @@ internal fun resolveSubtitleSelection(
     tracks: Tracks,
     subtitle: PlayerSubtitleInfo,
 ): SubtitleSelection? {
-    val label = subtitle.label?.trim()?.takeIf { it.isNotBlank() }
-    val language = subtitle.language?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
-    val family = subtitleCodecFamily(subtitle.codec ?: subtitle.url)
-    if (label == null && language == null && family == null) return null
-
     val candidates = textTrackCandidates(tracks)
-    if (label != null) {
-        candidates.firstOrNull { it.label?.trim() == label }?.let { return it.selection }
-    }
-    if (label != null) {
-        val normalizedLabel = label.lowercase()
-        candidates.firstOrNull { candidate ->
-            candidate.label?.trim()?.lowercase() == normalizedLabel
-        }?.let { return it.selection }
-    }
-    if (language != null) {
-        val languageMatches = candidates.filter {
-            it.language?.trim()?.lowercase() == language
-        }
-        family?.let { targetFamily ->
-            languageMatches.firstOrNull { it.codecFamily == targetFamily }
-                ?.let { return it.selection }
-        }
-        val targetIsBitmap = isBitmapSubtitleCodecOrMime(subtitle.codec)
-        languageMatches.firstOrNull { it.isBitmap == targetIsBitmap }
-            ?.let { return it.selection }
-        languageMatches.firstOrNull()?.let { return it.selection }
-    }
-    family?.let { targetFamily ->
-        candidates.firstOrNull { it.codecFamily == targetFamily }
-            ?.let { return it.selection }
-    }
-    return null
+    val mounted = candidates.map(TextTrackCandidate::track)
+    val match = resolveMountedSubtitle(subtitle, mounted) ?: return null
+    return candidates.firstOrNull { it.track.index == match.track.index }?.selection
+}
+
+internal fun resolveSubtitleSelection(
+    tracks: Tracks,
+    identity: SubtitleIdentity,
+): SubtitleSelection? {
+    val candidates = textTrackCandidates(tracks)
+    val match = resolveMountedSubtitle(identity, candidates.map(TextTrackCandidate::track)) ?: return null
+    return candidates.firstOrNull { it.track.index == match.track.index }?.selection
 }
 
 private data class TextTrackCandidate(
     val selection: SubtitleSelection,
-    val label: String?,
-    val language: String?,
-    val isBitmap: Boolean,
-    val codecFamily: String?,
+    val track: MountedSubtitleTrack,
 )
 
 private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
     val candidates = mutableListOf<TextTrackCandidate>()
+    var flatIndex = 0
     for (group in tracks.groups) {
         if (group.type != C.TRACK_TYPE_TEXT) continue
         for (trackIndex in 0 until group.length) {
             val format = group.getTrackFormat(trackIndex)
             candidates += TextTrackCandidate(
                 selection = SubtitleSelection(group.mediaTrackGroup, trackIndex),
-                label = format.label,
-                language = format.language,
-                isBitmap = isBitmapSubtitleCodecOrMime(format.subtitleCodecOrMime()),
-                codecFamily = subtitleCodecFamily(format.subtitleCodecOrMime()),
+                track = MountedSubtitleTrack(
+                    index = flatIndex,
+                    trackId = format.id,
+                    label = format.label,
+                    language = format.language,
+                    codec = format.subtitleCodecOrMime(),
+                    forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                    hearingImpaired = format.isHearingImpairedSubtitle(),
+                ),
             )
+            flatIndex++
         }
     }
     return candidates
 }
+
+private fun Format.isHearingImpairedSubtitle(): Boolean =
+    roleFlags and (C.ROLE_FLAG_CAPTION or C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND) != 0 ||
+        subtitleLabelIndicatesHearingImpaired(label)
 
 /**
  * Bitmap (image-based) subtitle detection over codec names and mimes.
@@ -737,27 +765,6 @@ fun isBitmapSubtitleCodecOrMime(codecOrMime: String?): Boolean {
         normalized.contains("dvd") ||
         normalized.contains("dvbsub") ||
         normalized.contains("vobsub")
-}
-
-private fun subtitleCodecFamily(codecOrMime: String?): String? {
-    val normalized = codecOrMime
-        ?.filter { it.isLetterOrDigit() }
-        ?.lowercase()
-        ?.takeIf { it.isNotEmpty() }
-        ?: return null
-    return when {
-        normalized.contains("pgs") -> "pgs"
-        normalized.contains("vobsub") || normalized.contains("dvdsubtitle") -> "vobsub"
-        normalized.contains("dvbsub") -> "dvbsub"
-        normalized.contains("subrip") || normalized.endsWith("srt") -> "subrip"
-        normalized.contains("webvtt") || normalized.endsWith("vtt") -> "webvtt"
-        normalized.contains("tx3g") || normalized.contains("movtext") -> "tx3g"
-        normalized.contains("ssa") || normalized.contains("ass") -> "ssa"
-        normalized.contains("ttml") -> "ttml"
-        normalized.contains("cea608") || normalized.contains("eia608") -> "cea608"
-        normalized.contains("cea708") -> "cea708"
-        else -> null
-    }
 }
 
 private fun Format.subtitleCodecOrMime(): String? =
