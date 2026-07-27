@@ -16,9 +16,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -129,6 +132,44 @@ class SubtitleTransactionIntegrationTest {
         assertEquals(listOf(sidecarB), harness.persistence.map { it.first.identity })
         assertEquals("s2", harness.persistence.single().second.sessionId)
         harness.assertNoOrphans()
+    }
+
+    @Test
+    fun `cleanup wait advances the manager-owned test scheduler`() = runTest {
+        val cleanupDispatcher = StandardTestDispatcher()
+        val cleanupJob = SupervisorJob()
+        val cleanupScope = CoroutineScope(cleanupJob + cleanupDispatcher)
+        try {
+            val harness = harness(
+                replanResponse = { _, _ -> response(sidecarPlan("s2", FILE_ID, B_INDEX)) },
+                committedSessionCleanupScope = cleanupScope,
+                committedSessionCleanupScheduler = cleanupDispatcher.scheduler,
+            )
+            harness.start(sidecarA)
+
+            harness.adapter.select(sidecarB)
+            runCurrent()
+            harness.awaitReplans(1)
+            harness.awaitAdopted("s2")
+            harness.mountPending(
+                expectedSessionId = "s2",
+                tracks = listOf(
+                    harness.sidecarMountedTrack(
+                        expectedSessionId = "s2",
+                        serverIndex = B_INDEX,
+                        playerIndex = 9,
+                    ),
+                ),
+            )
+            runCurrent()
+
+            harness.awaitStopped("s1")
+
+            assertEquals(mapOf("s1" to 1), harness.stopCounts())
+            harness.assertNoOrphans()
+        } finally {
+            cleanupJob.cancel()
+        }
     }
 
     @Test
@@ -345,13 +386,21 @@ class SubtitleTransactionIntegrationTest {
 
     private fun TestScope.harness(
         replanResponse: suspend (Int, JsonObject) -> PlaybackDecisionResponseV3,
+        committedSessionCleanupScope: CoroutineScope = backgroundScope,
+        committedSessionCleanupScheduler: TestCoroutineScheduler = testScheduler,
     ): Harness = Harness(
         scope = backgroundScope,
+        transactionScheduler = testScheduler,
+        committedSessionCleanupScope = committedSessionCleanupScope,
+        committedSessionCleanupScheduler = committedSessionCleanupScheduler,
         replanResponse = replanResponse,
     )
 
     private class Harness(
         private val scope: CoroutineScope,
+        private val transactionScheduler: TestCoroutineScheduler,
+        committedSessionCleanupScope: CoroutineScope,
+        private val committedSessionCleanupScheduler: TestCoroutineScheduler,
         private val replanResponse: suspend (Int, JsonObject) -> PlaybackDecisionResponseV3,
     ) {
         val stoppedSessions: MutableList<String> =
@@ -368,7 +417,6 @@ class SubtitleTransactionIntegrationTest {
             Collections.synchronizedMap(mutableMapOf())
         val media3Selections = mutableListOf<MountedSelection>()
 
-        private val stoppedEvents = Channel<String>(Channel.UNLIMITED)
         private val replanEvents = Channel<Unit>(Channel.UNLIMITED)
         private val adoptedEvents = Channel<String>(Channel.UNLIMITED)
         private val persistenceEvents = Channel<Unit>(Channel.UNLIMITED)
@@ -412,7 +460,6 @@ class SubtitleTransactionIntegrationTest {
                         path.startsWith("/api/v1/playback/") -> {
                         val sessionId = path.substringAfterLast('/')
                         stoppedSessions += sessionId
-                        stoppedEvents.send(sessionId)
                         null
                     }
                     else -> null
@@ -429,7 +476,7 @@ class SubtitleTransactionIntegrationTest {
         val manager = PlaybackSessionManager(
             playbackRepository = PlaybackRepository(PlaybackApi(client)),
             tokenManager = IntegrationTokenManager,
-            committedSessionCleanupScope = scope,
+            committedSessionCleanupScope = committedSessionCleanupScope,
         )
         val lifecycle = PlaybackSessionLifecycle(
             sessionManager = manager,
@@ -674,8 +721,12 @@ class SubtitleTransactionIntegrationTest {
             if (sessionId in stoppedSessions) return
             withContext(Dispatchers.Default) {
                 withTimeout(EVENT_TIMEOUT_MS) {
-                    while (stoppedEvents.receive() != sessionId) {
-                        // Drain unrelated cleanup completions.
+                    while (sessionId !in stoppedSessions) {
+                        transactionScheduler.runCurrent()
+                        if (committedSessionCleanupScheduler !== transactionScheduler) {
+                            committedSessionCleanupScheduler.runCurrent()
+                        }
+                        kotlinx.coroutines.yield()
                     }
                 }
             }
@@ -720,6 +771,10 @@ class SubtitleTransactionIntegrationTest {
             withContext(Dispatchers.Default) {
                 withTimeout(EVENT_TIMEOUT_MS) {
                     while (manager.orphanedSessionIdsForTest().isNotEmpty()) {
+                        transactionScheduler.runCurrent()
+                        if (committedSessionCleanupScheduler !== transactionScheduler) {
+                            committedSessionCleanupScheduler.runCurrent()
+                        }
                         kotlinx.coroutines.yield()
                     }
                 }
