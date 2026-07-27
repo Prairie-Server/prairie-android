@@ -31,6 +31,23 @@ class ServerScopedJsonStatePurgerTest {
     }
 
     @Test
+    fun `orphan symlink to a registered sibling removes only the link`() {
+        val base = Files.createTempDirectory("silo-json-sibling-link").toFile()
+        val root = base.toPath().resolve("ebook_state")
+        val kept = root.resolve("kept-server")
+        Files.createDirectories(kept)
+        val sentinel = kept.resolve("keep.txt")
+        Files.write(sentinel, "keep".toByteArray())
+        val removedLink = root.resolve("removed-server")
+        Files.createSymbolicLink(removedLink, kept)
+
+        ServerScopedJsonStatePurger(base).deleteAllForServer("removed-server")
+
+        assertFalse(Files.exists(removedLink, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+        assertTrue(Files.exists(sentinel), "exact purge must not canonicalize into a sibling")
+    }
+
+    @Test
     fun `symlinked store root is rejected without touching its target`() {
         val base = Files.createTempDirectory("silo-json-root-purge").toFile()
         val external = Files.createTempDirectory("silo-json-root-external")

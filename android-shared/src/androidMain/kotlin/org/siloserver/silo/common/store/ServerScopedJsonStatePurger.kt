@@ -33,18 +33,26 @@ class ServerScopedJsonStatePurger(baseDir: File) {
         roots.mapNotNull(::validatedRoot).forEach { root ->
             val safeKey = safePathSegment(serverId)
             ServerScopedJsonAccess.invalidateAndRun(root, safeKey) {
-                containedSafeChild(root, serverId)?.let(::deleteTree)
+                // Keep the leaf lexical: canonicalising it would follow an
+                // in-root symlink to a registered sibling and delete that
+                // sibling's real directory.
+                deleteTree(File(root, safeKey))
             }
-            containedLegacyChild(root, serverId)?.let { legacy ->
-                val legacyKey = root.toPath().relativize(legacy.toPath()).firstOrNull()?.toString()
-                if (legacyKey != null && legacyKey != safeKey) {
-                    ServerScopedJsonAccess.invalidateAndRun(root, legacyKey) {
+            legacyDirectChild(root, serverId)?.let { legacy ->
+                if (legacy.name != safeKey) {
+                    ServerScopedJsonAccess.invalidateAndRun(root, legacy.name) {
                         deleteTree(legacy)
                     }
                 }
             }
         }
     }
+
+    private fun legacyDirectChild(root: File, serverId: String): File? =
+        serverId.takeIf {
+            it != "." && it != ".." && !it.startsWith("~") &&
+                '/' !in it && '\\' !in it
+        }?.let { File(root, it) }
 
     fun deleteJsonOnlyOrphans(
         registeredServerIds: Set<String>,
