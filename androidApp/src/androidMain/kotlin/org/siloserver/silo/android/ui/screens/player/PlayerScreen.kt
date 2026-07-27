@@ -45,6 +45,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
+import org.siloserver.silo.common.player.PlayWhenReadyReconciliationGate
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -312,6 +313,9 @@ fun PlayerScreen(
     // resolves when the service binds. We hold the controller in a compose
     // state so downstream effects can re-run once it's ready.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
+    val playWhenReadyReconciliationGate = remember(mediaController, roomId) {
+        PlayWhenReadyReconciliationGate()
+    }
     // service. The video PlayerView binds its SurfaceView directly to this (NOT the
     // MediaController) so the engine receives proper surface-lifecycle callbacks
     // (surfaceCreated/Changed/Destroyed) and recovers across seek/recreate/rotation
@@ -404,13 +408,29 @@ fun PlayerScreen(
         if (castState.isConnected && !wasCasting) {
             wasCasting = true
             viewModel.remotePause()
-            mediaController?.pause()
+            mediaController?.let { controller ->
+                if (controller.playWhenReady) {
+                    if (playWhenReadyReconciliationGate.requestProgrammaticChange(false)) {
+                        controller.pause()
+                    }
+                } else {
+                    controller.pause()
+                }
+            }
         } else if (!castState.isConnected && wasCasting) {
             wasCasting = false
             val resumeAt = castManager.getLastPosition()
             if (resumeAt > 0.0) viewModel.remoteSeek(resumeAt)
             viewModel.remoteUnpause()
-            mediaController?.play()
+            mediaController?.let { controller ->
+                if (!controller.playWhenReady) {
+                    if (playWhenReadyReconciliationGate.requestProgrammaticChange(true)) {
+                        controller.play()
+                    }
+                } else {
+                    controller.play()
+                }
+            }
         }
     }
 
@@ -657,9 +677,16 @@ fun PlayerScreen(
         backend.refresh(mediaSpec)
     }
 
-    // Sync play/pause from ViewModel to player
-    LaunchedEffect(mediaController, uiState.isPaused) {
-        mediaController?.playWhenReady = !uiState.isPaused
+    // Sync play/pause from ViewModel to player without reclassifying this
+    // programmatic write as a MediaSession/user room command.
+    LaunchedEffect(mediaController, uiState.isPaused, playWhenReadyReconciliationGate) {
+        val controller = mediaController ?: return@LaunchedEffect
+        val desired = !uiState.isPaused
+        if (controller.playWhenReady != desired) {
+            if (playWhenReadyReconciliationGate.requestProgrammaticChange(desired)) {
+                controller.playWhenReady = desired
+            }
+        }
     }
 
     // Preflight listener: evaluates the resolved Tracks and triggers the
@@ -685,12 +712,31 @@ fun PlayerScreen(
     }
 
     // Player event listener to feed state back to ViewModel + track video size for PiP
-    DisposableEffect(mediaController) {
+    DisposableEffect(mediaController, playWhenReadyReconciliationGate) {
         val controller = mediaController
         if (controller == null) {
             onDispose { }
         } else {
             val listener = object : Player.Listener {
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    val provenance = playWhenReadyReconciliationGate
+                        .onPlayWhenReadyChanged(playWhenReady, reason)
+                    provenance.followUpProgrammaticValue?.let { controller.playWhenReady = it }
+                    if (!provenance.shouldReconcile) return
+                    roomController
+                        ?.onExternalPlayWhenReadyChanged(playWhenReady)
+                        ?.let { authoritative ->
+                            if (controller.playWhenReady != authoritative) {
+                                if (
+                                    playWhenReadyReconciliationGate
+                                        .requestProgrammaticChange(authoritative)
+                                ) {
+                                    controller.playWhenReady = authoritative
+                                }
+                            }
+                        }
+                }
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
                     val live = viewModel.uiState.value

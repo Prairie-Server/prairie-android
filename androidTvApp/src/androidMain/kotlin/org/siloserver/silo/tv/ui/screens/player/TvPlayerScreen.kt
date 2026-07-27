@@ -64,6 +64,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -75,6 +77,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import org.siloserver.silo.common.player.PlayWhenReadyReconciliationGate
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.session.MediaController
@@ -124,6 +127,7 @@ import org.siloserver.silo.tv.cast.TvSiloCastPlayerAdapter
 import org.siloserver.silo.tv.cast.TvSiloCastReceiver
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -398,6 +402,9 @@ fun TvPlayerScreen(
     // Connect a MediaController to the SiloPlaybackService. Async —
     // downstream effects gate on a non-null controller.
     var mediaController by remember { mutableStateOf<MediaController?>(null) }
+    val playWhenReadyReconciliationGate = remember(mediaController, roomId) {
+        PlayWhenReadyReconciliationGate()
+    }
     val videoBackend = remember(
         sessionPlayer,
         mediaController,
@@ -1171,12 +1178,47 @@ fun TvPlayerScreen(
         }
     }
 
+    val latestLifecycleRoomSnapshot by rememberUpdatedState(roomSnapshot)
+
     // Lifecycle pausing — send pause to the service when we're backgrounded.
-    DisposableEffect(lifecycleOwner, mediaController, isInPictureInPictureMode) {
+    DisposableEffect(
+        lifecycleOwner,
+        mediaController,
+        isInPictureInPictureMode,
+        playWhenReadyReconciliationGate,
+    ) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> if (!isInPictureInPictureMode) mediaController?.pause()
-                Lifecycle.Event.ON_STOP -> if (!isInPictureInPictureMode) mediaController?.pause()
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> if (!isInPictureInPictureMode) {
+                    mediaController?.let { controller ->
+                        if (controller.playWhenReady) {
+                            if (
+                                playWhenReadyReconciliationGate
+                                    .requestProgrammaticChange(false)
+                            ) {
+                                controller.pause()
+                            }
+                        }
+                    }
+                }
+                Lifecycle.Event.ON_RESUME -> if (roomController != null) {
+                    val desired = latestLifecycleRoomSnapshot?.isPaused?.not()
+                    mediaController?.let { controller ->
+                        if (
+                            desired != null &&
+                            (controller.playWhenReady != desired ||
+                                playWhenReadyReconciliationGate.hasPendingChanges)
+                        ) {
+                            if (
+                                playWhenReadyReconciliationGate
+                                    .requestProgrammaticChange(desired)
+                            ) {
+                                controller.playWhenReady = desired
+                            }
+                        }
+                    }
+                }
                 else -> Unit
             }
         }
@@ -1206,12 +1248,35 @@ fun TvPlayerScreen(
     // Player listener → ViewModel. Pushes play/pause state, refreshes the
     // track menu state on track changes, and drives HDMI display-mode
     // switching on video size changes.
-    DisposableEffect(mediaController, state.effectiveFrameRate) {
+    DisposableEffect(
+        mediaController,
+        state.effectiveFrameRate,
+        playWhenReadyReconciliationGate,
+    ) {
         val controller = mediaController
         if (controller == null) {
             onDispose { }
         } else {
             val listener = object : Player.Listener {
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    val provenance = playWhenReadyReconciliationGate
+                        .onPlayWhenReadyChanged(playWhenReady, reason)
+                    provenance.followUpProgrammaticValue?.let { controller.playWhenReady = it }
+                    if (!provenance.shouldReconcile) return
+                    roomController
+                        ?.onExternalPlayWhenReadyChanged(playWhenReady)
+                        ?.let { authoritative ->
+                            if (controller.playWhenReady != authoritative) {
+                                if (
+                                    playWhenReadyReconciliationGate
+                                        .requestProgrammaticChange(authoritative)
+                                ) {
+                                    controller.playWhenReady = authoritative
+                                }
+                            }
+                        }
+                }
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     viewModel.onPlayingChanged(isPlaying)
                     val live = viewModel.uiState.value
@@ -1538,8 +1603,14 @@ fun TvPlayerScreen(
     // Mirror user-intent pause state into the player. Kept separate from the
     // onPlayingChanged listener so a transient buffering stall can't flip the
     // pause icon or cancel the auto-hide timer.
-    LaunchedEffect(mediaController, state.isPaused) {
-        mediaController?.playWhenReady = !state.isPaused
+    LaunchedEffect(mediaController, state.isPaused, playWhenReadyReconciliationGate) {
+        val controller = mediaController ?: return@LaunchedEffect
+        val desired = !state.isPaused
+        if (controller.playWhenReady != desired) {
+            if (playWhenReadyReconciliationGate.requestProgrammaticChange(desired)) {
+                controller.playWhenReady = desired
+            }
+        }
     }
 
     LaunchedEffect(mediaController) {
@@ -2770,40 +2841,56 @@ private fun TvRoomCloseConfirmDialog(
     onClose: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f)),
-        contentAlignment = Alignment.Center,
+    val closeActionFocus = remember { FocusRequester() }
+
+    Popup(
+        alignment = Alignment.Center,
+        onDismissRequest = onCancel,
+        properties = PopupProperties(
+            focusable = true,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            clippingEnabled = false,
+        ),
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color.Black.copy(alpha = 0.92f))
-                .padding(40.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.72f)),
+            contentAlignment = Alignment.Center,
         ) {
-            androidx.tv.material3.Text(
-                text = "Close this room?",
-                color = Color.White,
-                style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
-            )
-            androidx.tv.material3.Text(
-                text = "Closing ends Watch Together for everyone in the room.",
-                color = Color.White.copy(alpha = 0.80f),
-                style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
-            )
-            TvDialogActionRow(
-                title = "Close room for everyone",
-                onClick = onClose,
-                modifier = Modifier.width(360.dp),
-            )
-            TvDialogActionRow(
-                title = "Keep watching",
-                onClick = onCancel,
-                modifier = Modifier.width(360.dp),
-            )
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Black.copy(alpha = 0.92f))
+                    .padding(40.dp)
+                    .then(rememberTvDialogInitialFocus(closeActionFocus)),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                androidx.tv.material3.Text(
+                    text = "Close this room?",
+                    color = Color.White,
+                    style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
+                )
+                androidx.tv.material3.Text(
+                    text = "Closing ends Watch Together for everyone in the room.",
+                    color = Color.White.copy(alpha = 0.80f),
+                    style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                )
+                TvDialogActionRow(
+                    title = "Close room for everyone",
+                    onClick = onClose,
+                    modifier = Modifier
+                        .width(360.dp)
+                        .focusRequester(closeActionFocus),
+                )
+                TvDialogActionRow(
+                    title = "Keep watching",
+                    onClick = onCancel,
+                    modifier = Modifier.width(360.dp),
+                )
+            }
         }
     }
 }

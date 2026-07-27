@@ -54,4 +54,22 @@ class CatalogTrackSerializationTest {
 
         assertEquals("tv", track.colorRange)
     }
+
+    @Test
+    fun `VideoTrack decodes server rational frame rate`() {
+        val source = """{"codec":"h264","frame_rate":"30000/1001"}"""
+
+        val track = json.decodeFromString<VideoTrack>(source)
+
+        assertEquals(29.97002997002997, track.frameRate)
+    }
+
+    @Test
+    fun `VideoTrack keeps accepting numeric frame rate`() {
+        val source = """{"codec":"h264","frame_rate":30.0}"""
+
+        val track = json.decodeFromString<VideoTrack>(source)
+
+        assertEquals(30.0, track.frameRate)
+    }
 }

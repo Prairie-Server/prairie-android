@@ -21,6 +21,36 @@ import kotlin.test.assertTrue
 class WatchTogetherRealtimeClientTest {
 
     @Test
+    fun `socket request string never exposes query credentials or profile token`() {
+        val request = WatchTogetherSocketRequest(
+            url = "/rooms/room-1/ws?room_token=room-secret&profile_token=profile-secret",
+            authScope = AuthScopeSnapshot(
+                serverId = "aHR0cHM6Ly9wcml2YXRlLXNpbG8uZXhhbXBsZQ",
+                profileId = "private-profile-id",
+                serverUrl = "https://user:url-secret@private-silo.example/path?api_key=url-query-secret",
+                profileToken = "profile-secret",
+                credentialGenerationId = "credential-generation-secret",
+                identityGeneration = 987654321L,
+                credentialEpoch = 123456789L,
+            ),
+        )
+
+        val rendered = request.toString()
+
+        assertFalse(rendered.contains("room-secret"))
+        assertFalse(rendered.contains("profile-secret"))
+        assertFalse(rendered.contains("aHR0cHM6Ly9wcml2YXRlLXNpbG8uZXhhbXBsZQ"))
+        assertFalse(rendered.contains("private-profile-id"))
+        assertFalse(rendered.contains("private-silo.example"))
+        assertFalse(rendered.contains("url-secret"))
+        assertFalse(rendered.contains("url-query-secret"))
+        assertFalse(rendered.contains("credential-generation-secret"))
+        assertFalse(rendered.contains("987654321"))
+        assertFalse(rendered.contains("123456789"))
+        assertTrue(rendered.contains("<redacted>"))
+    }
+
+    @Test
     fun `normal socket EOF is transport termination not protocol room close`() = runTest {
         val connection = FakeConnection().apply { incoming.close() }
         val client = client(FakeConnector(connection))
@@ -148,6 +178,37 @@ class WatchTogetherRealtimeClientTest {
         assertFalse(client.ping("2026-07-27T10:00:01Z"))
         job.cancelAndJoin()
         assertFalse(client.attachSession("session-after-close"))
+    }
+
+    @Test
+    fun `connection scoped transport never crosses into a replacement socket`() = runTest {
+        val first = FakeConnection()
+        val second = FakeConnection()
+        val client = client(FakeConnector(first, second))
+        val firstOpened = CompletableDeferred<Unit>()
+        val firstJob = launch {
+            client.connect("room-1", "room-token-1").collect {
+                if (it is RoomRealtimeEvent.Opened) firstOpened.complete(Unit)
+            }
+        }
+        firstOpened.await()
+        val firstId = requireNotNull(client.currentConnectionId())
+
+        val secondOpened = CompletableDeferred<Unit>()
+        val secondJob = launch {
+            client.connect("room-2", "room-token-2").collect {
+                if (it is RoomRealtimeEvent.Opened) secondOpened.complete(Unit)
+            }
+        }
+        secondOpened.await()
+        val secondId = requireNotNull(client.currentConnectionId())
+
+        assertFalse(client.transportRequestOnConnection(firstId, "pause", 12.0, true))
+        assertTrue(client.transportRequestOnConnection(secondId, "pause", 12.0, true))
+        assertTrue(first.sent.isEmpty())
+        assertEquals(1, second.sent.size)
+        firstJob.cancelAndJoin()
+        secondJob.cancelAndJoin()
     }
 
     @Test

@@ -15,6 +15,7 @@ import org.siloserver.silo.watchtogether.RoomSession
 import org.siloserver.silo.watchtogether.RoomCommandDispatcher
 import org.siloserver.silo.watchtogether.RoomControllerLifetime
 import org.siloserver.silo.watchtogether.RoomPendingExecutions
+import org.siloserver.silo.watchtogether.externalPlayPauseDecision
 import org.siloserver.silo.watchtogether.scheduledCommandStillCurrent
 import kotlinx.coroutines.CoroutineStart
 import org.siloserver.silo.watchtogether.RoomTransportIntent
@@ -370,13 +371,17 @@ class TvRoomSyncController(
      * the defensive backstop.
      */
     fun onUserPlayPause() {
-        if (tvRoomTransportGate(repository.roomSnapshot.value, TvTransportIntent.PlayPause) != TransportGate.Send) {
+        val authorization = repository.currentTransportAuthorization() ?: return
+        val snapshot = authorization.snapshot
+        if (tvRoomTransportGate(snapshot, TvTransportIntent.PlayPause) != TransportGate.Send) {
             return
         }
         val state = viewModel.uiState.value
         val willPause = !state.isPaused
         controllerScope.launch {
-            val delivered = repository.transportRequest(
+            val delivered = repository.transportRequestForAuthorization(
+                authorization = authorization,
+                intent = RoomTransportIntent.PlayPause,
                 action = if (willPause) TransportAction.Pause.wire else TransportAction.Play.wire,
                 positionSeconds = state.position,
                 isPaused = willPause,
@@ -387,18 +392,48 @@ class TvRoomSyncController(
 
     /** Route a local seek through the room. Guests never seek (gated). */
     fun onUserSeek(positionSeconds: Double) {
-        if (tvRoomTransportGate(repository.roomSnapshot.value, TvTransportIntent.Seek) != TransportGate.Send) {
+        val authorization = repository.currentTransportAuthorization() ?: return
+        val snapshot = authorization.snapshot
+        if (tvRoomTransportGate(snapshot, TvTransportIntent.Seek) != TransportGate.Send) {
             return
         }
         val state = viewModel.uiState.value
         controllerScope.launch {
-            val delivered = repository.transportRequest(
+            val delivered = repository.transportRequestForAuthorization(
+                authorization = authorization,
+                intent = RoomTransportIntent.Seek,
                 action = TransportAction.Seek.wire,
                 positionSeconds = positionSeconds,
                 isPaused = state.isPaused,
             )
             if (!delivered) repository.reportDeliveryFailure("room_transport_unavailable")
         }
+    }
+
+    /** Reconcile a deliberate external MediaSession play/pause through room authority. */
+    fun onExternalPlayWhenReadyChanged(localPlayWhenReady: Boolean): Boolean? {
+        val authorization = repository.currentTransportAuthorization()
+        val snapshot = authorization?.snapshot
+        val decision = externalPlayPauseDecision(snapshot, localPlayWhenReady) ?: return null
+        if (authorization == null) return decision.restorePlayWhenReady
+        decision.requestIsPaused?.let { requestIsPaused ->
+            val state = viewModel.uiState.value
+            controllerScope.launch {
+                val delivered = repository.transportRequestForAuthorization(
+                    authorization = authorization,
+                    intent = RoomTransportIntent.PlayPause,
+                    action = if (requestIsPaused) {
+                        TransportAction.Pause.wire
+                    } else {
+                        TransportAction.Play.wire
+                    },
+                    positionSeconds = state.position,
+                    isPaused = requestIsPaused,
+                )
+                if (!delivered) repository.reportDeliveryFailure("room_transport_unavailable")
+            }
+        }
+        return decision.restorePlayWhenReady
     }
 
     /** Leave the room. Host close tears the room down for everyone; both reset local state. */

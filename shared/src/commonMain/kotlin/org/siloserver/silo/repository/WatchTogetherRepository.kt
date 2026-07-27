@@ -20,6 +20,8 @@ import org.siloserver.silo.network.api.WatchTogetherApi
 import org.siloserver.silo.util.parseRfc3339ToEpochMillis
 import org.siloserver.silo.watchtogether.RoomDeliveryLatch
 import org.siloserver.silo.watchtogether.RoomSessionRepository
+import org.siloserver.silo.watchtogether.RoomTransportIntent
+import org.siloserver.silo.watchtogether.roomTransportAuthorized
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -66,6 +68,15 @@ data class WatchTogetherConnectionState(
     val writable: Boolean = false,
 )
 
+/** Immutable, atomically-published authority for one room + physical socket. */
+class RoomTransportAuthorization internal constructor(
+    val roomId: String,
+    val generation: Long,
+    val connectionOwner: Long?,
+    val realtimeConnectionId: Long?,
+    val snapshot: RoomSnapshot,
+)
+
 /**
  * Singleton owner of one Watch Together room's state and websocket lifecycle.
  * The per-room WS IS the feature (no REST fallback); the REST calls are for
@@ -103,6 +114,7 @@ class WatchTogetherRepository(
     private var binding: RoomBinding? = null
     private var terminalGeneration: Long? = null
     private var realtimeGeneration: Long? = null
+    private var realtimeConnectionId: Long? = null
     private var nextConnectionOwner = 0L
     private var activeConnectionOwner: Long? = null
     private val _roomSnapshot = MutableStateFlow<RoomSnapshot?>(null)
@@ -112,6 +124,11 @@ class WatchTogetherRepository(
     val suggestions: StateFlow<List<Suggestion>> = _suggestions.asStateFlow()
     private val _connectionState = MutableStateFlow(WatchTogetherConnectionState())
     val connectionState: StateFlow<WatchTogetherConnectionState> = _connectionState.asStateFlow()
+    @kotlin.concurrent.Volatile
+    private var transportAuthorization: RoomTransportAuthorization? = null
+
+    /** One atomic read; never pair independently-read snapshot/generation values. */
+    fun currentTransportAuthorization(): RoomTransportAuthorization? = transportAuthorization
 
     /**
      * Transport commands surfaced for the player binding to feed to its
@@ -188,7 +205,31 @@ class WatchTogetherRepository(
         val requestGeneration = beginRoomRequest()
         val r = api.joinRoom(request, scope)
         if (authScopeProvider() != scope) return obsoleteRoomRequest()
-        return if (r is ApiResult.Success) installRoomResponse(r.data, scope, requestGeneration) else r
+        if (r !is ApiResult.Success) return r
+        val installed = installRoomResponse(r.data, scope, requestGeneration)
+        if (installed !is ApiResult.Success) return installed
+
+        // The realtime handshake's initial event is a room snapshot; it does
+        // not replay suggestions that existed before this member connected.
+        // Hydrate them while the join lease is current so a re-entered lobby
+        // does not render an empty vote list until somebody mutates it.
+        val lease = stateMutex.withLock {
+            binding?.takeIf { current ->
+                latestRoomRequest == requestGeneration &&
+                    current.roomId == r.data.room.roomId &&
+                    isCurrentLocked(current)
+            }
+        } ?: return obsoleteRoomRequest()
+        publishSuggestionsResponse(
+            lease,
+            api.listSuggestions(lease.roomId, lease.roomToken, lease.authScope),
+            expectedRoomRequest = requestGeneration,
+        )
+        val stillCurrent = stateMutex.withLock {
+            latestRoomRequest == requestGeneration && isCurrentLocked(lease)
+        }
+        if (!stillCurrent) return obsoleteRoomRequest()
+        return installed
     }
 
     private suspend fun beginRoomRequest(): Long = stateMutex.withLock { ++latestRoomRequest }
@@ -216,6 +257,8 @@ class WatchTogetherRepository(
             _roomClosedReason.value = null
             _roomSnapshot.value = data.room
             _connectionState.value = WatchTogetherConnectionState(generation = installed.generation)
+            realtimeConnectionId = null
+            refreshTransportAuthorizationLocked()
         }
         return ApiResult.Success(data)
     }
@@ -299,6 +342,29 @@ class WatchTogetherRepository(
     private fun isCurrentLocked(lease: RoomBinding): Boolean =
         binding == lease && terminalGeneration != lease.generation
 
+    private fun refreshTransportAuthorizationLocked() {
+        val current = binding
+        val snapshot = _roomSnapshot.value
+        val owner = activeConnectionOwner
+        val connectionId = realtimeConnectionId
+        transportAuthorization = if (
+            current != null &&
+            snapshot != null &&
+            isCurrentLocked(current) &&
+            snapshot.roomId == current.roomId
+        ) {
+            RoomTransportAuthorization(
+                roomId = current.roomId,
+                generation = current.generation,
+                connectionOwner = owner,
+                realtimeConnectionId = connectionId,
+                snapshot = snapshot,
+            )
+        } else {
+            null
+        }
+    }
+
     private suspend fun publishRoomResponse(
         lease: RoomBinding,
         result: ApiResult<RoomResponse>,
@@ -308,6 +374,7 @@ class WatchTogetherRepository(
         val published = stateMutex.withLock {
             if (!isCurrentLocked(lease)) return@withLock false
             _roomSnapshot.value = result.data.room
+            refreshTransportAuthorizationLocked()
             true
         }
         return if (published) result else obsoleteRoomRequest()
@@ -316,10 +383,16 @@ class WatchTogetherRepository(
     private suspend fun publishSuggestionsResponse(
         lease: RoomBinding,
         result: ApiResult<SuggestionsResponse>,
+        expectedRoomRequest: Long? = null,
     ): ApiResult<SuggestionsResponse> {
         if (result !is ApiResult.Success) return result
         val published = stateMutex.withLock {
-            if (!isCurrentLocked(lease)) return@withLock false
+            if (
+                !isCurrentLocked(lease) ||
+                (expectedRoomRequest != null && latestRoomRequest != expectedRoomRequest)
+            ) {
+                return@withLock false
+            }
             applySuggestions(result.data.suggestions, fromBroadcast = false)
             true
         }
@@ -375,6 +448,49 @@ class WatchTogetherRepository(
         isPaused: Boolean,
     ): Boolean = currentWritableRealtime()?.transportRequest(action, positionSeconds, isPaused) ?: false
 
+    /**
+     * Send a user transport intent only while the exact room generation that
+     * authorized it is still current. Authority is rechecked under the same
+     * lock that guards room replacement, so a delayed UI coroutine cannot send
+     * an old room's command through a replacement room or changed policy.
+     */
+    suspend fun transportRequestForAuthorization(
+        authorization: RoomTransportAuthorization,
+        intent: RoomTransportIntent,
+        action: String,
+        positionSeconds: Double?,
+        isPaused: Boolean,
+    ): Boolean {
+        val target = stateMutex.withLock {
+            val current = binding ?: return@withLock null
+            val snapshot = _roomSnapshot.value ?: return@withLock null
+            val currentRealtime = realtime ?: return@withLock null
+            val connectionId = authorization.realtimeConnectionId ?: return@withLock null
+            val connectionOwner = authorization.connectionOwner ?: return@withLock null
+            if (
+                transportAuthorization != authorization ||
+                !isCurrentLocked(current) ||
+                current.generation != authorization.generation ||
+                current.roomId != authorization.roomId ||
+                snapshot != authorization.snapshot ||
+                !roomTransportAuthorized(snapshot, intent) ||
+                realtimeGeneration != current.generation ||
+                activeConnectionOwner != connectionOwner ||
+                realtimeConnectionId != connectionId ||
+                !_connectionState.value.writable
+            ) {
+                return@withLock null
+            }
+            currentRealtime to connectionId
+        } ?: return false
+        return target.first.transportRequestOnConnection(
+            connectionId = target.second,
+            action = action,
+            positionSeconds = positionSeconds,
+            isPaused = isPaused,
+        )
+    }
+
     suspend fun stateReport(
         sessionId: String,
         positionSeconds: Double,
@@ -413,11 +529,13 @@ class WatchTogetherRepository(
             activeConnectionOwner = newOwner
             realtime = client
             realtimeGeneration = lease.generation
+            realtimeConnectionId = null
             _connectionState.value = _connectionState.value.copy(
                 generation = lease.generation,
                 writable = false,
             )
             _roomClosedReason.value = null
+            refreshTransportAuthorizationLocked()
             newOwner
         }
         var backoffIndex = 0
@@ -440,6 +558,7 @@ class WatchTogetherRepository(
                                 terminalGeneration = lease.generation
                                 _roomClosedReason.value = event.reason ?: "room_closed"
                                 _roomSnapshot.value = null
+                                refreshTransportAuthorizationLocked()
                             }
                         }
                         throw ServerClosed
@@ -448,7 +567,7 @@ class WatchTogetherRepository(
                         throw TransportEnded
                     } else if (event is RoomRealtimeEvent.Opened) {
                         openedAtMs = monotonicNowMs()
-                        markOpened(lease, owner)
+                        markOpened(lease, owner, client.currentConnectionId())
                     } else if (
                         event is RoomRealtimeEvent.SnapshotEvent &&
                         event.room.roomId == lease.roomId
@@ -488,6 +607,7 @@ class WatchTogetherRepository(
                         terminalGeneration = lease.generation
                         _roomClosedReason.value = "connection_lost"
                         _roomSnapshot.value = null
+                        refreshTransportAuthorizationLocked()
                     }
                 }
                 break
@@ -520,21 +640,29 @@ class WatchTogetherRepository(
             ) {
                 realtime = null
                 realtimeGeneration = null
+                realtimeConnectionId = null
                 activeConnectionOwner = null
                 _connectionState.value = _connectionState.value.copy(writable = false)
+                refreshTransportAuthorizationLocked()
             }
         }
     }
 
-    private suspend fun markOpened(lease: RoomBinding, owner: Long) {
+    private suspend fun markOpened(
+        lease: RoomBinding,
+        owner: Long,
+        connectionId: Long?,
+    ) {
         stateMutex.withLock {
             if (isCurrentOwnerLocked(lease, owner)) {
+                realtimeConnectionId = connectionId
                 val previous = _connectionState.value
                 _connectionState.value = WatchTogetherConnectionState(
                     generation = lease.generation,
                     epoch = if (previous.generation == lease.generation) previous.epoch + 1 else 1,
                     writable = true,
                 )
+                refreshTransportAuthorizationLocked()
             }
         }
     }
@@ -543,6 +671,8 @@ class WatchTogetherRepository(
         stateMutex.withLock {
             if (binding == lease && activeConnectionOwner == owner) {
                 _connectionState.value = _connectionState.value.copy(writable = false)
+                realtimeConnectionId = null
+                refreshTransportAuthorizationLocked()
             }
         }
     }
@@ -562,7 +692,10 @@ class WatchTogetherRepository(
             when (event) {
                 RoomRealtimeEvent.Opened -> Unit
                 is RoomRealtimeEvent.SnapshotEvent ->
-                    if (event.room.roomId == lease.roomId) _roomSnapshot.value = event.room
+                    if (event.room.roomId == lease.roomId) {
+                        _roomSnapshot.value = event.room
+                        refreshTransportAuthorizationLocked()
+                    }
                 is RoomRealtimeEvent.SuggestionsEvent -> applySuggestions(event.suggestions, fromBroadcast = true)
                 is RoomRealtimeEvent.TransportCommandEvent -> _transportCommands.tryEmit(
                     ScheduledTransportCommand(
@@ -601,8 +734,10 @@ class WatchTogetherRepository(
             votedIds.clear()
             realtime = null
             realtimeGeneration = null
+            realtimeConnectionId = null
             activeConnectionOwner = null
             _connectionState.value = WatchTogetherConnectionState(generation = nextGeneration)
+            refreshTransportAuthorizationLocked()
         }
     }
 

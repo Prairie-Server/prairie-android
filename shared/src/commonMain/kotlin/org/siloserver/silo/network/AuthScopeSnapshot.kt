@@ -49,7 +49,13 @@ data class AuthScopeSnapshot(
      * recorded.
      */
     val credentialEpoch: Long = 0L,
-)
+) {
+    override fun toString(): String =
+        "AuthScopeSnapshot(" +
+            "serverId=<redacted>, profileId=<redacted>, serverUrl=<redacted>, " +
+            "profileToken=<redacted>, credentialGenerationId=<redacted>, " +
+            "identityGeneration=<redacted>, credentialEpoch=<redacted>)"
+}
 
 /** Attribute carrying the [AuthScopeSnapshot] that [SiloAuthPlugin] honors. */
 val AuthScopeAttributeKey: AttributeKey<AuthScopeSnapshot> = AttributeKey("SiloAuthScope")

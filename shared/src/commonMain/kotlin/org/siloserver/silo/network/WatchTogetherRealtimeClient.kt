@@ -59,6 +59,20 @@ interface WatchTogetherRealtimeClient {
     suspend fun ready(sessionId: String, positionSeconds: Double, isPaused: Boolean): Boolean
     suspend fun buffering(sessionId: String, positionSeconds: Double, isPaused: Boolean): Boolean
     suspend fun ping(clientSentAt: String): Boolean
+
+    /** Opaque identity of the currently writable physical socket, if any. */
+    suspend fun currentConnectionId(): Long? = null
+
+    /**
+     * Send only on the physical socket identified by [connectionId].
+     * A replacement socket must never receive an old room's delayed command.
+     */
+    suspend fun transportRequestOnConnection(
+        connectionId: Long,
+        action: String,
+        positionSeconds: Double?,
+        isPaused: Boolean,
+    ): Boolean = false
 }
 
 internal interface WatchTogetherSocketConnection {
@@ -70,7 +84,10 @@ internal interface WatchTogetherSocketConnection {
 internal data class WatchTogetherSocketRequest(
     val url: String,
     val authScope: AuthScopeSnapshot,
-)
+) {
+    override fun toString(): String =
+        "WatchTogetherSocketRequest(url=<redacted>, authScope=$authScope)"
+}
 
 internal fun interface WatchTogetherSocketConnector {
     suspend fun open(request: WatchTogetherSocketRequest): WatchTogetherSocketConnection
@@ -130,6 +147,8 @@ class DefaultWatchTogetherRealtimeClient private constructor(
 
     private val sessionMutex = Mutex()
     private var session: WatchTogetherSocketConnection? = null
+    private var sessionId = 0L
+    private var activeSessionId: Long? = null
 
     override fun connect(
         roomId: String,
@@ -169,6 +188,7 @@ class DefaultWatchTogetherRealtimeClient private constructor(
             )
             sessionMutex.withLock {
                 session = connection
+                activeSessionId = ++sessionId
             }
             trySend(RoomRealtimeEvent.Opened)
             while (true) {
@@ -187,7 +207,10 @@ class DefaultWatchTogetherRealtimeClient private constructor(
                 // physical socket before cancelAndJoin is allowed to return.
                 withContext(NonCancellable) {
                     sessionMutex.withLock {
-                        if (session === completed) session = null
+                        if (session === completed) {
+                            session = null
+                            activeSessionId = null
+                        }
                     }
                     runCatching { completed.close() }
                 }
@@ -220,6 +243,32 @@ class DefaultWatchTogetherRealtimeClient private constructor(
                 WsTransportRequest(action = action, positionSeconds = positionSeconds, isPaused = isPaused),
             ),
         )
+
+    override suspend fun currentConnectionId(): Long? =
+        sessionMutex.withLock { activeSessionId }
+
+    override suspend fun transportRequestOnConnection(
+        connectionId: Long,
+        action: String,
+        positionSeconds: Double?,
+        isPaused: Boolean,
+    ): Boolean {
+        val writable = sessionMutex.withLock {
+            session.takeIf { activeSessionId == connectionId }
+        } ?: return false
+        val payload = json.encodeToString(
+            WsTransportRequest.serializer(),
+            WsTransportRequest(action = action, positionSeconds = positionSeconds, isPaused = isPaused),
+        )
+        return try {
+            writable.sendText(payload)
+            true
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            false
+        }
+    }
 
     override suspend fun stateReport(sessionId: String, positionSeconds: Double, isPaused: Boolean) =
         sendText(

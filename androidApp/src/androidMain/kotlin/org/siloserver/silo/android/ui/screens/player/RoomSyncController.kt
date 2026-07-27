@@ -15,6 +15,7 @@ import org.siloserver.silo.watchtogether.RoomSession
 import org.siloserver.silo.watchtogether.RoomCommandDispatcher
 import org.siloserver.silo.watchtogether.RoomControllerLifetime
 import org.siloserver.silo.watchtogether.RoomPendingExecutions
+import org.siloserver.silo.watchtogether.externalPlayPauseDecision
 import org.siloserver.silo.watchtogether.roomTransportAuthorized
 import org.siloserver.silo.watchtogether.scheduledCommandStillCurrent
 import kotlinx.coroutines.CoroutineStart
@@ -311,13 +312,17 @@ class RoomSyncController(
     // ---- User-initiated transport: route through the room instead of local apply ----
 
     fun onUserPlayPause() {
-        if (!roomTransportAuthorized(repository.roomSnapshot.value, RoomTransportIntent.PlayPause)) return
+        val authorization = repository.currentTransportAuthorization() ?: return
+        val snapshot = authorization.snapshot
+        if (!roomTransportAuthorized(snapshot, RoomTransportIntent.PlayPause)) return
         val state = viewModel.uiState.value
         // isPaused is current intent; tapping toggles it. The request carries the
         // target action and the new paused state.
         val willPause = !state.isPaused
         controllerScope.launch {
-            val delivered = repository.transportRequest(
+            val delivered = repository.transportRequestForAuthorization(
+                authorization = authorization,
+                intent = RoomTransportIntent.PlayPause,
                 action = if (willPause) TransportAction.Pause.wire else TransportAction.Play.wire,
                 positionSeconds = state.position,
                 isPaused = willPause,
@@ -328,16 +333,56 @@ class RoomSyncController(
 
     fun onUserSeek(positionSeconds: Double) {
         // Seek is host-only (the server rejects guest seeks regardless of policy).
-        if (!roomTransportAuthorized(repository.roomSnapshot.value, RoomTransportIntent.Seek)) return
+        val authorization = repository.currentTransportAuthorization() ?: return
+        val snapshot = authorization.snapshot
+        if (!roomTransportAuthorized(snapshot, RoomTransportIntent.Seek)) return
         val state = viewModel.uiState.value
         controllerScope.launch {
-            val delivered = repository.transportRequest(
+            val delivered = repository.transportRequestForAuthorization(
+                authorization = authorization,
+                intent = RoomTransportIntent.Seek,
                 action = TransportAction.Seek.wire,
                 positionSeconds = positionSeconds,
                 isPaused = state.isPaused,
             )
             if (!delivered) repository.reportDeliveryFailure("room_transport_unavailable")
         }
+    }
+
+    /**
+     * Reconcile a direct MediaSession play/pause change with room authority.
+     *
+     * Returns the authoritative `playWhenReady` value when the caller must
+     * immediately undo a local-only change. Authorized attempts are also sent
+     * through the room and take effect later via the scheduled room command.
+     */
+    fun onExternalPlayWhenReadyChanged(localPlayWhenReady: Boolean): Boolean? {
+        val authorization = repository.currentTransportAuthorization()
+        val snapshot = authorization?.snapshot
+        val decision = externalPlayPauseDecision(
+            snapshot = snapshot,
+            localPlayWhenReady = localPlayWhenReady,
+        ) ?: return null
+        if (authorization == null) return decision.restorePlayWhenReady
+        val requestIsPaused = decision.requestIsPaused
+        if (requestIsPaused != null) {
+            val state = viewModel.uiState.value
+            controllerScope.launch {
+                val delivered = repository.transportRequestForAuthorization(
+                    authorization = authorization,
+                    intent = RoomTransportIntent.PlayPause,
+                    action = if (requestIsPaused) {
+                        TransportAction.Pause.wire
+                    } else {
+                        TransportAction.Play.wire
+                    },
+                    positionSeconds = state.position,
+                    isPaused = requestIsPaused,
+                )
+                if (!delivered) repository.reportDeliveryFailure("room_transport_unavailable")
+            }
+        }
+        return decision.restorePlayWhenReady
     }
 
     /** Leave the room. Host close tears the room down for everyone; both reset local state. */

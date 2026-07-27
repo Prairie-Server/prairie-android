@@ -28,6 +28,22 @@ import org.siloserver.silo.playback.encodeSubtitleIdentityPreference
 
 class TvPlaybackFreshLoadOwnershipTest {
     @Test
+    fun `fresh TV starter defers manager and lifecycle publication until UI is ready`() {
+        val source = File(
+            "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvVideoPlaybackStarter.kt",
+        ).readText()
+        val managerStart = source
+            .substringAfter("playbackSessionManager.startVideoSessionV3(")
+            .substringBefore("\n                )")
+        val lifecycleAdoption = source
+            .substringAfter("sessionLifecycle.adoptActiveSessionIfCurrent(")
+            .substringBefore("\n            )")
+
+        assertTrue(managerStart.contains("deferPublication = true"))
+        assertTrue(lifecycleAdoption.contains("deferPublication = true"))
+    }
+
+    @Test
     fun `post publication failure restores exact predecessor while stale B cannot overwrite C`() {
         data class State(val sessionId: String)
 

@@ -18,6 +18,7 @@ import org.siloserver.silo.network.RoomRealtimeEvent
 import org.siloserver.silo.network.WatchTogetherRealtimeClient
 import org.siloserver.silo.network.api.WatchTogetherApi
 import org.siloserver.silo.watchtogether.RoomSession
+import org.siloserver.silo.watchtogether.RoomTransportIntent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -32,6 +33,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -62,6 +64,10 @@ class WatchTogetherRepositoryTest {
         var lastAuthScope: AuthScopeSnapshot? = null
         var createResult: CompletableDeferred<ApiResult<RoomResponse>>? = null
         var selectionResult: CompletableDeferred<ApiResult<RoomResponse>>? = null
+        var listSuggestionsResponse: ApiResult<SuggestionsResponse> =
+            ApiResult.Success(SuggestionsResponse())
+        var listSuggestionsResult: CompletableDeferred<ApiResult<SuggestionsResponse>>? = null
+        var listSuggestionsCalls = 0
         override suspend fun createRoom(request: CreateRoomRequest, scope: AuthScopeSnapshot): ApiResult<RoomResponse> {
             lastAuthScope = scope
             return createResult?.await() ?: createResponse
@@ -98,7 +104,11 @@ class WatchTogetherRepositoryTest {
             return ApiResult.Success(Unit)
         }
         override suspend fun listSuggestions(roomId: String, roomToken: String, scope: AuthScopeSnapshot) =
-            ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
+            (listSuggestionsResult?.await() ?: listSuggestionsResponse).also {
+                listSuggestionsCalls++
+                lastRoomToken = roomToken
+                lastAuthScope = scope
+            }
         override suspend fun addSuggestion(
             roomId: String,
             roomToken: String,
@@ -142,6 +152,7 @@ class WatchTogetherRepositoryTest {
         val transportActions = mutableListOf<String>()
         val readySessions = mutableListOf<String>()
         val bufferingSessions = mutableListOf<String>()
+        var transportResultGate: CompletableDeferred<Boolean>? = null
         var connectBehavior: ((Int) -> Flow<RoomRealtimeEvent>)? = null
         /**
          * When non-null, each connect attempt emits this one event and then throws.
@@ -180,6 +191,17 @@ class WatchTogetherRepositoryTest {
             return true
         }
         override suspend fun transportRequest(action: String, positionSeconds: Double?, isPaused: Boolean): Boolean {
+            transportActions += action
+            return true
+        }
+        override suspend fun currentConnectionId(): Long? = connectCount.toLong().takeIf { it > 0L }
+        override suspend fun transportRequestOnConnection(
+            connectionId: Long,
+            action: String,
+            positionSeconds: Double?,
+            isPaused: Boolean,
+        ): Boolean {
+            transportResultGate?.let { return it.await() }
             transportActions += action
             return true
         }
@@ -223,6 +245,196 @@ class WatchTogetherRepositoryTest {
         r.setSelection(SetSelectionRequest(contentId = "tt-9"))
         assertEquals("jwt-room", api.lastRoomToken)
         assertEquals("tt-9", api.lastSelection?.contentId)
+    }
+
+    @Test
+    fun `join hydrates suggestions that predate the websocket connection`() = runTest {
+        val api = FakeApi().apply {
+            listSuggestionsResponse = ApiResult.Success(
+                SuggestionsResponse(suggestions = listOf(suggestion("existing"))),
+            )
+        }
+        val repository = repo(api = api)
+
+        val result = repository.joinRoom(JoinRoomRequest(code = "ABCD1234"))
+
+        assertIs<ApiResult.Success<RoomResponse>>(result)
+        assertEquals(1, api.listSuggestionsCalls)
+        assertEquals(listOf("existing"), repository.suggestions.value.map { it.id })
+    }
+
+    @Test
+    fun `join returns obsolete when its hydration lease is replaced by another room`() = runTest {
+        val hydration = CompletableDeferred<ApiResult<SuggestionsResponse>>()
+        val api = FakeApi().apply { listSuggestionsResult = hydration }
+        val repository = repo(api = api)
+        val joiningA = async { repository.joinRoom(JoinRoomRequest(code = "ABCD1234")) }
+        runCurrent()
+
+        api.createResponse = ApiResult.Success(
+            RoomResponse(RoomSnapshot(roomId = "room-2", code = "EFGH5678"), "jwt-room-2"),
+        )
+        assertIs<ApiResult.Success<RoomResponse>>(repository.createRoom(CreateRoomRequest()))
+        hydration.complete(ApiResult.Success(SuggestionsResponse(suggestions = listOf(suggestion("stale")))))
+
+        val staleResult = assertIs<ApiResult.Error>(joiningA.await())
+        assertEquals("obsolete_room_request", staleResult.error)
+        assertEquals("room-2", repository.roomSnapshot.value?.roomId)
+        assertTrue(repository.suggestions.value.isEmpty())
+    }
+
+    @Test
+    fun `join returns obsolete when a newer room request starts during hydration`() = runTest {
+        val hydration = CompletableDeferred<ApiResult<SuggestionsResponse>>()
+        val newerCreate = CompletableDeferred<ApiResult<RoomResponse>>()
+        val api = FakeApi().apply {
+            listSuggestionsResult = hydration
+            createResult = newerCreate
+        }
+        val repository = repo(api = api)
+        val joiningA = async { repository.joinRoom(JoinRoomRequest(code = "ABCD1234")) }
+        runCurrent()
+        val creatingB = async { repository.createRoom(CreateRoomRequest()) }
+        runCurrent()
+
+        hydration.complete(ApiResult.Success(SuggestionsResponse(suggestions = listOf(suggestion("stale")))))
+
+        val staleResult = assertIs<ApiResult.Error>(joiningA.await())
+        assertEquals("obsolete_room_request", staleResult.error)
+        assertTrue(repository.suggestions.value.isEmpty())
+        newerCreate.complete(
+            ApiResult.Success(
+                RoomResponse(RoomSnapshot(roomId = "room-2", code = "EFGH5678"), "jwt-room-2"),
+            ),
+        )
+        assertIs<ApiResult.Success<RoomResponse>>(creatingB.await())
+    }
+
+    @Test
+    fun `transport lease cannot send into a replacement room`() = runTest {
+        val api = FakeApi()
+        val realtime = FakeRealtime()
+        val repository = repo(api = api, realtime = realtime)
+        repository.createRoom(CreateRoomRequest())
+        val connection = launch { repository.connect("room-1") }
+        runCurrent()
+        realtime.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+        val authorizationA = requireNotNull(repository.currentTransportAuthorization())
+
+        api.createResponse = ApiResult.Success(
+            RoomResponse(
+                RoomSnapshot(
+                    roomId = "room-2",
+                    code = "EFGH5678",
+                    phase = org.siloserver.silo.model.watchtogether.RoomPhase.Playing,
+                    selfCanControlTransport = true,
+                ),
+                "jwt-room-2",
+            ),
+        )
+        repository.createRoom(CreateRoomRequest())
+
+        assertFalse(
+            repository.transportRequestForAuthorization(
+                authorization = authorizationA,
+                intent = RoomTransportIntent.PlayPause,
+                action = "pause",
+                positionSeconds = 42.0,
+                isPaused = true,
+            ),
+        )
+        assertTrue(realtime.transportActions.isEmpty())
+        connection.cancel()
+    }
+
+    @Test
+    fun `transport lease revalidates authority after policy changes in the same room`() = runTest {
+        val api = FakeApi().apply {
+            createResponse = ApiResult.Success(
+                RoomResponse(
+                    RoomSnapshot(
+                        roomId = "room-1",
+                        code = "ABCD1234",
+                        phase = org.siloserver.silo.model.watchtogether.RoomPhase.Playing,
+                        selfCanControlTransport = true,
+                    ),
+                    "jwt-room",
+                ),
+            )
+        }
+        val realtime = FakeRealtime()
+        val repository = repo(api = api, realtime = realtime)
+        repository.createRoom(CreateRoomRequest())
+        val connection = launch { repository.connect("room-1") }
+        runCurrent()
+        realtime.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+        val authorizationBeforePolicyChange = requireNotNull(repository.currentTransportAuthorization())
+        realtime.events.emit(
+            RoomRealtimeEvent.SnapshotEvent(
+                api.createResponse.let { (it as ApiResult.Success).data.room.copy(selfCanControlTransport = false) },
+            ),
+        )
+        runCurrent()
+
+        assertFalse(
+            repository.transportRequestForAuthorization(
+                authorization = authorizationBeforePolicyChange,
+                intent = RoomTransportIntent.PlayPause,
+                action = "pause",
+                positionSeconds = 42.0,
+                isPaused = true,
+            ),
+        )
+        assertTrue(realtime.transportActions.isEmpty())
+        connection.cancel()
+    }
+
+    @Test
+    fun `blocked physical send does not hold room replacement or reset mutex`() = runTest {
+        val api = FakeApi().apply {
+            createResponse = ApiResult.Success(
+                RoomResponse(
+                    RoomSnapshot(
+                        roomId = "room-1",
+                        code = "ABCD1234",
+                        phase = org.siloserver.silo.model.watchtogether.RoomPhase.Playing,
+                        selfCanControlTransport = true,
+                    ),
+                    "jwt-room",
+                ),
+            )
+        }
+        val realtime = FakeRealtime().apply {
+            transportResultGate = CompletableDeferred()
+        }
+        val repository = repo(api = api, realtime = realtime)
+        repository.createRoom(CreateRoomRequest())
+        val connection = launch { repository.connect("room-1") }
+        runCurrent()
+        realtime.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+        val authorization = requireNotNull(repository.currentTransportAuthorization())
+
+        val blockedSend = async {
+            repository.transportRequestForAuthorization(
+                authorization = authorization,
+                intent = RoomTransportIntent.PlayPause,
+                action = "pause",
+                positionSeconds = 42.0,
+                isPaused = true,
+            )
+        }
+        runCurrent()
+        val reset = async { repository.reset() }
+        runCurrent()
+
+        assertTrue(reset.isCompleted)
+        assertFalse(blockedSend.isCompleted)
+        realtime.transportResultGate?.complete(false)
+        assertFalse(blockedSend.await())
+        connection.cancel()
     }
 
     @Test

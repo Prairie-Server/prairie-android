@@ -20,6 +20,9 @@ class TvWatchTogetherSurfaceSourceTest {
     private val qrPanel = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/auth/QrCodePanel.kt",
     ).readText()
+    private val playerScreen = File(
+        "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt",
+    ).readText()
 
     @Test
     fun detailOverflowOpensTheEntryDialog() {
@@ -70,5 +73,17 @@ class TvWatchTogetherSurfaceSourceTest {
     fun qrQuietZoneIsModuleAware() {
         assertTrue(qrPanel.contains("EncodeHintType.MARGIN to 4"))
         assertTrue(!qrPanel.contains("quietZone: Dp"))
+    }
+
+    @Test
+    fun roomCloseConfirmationTakesDpadFocusFromThePlayer() {
+        val dialog = playerScreen.substringAfter("private fun TvRoomCloseConfirmDialog(")
+        assertTrue(dialog.contains("rememberTvDialogInitialFocus(closeActionFocus)"))
+        assertTrue(dialog.contains(".focusRequester(closeActionFocus)"))
+        assertTrue(!dialog.contains("closeActionFocus.requestFocus()"))
+        assertTrue(dialog.contains("Popup("))
+        assertTrue(dialog.contains("PopupProperties("))
+        assertTrue(dialog.contains("focusable = true"))
+        assertTrue(dialog.contains("onDismissRequest = onCancel"))
     }
 }
