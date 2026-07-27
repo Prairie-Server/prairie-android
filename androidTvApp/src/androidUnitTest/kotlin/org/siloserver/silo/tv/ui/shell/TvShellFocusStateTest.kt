@@ -191,6 +191,20 @@ class TvShellFocusStateTest {
     }
 
     @Test
+    fun closingMenuForPopupThenDismissingPopupRefocusesAvatar() {
+        val state = TvShellFocusState()
+        state.previewProfileMenu()
+        state.enterProfileMenu()
+        val before = state.profileFocusRequest
+
+        state.closeProfileMenuForContent()
+        assertEquals(before, state.profileFocusRequest)
+
+        state.dismissProfileMenu()
+        assertEquals(before + 1, state.profileFocusRequest)
+    }
+
+    @Test
     fun profileDwellPreviewsWithoutStealingFocusAndDownEnters() {
         val s = TvShellFocusState()
 

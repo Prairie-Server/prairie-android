@@ -501,6 +501,11 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
+                onOpenWatchTogether = { room ->
+                    navController.navigate(tvWatchTogetherDestination(room)) {
+                        launchSingleTop = true
+                    }
+                },
                 onOpenLibraryCollectionDetail = { libraryId, collectionId, title ->
                     navController.navigate(
                         TvRoute.LibraryCollectionDetail(libraryId, collectionId, title).route,
