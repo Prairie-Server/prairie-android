@@ -16,7 +16,7 @@ class CleartextConsentStoreTest {
         val file = Files.createTempDirectory("cleartext-consent").resolve("preferences.preferences_pb").toFile()
         val dataStore = PreferenceDataStoreFactory.create(scope = backgroundScope) { file }
         val store = DataStoreCleartextConsentStore(dataStore)
-        val supplied = "HTTP://User:secret@SILO.LAN:80/private?token=credential#fragment"
+        val supplied = "HTTP://User:secret@PRAIRIE.LAN:80/private?token=credential#fragment"
 
         store.approve(supplied)
 
@@ -40,7 +40,7 @@ class CleartextConsentStoreTest {
             PreferenceDataStoreFactory.create(scope = backgroundScope) { file },
         )
 
-        store.approve("http://SILO.LAN:8090/path")
+        store.approve("http://PRAIRIE.LAN:8090/path")
 
         assertTrue(store.isApproved("http://prairie.lan:8090/other"))
         assertFalse(store.isApproved("http://prairie.lan:8091"))
@@ -52,8 +52,8 @@ class CleartextConsentStoreTest {
     fun normalizedOriginDropsCredentialsPathQueryFragmentAndDefaultPort() {
         assertEquals(
             "http://prairie.lan",
-            cleartextOrigin("HTTP://user:password@SILO.LAN:80/path?q=token#fragment"),
+            cleartextOrigin("HTTP://user:password@PRAIRIE.LAN:80/path?q=token#fragment"),
         )
-        assertEquals("http://prairie.lan:8090", cleartextOrigin("http://SILO.LAN:8090/path"))
+        assertEquals("http://prairie.lan:8090", cleartextOrigin("http://PRAIRIE.LAN:8090/path"))
     }
 }

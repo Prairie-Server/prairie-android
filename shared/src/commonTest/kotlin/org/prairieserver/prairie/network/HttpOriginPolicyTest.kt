@@ -16,7 +16,7 @@ class HttpOriginPolicyTest {
                 canonicalHttpOrigin(origin) in approved
         }
 
-        assertFalse(consent.requiresApproval("HTTP://SILO.EXAMPLE:80/path"))
+        assertFalse(consent.requiresApproval("HTTP://PRAIRIE.EXAMPLE:80/path"))
         assertFalse(consent.requiresApproval("http://[2001:db8::1]:8090/path"))
         assertTrue(consent.requiresApproval("http://prairie.example:8090/path"))
         assertTrue(consent.requiresApproval("http://user:secret@prairie.example/path"))
@@ -32,11 +32,11 @@ class HttpOriginPolicyTest {
                 origin == "http://prairie.example"
         }
 
-        assertFalse(consent.requiresApproval("ws://SILO.EXAMPLE:80/rooms/r/ws?room_token=secret"))
+        assertFalse(consent.requiresApproval("ws://PRAIRIE.EXAMPLE:80/rooms/r/ws?room_token=secret"))
         assertTrue(consent.requiresApproval("ws://prairie.example:8090/rooms/r/ws"))
         assertFalse(consent.requiresApproval("wss://prairie.example/rooms/r/ws"))
-        assertEquals("http://prairie.example", canonicalHttpOrigin("ws://SILO.EXAMPLE:80/rooms/r/ws"))
-        assertEquals("https://prairie.example", canonicalHttpOrigin("wss://SILO.EXAMPLE:443/rooms/r/ws"))
+        assertEquals("http://prairie.example", canonicalHttpOrigin("ws://PRAIRIE.EXAMPLE:80/rooms/r/ws"))
+        assertEquals("https://prairie.example", canonicalHttpOrigin("wss://PRAIRIE.EXAMPLE:443/rooms/r/ws"))
         assertTrue(isSameHttpOrigin("http://prairie.example", "ws://prairie.example/rooms/r/ws"))
         assertTrue(isSameHttpOrigin("https://prairie.example", "wss://prairie.example/rooms/r/ws"))
     }
@@ -44,7 +44,7 @@ class HttpOriginPolicyTest {
     @Test
     fun defaultPortsAndCaseNormalize() {
         assertTrue(isSameHttpOrigin("HTTPS://Prairie.Example", "https://prairie.example:443/a"))
-        assertTrue(isSameHttpOrigin("http://prairie.example", "http://SILO.EXAMPLE:80/a"))
+        assertTrue(isSameHttpOrigin("http://prairie.example", "http://PRAIRIE.EXAMPLE:80/a"))
         assertEquals(
             HttpOrigin(scheme = "https", host = "prairie.example", port = 443),
             httpOrigin("HTTPS://Prairie.Example"),
@@ -56,7 +56,7 @@ class HttpOriginPolicyTest {
         assertTrue(
             isSameHttpOrigin(
                 "https://prairie.example/base?server=true#settings",
-                "https://SILO.EXAMPLE/library/items?offset=10#details",
+                "https://PRAIRIE.EXAMPLE/library/items?offset=10#details",
             ),
         )
     }
@@ -70,7 +70,7 @@ class HttpOriginPolicyTest {
         assertTrue(
             isSameHttpOrigin(
                 "https://prairie.example:8443",
-                "https://SILO.EXAMPLE:8443/a",
+                "https://PRAIRIE.EXAMPLE:8443/a",
             ),
         )
     }
