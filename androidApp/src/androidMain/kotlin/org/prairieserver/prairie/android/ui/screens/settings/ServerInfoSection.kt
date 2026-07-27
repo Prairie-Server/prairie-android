@@ -1,12 +1,14 @@
 package org.prairieserver.prairie.android.ui.screens.settings
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import org.prairieserver.prairie.update.AppUpdateStatus
+import org.prairieserver.prairie.update.changelogUrlOrNull
 import org.prairieserver.prairie.update.latestVersionLabel
 import org.prairieserver.prairie.update.releaseUrlOrNull
 import org.prairieserver.prairie.update.statusLabel
@@ -21,11 +23,12 @@ fun ServerInfoSection(
     appVersionName: String,
     appUpdateStatus: AppUpdateStatus,
     onManageServersClick: () -> Unit = {},
-    onUpdateClick: ((String) -> Unit)? = null,
+    onOpenUrl: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val latest = appUpdateStatus.latestVersionLabel()
     val releaseUrl = appUpdateStatus.releaseUrlOrNull()
+    val changelogUrl = appUpdateStatus.changelogUrlOrNull()
     SettingsSectionCard(modifier = modifier) {
         SettingsRowLabel(
             title = "Server",
@@ -51,9 +54,9 @@ fun ServerInfoSection(
             },
             value = appUpdateStatus.statusLabel(),
             onClick = releaseUrl?.let { url ->
-                onUpdateClick?.let { handler -> { handler(url) } }
+                onOpenUrl?.let { handler -> { handler(url) } }
             },
-            showChevron = releaseUrl != null && onUpdateClick != null,
+            showChevron = releaseUrl != null && onOpenUrl != null,
         )
         if (latest != null &&
             appUpdateStatus !is AppUpdateStatus.Checking &&
@@ -64,6 +67,16 @@ fun ServerInfoSection(
                 icon = Icons.Default.Info,
                 badgeColor = SettingsBadgeGray,
                 value = latest,
+            )
+        }
+        if (changelogUrl != null && onOpenUrl != null) {
+            SettingsRowLabel(
+                title = "Changelog",
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                badgeColor = SettingsBadgeGray,
+                value = "View",
+                onClick = { onOpenUrl(changelogUrl) },
+                showChevron = true,
             )
         }
     }

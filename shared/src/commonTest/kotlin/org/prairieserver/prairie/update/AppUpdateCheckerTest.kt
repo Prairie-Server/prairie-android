@@ -36,6 +36,7 @@ class AppUpdateCheckerTest {
         val status = AppUpdateChecker(client).check("0.3.11")
         val upToDate = assertIs<AppUpdateStatus.UpToDate>(status)
         assertEquals("0.3.11", upToDate.latestVersion)
+        assertEquals(AppUpdateChecker.DEFAULT_CHANGELOG_URL, upToDate.changelogUrl)
     }
 
     @Test
@@ -44,7 +45,8 @@ class AppUpdateCheckerTest {
             install(ContentNegotiation) { json(PrairieJson) }
         }
         val status = AppUpdateChecker(client).check("0.3.11")
-        assertIs<AppUpdateStatus.Unavailable>(status)
+        val unavailable = assertIs<AppUpdateStatus.Unavailable>(status)
+        assertEquals(AppUpdateChecker.DEFAULT_CHANGELOG_URL, unavailable.changelogUrl)
     }
 
     private fun mockClient(status: HttpStatusCode, body: String): HttpClient =

@@ -346,7 +346,7 @@ fun SettingsScreen(
                     appVersionName = state.appVersionName,
                     appUpdateStatus = state.appUpdateStatus,
                     onManageServersClick = onNavigateToServers,
-                    onUpdateClick = { url ->
+                    onOpenUrl = { url ->
                         runCatching { uriHandler.openUri(url) }
                     },
                 )

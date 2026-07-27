@@ -40,19 +40,28 @@ class AppUpdateChecker(
                 return AppUpdateStatus.UpToDate(
                     currentVersion = currentVersionName,
                     latestVersion = currentVersionName,
+                    changelogUrl = DEFAULT_CHANGELOG_URL,
                 )
             }
             if (!response.status.isSuccess()) {
-                return AppUpdateStatus.Unavailable(currentVersionName)
+                return AppUpdateStatus.Unavailable(
+                    currentVersion = currentVersionName,
+                    changelogUrl = DEFAULT_CHANGELOG_URL,
+                )
             }
             val release = response.body<GitHubLatestRelease>()
+            val releaseUrl = release.htmlUrl
             resolveAppUpdateStatus(
                 currentVersionName = currentVersionName,
                 latestVersionName = release.tagName ?: release.name,
-                releaseUrl = release.htmlUrl,
+                releaseUrl = releaseUrl,
+                changelogUrl = releaseUrl ?: DEFAULT_CHANGELOG_URL,
             )
         } catch (_: Exception) {
-            AppUpdateStatus.Unavailable(currentVersionName)
+            AppUpdateStatus.Unavailable(
+                currentVersion = currentVersionName,
+                changelogUrl = DEFAULT_CHANGELOG_URL,
+            )
         }
     }
 
@@ -66,6 +75,8 @@ class AppUpdateChecker(
     companion object {
         const val DEFAULT_RELEASES_LATEST_URL =
             "https://api.github.com/repos/Prairie-Server/prairie-android/releases/latest"
+        const val DEFAULT_CHANGELOG_URL =
+            "https://github.com/Prairie-Server/prairie-android/releases"
         private const val TIMEOUT_MS = 8_000L
     }
 }

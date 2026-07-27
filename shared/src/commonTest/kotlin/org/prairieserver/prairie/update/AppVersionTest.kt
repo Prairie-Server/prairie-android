@@ -40,15 +40,24 @@ class AppUpdateStatusResolveTest {
         assertEquals("0.3.11", available.currentVersion)
         assertEquals("1.4.0", available.latestVersion)
         assertEquals("https://example.com/r", available.releaseUrl)
+        assertEquals("https://example.com/r", available.changelogUrl)
         assertEquals("Update available", status.statusLabel())
         assertEquals("1.4.0", status.latestVersionLabel())
+        assertEquals("https://example.com/r", status.changelogUrlOrNull())
     }
 
     @Test
-    fun resolve_up_to_date_when_latest_matches_or_is_older() {
-        val same = resolveAppUpdateStatus("1.4.0", "v1.4.0", null)
-        assertIs<AppUpdateStatus.UpToDate>(same)
+    fun resolve_up_to_date_keeps_changelog_url() {
+        val same = resolveAppUpdateStatus(
+            currentVersionName = "1.4.0",
+            latestVersionName = "v1.4.0",
+            releaseUrl = "https://example.com/r",
+            changelogUrl = "https://example.com/changelog",
+        )
+        val upToDate = assertIs<AppUpdateStatus.UpToDate>(same)
         assertEquals("Up to date", same.statusLabel())
+        assertEquals("https://example.com/changelog", upToDate.changelogUrl)
+        assertEquals("https://example.com/changelog", same.changelogUrlOrNull())
 
         val olderLatest = resolveAppUpdateStatus("1.5.0", "1.4.0", null)
         assertIs<AppUpdateStatus.UpToDate>(olderLatest)
@@ -64,5 +73,14 @@ class AppUpdateStatusResolveTest {
         )
         assertNull(resolveAppUpdateStatus("1.0.0", null, null).latestVersionLabel())
         assertNull(resolveAppUpdateStatus("1.0.0", null, null).releaseUrlOrNull())
+        assertEquals(
+            "https://example.com/releases",
+            resolveAppUpdateStatus(
+                currentVersionName = "1.0.0",
+                latestVersionName = null,
+                releaseUrl = null,
+                changelogUrl = "https://example.com/releases",
+            ).changelogUrlOrNull(),
+        )
     }
 }

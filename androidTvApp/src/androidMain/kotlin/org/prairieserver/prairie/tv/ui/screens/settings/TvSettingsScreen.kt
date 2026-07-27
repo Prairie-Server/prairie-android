@@ -89,6 +89,7 @@ import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnostic
 import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
 import org.prairieserver.prairie.tv.ui.theme.FocusedContent
 import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.prairieserver.prairie.update.changelogUrlOrNull
 import org.prairieserver.prairie.update.latestVersionLabel
 import org.prairieserver.prairie.update.releaseUrlOrNull
 import org.prairieserver.prairie.update.statusLabel
@@ -1352,6 +1353,12 @@ private fun TvServerSettingsPane(
                 )
                 state.appUpdateStatus.latestVersionLabel()?.let { latest ->
                     SettingsInfoRow(label = "Latest version", value = latest)
+                }
+                state.appUpdateStatus.changelogUrlOrNull()?.let { url ->
+                    SettingsActionRow(
+                        label = "Changelog",
+                        onClick = { runCatching { uriHandler.openUri(url) } },
+                    )
                 }
                 state.appUpdateStatus.releaseUrlOrNull()?.let { url ->
                     SettingsActionRow(
