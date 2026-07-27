@@ -3534,7 +3534,7 @@ data class PlaybackClock(
 )
 
 internal fun TvPlayerViewModel.UiState.withoutPlaybackClock(): TvPlayerViewModel.UiState =
-    copy(position = 0.0)
+    copy(position = 0.0, duration = 0.0)
 
 internal fun TvPlayerViewModel.UiState.toPlaybackClock(): PlaybackClock =
     PlaybackClock(position = position, duration = duration)

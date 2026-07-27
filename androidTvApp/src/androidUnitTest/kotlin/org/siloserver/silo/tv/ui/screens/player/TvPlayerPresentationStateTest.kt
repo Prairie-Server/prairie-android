@@ -18,6 +18,16 @@ class TvPlayerPresentationStateTest {
     }
 
     @Test
+    fun durationOnlyChangesProduceEqualPresentationState() {
+        val first = TvPlayerViewModel.UiState(position = 12.0, duration = 100.0)
+        val second = first.copy(duration = 101.0)
+
+        assertEquals(first.withoutPlaybackClock(), second.withoutPlaybackClock())
+        assertEquals(PlaybackClock(12.0, 100.0), first.toPlaybackClock())
+        assertEquals(PlaybackClock(12.0, 101.0), second.toPlaybackClock())
+    }
+
+    @Test
     fun screenCollectsStructuralStateAtRootAndClockOnlyInsideWrapper() {
         val source = playerScreenSource()
 
