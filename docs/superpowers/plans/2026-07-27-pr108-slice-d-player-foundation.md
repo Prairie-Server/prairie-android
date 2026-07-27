@@ -47,3 +47,36 @@ Later focused PR 108 corrections to port after that foundation:
 - Final writes must use the identity captured when playback began.
 - Screen recreation must not duplicate or tear down an adopted session.
 - Teardown must not block the UI thread or publish stale terminal state.
+
+## Implemented traceability
+
+This branch is a forward port against slice C, so the local commit ids differ
+from the archival PR 108 ids. The path/purpose mapping is:
+
+- TV clock, seek, duration, and non-blocking exit:
+  `f4444698`, `582b554c`, `94cb09b1`, `49cae1ff` ->
+  `072c61ab`, `676c6b87`, `d44a4f3b`, `7d401ac8`, `7b481d31`.
+- Mobile clock isolation, recreation ownership, lifecycle-safe teardown, and
+  episode rollup:
+  `177b5fe7`, `491eded9`, `93d7318d`, `ee59fa77`, `94c60922` ->
+  `ec0f0dd2`, `63c5db6d`, `8ae2a4b1`, `5ca6a48a`, `7b481d31`.
+- Identity-captured final writes and failure retention:
+  `fade71e8`, `c8481f1c` -> `cec1f7ed`, `c2a63d5f`.
+- Start-versus-exit ownership, retry accounting, and authenticated PiP actions:
+  `5811f0bf`, `cc5d2b2c`, `b64b7c04` ->
+  `a1d9e491`, `c888efe3`, `78015de8`, with the D-only lifecycle reconstruction
+  in `e3e3b043`.
+
+The following fixes are intentionally deferred intact to slice E because their
+contracts depend on transactional subtitle publication and staged replans:
+`8403b8b8`, `a36c7211`, `ac14e51a`, and the staged-publication portion of
+`c8481f1c`. Pulling `8403b8b8` into D would otherwise import roughly 1,300
+lines of the subtitle transaction implementation.
+
+## Verification record
+
+- Focused lifecycle race test observed failing before the epoch guard and
+  passing afterward.
+- Shared player, phone player/detail, and TV player focused unit suites pass.
+- Full unit/release/supply-chain gates and independent review remain required
+  before the draft PR is published.
