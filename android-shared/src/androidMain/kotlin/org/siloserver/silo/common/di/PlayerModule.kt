@@ -43,7 +43,9 @@ val playerModule = module {
     }
     single { MediaAuthInterceptor(authSession = get()) }
 
-    single<OkHttpClient>(PLAYER_TRANSPORT_OKHTTP_QUALIFIER) { buildPlayerOkHttpClient() }
+    single<OkHttpClient>(PLAYER_TRANSPORT_OKHTTP_QUALIFIER) {
+        buildPlayerOkHttpClient(cleartextOriginConsent = getOrNull())
+    }
 
     // Reader/download callers still consume the authenticated OkHttp client.
     // Media3 itself uses the raw pooled transport below and applies auth in a

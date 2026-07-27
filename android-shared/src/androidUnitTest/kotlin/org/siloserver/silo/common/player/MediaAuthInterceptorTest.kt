@@ -2,6 +2,9 @@ package org.siloserver.silo.common.player
 
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.TokenManagerImpl
+import org.siloserver.silo.network.CleartextOriginConsent
+import org.siloserver.silo.network.CleartextOriginNotApprovedException
+import org.siloserver.silo.network.canonicalHttpOrigin
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -24,8 +27,43 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class MediaAuthInterceptorTest {
+    @Test
+    fun `redirect from approved origin to unapproved cleartext is blocked before downstream`() {
+        val origin = MockWebServer()
+        val downstream = MockWebServer()
+        origin.start()
+        downstream.start()
+        try {
+            origin.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", downstream.url("/asset")),
+            )
+            val approvedOrigin = canonicalHttpOrigin(origin.url("/").toString())
+            val consent = object : CleartextOriginConsent {
+                override suspend fun isApproved(origin: String): Boolean =
+                    canonicalHttpOrigin(origin) == approvedOrigin
+            }
+            val client = buildPlayerOkHttpClient(consent)
+            val request = Request.Builder()
+                .url(origin.url("/redirect"))
+                .header("X-Stream-Signature", "secret-plan-header")
+                .build()
+
+            assertFailsWith<CleartextOriginNotApprovedException> {
+                client.newCall(request).execute().close()
+            }
+            assertEquals(1, origin.requestCount)
+            assertEquals(0, downstream.requestCount)
+        } finally {
+            origin.shutdown()
+            downstream.shutdown()
+        }
+    }
+
 
     @Test
     fun `adds auth and active profile headers to media and reader requests`() {

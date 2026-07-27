@@ -20,6 +20,8 @@ class HttpOriginPolicyTest {
         assertFalse(consent.requiresApproval("http://[2001:db8::1]:8090/path"))
         assertTrue(consent.requiresApproval("http://silo.example:8090/path"))
         assertTrue(consent.requiresApproval("http://user:secret@silo.example/path"))
+        assertTrue(consent.requiresApproval("""http:\\silo.example\private"""))
+        assertTrue(consent.requiresApproval("HtTp:/silo.example/private"))
         assertFalse(consent.requiresApproval("https://silo.example"))
     }
 

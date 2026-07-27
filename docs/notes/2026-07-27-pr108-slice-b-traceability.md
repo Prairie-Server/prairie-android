@@ -82,6 +82,8 @@ commits.
   while section metadata reads only a bounded prefix.
 - Follow-up review found two additional cleartext destination gaps. The final
   correction checks the actual resolved URL for absolute unauthenticated auth
-  POSTs, fails closed for malformed HTTP authorities, and rejects an
-  unapproved final Media3 HTTP stream before server-issued plan headers or
-  query credentials reach the transport.
+  POSTs, fails closed for every lexical `http:` form (including backslash
+  separators), and rejects an unapproved Media3 HTTP stream before
+  server-issued plan headers or query credentials reach the transport. A
+  network interceptor repeats that check for every redirect follow-up, so
+  HTTPS-to-HTTP and approved-to-unapproved redirects cannot bypass it.
