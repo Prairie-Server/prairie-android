@@ -57,6 +57,32 @@ class TvServerListViewModel(
     private var scanJob: Job? = null
     private var didAutoScan = false
 
+    private fun discoveryBaseHosts(): List<String> {
+        fun extractHost(url: String): String? {
+            val normalized = normalizeDiscoveryUrl(url)
+            val schemeSep = normalized.indexOf("://")
+            if (schemeSep < 0) return null
+            val rest = normalized.substring(schemeSep + 3)
+            val authority = rest.substringBefore('/')
+            if (authority.isBlank()) return null
+            return if (authority.startsWith("[")) {
+                val close = authority.indexOf(']')
+                if (close <= 1) null else authority.substring(1, close)
+            } else {
+                authority.substringBefore(':')
+            }?.takeIf { it.isNotBlank() }
+        }
+
+        val out = LinkedHashSet<String>()
+        for (entry in serverRegistry.entries.value) {
+            extractHost(entry.url)?.let { out += it }
+        }
+        serverRegistry.activeEntry.value?.let { active ->
+            extractHost(active.url)?.let { out += it }
+        }
+        return out.toList()
+    }
+
     init {
         viewModelScope.launch { authRepository.refreshActiveServerName() }
         viewModelScope.launch {
@@ -93,9 +119,11 @@ class TvServerListViewModel(
                 )
             }
             try {
+                val baseHosts = discoveryBaseHosts()
                 var hits = lanDiscovery.scan(
                     LanScanOptions(
                         deepScan = false,
+                        baseHosts = baseHosts,
                         onHit = { next ->
                             _uiState.update { state -> state.copy(discovered = next) }
                         },
@@ -113,6 +141,7 @@ class TvServerListViewModel(
                     val deepHits = lanDiscovery.scan(
                         LanScanOptions(
                             deepScan = true,
+                            baseHosts = baseHosts,
                             onHit = { next ->
                                 val merged = mergeDiscoveryLists(hits, next)
                                 _uiState.update { state -> state.copy(discovered = merged) }

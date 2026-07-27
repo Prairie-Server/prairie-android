@@ -50,12 +50,27 @@ class LanCandidatesTest {
         )
         val joined = candidates.joinToString(",")
         assertTrue(joined.contains("prairie.local"))
+        assertTrue(joined.contains("prairie"))
         assertTrue(joined.contains("192.168.2.1"))
         assertTrue(joined.contains("192.168.0.1"))
         assertTrue(joined.contains("192.168.1.1"))
         assertTrue(joined.contains("10.0.0.1"))
         assertTrue(joined.contains(":8080"))
         assertFalse(joined.contains("/System/Info"))
+    }
+
+    @Test
+    fun buildCandidatesIncludesConfiguredBaseHosts() {
+        val candidates = buildCandidates(
+            BuildCandidatesOptions(
+                extraCidrs = emptyList(),
+                deepScan = false,
+                maxHostsPerCidr = 16,
+                baseHosts = listOf("prairie.lan"),
+            ),
+        )
+        val joined = candidates.joinToString(",")
+        assertTrue(joined.contains("prairie.lan"))
     }
 
     @Test

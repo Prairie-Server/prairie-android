@@ -17,6 +17,8 @@ data class LanScanOptions(
     val maxHostsPerCidr: Int = 254,
     val concurrency: Int = 24,
     val localIps: List<String>? = null,
+    /** Hostnames to probe for cross-subnet discovery (via unicast DNS A). */
+    val baseHosts: List<String> = emptyList(),
     val onHit: ((List<DiscoveryHit>) -> Unit)? = null,
     val onProgress: ((done: Int, total: Int) -> Unit)? = null,
 )
@@ -38,6 +40,7 @@ class LanDiscovery(
                 deepScan = options.deepScan,
                 maxHostsPerCidr = options.maxHostsPerCidr,
                 localIps = localIps,
+                baseHosts = options.baseHosts,
             ),
         )
         if (candidates.isEmpty()) return emptyList()
