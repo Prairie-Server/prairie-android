@@ -54,6 +54,38 @@ class TvSkylinePrefetchPolicyTest {
         )
     }
 
+    @Test
+    fun sameContentInDifferentRowsHasDifferentSettledIdentity() {
+        assertEquals(
+            TvSkylineSettledFocus(rowIndex = 0, contentId = "a"),
+            settledFocusIdentity(
+                rawRowIndex = 0,
+                rawFocusedContentId = "a",
+                settledContentId = "a",
+            ),
+        )
+        assertEquals(
+            TvSkylineSettledFocus(rowIndex = 1, contentId = "a"),
+            settledFocusIdentity(
+                rawRowIndex = 1,
+                rawFocusedContentId = "a",
+                settledContentId = "a",
+            ),
+        )
+    }
+
+    @Test
+    fun unsettledFocusHasNoPrefetchIdentity() {
+        assertEquals(
+            null,
+            settledFocusIdentity(
+                rawRowIndex = 1,
+                rawFocusedContentId = "b",
+                settledContentId = "a",
+            ),
+        )
+    }
+
     private fun item(id: String) = SectionItem(
         contentId = id,
         type = "movie",

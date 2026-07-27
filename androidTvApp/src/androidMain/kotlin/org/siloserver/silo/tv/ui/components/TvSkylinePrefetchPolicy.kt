@@ -2,6 +2,22 @@ package org.siloserver.silo.tv.ui.components
 
 import org.siloserver.silo.model.section.SectionItem
 
+internal data class TvSkylineSettledFocus(
+    val rowIndex: Int,
+    val contentId: String,
+)
+
+internal fun settledFocusIdentity(
+    rawRowIndex: Int,
+    rawFocusedContentId: String?,
+    settledContentId: String?,
+): TvSkylineSettledFocus? {
+    if (rawRowIndex < 0 || rawFocusedContentId == null || rawFocusedContentId != settledContentId) {
+        return null
+    }
+    return TvSkylineSettledFocus(rawRowIndex, rawFocusedContentId)
+}
+
 internal fun settledPrefetchItems(
     items: List<SectionItem>,
     rawFocusedContentId: String?,

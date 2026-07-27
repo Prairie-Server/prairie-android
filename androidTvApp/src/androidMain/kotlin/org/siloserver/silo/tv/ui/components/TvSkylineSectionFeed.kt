@@ -186,12 +186,18 @@ fun TvSkylineSectionFeed(
     // Keep a small window around RESTED focus hot. A raw D-pad move cancels the
     // previous job immediately, but the new identity starts no speculative
     // work until the marquee's focus-rest transaction commits it.
-    LaunchedEffect(rows, focusedContentId, marquee.content?.contentId, fetchDetail) {
-        val row = rows.getOrNull(focusedRowIndex) ?: return@LaunchedEffect
+    val settledFocus = settledFocusIdentity(
+        rawRowIndex = focusedRowIndex,
+        rawFocusedContentId = focusedContentId,
+        settledContentId = marquee.content?.contentId,
+    )
+    LaunchedEffect(rows, settledFocus, fetchDetail) {
+        val focus = settledFocus ?: return@LaunchedEffect
+        val row = rows.getOrNull(focus.rowIndex) ?: return@LaunchedEffect
         val window = settledPrefetchItems(
             items = row.items,
-            rawFocusedContentId = focusedContentId,
-            settledContentId = marquee.content?.contentId,
+            rawFocusedContentId = focus.contentId,
+            settledContentId = focus.contentId,
             radius = HeroFocusPrefetchRadius,
         )
         if (window.isEmpty()) return@LaunchedEffect

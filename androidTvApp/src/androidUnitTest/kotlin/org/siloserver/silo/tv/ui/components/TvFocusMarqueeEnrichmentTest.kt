@@ -4,7 +4,9 @@ import org.siloserver.silo.model.catalog.CastMember
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.section.SectionItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -164,6 +166,22 @@ class TvFocusMarqueeEnrichmentTest {
 
         assertEquals("First Movie", state.content?.title)
         assertEquals("https://art/first.jpg", state.content?.heroBackdropUrl)
+    }
+
+    @Test
+    fun `initial seed does not enable network enrichment until real focus`() {
+        val state = TvFocusMarqueeState()
+        val first = SectionItem(
+            contentId = "first",
+            type = "movie",
+            title = "First Movie",
+        )
+
+        state.seedInitialPreview(first, "Continue Watching")
+        assertFalse(state.hasRealCardFocus)
+
+        state.preview(first, "Continue Watching")
+        assertTrue(state.hasRealCardFocus)
     }
 
     @Test

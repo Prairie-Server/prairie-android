@@ -13,7 +13,11 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -67,5 +71,71 @@ class SectionRepositoryCacheTest {
         val cache = FakeCache(preset = listOf(section("cached")))
         val result = repo(HttpStatusCode.NotFound, "{}", cache).getLibrarySections(7)
         assertTrue(result is ApiResult.Error)
+    }
+
+    @Test
+    fun concurrentHomeRequestsShareOneAggregateCall() = runTest {
+        var calls = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine {
+                calls += 1
+                entered.complete(Unit)
+                release.await()
+                respond(
+                    """{"sections":[]}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        val repository = SectionRepository(SectionApi(client))
+
+        val requests = listOf(
+            async { repository.getHomeSections() },
+            async { repository.getHomeSections() },
+        )
+        entered.await()
+        repeat(10) { yield() }
+        release.complete(Unit)
+        requests.awaitAll()
+
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun concurrentHomeItemRequestsShareOneCallPerSection() = runTest {
+        var calls = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine {
+                calls += 1
+                entered.complete(Unit)
+                release.await()
+                respond(
+                    """{"items":[],"total":0}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        val repository = SectionRepository(SectionApi(client))
+
+        val requests = listOf(
+            async { repository.getHomeSectionItems("same") },
+            async { repository.getHomeSectionItems("same") },
+        )
+        entered.await()
+        repeat(10) { yield() }
+        release.complete(Unit)
+        requests.awaitAll()
+
+        assertEquals(1, calls)
     }
 }
