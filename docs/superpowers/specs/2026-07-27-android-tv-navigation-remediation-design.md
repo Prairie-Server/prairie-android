@@ -72,7 +72,32 @@ continues to focus Watchlist, preserving current product behavior.
 The handoff will reuse the established `TvMediaRow` requester contract rather
 than introducing a second focus-navigation architecture.
 
-### 2. Resolve Home once, hydrate only missing sections
+### 2. Deliberate Home-to-menu focus boundary
+
+Rapid or held Up input must traverse Home rows one at a time and stop on the
+first content row. Reaching that row as part of the same repeated-key sequence
+must not immediately move focus into the top menu. A new Up press after the
+remote key has been released may enter the selected top-menu item.
+
+The Skyline row band will continue to own off-screen row relocation. It will
+serialize that relocation so overlapping key-repeat events cannot start
+competing scroll jobs or consume more row transitions than completed focus
+moves. The shell remains the only owner of the final content-to-menu handoff.
+
+### 3. Unify For You saved-list presentation
+
+Watchlist and Favorites chosen from the For You top-menu selector will open the
+existing `TvRecommendationsScreen` with the matching saved-list pill selected.
+They will therefore use the same filter band, inline grid, spacing, focus
+behavior, and Back destination as choosing those pills after entering For You.
+
+Watchlist and Favorites chosen from the profile menu remain standalone utility
+pages. This preserves their established account-navigation role and avoids
+turning every saved-list deep link into a For You route. No repository, server,
+or personal-data behavior changes; both presentations continue to use the
+existing `WatchlistViewModel` and `FavoritesViewModel`.
+
+### 4. Resolve Home once, hydrate only missing sections
 
 Extract a small, platform-neutral Home hydration operation that:
 
@@ -90,7 +115,7 @@ will no longer refetch every inline section.
 The activity warmup remains best-effort and non-blocking. This change does not
 make splash dismissal wait for Home.
 
-### 3. Remove page-entry detail fan-out
+### 5. Remove page-entry detail fan-out
 
 `TvSkylineSectionFeed` will not eagerly fetch full detail or hero-sized artwork
 for the first sixteen cards merely because rows entered composition. Startup
@@ -110,7 +135,7 @@ focused identity rather than every intermediate D-pad position. It will:
 Opening an item-detail screen keeps its existing network-first freshness
 semantics. Cache-first behavior applies only to speculative marquee enrichment.
 
-### 4. Cache and dispatcher boundaries
+### 6. Cache and dispatcher boundaries
 
 Room remains the profile/server-scoped source for offline Home and item-detail
 snapshots. The fix will not alter cache schema or migration state.
@@ -138,6 +163,11 @@ Behavioral tests will cover:
 
 - Down from each For You filter pill, Up return, repeated movement, and
   loading/error/empty states;
+- rapid and held Up sequences stopping on Home's first content row, followed
+  by a fresh Up press entering the selected top-menu item;
+- For You selector Watchlist/Favorites opening the same inline presentation
+  and selected pill as in-page selection, while profile-menu routes remain
+  standalone;
 - inline Home sections causing zero per-section fallback requests;
 - missing sections being hydrated correctly with at most four concurrent
   requests;
@@ -170,6 +200,11 @@ requires:
   full network and image latency.
 - **Timeout or animation tuning:** does not address the measured cold request
   fan-out.
+- **Making all Watchlist/Favorites routes inline:** would change profile-menu
+  and deep-link semantics to solve a mismatch limited to the For You selector.
+- **Debouncing all Up input:** would make ordinary row traversal feel laggy;
+  only the asynchronous row relocation and content/menu boundary need
+  sequencing.
 
 ## Scope Boundaries
 
