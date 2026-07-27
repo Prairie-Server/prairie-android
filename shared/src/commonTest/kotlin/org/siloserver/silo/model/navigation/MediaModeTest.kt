@@ -3,6 +3,7 @@ package org.siloserver.silo.model.navigation
 import org.siloserver.silo.model.personal.UserLibrary
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class MediaModeTest {
     @Test
@@ -177,4 +178,36 @@ class MediaModeTest {
 
     private fun userLibrary(id: Int, type: String): UserLibrary =
         UserLibrary(id = id, name = "Library $id", type = type)
+}
+
+/**
+ * A server library of type "mixed" holds movies and series in one folder.
+ * Leaving it out of the video types did not degrade it — it erased it: the type
+ * mapped to no [MediaMode], so the library never reached navigation, search or
+ * browse on either platform and nothing indicated anything was missing.
+ * silo-apple hit the same thing (#93).
+ */
+class MixedLibraryModeTest {
+
+    @Test
+    fun `a mixed library is a video library on both platforms`() {
+        assertEquals(MediaMode.Video, mobileMediaModeForLibraryType("mixed"))
+        assertEquals(MediaMode.Video, tvMediaModeForLibraryType("mixed"))
+    }
+
+    @Test
+    fun `casing and padding from the server do not hide it`() {
+        assertEquals(MediaMode.Video, mobileMediaModeForLibraryType(" Mixed "))
+        assertEquals(MediaMode.Video, tvMediaModeForLibraryType("MIXED"))
+    }
+
+    /**
+     * Types the client genuinely has no home for must still map to nothing, or
+     * this fix turns "unknown" into "video" and puts photos in the film grid.
+     */
+    @Test
+    fun `still refuses types with no home`() {
+        assertNull(mobileMediaModeForLibraryType("photo"))
+        assertNull(mobileMediaModeForLibraryType("podcast"))
+    }
 }
