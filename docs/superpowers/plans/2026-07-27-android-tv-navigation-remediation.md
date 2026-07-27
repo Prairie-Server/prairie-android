@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restore D-pad access to Android TV For You rows and remove the duplicate, eager cold-start work that makes first Home traversal sluggish on production-sized servers.
+**Goal:** Restore predictable Android TV navigation, unify For You saved-list presentation, and remove the duplicate, eager cold-start work that makes first Home traversal sluggish on production-sized servers.
 
-**Architecture:** A shared pure Home hydrator will consume inline aggregate sections and make at most four fallback requests for genuinely unresolved sections. Android TV will use an explicit two-frame focus bridge into recommendation rows and a small pure prefetch policy that permits neighbor work only after focus has settled; speculative detail reads become cache-first while item-detail screens remain network-first.
+**Architecture:** A shared pure Home hydrator will consume inline aggregate sections and make at most four fallback requests for genuinely unresolved sections. Android TV will use explicit focus policies for recommendation entry and the Home-to-menu boundary, plus a small pure prefetch policy that permits neighbor work only after focus has settled. The For You selector will issue an explicit, repeatable inline-selection request to the existing For You screen; profile-menu saved-list routes remain standalone.
 
 **Tech Stack:** Kotlin Multiplatform, Kotlin coroutines and `kotlinx-coroutines-test`, Compose for TV focus APIs, Ktor `MockEngine`, Room-backed cache ports, Gradle Android unit/release tasks, ADB/gfxinfo for the final Shield smoke.
 
@@ -12,6 +12,9 @@
 
 - Do not change server APIs, server configuration, recommendation ranking, Home row composition, authentication, playback, or database schema.
 - Preserve Watchlist and Favorites behavior and the existing initial Watchlist focus.
+- A repeated/held Up sequence stops on Home's first content row; only a fresh Up press enters the top menu.
+- Watchlist and Favorites selected from the For You top-menu selector use the existing inline For You presentation.
+- Watchlist and Favorites selected from the profile menu remain standalone utility pages.
 - Preserve partial-refresh cache safety: an incomplete network result must not overwrite a complete cached Home.
 - Keep item-detail screens network-first; cache-first semantics apply only to speculative marquee enrichment.
 - Limit fallback Home hydration and speculative detail fan-out to four concurrent requests.
@@ -476,7 +479,339 @@ git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/re
 git commit -m "fix(tv): enter for-you rows from filter controls"
 ```
 
-### Task 5: Full verification, production-shaped smoke, and executive summary
+### Task 5: Make the Home-to-menu boundary deliberate
+
+**Files:**
+- Create: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineUpNavigation.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineUpNavigationTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt:277-318`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/home/TvHomeScreen.kt:38-216`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt:369-401,789-810`
+
+**Interfaces:**
+- Consumes: `focusedRowIndex`, `rows.indices`, Android `KeyEvent.nativeKeyEvent.repeatCount`, and the existing shell-owned content-to-menu handoff.
+- Produces:
+
+```kotlin
+internal enum class TvSkylineUpAction {
+    EnterMenu,
+    StayInContent,
+    TryPreviousRow,
+}
+
+internal fun tvSkylineUpAction(
+    currentRow: Int,
+    rowCount: Int,
+    isRepeat: Boolean,
+    relocationInFlight: Boolean,
+): TvSkylineUpAction
+```
+
+The content fallback callback becomes `(isRepeat: Boolean) -> Boolean`. `true`
+means the feed consumed the event; `false` means the shell may focus the top
+menu.
+
+- [ ] **Step 1: Write the failing pure focus-boundary tests**
+
+Create `TvSkylineUpNavigationTest`:
+
+```kotlin
+@Test
+fun heldUpStopsOnFirstContentRow() {
+    assertEquals(
+        TvSkylineUpAction.StayInContent,
+        tvSkylineUpAction(currentRow = 0, rowCount = 6, isRepeat = true, relocationInFlight = false),
+    )
+}
+
+@Test
+fun freshUpFromFirstContentRowMayEnterMenu() {
+    assertEquals(
+        TvSkylineUpAction.EnterMenu,
+        tvSkylineUpAction(currentRow = 0, rowCount = 6, isRepeat = false, relocationInFlight = false),
+    )
+}
+
+@Test
+fun repeatedInputDuringOffscreenRelocationIsConsumed() {
+    assertEquals(
+        TvSkylineUpAction.StayInContent,
+        tvSkylineUpAction(currentRow = 4, rowCount = 6, isRepeat = true, relocationInFlight = true),
+    )
+}
+
+@Test
+fun ordinaryUpWithinRowsTriesExactlyOnePreviousRow() {
+    assertEquals(
+        TvSkylineUpAction.TryPreviousRow,
+        tvSkylineUpAction(currentRow = 4, rowCount = 6, isRepeat = false, relocationInFlight = false),
+    )
+}
+```
+
+- [ ] **Step 2: Run the boundary tests and verify RED**
+
+Run:
+
+```bash
+./gradlew :androidTvApp:testDebugUnitTest \
+  --tests '*TvSkylineUpNavigationTest' \
+  --max-workers=2 --no-daemon
+```
+
+Expected: compilation fails because `TvSkylineUpAction` and
+`tvSkylineUpAction` do not exist.
+
+- [ ] **Step 3: Implement the pure policy**
+
+Create `TvSkylineUpNavigation.kt`:
+
+```kotlin
+package org.siloserver.silo.tv.ui.components
+
+internal enum class TvSkylineUpAction {
+    EnterMenu,
+    StayInContent,
+    TryPreviousRow,
+}
+
+internal fun tvSkylineUpAction(
+    currentRow: Int,
+    rowCount: Int,
+    isRepeat: Boolean,
+    relocationInFlight: Boolean,
+): TvSkylineUpAction = when {
+    relocationInFlight -> TvSkylineUpAction.StayInContent
+    currentRow !in 0 until rowCount ->
+        if (isRepeat) TvSkylineUpAction.StayInContent else TvSkylineUpAction.EnterMenu
+    currentRow == 0 ->
+        if (isRepeat) TvSkylineUpAction.StayInContent else TvSkylineUpAction.EnterMenu
+    else -> TvSkylineUpAction.TryPreviousRow
+}
+```
+
+- [ ] **Step 4: Run the pure tests and verify GREEN**
+
+Run the Step 2 command. Expected: all four tests pass.
+
+- [ ] **Step 5: Wire repeat identity and serialized relocation**
+
+Change `onContentUpFallbackChanged` through `TvHomeScreen`,
+`TvHomeContent`, and `TvSkylineSectionFeed` to carry
+`((isRepeat: Boolean) -> Boolean)`.
+
+In `TvSkylineSectionFeed`, remember `rowRelocationInFlight`. For
+`TryPreviousRow`, first call `focusManager.moveFocus(FocusDirection.Up)`. If
+that fails, set `rowRelocationInFlight = true`, launch exactly one
+`animateScrollToItem(currentRow - 1)` job, await one frame, attempt the focus
+move, and clear the flag in `finally`. `StayInContent` returns `true`;
+`EnterMenu` returns `false`.
+
+In `TvMainShell`, pass:
+
+```kotlin
+val isRepeat = ev.nativeKeyEvent.repeatCount > 0
+val contentHandledUp = contentUpFallback?.invoke(isRepeat)
+```
+
+Keep the shell's existing `focusState.requestMenuFocus()` behavior only when
+the active feed returns `false`.
+
+- [ ] **Step 6: Run the boundary test and TV compilation**
+
+Run:
+
+```bash
+./gradlew :androidTvApp:testDebugUnitTest \
+  --tests '*TvSkylineUpNavigationTest' \
+  :androidTvApp:compileDebugKotlin \
+  --max-workers=2 --no-daemon
+```
+
+Expected: tests and compilation pass.
+
+- [ ] **Step 7: Commit Task 5**
+
+```bash
+git add \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineUpNavigation.kt \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineSectionFeed.kt \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/home/TvHomeScreen.kt \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvSkylineUpNavigationTest.kt
+git commit -m "fix(tv): stop held up at the first home row"
+```
+
+### Task 6: Route For You saved lists through one presentation
+
+**Files:**
+- Create: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequest.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequestTest.kt`
+- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouSelectorRoutingSourceTest.kt`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt:67-117`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt:971-976,1224-1242,1290-1307`
+
+**Interfaces:**
+- Consumes: the existing `TvMainRoute.ForYou`, `TvRecommendationsScreen`,
+  `TvWatchlistInline`, `TvFavoritesInline`, and standalone profile-menu routes.
+- Produces:
+
+```kotlin
+internal enum class SavedListSelection {
+    Watchlist,
+    Favorites,
+}
+
+internal data class TvForYouEntryRequest(
+    val sequence: Int = 0,
+    val selection: SavedListSelection? = null,
+) {
+    fun next(selection: SavedListSelection?): TvForYouEntryRequest =
+        TvForYouEntryRequest(sequence = sequence + 1, selection = selection)
+}
+```
+
+`TvRecommendationsScreen` accepts
+`entryRequest: TvForYouEntryRequest = TvForYouEntryRequest()` and applies its
+selection only when `entryRequest.sequence` changes.
+
+- [ ] **Step 1: Write the failing request-state tests**
+
+Create `TvForYouEntryRequestTest`:
+
+```kotlin
+@Test
+fun repeatedSelectionStillCreatesANewRequest() {
+    val first = TvForYouEntryRequest().next(SavedListSelection.Watchlist)
+    val second = first.next(SavedListSelection.Watchlist)
+
+    assertEquals(1, first.sequence)
+    assertEquals(2, second.sequence)
+    assertEquals(SavedListSelection.Watchlist, second.selection)
+}
+
+@Test
+fun recommendationsRequestClearsSavedListSelection() {
+    val request = TvForYouEntryRequest(
+        sequence = 4,
+        selection = SavedListSelection.Favorites,
+    ).next(null)
+
+    assertEquals(5, request.sequence)
+    assertNull(request.selection)
+}
+```
+
+- [ ] **Step 2: Write the failing source-wiring test**
+
+Create `TvForYouSelectorRoutingSourceTest` that reads `TvMainShell.kt` and
+asserts:
+
+```kotlin
+assertTrue(shell.contains("openForYou(SavedListSelection.Watchlist)"))
+assertTrue(shell.contains("openForYou(SavedListSelection.Favorites)"))
+assertTrue(shell.contains("openForYou(null)"))
+assertTrue(shell.contains("onWatchlist = closeMenuAnd {"))
+assertTrue(shell.contains("navigateToSecondary(TvMainRoute.Watchlist.route)"))
+assertTrue(shell.contains("onFavorites = closeMenuAnd {"))
+assertTrue(shell.contains("navigateToSecondary(TvMainRoute.Favorites.route)"))
+```
+
+This locks the intended split: For You selector choices are inline, while
+profile-menu choices remain standalone.
+
+- [ ] **Step 3: Run the request and wiring tests and verify RED**
+
+Run:
+
+```bash
+./gradlew :androidTvApp:testDebugUnitTest \
+  --tests '*TvForYouEntryRequestTest' \
+  --tests '*TvForYouSelectorRoutingSourceTest' \
+  --max-workers=2 --no-daemon
+```
+
+Expected: compilation fails because the request types do not exist; after those
+types compile, the source assertions still fail until shell wiring changes.
+
+- [ ] **Step 4: Implement the repeatable entry request**
+
+Create `TvForYouEntryRequest.kt` with the exact interfaces above. Move
+`SavedListSelection` out of `TvRecommendationsScreen.kt` into that file.
+
+Add the screen parameter:
+
+```kotlin
+entryRequest: TvForYouEntryRequest = TvForYouEntryRequest(),
+```
+
+Initialize selection with `remember { mutableStateOf(entryRequest.selection) }`
+and add:
+
+```kotlin
+LaunchedEffect(entryRequest.sequence) {
+    if (entryRequest.sequence > 0) {
+        savedListSelection = entryRequest.selection
+    }
+}
+```
+
+This permits the same top-menu choice to be selected repeatedly and does not
+overwrite in-page pill changes during unrelated recompositions.
+
+- [ ] **Step 5: Wire only the For You selector to inline requests**
+
+In `TvMainShell`, remember:
+
+```kotlin
+var forYouEntryRequest by remember { mutableStateOf(TvForYouEntryRequest()) }
+val openForYou: (SavedListSelection?) -> Unit = { selection ->
+    forYouEntryRequest = forYouEntryRequest.next(selection)
+    focusState.closePanel(false)
+    navigateToSecondary(TvMainRoute.ForYou.route)
+    moveFocusToContent(TvMainRoute.ForYou.route)
+}
+```
+
+Pass `entryRequest = forYouEntryRequest` to `TvRecommendationsScreen`. Wire
+the three `TvForYouSelector` callbacks to:
+
+```kotlin
+onWatchlist = { openForYou(SavedListSelection.Watchlist) }
+onFavorites = { openForYou(SavedListSelection.Favorites) }
+onRecommendations = { openForYou(null) }
+```
+
+Do not change `TvProfileDropdown` callbacks: they must continue navigating to
+`TvMainRoute.Watchlist` and `TvMainRoute.Favorites`.
+
+- [ ] **Step 6: Run focused routing and existing focus tests**
+
+Run:
+
+```bash
+./gradlew :androidTvApp:testDebugUnitTest \
+  --tests '*TvForYouEntryRequestTest' \
+  --tests '*TvForYouSelectorRoutingSourceTest' \
+  --tests '*TvRecommendationsFocusBridgeTest' \
+  --max-workers=2 --no-daemon
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 7: Commit Task 6**
+
+```bash
+git add \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequest.kt \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequestTest.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouSelectorRoutingSourceTest.kt
+git commit -m "fix(tv): unify for-you saved-list routes"
+```
+
+### Task 7: Full verification, production-shaped smoke, and executive summary
 
 **Files:**
 - Create: `docs/reviews/2026-07-27-android-tv-navigation-remediation-executive-summary.md`
@@ -491,8 +826,9 @@ git commit -m "fix(tv): enter for-you rows from filter controls"
 Run:
 
 ```bash
-./gradlew verifyDependencySupplyChainPolicy \
-  :shared:testDebugUnitTest \
+./scripts/test-check-build-supply-chain.sh
+./scripts/check-build-supply-chain.sh
+./gradlew :shared:testDebugUnitTest \
   :android-shared:testDebugUnitTest \
   :androidTvApp:testDebugUnitTest \
   --max-workers=2 --no-daemon
@@ -529,7 +865,14 @@ Verify:
 2. Initial focus remains Watchlist.
 3. Select For You and press Down; focus reaches the first visible recommendation card.
 4. Press Down/Up repeatedly; focus is not trapped and Up returns to For You.
-5. Select Watchlist and Favorites; Down still enters their grids.
+5. Select Watchlist and Favorites from the in-page pills; Down enters their inline grids.
+6. Select Watchlist and Favorites from the top For You selector; each opens the
+   same inline For You presentation with the matching pill selected.
+7. Select Watchlist and Favorites from the profile menu; each retains its
+   standalone utility-page presentation.
+8. From several Home rows down, hold Up until the first row is reached; the
+   repeated sequence stays in content, and a released-then-fresh Up enters the
+   selected top-menu item.
 
 - [ ] **Step 4: Repeat the cold/warm performance protocol**
 
@@ -547,8 +890,11 @@ Create the summary with these exact sections:
 
 - `Decision`: what was fixed and why it is safe to ship.
 - `Customer impact`: For You accessibility and first-traversal responsiveness.
-- `Verified causes`: missing focus bridge, duplicate Home hydration, eager detail fan-out.
-- `Change`: inline-first bounded hydration, cache-first rested enrichment, explicit focus handoff.
+- `Verified causes`: missing focus bridge, duplicate Home hydration, eager detail
+  fan-out, an unguarded repeated-Up boundary, and two For You saved-list routes.
+- `Change`: inline-first bounded hydration, cache-first rested enrichment,
+  deliberate focus handoff, serialized row relocation, and unified For You
+  selector presentation.
 - `Evidence`: before/after cold and warm measurements and test/build counts.
 - `Risk and rollback`: Android TV focus/prefetch scope, no schema/server change, revert commits independently.
 
@@ -576,8 +922,9 @@ git commit -m "docs(tv): summarize navigation remediation"
 Run:
 
 ```bash
-./gradlew verifyDependencySupplyChainPolicy \
-  :shared:testDebugUnitTest \
+./scripts/test-check-build-supply-chain.sh
+./scripts/check-build-supply-chain.sh
+./gradlew :shared:testDebugUnitTest \
   :android-shared:testDebugUnitTest \
   :androidTvApp:testDebugUnitTest \
   :androidTvApp:assembleRelease \
