@@ -19,6 +19,7 @@ import org.siloserver.silo.network.WatchTogetherRealtimeClient
 import org.siloserver.silo.network.api.WatchTogetherApi
 import org.siloserver.silo.util.parseRfc3339ToEpochMillis
 import org.siloserver.silo.watchtogether.RoomDeliveryLatch
+import org.siloserver.silo.watchtogether.WatchTogetherEntryGateway
 import org.siloserver.silo.watchtogether.RoomSessionRepository
 import org.siloserver.silo.watchtogether.RoomTransportIntent
 import org.siloserver.silo.watchtogether.roomTransportAuthorized
@@ -97,7 +98,7 @@ class WatchTogetherRepository(
     private val realtimeFactory: () -> WatchTogetherRealtimeClient? = { null },
     private val monotonicNowMs: () -> Long = { MONOTONIC_ORIGIN.elapsedNow().inWholeMilliseconds },
     private val authScopeProvider: suspend () -> AuthScopeSnapshot? = { null },
-) : RoomSessionRepository {
+) : RoomSessionRepository, WatchTogetherEntryGateway {
     /** Successful delivery state follows the process connection, not a UI controller. */
     val roomDeliveryLatch = RoomDeliveryLatch()
 
@@ -192,7 +193,7 @@ class WatchTogetherRepository(
 
     // ---- REST: create / join (store the room token) ---------------------------
 
-    suspend fun createRoom(request: CreateRoomRequest): ApiResult<RoomResponse> {
+    override suspend fun createRoom(request: CreateRoomRequest): ApiResult<RoomResponse> {
         val scope = authScopeProvider() ?: return missingAuthScope()
         val requestGeneration = beginRoomRequest()
         val r = api.createRoom(request, scope)
@@ -200,7 +201,7 @@ class WatchTogetherRepository(
         return if (r is ApiResult.Success) installRoomResponse(r.data, scope, requestGeneration) else r
     }
 
-    suspend fun joinRoom(request: JoinRoomRequest): ApiResult<RoomResponse> {
+    override suspend fun joinRoom(request: JoinRoomRequest): ApiResult<RoomResponse> {
         val scope = authScopeProvider() ?: return missingAuthScope()
         val requestGeneration = beginRoomRequest()
         val r = api.joinRoom(request, scope)
@@ -265,7 +266,7 @@ class WatchTogetherRepository(
 
     // ---- REST: host management ------------------------------------------------
 
-    suspend fun setSelection(request: SetSelectionRequest): ApiResult<RoomResponse> {
+    override suspend fun setSelection(request: SetSelectionRequest): ApiResult<RoomResponse> {
         val lease = activeBinding() ?: return missingRoom()
         val r = api.setSelection(lease.roomId, lease.roomToken, request, lease.authScope)
         return publishRoomResponse(lease, r)
