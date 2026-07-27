@@ -29,6 +29,8 @@ import org.siloserver.silo.repository.port.toWriteOutcome
  * - **Reclaim** at drain start — in-flight rows stranded by a crash are dropped
  *   if a newer pending op supersedes them, else returned to pending.
  * - **Atomic supersede-or-record** on transient failure.
+ * - **Per-item FIFO** — an op is held back while an older op for the same
+ *   content id is still queued, so backoff can't reorder a watched/position pair.
  *
  * Transient failures (no network / 401 / 408 / 429 / 5xx) are kept indefinitely
  * with capped backoff — offline data is never dropped on a retry cap. Only
@@ -81,10 +83,34 @@ class SyncEngine(
 
         var batches = 0
         while (batches++ < MAX_BATCHES) {
-            val batch = dao.dueBatch(serverId, profileId, now(), batchLimit)
+            val nowMs = now()
+            // Pull every pending row for the scope, not just the due ones (the DAO
+            // has one listing query and it filters on due time, hence the unbounded
+            // cutoff). The drain has to SEE an op that is backing off in order to
+            // hold back the newer ops that target the same item.
+            val queued = dao.dueBatch(serverId, profileId, NO_DUE_CUTOFF, batchLimit)
+            if (queued.isEmpty()) break
+
+            // Per-item FIFO. Backoff re-times the outbox, so without this a
+            // retried SET_WATCHED lands AFTER a SET_POSITION queued later for the
+            // same item and wipes the resume position the user just created. An op
+            // waits until every older op for its content id has cleared; unrelated
+            // items keep draining in parallel.
+            val blockedTargets = HashSet<String>()
+            val batch = ArrayList<DirtyOperationEntity>(queued.size)
+            for (op in queued.sortedBy { it.id }) {
+                if (op.targetContentId in blockedTargets) continue
+                if (op.nextAttemptAtMs > nowMs) {
+                    blockedTargets += op.targetContentId
+                    continue
+                }
+                batch += op
+            }
             if (batch.isEmpty()) break
 
             for (op in batch) {
+                // An older op for this item failed earlier in this pass.
+                if (op.targetContentId in blockedTargets) continue
                 if (dao.claim(op.id) != 1) continue // lost the claim; skip
 
                 val outcome = try {
@@ -124,23 +150,34 @@ class SyncEngine(
                             nextAttemptAtMs = now() + backoffMs(op.attemptCount),
                             error = WriteOutcome.RETRIABLE.name,
                         )
-                        if (superseded) dropped++ else retriable++
+                        if (superseded) {
+                            dropped++
+                        } else {
+                            retriable++
+                            // Still queued: nothing newer for this item may pass it.
+                            blockedTargets += op.targetContentId
+                        }
                     }
                 }
             }
         }
 
-        // Count remaining for whatever scope is active NOW (re-snapshot), not the
-        // scope we just drained. If the user switched mid-drain, this keeps the
-        // worker's retry chain alive for the newly-active scope — covering the
-        // case where an activation enqueue was dropped by ExistingWorkPolicy.KEEP
-        // while this worker was running.
+        // Count remaining for the scope we just drained AND, if the user switched
+        // mid-drain, for whatever scope is active NOW (re-snapshot). Counting only
+        // the end scope stranded the drained scope's queued work on a switch: the
+        // worker saw remaining=0, reported success and ended the retry chain.
+        // OutboxSyncStarter now also triggers on a profile change, so a switch is
+        // no longer silent, but this stays the in-drain defence — the switch can
+        // land between the drain and the count. Including the end scope covers an
+        // activation enqueue dropped by ExistingWorkPolicy.KEEP while this worker
+        // was running.
+        var remaining = dao.countForScope(serverId, profileId)
         val endScope = snapshotProvider()
         val endProfileId = endScope?.profileId
-        val remaining = if (endScope != null && endProfileId != null) {
-            dao.countForScope(endScope.serverId, endProfileId)
-        } else {
-            0
+        if (endScope != null && endProfileId != null &&
+            (endScope.serverId != serverId || endProfileId != profileId)
+        ) {
+            remaining += dao.countForScope(endScope.serverId, endProfileId)
         }
 
         return DrainResult(
@@ -253,5 +290,8 @@ class SyncEngine(
         // Backstop against a pathological re-due loop; a normal drain terminates
         // long before this because each op is deleted or pushed into the future.
         private const val MAX_BATCHES = 1_000
+
+        /** Due-time cutoff that selects every pending row, backing-off ones included. */
+        private const val NO_DUE_CUTOFF = Long.MAX_VALUE
     }
 }

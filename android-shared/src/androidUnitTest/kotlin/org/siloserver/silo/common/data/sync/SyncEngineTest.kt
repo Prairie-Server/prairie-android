@@ -120,6 +120,40 @@ class SyncEngineTest {
     }
 
     @Test
+    fun newerOpForTheSameItemWaitsWhileAnOlderOpIsBackingOff() = runTest {
+        // The state after an older op fails a SECOND time: recordFailure pushes it
+        // into the future again, so the enqueue-time clamp
+        // (enqueueCoalescingRestoringItemOrder) has already been undone and cannot
+        // help. dueBatch only returns due rows, so without per-item FIFO the newer
+        // SET_POSITION drains now and the retried SET_WATCHED lands after it and
+        // clears the resume position the user just created.
+        val dao = db.dirtyOperationDao()
+        dao.insert(
+            op(
+                idempotencyKey = "watched-retrying",
+                opKind = OutboxOperation.SET_WATCHED,
+                coalesceKey = "s1|p1|c1|${OutboxOperation.SET_WATCHED}",
+                nextAttemptAtMs = clock + 30_000L,
+            ),
+        )
+        dao.insert(
+            op(
+                idempotencyKey = "position-newer",
+                opKind = OutboxOperation.SET_POSITION,
+                coalesceKey = "s1|p1|c1|${OutboxOperation.SET_POSITION}",
+                payload = """{"positionTicks":1,"playedPercentage":1.0}""",
+                nextAttemptAtMs = 0L,
+            ),
+        )
+        status = HttpStatusCode.OK
+
+        val result = engine().drainOnce()
+
+        assertEquals(0, result.synced, "newer op must not overtake an older op for the same item")
+        assertEquals(2, dao.count(), "both ops stay queued until the older one clears")
+    }
+
+    @Test
     fun terminalDropsOp() = runTest {
         db.dirtyOperationDao().insert(op(idempotencyKey = "i1"))
         status = HttpStatusCode.Forbidden

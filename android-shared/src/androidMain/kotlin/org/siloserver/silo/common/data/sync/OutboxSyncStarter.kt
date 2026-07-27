@@ -8,6 +8,8 @@ import org.siloserver.silo.network.ServerRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -30,20 +32,35 @@ class OutboxSyncStarter(
     private val context: Context,
     private val registry: ServerRegistry,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    // Seam for tests: every trigger goes through here, so a test can observe
+    // them without standing up WorkManager.
+    private val enqueueDrain: () -> Unit = { SyncWorker.enqueue(context) },
 ) {
 
     fun start() {
         // Drain leftovers on launch; the worker's CONNECTED constraint defers
         // the actual run until the network is available.
-        SyncWorker.enqueue(context)
+        enqueueDrain()
 
-        // Drain when the active server changes (e.g. switched back to a scope
-        // whose ops were queued earlier and never got a trigger).
+        // Drain when the active SCOPE changes — server or profile.
+        //
+        // Profile matters as much as server and had no trigger at all. The
+        // outbox is scoped by (serverId, profileId), and SyncEngine counts
+        // what remains for the scope active at the END of a drain; SyncWorker
+        // turns a non-zero count into Result.retry(), which is the only thing
+        // keeping the retry chain alive. A profile switch leaves activeServerId
+        // untouched, so the chain for the scope that still had queued work just
+        // stopped: watched marks, ratings, favourites and resume positions from
+        // that profile never synced again. On a TV, which is never relaunched,
+        // that is permanent and invisible.
         scope.launch {
             var seenInitial = false
-            registry.activeServerId.collect {
-                if (seenInitial) SyncWorker.enqueue(context) else seenInitial = true
-            }
+            registry.activeEntry
+                .map { entry -> entry?.let { it.id to it.profileId } }
+                .distinctUntilChanged()
+                .collect {
+                    if (seenInitial) enqueueDrain() else seenInitial = true
+                }
         }
 
         val cm = context.getSystemService(ConnectivityManager::class.java)
@@ -55,7 +72,7 @@ class OutboxSyncStarter(
             cm.registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        SyncWorker.enqueue(context)
+                        enqueueDrain()
                     }
                 },
             )
