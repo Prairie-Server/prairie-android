@@ -1,10 +1,16 @@
 package org.prairieserver.prairie.util
 
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class ArtworkUrlTest {
+    @AfterTest
+    fun resetFormats() {
+        ImageFormats.resetForTests()
+    }
+
     @Test
     fun rewritesWebPObjectKeysToAVIF() {
         assertEquals(
@@ -47,9 +53,15 @@ class ArtworkUrlTest {
     }
 
     @Test
-    fun candidatesOrderAVIFWebPPNG() {
+    fun candidatesFollowConfiguredPreference() {
+        ImageFormats.configure(listOf("avif", "webp", "png"))
         assertEquals(
             listOf("poster.avif", "poster.webp", "poster.png"),
+            ArtworkUrl.candidates("poster.webp"),
+        )
+        ImageFormats.configure(listOf("webp", "png"))
+        assertEquals(
+            listOf("poster.webp", "poster.png"),
             ArtworkUrl.candidates("poster.webp"),
         )
         assertEquals(listOf("poster.jpg"), ArtworkUrl.candidates("poster.jpg"))
@@ -57,13 +69,24 @@ class ArtworkUrlTest {
 
     @Test
     fun preferredFallsBackToOriginal() {
+        ImageFormats.configure(listOf("avif", "webp", "png"))
         assertEquals("poster.jpg", ArtworkUrl.preferred("poster.jpg"))
         assertEquals("poster.avif", ArtworkUrl.preferred("poster.webp"))
+        ImageFormats.configure(listOf("webp", "png"))
+        assertEquals("poster.webp", ArtworkUrl.preferred("poster.webp"))
     }
 
     @Test
     fun extensionMatchIsCaseInsensitive() {
         assertEquals("poster.avif", ArtworkUrl.webPAVIFSibling("poster.WEBP"))
         assertEquals("poster.png", ArtworkUrl.webPPNGSibling("poster.WEBP"))
+    }
+
+    @Test
+    fun imageFormatsHeaderValue() {
+        ImageFormats.configureForApiLevel(31)
+        assertEquals("avif,webp,png", ImageFormats.headerValue())
+        ImageFormats.configureForApiLevel(30)
+        assertEquals("webp,png", ImageFormats.headerValue())
     }
 }

@@ -16,6 +16,7 @@ import org.prairieserver.prairie.common.diagnostics.diagnosticsModule
 import org.prairieserver.prairie.di.sharedModules
 import org.prairieserver.prairie.tv.di.androidTvModule
 import org.prairieserver.prairie.tv.watchnext.TvWorkerFactory
+import org.prairieserver.prairie.util.ImageFormats
 import kotlinx.coroutines.launch
 import okio.Path.Companion.toOkioPath
 import org.koin.android.ext.koin.androidContext
@@ -34,6 +35,7 @@ import org.koin.core.context.startKoin
 class PrairieTvApplication : Application(), Configuration.Provider, SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
+        ImageFormats.configureForApiLevel(android.os.Build.VERSION.SDK_INT)
         DiagnosticsStartup.installCrashCapture(this)
         val koinApp = startKoin {
             androidContext(this@PrairieTvApplication)

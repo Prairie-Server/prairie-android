@@ -22,6 +22,7 @@ import org.prairieserver.prairie.common.diagnostics.DiagnosticsStartup
 import org.prairieserver.prairie.common.diagnostics.diagnosticsModule
 import org.prairieserver.prairie.common.downloads.DownloadWorker
 import org.prairieserver.prairie.di.sharedModules
+import org.prairieserver.prairie.util.ImageFormats
 import kotlinx.coroutines.launch
 import okio.Path.Companion.toOkioPath
 import org.koin.android.ext.koin.androidContext
@@ -39,6 +40,7 @@ import org.koin.core.context.startKoin
 class PrairieApplication : Application(), Configuration.Provider, SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
+        ImageFormats.configureForApiLevel(Build.VERSION.SDK_INT)
         DiagnosticsStartup.installCrashCapture(this)
         val koinApp = startKoin {
             androidContext(this@PrairieApplication)
