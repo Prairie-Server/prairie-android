@@ -402,6 +402,10 @@ class WatchTogetherRepository(
             activeConnectionOwner = newOwner
             realtime = client
             realtimeGeneration = lease.generation
+            _connectionState.value = _connectionState.value.copy(
+                generation = lease.generation,
+                writable = false,
+            )
             _roomClosedReason.value = null
             newOwner
         }
@@ -434,7 +438,10 @@ class WatchTogetherRepository(
                     } else if (event is RoomRealtimeEvent.Opened) {
                         openedAtMs = monotonicNowMs()
                         markOpened(lease, owner)
-                    } else if (event is RoomRealtimeEvent.SnapshotEvent) {
+                    } else if (
+                        event is RoomRealtimeEvent.SnapshotEvent &&
+                        event.room.roomId == lease.roomId
+                    ) {
                         sawSnapshot = true
                     }
                     fold(lease, owner, event)
@@ -455,6 +462,7 @@ class WatchTogetherRepository(
             } catch (_: Throwable) {
                 // Any throw (including from a flapping server) counts as a failure,
                 // regardless of whether a healthy event arrived in the same attempt.
+                markNotWritable(lease, owner)
                 if (isStableAttempt(openedAtMs, sawSnapshot)) {
                     failures = 0
                     backoffIndex = 0

@@ -175,6 +175,19 @@ class WatchTogetherApiTest {
     }
 
     @Test
+    fun `room and suggestion identifiers are encoded as path segments`() = runTest {
+        val (api, captured) = api(responseBody = """{"suggestions":[]}""")
+
+        api.deleteSuggestion("room/with ?#", "jwt-room", "suggestion/with ?#", scope)
+
+        assertEquals(
+            "/api/v1/watch-together/rooms/room%2Fwith%20%3F%23/suggestions/" +
+                "suggestion%2Fwith%20%3F%23",
+            captured.path,
+        )
+    }
+
+    @Test
     fun `vote posts vote path with room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"suggestions":[]}""")
         api.vote("room-1", "jwt-room", "sug-5", scope)

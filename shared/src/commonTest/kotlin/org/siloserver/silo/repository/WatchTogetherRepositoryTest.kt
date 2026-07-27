@@ -630,8 +630,13 @@ class WatchTogetherRepositoryTest {
         r.createRoom(CreateRoomRequest())
         val old = launch { r.connect("room-1") }
         runCurrent()
+        first.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+        assertTrue(r.connectionState.value.writable)
         val newest = launch { r.connect("room-1") }
         runCurrent()
+        assertTrue(!r.attachSession("too-early"))
+        assertEquals(0, second.attachCount)
 
         second.events.emit(RoomRealtimeEvent.Opened)
         second.events.emit(RoomRealtimeEvent.SnapshotEvent(snapshot(revision = 2)))
@@ -643,6 +648,27 @@ class WatchTogetherRepositoryTest {
         assertTrue(r.connectionState.value.writable)
         assertTrue(old.isCompleted)
         newest.cancel()
+    }
+
+    @Test
+    fun `throw after opened marks the connection unwritable during backoff`() = runTest {
+        val realtime = FakeRealtime().apply {
+            connectBehavior = { attempt ->
+                if (attempt == 1) flow {
+                    emit(RoomRealtimeEvent.Opened)
+                    throw IllegalStateException("drop after open")
+                } else events.asSharedFlow()
+            }
+        }
+        val r = repo(realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val job = launch { r.connect("room-1") }
+        runCurrent()
+
+        assertTrue(!r.connectionState.value.writable)
+        assertTrue(!r.attachSession("during-backoff"))
+        assertEquals(0, realtime.attachCount)
+        job.cancel()
     }
 
     @Test
@@ -730,6 +756,39 @@ class WatchTogetherRepositoryTest {
         assertTrue(job.isActive)
         assertNull(r.roomClosedReason.value)
         job.cancel()
+    }
+
+    @Test
+    fun `wrong room snapshot cannot reset the reconnect failure window`() = runTest {
+        var nowMs = 0L
+        val realtime = FakeRealtime().apply {
+            connectBehavior = { attempt ->
+                if (attempt < WatchTogetherRepository.MAX_RECONNECT_ATTEMPTS) {
+                    flow { throw IllegalStateException("early failure") }
+                } else {
+                    flow {
+                        emit(RoomRealtimeEvent.Opened)
+                        nowMs = WatchTogetherRepository.STABLE_CONNECTION_MS
+                        emit(RoomRealtimeEvent.SnapshotEvent(snapshot(roomId = "wrong-room")))
+                        emit(RoomRealtimeEvent.TransportTerminated())
+                    }
+                }
+            }
+        }
+        val r = WatchTogetherRepository(
+            api = FakeApi(),
+            realtimeFactory = { realtime },
+            monotonicNowMs = { nowMs },
+            authScopeProvider = { scopeA },
+        )
+        r.createRoom(CreateRoomRequest())
+
+        val job = launch { r.connect("room-1") }
+        advanceUntilIdle()
+
+        assertTrue(job.isCompleted)
+        assertEquals(WatchTogetherRepository.MAX_RECONNECT_ATTEMPTS, realtime.connectCount)
+        assertEquals("connection_lost", r.roomClosedReason.value)
     }
 
     // ---- flapping server hits the cap (regression for Issue 1) -----------------

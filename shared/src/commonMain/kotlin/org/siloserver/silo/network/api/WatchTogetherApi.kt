@@ -22,6 +22,7 @@ import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 
 /**
  * Watch Together REST surface (`/api/v1/watch-together`). Create/join return a
@@ -130,7 +131,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
 
     override suspend fun getRoom(roomId: String, roomToken: String, scope: AuthScopeSnapshot): ApiResult<RoomResponse> =
         safeApiCall {
-            client.get("$BASE/rooms/$roomId") {
+            client.get("$BASE/rooms/${roomId.encodeURLPathPart()}") {
                 pin(scope)
                 parameter("room_token", roomToken)
             }
@@ -142,7 +143,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         request: SetSelectionRequest,
         scope: AuthScopeSnapshot,
     ): ApiResult<RoomResponse> = safeApiCall {
-        client.put("$BASE/rooms/$roomId/selection") {
+        client.put("$BASE/rooms/${roomId.encodeURLPathPart()}/selection") {
             pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
@@ -156,7 +157,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         request: UpdatePolicyRequest,
         scope: AuthScopeSnapshot,
     ): ApiResult<RoomResponse> = safeApiCall {
-        client.patch("$BASE/rooms/$roomId/policy") {
+        client.patch("$BASE/rooms/${roomId.encodeURLPathPart()}/policy") {
             pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
@@ -170,7 +171,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         scope: AuthScopeSnapshot,
     ): ApiResult<Unit> =
         safeApiCall {
-            client.delete("$BASE/rooms/$roomId") {
+            client.delete("$BASE/rooms/${roomId.encodeURLPathPart()}") {
                 pin(scope)
                 parameter("room_token", roomToken)
             }
@@ -181,7 +182,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         roomToken: String,
         scope: AuthScopeSnapshot,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
-        client.get("$BASE/rooms/$roomId/suggestions") {
+        client.get("$BASE/rooms/${roomId.encodeURLPathPart()}/suggestions") {
             pin(scope)
             parameter("room_token", roomToken)
         }
@@ -193,7 +194,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         request: AddSuggestionRequest,
         scope: AuthScopeSnapshot,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
-        client.post("$BASE/rooms/$roomId/suggestions") {
+        client.post("$BASE/rooms/${roomId.encodeURLPathPart()}/suggestions") {
             pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
@@ -207,7 +208,9 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         suggestionId: String,
         scope: AuthScopeSnapshot,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
-        client.delete("$BASE/rooms/$roomId/suggestions/$suggestionId") {
+        client.delete(
+            "$BASE/rooms/${roomId.encodeURLPathPart()}/suggestions/${suggestionId.encodeURLPathPart()}",
+        ) {
             pin(scope)
             parameter("room_token", roomToken)
         }
@@ -219,7 +222,9 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         suggestionId: String,
         scope: AuthScopeSnapshot,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
-        client.post("$BASE/rooms/$roomId/suggestions/$suggestionId/vote") {
+        client.post(
+            "$BASE/rooms/${roomId.encodeURLPathPart()}/suggestions/${suggestionId.encodeURLPathPart()}/vote",
+        ) {
             pin(scope)
             parameter("room_token", roomToken)
         }
@@ -231,7 +236,9 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         suggestionId: String,
         scope: AuthScopeSnapshot,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
-        client.delete("$BASE/rooms/$roomId/suggestions/$suggestionId/vote") {
+        client.delete(
+            "$BASE/rooms/${roomId.encodeURLPathPart()}/suggestions/${suggestionId.encodeURLPathPart()}/vote",
+        ) {
             pin(scope)
             parameter("room_token", roomToken)
         }
@@ -243,7 +250,7 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         request: PromoteSuggestionRequest,
         scope: AuthScopeSnapshot,
     ): ApiResult<RoomResponse> = safeApiCall {
-        client.post("$BASE/rooms/$roomId/suggestions/promote") {
+        client.post("$BASE/rooms/${roomId.encodeURLPathPart()}/suggestions/promote") {
             pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
