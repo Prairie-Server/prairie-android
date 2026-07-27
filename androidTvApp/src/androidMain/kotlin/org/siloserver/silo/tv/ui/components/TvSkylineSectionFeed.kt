@@ -106,7 +106,11 @@ fun TvSkylineSectionFeed(
     val initialMarqueeSeed = remember(rows) {
         rows.firstOrNull()?.let { section ->
             section.items.firstOrNull()?.let { item ->
-                TvSkylineMarqueeSeed(item = item, rowTitle = section.title)
+                TvSkylineMarqueeSeed(
+                    item = item,
+                    rowTitle = section.title,
+                    rowIdentity = section.id,
+                )
             }
         }
     }
@@ -114,7 +118,7 @@ fun TvSkylineSectionFeed(
     LaunchedEffect(initialMarqueeSeed?.item?.contentId, initialMarqueeSeed?.rowTitle) {
         val seed = initialMarqueeSeed ?: return@LaunchedEffect
         if (marquee.content == null) {
-            marquee.seedInitialPreview(seed.item, seed.rowTitle)
+            marquee.seedInitialPreview(seed.item, seed.rowTitle, seed.rowIdentity)
         }
     }
 
@@ -165,8 +169,9 @@ fun TvSkylineSectionFeed(
     val rowBandScope = rememberCoroutineScope()
     // Skyline matches tvOS' view-aligned row stack: vertical motion is owned by
     // this feed, while each row's LazyRow still handles horizontal card scroll.
-    val onItemFocused: (SectionItem, String, Int, Int) -> Unit = { item, rowTitle, rowIndex, itemIndex ->
-        marquee.preview(item, rowTitle)
+    val onItemFocused: (SectionItem, String, String, Int, Int) -> Unit =
+        { item, rowTitle, rowIdentity, rowIndex, itemIndex ->
+        marquee.preview(item, rowTitle, rowIdentity)
         focusedRowIndex = rowIndex
         focusedItemIndex = itemIndex
         focusedContentId = item.contentId
@@ -189,7 +194,9 @@ fun TvSkylineSectionFeed(
     val settledFocus = settledFocusIdentity(
         rawRowIndex = focusedRowIndex,
         rawFocusedContentId = focusedContentId,
-        settledContentId = marquee.content?.contentId,
+        rawFocusedMarqueeId = rows.getOrNull(focusedRowIndex)
+            ?.let { row -> focusedContentId?.let { contentId -> "${row.id}#$contentId" } },
+        settledMarqueeId = marquee.content?.id,
     )
     LaunchedEffect(rows, settledFocus, fetchDetail) {
         val focus = settledFocus ?: return@LaunchedEffect
@@ -616,7 +623,7 @@ fun TvSkylineSectionFeed(
                             restoreFocusRequester = detailReturnItemFocusRequester
                                 .takeIf { isReturnRow },
                             onItemFocusedAtIndex = { item, itemIndex ->
-                                onItemFocused(item, section.title, rowIndex, itemIndex)
+                                onItemFocused(item, section.title, section.id, rowIndex, itemIndex)
                             },
                             cardActions = { item -> cardActions(section, item) },
                         )
@@ -639,6 +646,7 @@ fun ResolvedSection.isTvProgressRow(): Boolean {
 private data class TvSkylineMarqueeSeed(
     val item: SectionItem,
     val rowTitle: String,
+    val rowIdentity: String,
 )
 
 // 0.64 × 1920 by 0.70 × 1080, and the 440×100dp logo cap at 2× density.

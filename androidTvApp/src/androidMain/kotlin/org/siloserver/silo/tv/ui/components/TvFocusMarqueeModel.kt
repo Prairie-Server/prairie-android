@@ -75,7 +75,11 @@ data class TvMarqueeContent(
     }
 
     companion object {
-        fun from(item: SectionItem, rowTitle: String): TvMarqueeContent {
+        fun from(
+            item: SectionItem,
+            rowTitle: String,
+            rowIdentity: String = rowTitle,
+        ): TvMarqueeContent {
             val isEpisode = item.type.equals("episode", ignoreCase = true)
 
             val meta = mutableListOf<String>()
@@ -100,7 +104,7 @@ data class TvMarqueeContent(
             val sectionBackdropUrl = item.backdropUrl?.takeIf { it.isNotBlank() }
             val sectionPosterUrl = item.posterUrl?.takeIf { it.isNotBlank() }
             return TvMarqueeContent(
-                id = "$rowTitle#${item.contentId}",
+                id = "$rowIdentity#${item.contentId}",
                 title = if (isEpisode) (item.seriesTitle ?: item.title) else item.title,
                 logoUrl = item.logoUrl?.takeIf { it.isNotBlank() },
                 badges = badges,
@@ -287,8 +291,11 @@ class TvFocusMarqueeState internal constructor() {
 
     internal var candidate: TvMarqueeContent? by mutableStateOf(null)
 
-    internal var hasRealCardFocus: Boolean by mutableStateOf(false)
+    internal var focusedMarqueeId: String? by mutableStateOf(null)
         private set
+
+    internal val hasSettledRealFocus: Boolean
+        get() = focusedMarqueeId != null && focusedMarqueeId == content?.id
 
     /** Per-contentId enrichment cache (tvOS `enrichmentCache`) so scrubbing
      *  back over a row never refetches item detail. Persists for the page. */
@@ -296,9 +303,9 @@ class TvFocusMarqueeState internal constructor() {
     private val enrichmentRequests = mutableSetOf<String>()
 
     /** Report card focus. The displayed content swaps on the next composition turn. */
-    fun preview(item: SectionItem, rowTitle: String) {
-        hasRealCardFocus = true
-        val next = TvMarqueeContent.from(item, rowTitle)
+    fun preview(item: SectionItem, rowTitle: String, rowIdentity: String = rowTitle) {
+        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity)
+        focusedMarqueeId = next.id
         // Focus is back on the already-displayed card: cancel any pending swap
         // so a brief A→B→A scrub within the debounce window can't commit a
         // stale B after focus has returned to A.
@@ -314,9 +321,9 @@ class TvFocusMarqueeState internal constructor() {
      * is only for page entry: once focus has produced displayed or pending
      * content, the seed is ignored so it never fights real navigation.
      */
-    fun seedInitialPreview(item: SectionItem, rowTitle: String) {
+    fun seedInitialPreview(item: SectionItem, rowTitle: String, rowIdentity: String = rowTitle) {
         if (content != null || candidate != null) return
-        candidate = TvMarqueeContent.from(item, rowTitle)
+        candidate = TvMarqueeContent.from(item, rowTitle, rowIdentity)
     }
 
     internal fun commit(value: TvMarqueeContent?) {
@@ -381,9 +388,9 @@ fun rememberTvFocusMarqueeState(
     // Populate the cache and enrich the active hero when identity still
     // matches. Near-viewport proactive prefetch usually wins this request; the
     // shared claim prevents duplicates when it is already in flight.
-    LaunchedEffect(state.content?.contentId, state.hasRealCardFocus, fetchDetail) {
+    LaunchedEffect(state.content?.id, state.focusedMarqueeId, fetchDetail) {
         val fetch = fetchDetail ?: return@LaunchedEffect
-        if (!state.hasRealCardFocus) return@LaunchedEffect
+        if (!state.hasSettledRealFocus) return@LaunchedEffect
         val contentId = state.content?.contentId ?: return@LaunchedEffect
         if (!state.beginEnrichmentRequest(contentId)) return@LaunchedEffect
         try {

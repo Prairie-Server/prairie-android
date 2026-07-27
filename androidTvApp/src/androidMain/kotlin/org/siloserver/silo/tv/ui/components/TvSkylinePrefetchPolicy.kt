@@ -10,9 +10,15 @@ internal data class TvSkylineSettledFocus(
 internal fun settledFocusIdentity(
     rawRowIndex: Int,
     rawFocusedContentId: String?,
-    settledContentId: String?,
+    rawFocusedMarqueeId: String?,
+    settledMarqueeId: String?,
 ): TvSkylineSettledFocus? {
-    if (rawRowIndex < 0 || rawFocusedContentId == null || rawFocusedContentId != settledContentId) {
+    if (
+        rawRowIndex < 0 ||
+        rawFocusedContentId == null ||
+        rawFocusedMarqueeId == null ||
+        rawFocusedMarqueeId != settledMarqueeId
+    ) {
         return null
     }
     return TvSkylineSettledFocus(rawRowIndex, rawFocusedContentId)

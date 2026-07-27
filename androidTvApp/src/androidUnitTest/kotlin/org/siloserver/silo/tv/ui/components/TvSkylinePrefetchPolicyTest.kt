@@ -55,13 +55,14 @@ class TvSkylinePrefetchPolicyTest {
     }
 
     @Test
-    fun sameContentInDifferentRowsHasDifferentSettledIdentity() {
+    fun sameContentInDifferentRowWaitsForRowQualifiedSettlement() {
         assertEquals(
-            TvSkylineSettledFocus(rowIndex = 0, contentId = "a"),
+            null,
             settledFocusIdentity(
-                rawRowIndex = 0,
+                rawRowIndex = 1,
                 rawFocusedContentId = "a",
-                settledContentId = "a",
+                rawFocusedMarqueeId = "row-1#a",
+                settledMarqueeId = "row-0#a",
             ),
         )
         assertEquals(
@@ -69,7 +70,8 @@ class TvSkylinePrefetchPolicyTest {
             settledFocusIdentity(
                 rawRowIndex = 1,
                 rawFocusedContentId = "a",
-                settledContentId = "a",
+                rawFocusedMarqueeId = "row-1#a",
+                settledMarqueeId = "row-1#a",
             ),
         )
     }
@@ -81,7 +83,8 @@ class TvSkylinePrefetchPolicyTest {
             settledFocusIdentity(
                 rawRowIndex = 1,
                 rawFocusedContentId = "b",
-                settledContentId = "a",
+                rawFocusedMarqueeId = "row-1#b",
+                settledMarqueeId = "row-0#a",
             ),
         )
     }

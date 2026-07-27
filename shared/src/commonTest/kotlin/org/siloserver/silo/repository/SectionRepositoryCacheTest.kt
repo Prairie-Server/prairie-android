@@ -16,6 +16,8 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import kotlin.test.Test
@@ -137,5 +139,38 @@ class SectionRepositoryCacheTest {
         requests.awaitAll()
 
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun cancelingFirstHomeCallerDoesNotCancelSharedRequestOrPoisonNextCall() = runTest {
+        var calls = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine {
+                calls += 1
+                entered.complete(Unit)
+                release.await()
+                respond(
+                    """{"sections":[]}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        val repository = SectionRepository(SectionApi(client))
+
+        val firstCaller = launch { repository.getHomeSections() }
+        entered.await()
+        val survivingCaller = async { repository.getHomeSections() }
+        repeat(10) { yield() }
+        firstCaller.cancelAndJoin()
+        release.complete(Unit)
+
+        assertTrue(survivingCaller.await() is ApiResult.Success)
+        assertTrue(repository.getHomeSections() is ApiResult.Success)
+        assertEquals(2, calls)
     }
 }

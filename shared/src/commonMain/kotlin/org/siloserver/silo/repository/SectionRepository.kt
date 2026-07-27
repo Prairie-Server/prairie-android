@@ -12,7 +12,12 @@ import org.siloserver.silo.network.map
 import org.siloserver.silo.repository.port.CatalogCachePort
 import org.siloserver.silo.repository.port.NoOpCatalogCachePort
 import org.siloserver.silo.repository.port.canServeCache
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -21,10 +26,11 @@ class SectionRepository(
     /** Offline read cache for a library's Recommended sections (Track B). No-op by default. */
     private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
 ) {
+    private val homeRequestScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val homeRequestMutex = Mutex()
-    private var homeSectionsInFlight: CompletableDeferred<ApiResult<SectionsResponse>>? = null
+    private var homeSectionsInFlight: Deferred<ApiResult<SectionsResponse>>? = null
     private val homeSectionItemsInFlight =
-        mutableMapOf<String, CompletableDeferred<ApiResult<HomeSectionItemsResponse>>>()
+        mutableMapOf<String, Deferred<ApiResult<HomeSectionItemsResponse>>>()
 
     /** Fetches the home screen layout configuration. */
     suspend fun getHomeLayout(): ApiResult<HomeLayoutResponse> =
@@ -32,50 +38,48 @@ class SectionRepository(
 
     /** Fetches all home screen sections (with items pre-resolved). */
     suspend fun getHomeSections(): ApiResult<SectionsResponse> {
-        val (request, ownsRequest) = homeRequestMutex.withLock {
-            homeSectionsInFlight?.let { it to false }
-                ?: CompletableDeferred<ApiResult<SectionsResponse>>().let {
-                    homeSectionsInFlight = it
-                    it to true
+        val request = homeRequestMutex.withLock {
+            homeSectionsInFlight ?: run {
+                lateinit var created: Deferred<ApiResult<SectionsResponse>>
+                created = homeRequestScope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        sectionApi.getHomeSections()
+                    } finally {
+                        homeRequestMutex.withLock {
+                            if (homeSectionsInFlight === created) homeSectionsInFlight = null
+                        }
+                    }
                 }
-        }
-        if (!ownsRequest) return request.await()
-
-        return try {
-            sectionApi.getHomeSections().also(request::complete)
-        } catch (throwable: Throwable) {
-            request.completeExceptionally(throwable)
-            throw throwable
-        } finally {
-            homeRequestMutex.withLock {
-                if (homeSectionsInFlight === request) homeSectionsInFlight = null
+                homeSectionsInFlight = created
+                created.start()
+                created
             }
         }
+        return request.await()
     }
 
     /** Fetches the items within a specific home section. */
     suspend fun getHomeSectionItems(sectionId: String): ApiResult<HomeSectionItemsResponse> {
-        val (request, ownsRequest) = homeRequestMutex.withLock {
-            homeSectionItemsInFlight[sectionId]?.let { it to false }
-                ?: CompletableDeferred<ApiResult<HomeSectionItemsResponse>>().let {
-                    homeSectionItemsInFlight[sectionId] = it
-                    it to true
+        val request = homeRequestMutex.withLock {
+            homeSectionItemsInFlight[sectionId] ?: run {
+                lateinit var created: Deferred<ApiResult<HomeSectionItemsResponse>>
+                created = homeRequestScope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        sectionApi.getHomeSectionItems(sectionId)
+                    } finally {
+                        homeRequestMutex.withLock {
+                            if (homeSectionItemsInFlight[sectionId] === created) {
+                                homeSectionItemsInFlight.remove(sectionId)
+                            }
+                        }
+                    }
                 }
-        }
-        if (!ownsRequest) return request.await()
-
-        return try {
-            sectionApi.getHomeSectionItems(sectionId).also(request::complete)
-        } catch (throwable: Throwable) {
-            request.completeExceptionally(throwable)
-            throw throwable
-        } finally {
-            homeRequestMutex.withLock {
-                if (homeSectionItemsInFlight[sectionId] === request) {
-                    homeSectionItemsInFlight.remove(sectionId)
-                }
+                homeSectionItemsInFlight[sectionId] = created
+                created.start()
+                created
             }
         }
+        return request.await()
     }
 
     /** Fetches a library's resolved sections (offline: last cached sections). */

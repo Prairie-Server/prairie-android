@@ -178,10 +178,27 @@ class TvFocusMarqueeEnrichmentTest {
         )
 
         state.seedInitialPreview(first, "Continue Watching")
-        assertFalse(state.hasRealCardFocus)
+        state.commit(state.candidate)
+        assertFalse(state.hasSettledRealFocus)
 
         state.preview(first, "Continue Watching")
-        assertTrue(state.hasRealCardFocus)
+        assertTrue(state.hasSettledRealFocus)
+    }
+
+    @Test
+    fun `new raw focus does not enrich the old seed before settlement`() {
+        val state = TvFocusMarqueeState()
+        val first = SectionItem(contentId = "first", type = "movie", title = "First")
+        val second = SectionItem(contentId = "second", type = "movie", title = "Second")
+
+        state.seedInitialPreview(first, "First row", rowIdentity = "row-1")
+        state.commit(state.candidate)
+        state.preview(second, "Second row", rowIdentity = "row-2")
+
+        assertFalse(state.hasSettledRealFocus)
+
+        state.commit(state.candidate)
+        assertTrue(state.hasSettledRealFocus)
     }
 
     @Test
