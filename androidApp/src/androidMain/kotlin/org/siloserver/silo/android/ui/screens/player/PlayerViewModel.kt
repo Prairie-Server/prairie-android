@@ -85,9 +85,11 @@ import org.siloserver.silo.repository.port.PlaybackWriteScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -624,6 +626,7 @@ class PlayerViewModel(
     private var introObserverJob: Job? = null
     private var lifecycleObserverJob: Job? = null
     private var resolveNextEpisodeJob: Job? = null
+    private var contentLoadJob: Job? = null
     private val exitPrepared = AtomicBoolean(false)
     private var finalPositionScope: PlaybackWriteScope? = null
     private val initialPlayerLoadGate = InitialPlayerLoadGate()
@@ -794,7 +797,8 @@ class PlayerViewModel(
         }
 
         finalPositionScope = null
-        viewModelScope.launch {
+        contentLoadJob?.cancel()
+        contentLoadJob = viewModelScope.launch {
             finalPositionScope = finalPlaybackPositionWriter.captureScope()
             try {
                 // Offline-first fast path: if we have a completed download for
@@ -813,7 +817,7 @@ class PlayerViewModel(
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not refresh player settings before playback", e)
                 }
-                when (val playbackState = videoPlaybackCoordinator.start(
+                val playbackState = videoPlaybackCoordinator.start(
                     VideoPlaybackStartRequest(
                         contentId = contentId,
                         preferredFileId = preferredFileId,
@@ -825,7 +829,9 @@ class PlayerViewModel(
                         suppressResumeRewind = suppressResumeRewind,
                         force = force,
                     ),
-                )) {
+                )
+                currentCoroutineContext().ensureActive()
+                when (playbackState) {
                     is VideoPlayerUiState.Ready -> applyCoordinatorStateToUi(
                         playbackState = playbackState,
                         preferredFileId = preferredFileId,
@@ -996,6 +1002,7 @@ class PlayerViewModel(
         // never an Off produced by a failed explicit pick.
         persistNextSubtitleSelection = explicitSubtitlePickResolved || persistedSubtitleIndex != null
 
+        currentCoroutineContext().ensureActive()
         val mountGeneration = expectNextMediaMount()
         _uiState.update {
             it.copy(
@@ -2262,6 +2269,7 @@ class PlayerViewModel(
             renewMissingSessionWithLegacyStart = false,
         )
         if (!isCurrentServerSeek(request, recoveryGeneration)) return
+        currentCoroutineContext().ensureActive()
         val mountGeneration = expectNextMediaMount()
         _uiState.update { current ->
             current.copy(
@@ -3147,6 +3155,8 @@ class PlayerViewModel(
         cancelUpNextCountdown()
         _uiState.update { it.copy(showUpNext = false) }
         resetPlaybackRecoveryState()
+        contentLoadJob?.cancel()
+        contentLoadJob = null
         val state = _uiState.value
         val cid = state.contentId.takeIf { it.isNotBlank() }
         val fid = currentFileId()
@@ -3282,6 +3292,7 @@ class PlayerViewModel(
             ?: watchDetail?.backdropUrl?.takeIf { url -> url.isNotBlank() }
             ?: sidecar.posterUrl?.takeIf { url -> url.isNotBlank() }
 
+        currentCoroutineContext().ensureActive()
         val mountGeneration = expectNextMediaMount()
         _uiState.update {
             it.copy(

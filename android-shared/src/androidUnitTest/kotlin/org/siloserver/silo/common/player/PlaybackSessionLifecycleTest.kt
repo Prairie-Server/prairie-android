@@ -27,6 +27,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -147,6 +148,44 @@ class PlaybackSessionLifecycleTest {
     }
 
     @Test
+    fun `a failed start finishing after stop does not publish stale failure`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<ApiResult<PlaybackSessionResponse>>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun startSession(
+                fileId: Int,
+                profileId: String,
+                capabilities: ClientCodecCapabilities,
+                audioTrackIndex: Int?,
+                qualityPreference: String?,
+                startPosition: Double?,
+                disableProgressPersistence: Boolean,
+            ): ApiResult<PlaybackSessionResponse> = gate.await()
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+
+        val startJob = launch { lifecycle.start(defaultStartParams()) }
+        advanceUntilIdle()
+        assertEquals(SessionState.Loading, lifecycle.state.value)
+
+        lifecycle.stop()
+        gate.complete(
+            ApiResult.Error(
+                code = 500,
+                error = "start_failed",
+                message = "Start failed",
+            ),
+        )
+        advanceUntilIdle()
+        startJob.join()
+
+        assertEquals(
+            SessionState.Idle,
+            lifecycle.state.value,
+            "a completed teardown must remain terminal for its in-flight start",
+        )
+    }
+
+    @Test
     fun `start emits Failed when profile id is null`() = runTest {
         val lifecycle = newLifecycle(
             sessionMgr = FakeSessionManager(),
@@ -231,6 +270,24 @@ class PlaybackSessionLifecycleTest {
         assertEquals(0, sessionMgr.stopCallCount)
         assertTrue(personalRepo.syncCalls.isEmpty())
         assertTrue(lifecycle.state.value is SessionState.Idle)
+    }
+
+    @Test
+    fun `adoption captured before stop is rejected and server session is closed`() = runTest {
+        val sessionMgr = FakeSessionManager()
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        val ownershipEpoch = lifecycle.captureOwnershipEpoch()
+
+        lifecycle.stop()
+        val adopted = lifecycle.adoptActiveSessionIfCurrent(
+            params = defaultStartParams(),
+            session = makeSession("sess-late-adopt"),
+            expectedOwnershipEpoch = ownershipEpoch,
+        )
+
+        assertFalse(adopted)
+        assertEquals(SessionState.Idle, lifecycle.state.value)
+        assertEquals("sess-late-adopt", sessionMgr.lastStoppedSessionId)
     }
 
     @Test

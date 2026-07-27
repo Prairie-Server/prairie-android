@@ -3214,6 +3214,7 @@ class TvPlayerViewModel(
     }
 
     private fun prepareSessionExit() {
+        contentLoadGeneration++
         resetSeekRecoveryForContentChange()
         transportMountGate.reset()
         val state = _uiState.value

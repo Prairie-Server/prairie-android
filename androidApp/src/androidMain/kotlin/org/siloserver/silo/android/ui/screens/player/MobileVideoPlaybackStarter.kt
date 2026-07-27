@@ -44,6 +44,7 @@ class MobileVideoPlaybackStarter(
         if (!shouldReachServerForPlayback(reachabilityMonitor, request.force)) {
             return VideoPlaybackStartResult.ServerUnreachable(request.contentId)
         }
+        val ownershipEpoch = sessionLifecycle.captureOwnershipEpoch()
         return try {
             val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
                 is ApiResult.Success -> r.data
@@ -185,7 +186,7 @@ class MobileVideoPlaybackStarter(
                 ?: startRequestPosition
                 ?: playerStartPos
 
-            sessionLifecycle.adoptActiveSession(
+            val adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
                 params = StartParams(
                     contentId = request.contentId,
                     fileId = effectiveFileId,
@@ -198,7 +199,15 @@ class MobileVideoPlaybackStarter(
                 ),
                 session = resolved,
                 renewMissingSessionWithLegacyStart = false,
+                expectedOwnershipEpoch = ownershipEpoch,
             )
+            if (!adopted) {
+                return failure(
+                    request.contentId,
+                    "Playback start was superseded.",
+                    diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST,
+                )
+            }
 
             VideoPlaybackStartResult.Ready(
                 contentId = request.contentId,

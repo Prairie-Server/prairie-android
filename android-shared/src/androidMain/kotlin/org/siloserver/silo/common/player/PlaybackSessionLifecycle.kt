@@ -128,9 +128,54 @@ class PlaybackSessionLifecycle(
         stopSessionOnStop: Boolean = true,
         renewMissingSessionWithLegacyStart: Boolean = true,
     ) {
+        adoptActiveSession(
+            params = params,
+            session = session,
+            manageProgress = manageProgress,
+            stopSessionOnStop = stopSessionOnStop,
+            renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart,
+            expectedOwnershipEpoch = null,
+        )
+    }
+
+    /** Captures ownership before an external start request goes on the wire. */
+    fun captureOwnershipEpoch(): Long = stopEpoch
+
+    /**
+     * Adopts an externally-started session only if no teardown has happened
+     * since [expectedOwnershipEpoch] was captured. Rejected sessions are closed
+     * here so callers cannot leak a server stream after their screen exits.
+     */
+    suspend fun adoptActiveSessionIfCurrent(
+        params: StartParams,
+        session: PlaybackSessionResponse,
+        manageProgress: Boolean = true,
+        stopSessionOnStop: Boolean = true,
+        renewMissingSessionWithLegacyStart: Boolean = true,
+        expectedOwnershipEpoch: Long,
+    ): Boolean = adoptActiveSession(
+        params = params,
+        session = session,
+        manageProgress = manageProgress,
+        stopSessionOnStop = stopSessionOnStop,
+        renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart,
+        expectedOwnershipEpoch = expectedOwnershipEpoch,
+    )
+
+    private suspend fun adoptActiveSession(
+        params: StartParams,
+        session: PlaybackSessionResponse,
+        manageProgress: Boolean,
+        stopSessionOnStop: Boolean,
+        renewMissingSessionWithLegacyStart: Boolean,
+        expectedOwnershipEpoch: Long?,
+    ): Boolean {
         awaitPendingStop()
         val diagnosticsRecording = playbackSessions.recording()
-        mutex.withLock {
+        val adopted = mutex.withLock {
+            if (expectedOwnershipEpoch != null && stopEpoch != expectedOwnershipEpoch) {
+                return@withLock false
+            }
             cancelRecoveryJobs()
             reporterJob?.cancel()
             reporterJob = null
@@ -149,7 +194,12 @@ class PlaybackSessionLifecycle(
             if (manageProgress) {
                 startProgressReporter()
             }
+            true
         }
+        if (!adopted) {
+            sessionManager.stopSession(session.sessionId)
+        }
+        return adopted
     }
 
     private suspend fun startInternal(
@@ -169,12 +219,18 @@ class PlaybackSessionLifecycle(
             renewMissingSessionWithLegacyStart = true
             stopEpoch
         }
+        suspend fun publishFailureUnlessStopped(message: String): SessionState =
+            guarded {
+                if (stopEpoch != epochAtStart) {
+                    SessionState.Idle.also { _state.value = it }
+                } else {
+                    SessionState.Failed(message).also { _state.value = it }
+                }
+            }
 
         val profileId = profileRepository.getActiveProfileId()
         if (profileId == null) {
-            val failed = SessionState.Failed("No active profile selected.")
-            guarded { _state.value = failed }
-            return failed
+            return publishFailureUnlessStopped("No active profile selected.")
         }
 
         val result = if (
@@ -239,16 +295,14 @@ class PlaybackSessionLifecycle(
             is ApiResult.Error -> {
                 DiagnosticsPlaybackLogger.sessionEvent("session start failed")
                 Log.w(TAG, "start session error: ${result.code} ${result.error} ${result.message}")
-                val failed = SessionState.Failed(result.message.ifBlank { "Failed to start playback." })
-                guarded { _state.value = failed }
-                failed
+                publishFailureUnlessStopped(
+                    result.message.ifBlank { "Failed to start playback." },
+                )
             }
             is ApiResult.NetworkError -> {
                 DiagnosticsPlaybackLogger.sessionEvent("session start network failure")
                 Log.w(TAG, "start session network error: ${result.exception}")
-                val failed = SessionState.Failed("Network error starting playback.")
-                guarded { _state.value = failed }
-                failed
+                publishFailureUnlessStopped("Network error starting playback.")
             }
         }
     }
