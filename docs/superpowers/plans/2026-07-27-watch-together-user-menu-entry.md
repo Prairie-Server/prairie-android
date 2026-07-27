@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Android phone and Android TV only; do not change Silo Server, Apple clients, or production proxy configuration.
-- Add **Watch Together** to the authenticated user/profile menu before **Requests** when Requests is present and before the settings/account divider.
+- Add **Watch Together** to the authenticated user/profile menu immediately after **Requests** when Requests is present; otherwise keep it in the same content/action group immediately before the settings/account divider.
 - The menu entry is a transient phone sheet or TV popup, not a persistent Watch Together home.
 - **Host a room** creates exactly one empty vote room with `selection_mode = "vote"` and must not call `setSelection`.
 - **Join by code** must continue to use the existing repository, validation, error mapping, and lobby/player destination rules.
@@ -541,14 +541,22 @@ class WatchTogetherMenuEntrySourceTest {
     )
 
     @Test
-    fun everyPhoneProfileMenuPlacesWatchTogetherBeforeRequestsAndSettings() {
+    fun everyPhoneProfileMenuPlacesWatchTogetherAfterRequestsAndBeforeSettings() {
         listOf(topBar, home, libraries).forEach { text ->
             val watch = text.indexOf("Text(\"Watch Together\")")
             val requests = text.indexOf("Text(\"Requests\")")
             val settings = text.indexOf("Text(\"Settings\")")
             assertTrue(watch >= 0)
-            assertTrue(requests < 0 || watch < requests)
+            assertTrue(requests < 0 || requests < watch)
             assertTrue(watch < settings)
+            if (requests >= 0) {
+                assertFalse(
+                    text.substring(
+                        startIndex = requests + "Text(\"Requests\")".length,
+                        endIndex = watch,
+                    ).contains("DropdownMenuItem("),
+                )
+            }
         }
     }
 
@@ -703,25 +711,27 @@ Add this exact parameter to `MainAppTopBar`, `HomeScreen`,
 onWatchTogetherClick: (() -> Unit)?,
 ```
 
-In all three menu implementations, insert this item before the conditional
-Requests item and keep one divider after the content-action group:
+In all three menu implementations, keep the conditional Requests item first,
+insert Watch Together immediately after it, and keep one divider after the
+content/action group. When Requests is absent, Watch Together is therefore the
+last content action before the divider:
 
 ```kotlin
-if (onWatchTogetherClick != null) {
-    DropdownMenuItem(
-        text = { Text("Watch Together") },
-        onClick = {
-            menuExpanded = false
-            onWatchTogetherClick()
-        },
-    )
-}
 if (onRequestsClick != null) {
     DropdownMenuItem(
         text = { Text("Requests") },
         onClick = {
             menuExpanded = false
             onRequestsClick()
+        },
+    )
+}
+if (onWatchTogetherClick != null) {
+    DropdownMenuItem(
+        text = { Text("Watch Together") },
+        onClick = {
+            menuExpanded = false
+            onWatchTogetherClick()
         },
     )
 }
@@ -1288,14 +1298,20 @@ class TvWatchTogetherMenuEntrySourceTest {
     ).readText()
 
     @Test
-    fun profileRowIsBeforeRequestsAndSettings() {
+    fun profileRowIsImmediatelyAfterRequestsAndBeforeSettings() {
         val profile = shell.substringAfter("private fun TvProfileDropdown(")
         val watch = profile.indexOf("label = \"Watch Together\"")
         val requests = profile.indexOf("label = \"Requests\"")
         val settings = profile.indexOf("label = \"Settings\"")
         assertTrue(watch >= 0)
-        assertTrue(watch < requests)
+        assertTrue(requests < watch)
         assertTrue(watch < settings)
+        assertFalse(
+            profile.substring(
+                startIndex = requests + "label = \"Requests\"".length,
+                endIndex = watch,
+            ).contains("ProfileDropdownRow("),
+        )
         assertTrue(shell.contains("CLIENT_WATCH_TOGETHER_SURFACE_ENABLED"))
     }
 
@@ -1512,7 +1528,9 @@ if (showWatchTogether) {
 }
 ```
 
-Place it after History and before Requests.
+Place it immediately after the conditional Requests row. When Requests is
+hidden, Watch Together remains after History and before the content/settings
+divider.
 
 Render `TvJoinCodeDialog` or `TvWatchTogetherMenuEntryDialog` after the profile
 dropdown:
@@ -2055,8 +2073,9 @@ then repeat the serial-scoped install.
 
 On the authenticated phone test profile:
 
-1. Open profile menus from Home, Libraries, and For You; verify Watch Together
-   appears before Requests and before Settings on each.
+1. Open profile menus from Home, Libraries, and For You; verify Requests appears
+   immediately before Watch Together when enabled, and Watch Together remains
+   immediately before the settings/account divider when Requests is disabled.
 2. Open the sheet; with no room verify Host receives the primary position,
    Join opens code input, Back returns to entry, and dismissal returns to the
    same tab.

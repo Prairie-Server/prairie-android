@@ -20,9 +20,11 @@ other menu policy.
 
 ## User experience
 
-Both profile menus add a **Watch Together** row in their content/action group,
-before **Requests** when Requests is present and before the divider that
-precedes settings and account actions.
+Both profile menus add a **Watch Together** row in their content/action group.
+When **Requests** is present, Requests remains first and Watch Together appears
+immediately after it. When Requests is absent, Watch Together remains in the
+same content/action group immediately before the divider that precedes settings
+and account actions.
 
 Selecting the row closes the profile menu and opens a transient, dedicated
 Watch Together entry surface:
@@ -155,12 +157,14 @@ added.
 Focused automated coverage must establish:
 
 - **Phone menu visibility:** Watch Together is present in the authenticated
-  profile menu, invokes the entry surface, and does not disturb Requests or
-  account actions.
+  profile menu, invokes the entry surface, appears immediately after Requests
+  when Requests is present (or immediately before the settings/account divider
+  otherwise), and does not disturb account actions.
 - **TV menu visibility and focus:** the row is present in the profile dropdown;
-  opening it closes the dropdown; Resume is initially focused when present,
-  otherwise Host is; Back restores focus without leaking focus behind the
-  popup.
+  it follows Requests when Requests is present and otherwise ends the same
+  content/action group; opening it closes the dropdown; Resume is initially
+  focused when present, otherwise Host is; Back restores focus without leaking
+  focus behind the popup.
 - **Empty host flow:** both clients issue one vote-mode create request, never
   call `setSelection`, and navigate to the existing lobby with the returned
   room ID.
