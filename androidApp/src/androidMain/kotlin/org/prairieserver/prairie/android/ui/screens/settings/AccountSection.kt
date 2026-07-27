@@ -149,7 +149,7 @@ fun AccountSection(
             )
 
             SettingsRowLabel(
-                title = "Pair Device",
+                title = "Quick Connect",
                 icon = Icons.Default.Devices,
                 badgeColor = SettingsBadgeTeal,
                 onClick = onPairDevice,
