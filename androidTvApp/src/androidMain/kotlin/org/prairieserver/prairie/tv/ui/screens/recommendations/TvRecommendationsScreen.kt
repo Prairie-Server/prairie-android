@@ -50,6 +50,8 @@ import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.util.visibleOnTv
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.layout.width
 
 private val RecommendationsFilterBandHeight = 52.dp
 
@@ -167,6 +169,12 @@ fun TvRecommendationsScreen(
                             onClick = viewModel::loadRecommendations,
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Check again", style = MaterialTheme.typography.labelLarge)
                         }
                     }

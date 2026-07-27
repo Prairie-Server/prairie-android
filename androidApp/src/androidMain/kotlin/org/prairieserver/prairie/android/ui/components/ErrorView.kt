@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.layout.width
 
 /**
  * Full-screen error display with icon, message, and optional retry button.
@@ -75,6 +77,12 @@ fun ErrorView(
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Retry")
             }
         }

@@ -41,6 +41,12 @@ import org.prairieserver.prairie.overlays.OverlayDataExtractor
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.prairieserver.prairie.tv.ui.util.tvArtworkAspectRatioForMediaType
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.tv.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 
 /**
  * Poster grid with automatic pagination. Fed by a [List] of
@@ -251,6 +257,12 @@ private fun TvLoadMoreRetryFooter(onRetry: () -> Unit) {
                 onClick = onRetry,
                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
             ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Retry", style = MaterialTheme.typography.labelLarge)
             }
         }

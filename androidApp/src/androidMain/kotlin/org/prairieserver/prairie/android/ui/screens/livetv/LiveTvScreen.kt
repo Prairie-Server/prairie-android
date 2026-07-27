@@ -48,6 +48,7 @@ import org.prairieserver.prairie.model.livetv.LiveTvChannel
 import org.prairieserver.prairie.model.livetv.LiveTvProgram
 import org.prairieserver.prairie.viewmodel.LiveTvChannelRow
 import org.prairieserver.prairie.viewmodel.LiveTvViewModel
+import androidx.compose.material.icons.filled.Refresh
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +100,12 @@ fun LiveTvScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     TextButton(onClick = viewModel::load) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Retry")
                     }
                 }

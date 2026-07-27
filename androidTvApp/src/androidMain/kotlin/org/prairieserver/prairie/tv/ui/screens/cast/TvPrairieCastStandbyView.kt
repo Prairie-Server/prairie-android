@@ -27,6 +27,9 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
+import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 
 @Composable
 fun TvPrairieCastStandbyView(
@@ -83,6 +86,12 @@ fun TvPrairieCastStandbyView(
                 onClick = onDisconnect,
                 modifier = Modifier.focusRequester(disconnectFocus),
             ) {
+                Icon(
+                    imageVector = Icons.Default.LinkOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Disconnect Remote")
             }
         }

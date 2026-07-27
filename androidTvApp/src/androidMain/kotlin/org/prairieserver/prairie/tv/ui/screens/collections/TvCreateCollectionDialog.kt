@@ -44,6 +44,11 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.tv.ui.components.TvFilterChip
 import org.prairieserver.prairie.tv.ui.components.tvOutlinedTextFieldColors
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.tv.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Add
 
 /**
  * Dialog for creating a new user collection. Contains a Prairie-owned text field
@@ -160,6 +165,12 @@ fun TvCreateCollectionDialog(
                                 vertical = 6.dp,
                             ),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(text = "Cancel", style = TvCreateCollectionTextStyles.Button)
                         }
                         Button(
@@ -170,6 +181,12 @@ fun TvCreateCollectionDialog(
                                 vertical = 6.dp,
                             ),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = if (isCreating) "Creating..." else "Create",
                                 style = TvCreateCollectionTextStyles.Button,

@@ -73,6 +73,10 @@ import java.time.LocalDate
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.tv.material3.Icon
+import androidx.compose.foundation.layout.Spacer
 
 /**
  * Android TV person detail surface — the cast/crew profile plus their
@@ -212,6 +216,12 @@ private fun TvPersonDetailContent(
                             onClick = onRetryItems,
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Retry", style = MaterialTheme.typography.labelLarge)
                         }
                     }

@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.util.LanguageNames
 import org.prairieserver.prairie.model.subtitles.SubtitleResult
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Search
 
 // Web-parity palette (SubtitleSearchModal.tsx providerInfo / scoreColor).
 private val ScoreGreen = Color(0xFF22C55E)
@@ -173,6 +175,12 @@ fun SubtitleSearchSheet(
                             color = Color.White,
                         )
                     } else {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Search")
                     }
                 }

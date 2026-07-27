@@ -28,6 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 
 /**
  * Google Cast (Chromecast) button + route picker for the video player top bar.
@@ -135,12 +138,24 @@ fun PrairieCastButton(
                         },
                     ) { Text("Stop casting") }
                 } else {
-                    TextButton(onClick = { showPicker = false }) { Text("Close") }
+                    TextButton(onClick = { showPicker = false }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Close") }
                 }
             },
             dismissButton = {
                 if (castState.isConnected) {
-                    TextButton(onClick = { showPicker = false }) { Text("Close") }
+                    TextButton(onClick = { showPicker = false }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Close") }
                 }
             },
         )

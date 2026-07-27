@@ -12,9 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -45,6 +49,8 @@ import org.prairieserver.prairie.android.ui.util.LanguageNames
 import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.subtitles.SubtitleAiJobKind
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.width
 
 private val WarnAmber = Color(0xFFEAB308)
 private val ErrorRed = Color(0xFFEF4444)
@@ -141,6 +147,12 @@ fun AiTranslateSheet(
                             onClick = onCancelJob,
                             modifier = Modifier.padding(top = 12.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Cancel")
                         }
                     }
@@ -255,6 +267,16 @@ fun AiTranslateSheet(
                                 color = Color.White,
                             )
                         } else {
+                            Icon(
+                                imageVector = if (mode == AiMode.Audio) {
+                                    Icons.Default.AutoAwesome
+                                } else {
+                                    Icons.Default.Translate
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(if (mode == AiMode.Audio) "Generate" else "Translate")
                         }
                     }

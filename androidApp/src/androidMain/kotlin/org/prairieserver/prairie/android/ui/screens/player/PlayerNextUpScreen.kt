@@ -179,6 +179,12 @@ fun PlayerNextUpScreen(
                             onClick = onKeepWatching,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Keep Watching", color = Color.White)
                         }
                     }

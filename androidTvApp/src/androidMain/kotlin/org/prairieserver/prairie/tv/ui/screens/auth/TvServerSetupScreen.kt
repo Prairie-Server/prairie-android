@@ -42,6 +42,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -474,7 +477,7 @@ private fun ManualEntryCard(
         ) {
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Connecting…" else "Connect",
-                icon = null,
+                icon = Icons.Default.Link,
                 enabled = canSubmitTvServerUrl(state.serverUrl, state.isLoading),
                 onClick = {
                     if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
@@ -660,6 +663,7 @@ private fun ActivePairingPanel(
                 ) {
                     AuroraPrimaryButton(
                         label = "Allow",
+                        icon = Icons.Default.Check,
                         onClick = onAllow,
                         focusRequester = allowFocusRequester,
                         modifier = Modifier
@@ -757,6 +761,7 @@ private fun ActivePairingPanel(
                 )
                 AuroraPrimaryButton(
                     label = "Try again",
+                    icon = Icons.Default.Refresh,
                     onClick = onCancel,
                     modifier = Modifier.width(320.dp),
                 )

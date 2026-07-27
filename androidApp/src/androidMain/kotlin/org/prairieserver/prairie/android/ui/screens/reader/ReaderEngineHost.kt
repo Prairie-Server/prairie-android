@@ -25,6 +25,12 @@ import org.prairieserver.prairie.common.downloads.DownloadOpenTarget
 import org.prairieserver.prairie.common.ebook.ReaderEngineKind
 import org.prairieserver.prairie.common.ebook.ReaderSection
 import org.prairieserver.prairie.model.ebook.EbookReadMode
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.OpenInNew
 
 @Composable
 fun ReaderEngineHost(
@@ -141,6 +147,12 @@ private fun ExternalReadingPanel(
                 }
             },
         ) {
+            Icon(
+                imageVector = Icons.Default.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Open with another reader")
         }
     }

@@ -27,6 +27,11 @@ import org.prairieserver.prairie.model.request.MediaRequest
 import org.prairieserver.prairie.model.request.canCancel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.Close
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,6 +101,12 @@ fun MyRequestsScreen(
                                                     onClick = { viewModel.cancel(request.id) },
                                                     enabled = state.actionInFlightId != request.id,
                                                 ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(18.dp),
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
                                                     Text(
                                                         text = if (state.actionInFlightId == request.id) {
                                                             "Canceling"

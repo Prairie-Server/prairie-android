@@ -30,6 +30,11 @@ import org.prairieserver.prairie.tv.ui.components.TvSkylineSectionFeed
 import org.prairieserver.prairie.tv.ui.components.isTvProgressRow
 import org.prairieserver.prairie.viewmodel.HomeViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Refresh
+import androidx.tv.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 
 internal fun shouldShowHomeEmptyState(
     isLoading: Boolean,
@@ -151,6 +156,12 @@ private fun TvHomeEmptyState(
                 modifier = Modifier.focusRequester(refreshFocusRequester),
                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
             ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Refresh", style = MaterialTheme.typography.labelLarge)
             }
         }

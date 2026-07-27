@@ -46,6 +46,10 @@ import org.prairieserver.prairie.repository.NotificationsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import java.time.Instant
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.DoneAll
 
 /**
  * Notifications inbox: paginated newest-first list of delivery rows rendered as
@@ -118,6 +122,12 @@ fun InboxScreen(
                 actions = {
                     if (unreadCount > 0) {
                         TextButton(onClick = { scope.launch { repository.markAllRead() } }) {
+                            Icon(
+                                imageVector = Icons.Default.DoneAll,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Mark all read")
                         }
                     }

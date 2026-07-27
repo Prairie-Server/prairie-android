@@ -39,6 +39,9 @@ import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
 import org.prairieserver.prairie.model.watchtogether.Suggestion
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.layout.size
 
 /**
  * Watch Together lobby. Shows member count / role / selection mode, the
@@ -176,8 +179,20 @@ private fun SuggestionRow(
                 Text("${suggestion.voteCount}${if (suggestion.votedByMe) " ✓" else ""}")
             }
             if (canManage) {
-                TextButton(onClick = onPromote) { Text("Pick") }
-                TextButton(onClick = onRemove) { Text("Remove") }
+                TextButton(onClick = onPromote) { Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Pick") }
+                TextButton(onClick = onRemove) { Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Remove") }
             }
         }
     }

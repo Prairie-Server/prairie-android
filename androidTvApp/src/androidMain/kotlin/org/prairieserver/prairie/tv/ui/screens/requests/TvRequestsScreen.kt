@@ -68,6 +68,10 @@ import org.prairieserver.prairie.tv.ui.theme.sectionEyebrow
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.size
+import androidx.tv.material3.Icon
 
 private val requestMediaFilters = listOf(
     RequestMediaType.All to "All",
@@ -180,11 +184,23 @@ fun TvRequestsScreen(
                         actionViewModel.submit(item.requestKey(), item.toCreateMediaRequest())
                     },
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Request")
                 }
             },
             dismissButton = {
                 Button(onClick = { pendingRequest = null }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel")
                 }
             },

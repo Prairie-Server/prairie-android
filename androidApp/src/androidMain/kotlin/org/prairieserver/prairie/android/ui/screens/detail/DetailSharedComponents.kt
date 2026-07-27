@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -720,13 +721,29 @@ fun HeroActionStack(
                 TextButton(onClick = {
                     showResumeDialog = false
                     onPlay()
-                }) { Text("Resume") }
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Resume")
+                }
             },
             dismissButton = {
                 TextButton(onClick = {
                     showResumeDialog = false
                     onPlayFromBeginning()
-                }) { Text("Play from Beginning") }
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.Replay,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Play from Beginning")
+                }
             },
         )
     }

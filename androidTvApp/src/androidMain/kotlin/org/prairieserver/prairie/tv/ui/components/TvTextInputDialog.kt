@@ -43,6 +43,11 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.tv.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Check
 
 /**
  * Generic single-field text-input dialog for TV. Text entry intentionally uses
@@ -151,6 +156,12 @@ fun TvTextInputDialog(
                             onClick = onDismiss,
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(text = "Cancel", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Button(
@@ -158,6 +169,12 @@ fun TvTextInputDialog(
                             enabled = canConfirm,
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = if (isBusy) "..." else confirmLabel,
                                 fontSize = 14.sp,

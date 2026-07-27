@@ -38,6 +38,12 @@ import org.prairieserver.prairie.viewmodel.ADMIN_USER_ROLES
 import org.prairieserver.prairie.viewmodel.AdminUserEditViewModel
 import org.prairieserver.prairie.viewmodel.roleDisplayName
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
 
 /**
  * Create (userId == null) / edit form for an admin user. On create, username /
@@ -174,6 +180,12 @@ fun AdminUserEditScreen(
                         strokeWidth = 2.dp,
                     )
                 } else {
+                    Icon(
+                        imageVector = if (isEdit) Icons.Default.Save else Icons.Default.PersonAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(if (isEdit) "Save changes" else "Create user")
                 }
             }

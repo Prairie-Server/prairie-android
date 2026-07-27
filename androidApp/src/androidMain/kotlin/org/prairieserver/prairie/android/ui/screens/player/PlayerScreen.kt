@@ -92,6 +92,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PlayArrow
 
 private const val TAG = "PlayerScreen"
 
@@ -928,9 +934,21 @@ fun PlayerScreen(
                     // Try Anyway escape hatch; generic errors keep the bare message.
                     if (uiState.serverUnreachable) {
                         Button(onClick = { viewModel.retryServerReachability() }) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Retry")
                         }
                         OutlinedButton(onClick = { viewModel.playIgnoringServerReachability() }) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Try Anyway")
                         }
                     }

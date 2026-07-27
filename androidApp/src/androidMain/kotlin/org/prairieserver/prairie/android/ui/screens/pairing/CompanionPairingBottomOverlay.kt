@@ -59,6 +59,11 @@ import org.prairieserver.prairie.common.pairing.CompanionPairingApproval
 import org.prairieserver.prairie.common.pairing.CompanionPairingServer
 import org.prairieserver.prairie.common.pairing.CompanionPairingStatus
 import org.prairieserver.prairie.common.pairing.CompanionPairingTarget
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Refresh
 
 /** Bottom-anchored companion setup card matching the iOS presentation. */
 @Composable
@@ -282,9 +287,21 @@ private fun ServerPicker(
                 .height(48.dp)
                 .padding(top = 6.dp),
         ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Continue", style = MaterialTheme.typography.titleMedium)
         }
         TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Cancel")
         }
     }
@@ -318,6 +335,12 @@ private fun DiscoveryStep(
         )
         PrimaryAction(label = "Set Up", onClick = onPair, modifier = Modifier.padding(top = 14.dp))
         TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Not Now")
         }
     }
@@ -356,6 +379,12 @@ private fun MatchConfirmation(
             modifier = Modifier.padding(top = 14.dp),
         )
         TextButton(onClick = onDecline, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Doesn't match")
         }
     }
@@ -395,6 +424,12 @@ private fun ProgressStep(status: CompanionPairingStatus, onCancel: () -> Unit) {
             strokeWidth = 3.dp,
         )
         TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Cancel")
         }
     }
@@ -430,6 +465,12 @@ private fun TerminalStep(
         PrimaryAction(label = primaryLabel, onClick = onPrimary, modifier = Modifier.padding(top = 8.dp))
         onSecondary?.let { secondary ->
             TextButton(onClick = secondary, modifier = Modifier.fillMaxWidth()) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Close")
             }
         }
@@ -442,12 +483,26 @@ private fun PrimaryAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val icon = when {
+        label.equals("Continue", ignoreCase = true) || label.equals("Approve", ignoreCase = true) ->
+            Icons.AutoMirrored.Filled.ArrowForward
+        label.equals("Try Again", ignoreCase = true) || label.equals("Retry", ignoreCase = true) ->
+            Icons.Default.Refresh
+        label.startsWith("Set Up", ignoreCase = true) -> Icons.Default.Link
+        else -> Icons.Default.Check
+    }
     Button(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp),
     ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         Text(label, style = MaterialTheme.typography.titleMedium)
     }
 }

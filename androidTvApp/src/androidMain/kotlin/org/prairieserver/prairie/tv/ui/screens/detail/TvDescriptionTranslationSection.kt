@@ -12,6 +12,12 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import org.prairieserver.prairie.metadata.DescriptionTranslationPhase
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.tv.material3.Icon
 
 /**
  * TV description-translation affordance (Apple tvOS parity): a focusable
@@ -51,12 +57,24 @@ internal fun TvDescriptionTranslationSection(
             onClick = onTranslate,
             modifier = modifier,
         ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Translation failed — retry")
         }
         DescriptionTranslationPhase.Idle -> androidx.tv.material3.Button(
             onClick = onTranslate,
             modifier = modifier,
         ) {
+            Icon(
+                imageVector = Icons.Default.Translate,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Translate description")
         }
     }

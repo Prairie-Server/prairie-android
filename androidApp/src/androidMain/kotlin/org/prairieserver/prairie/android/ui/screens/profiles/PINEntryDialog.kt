@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import org.prairieserver.prairie.android.ui.screens.auth.AuthColors
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Close
 
 private const val PIN_LENGTH = 4
 
@@ -132,6 +134,13 @@ fun PINEntryDialog(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 TextButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = AuthColors.Primary,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Cancel",
                         color = AuthColors.Primary,

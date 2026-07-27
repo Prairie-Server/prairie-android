@@ -58,6 +58,7 @@ import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.ebook.MediaRelatedContent
 import org.prairieserver.prairie.model.ebook.MediaRelatedItem
 import org.prairieserver.prairie.model.ebook.MediaSeriesGroup
+import androidx.compose.material.icons.filled.Replay
 
 /**
  * Phone audiobook detail. Cover + author + narrator above, then the
@@ -237,12 +238,24 @@ fun AudiobookDetailContent(
                             },
                             modifier = Modifier.weight(1f),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(primaryLabel)
                         }
                         OutlinedButton(
                             onClick = { onPlayFromStartClick() },
                             modifier = Modifier.weight(1f),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Replay,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Start Over")
                         }
                     }

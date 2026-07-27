@@ -18,6 +18,10 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.tv.material3.Icon
+import androidx.compose.foundation.layout.width
 
 @Composable
 fun TvLoadingScreen(modifier: Modifier = Modifier) {
@@ -61,6 +65,12 @@ fun TvErrorScreen(
                     onClick = onRetry,
                     contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Retry", style = MaterialTheme.typography.labelLarge)
                 }
             }

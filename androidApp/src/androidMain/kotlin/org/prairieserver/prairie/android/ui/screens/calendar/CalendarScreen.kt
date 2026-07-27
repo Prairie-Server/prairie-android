@@ -70,6 +70,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.compose.material.icons.filled.Refresh
 
 // iOS phone token mirror (PrairieTheme.swift, !os(tvOS) branch):
 //   cornerRadius = 8, smallCornerRadius = 6
@@ -715,7 +716,13 @@ private fun ErrorRow(message: String, onRetry: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
-        TextButton(onClick = onRetry) { Text("Retry") }
+        TextButton(onClick = onRetry) { Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Retry") }
     }
 }
 

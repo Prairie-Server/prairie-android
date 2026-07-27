@@ -52,6 +52,7 @@ import org.prairieserver.prairie.android.ui.screens.home.HomeSectionRow
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Refresh
 
 /**
  * Phone Recommendations ("For You") screen.
@@ -124,6 +125,12 @@ fun RecommendationsScreen(
                 )
                 Spacer(modifier = Modifier.height(20.dp))
                 Button(onClick = { viewModel.loadRecommendations() }) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Retry")
                 }
             }
@@ -158,6 +165,12 @@ fun RecommendationsScreen(
                     onClick = { viewModel.refresh() },
                     modifier = Modifier.padding(horizontal = 16.dp),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Check again")
                 }
                 Spacer(modifier = Modifier.height(8.dp))

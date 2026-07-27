@@ -45,6 +45,10 @@ import org.prairieserver.prairie.model.admin.AdminUser
 import org.prairieserver.prairie.viewmodel.AdminUsersViewModel
 import org.prairieserver.prairie.viewmodel.roleDisplayName
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Delete
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,11 +130,24 @@ fun AdminUsersScreen(
                     viewModel.deleteUser(user.id)
                     pendingDelete = null
                 }) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
+                    Text("Cancel") }
             },
         )
     }
@@ -199,6 +216,13 @@ private fun UserRow(
                     onClick = onDelete,
                     contentPadding = PaddingValues(0.dp),
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         "Delete",
                         color = MaterialTheme.colorScheme.error,

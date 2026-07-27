@@ -61,6 +61,8 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.metadata.MetadataAiOnView
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 
 /**
  * Main settings screen organized in grouped sections.
@@ -386,11 +388,23 @@ fun SettingsScreen(
                         downloadsViewModel.removeAllDownloads()
                     },
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(if (downloadsState.isRemovingAllDownloads) "Removing..." else "Remove All")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveAllDownloadsConfirm = false }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier = Modifier.width(8.dp))
                     Text("Cancel")
                 }
             },
