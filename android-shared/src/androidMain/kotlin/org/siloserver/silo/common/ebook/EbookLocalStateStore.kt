@@ -30,7 +30,7 @@ class EbookLocalStateStore(baseDir: File) {
         store.fileFor(serverId, profileId, contentId, suffix = ".bookmarks.json")
 
     private fun displaySettingsFile(serverId: String, profileId: String): File =
-        store.resolve("$serverId/$profileId/reader-settings.json")
+        store.fileFor(serverId, profileId, "reader-settings")
 
     fun readProgress(serverId: String, profileId: String, contentId: String): ProgressSnapshot? =
         store.read<ProgressSnapshot>(progressFile(serverId, profileId, contentId))
@@ -58,7 +58,7 @@ class EbookLocalStateStore(baseDir: File) {
      * server. Walks `ebook_state/<server>/<profile>/<contentId>.progress.json`.
      */
     fun listAllProgress(): List<ProgressEntry> {
-        val root = store.resolve("")
+        val root = store.rootDirectory()
         val result = mutableListOf<ProgressEntry>()
         val serverDirs = root.listFiles()?.filter { it.isDirectory } ?: return result
         for (serverDir in serverDirs) {

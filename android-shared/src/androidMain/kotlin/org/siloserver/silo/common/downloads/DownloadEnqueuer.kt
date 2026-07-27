@@ -2,6 +2,7 @@ package org.siloserver.silo.common.downloads
 
 import android.content.Context
 import android.util.Log
+import androidx.work.WorkManager
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.model.download.DownloadQuality
 import org.siloserver.silo.model.download.DownloadMediaType
@@ -16,7 +17,9 @@ import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.DownloadsRepository
 import org.siloserver.silo.repository.ProfileRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 /**
  * Thin Android-side helper that combines the cross-platform
@@ -57,7 +60,7 @@ class DownloadEnqueuer(
         Log.i(TAG, "start: contentId=$contentId fileId=$fileId title=$displayTitle")
         if (activeDownloadExists(fileId)) {
             Log.i(TAG, "start: fileId=$fileId already queued/downloading — skipping duplicate")
-            return ApiResult.Success(Unit)
+            return alreadyActive()
         }
         val record = when (val r = repository.create(
             downloadRequest(
@@ -95,7 +98,7 @@ class DownloadEnqueuer(
         Log.i(TAG, "startEpisode: series=$seriesContentId ep=$episodeContentId fileId=$fileId S${seasonNumber}E${episodeNumber}")
         if (activeDownloadExists(fileId)) {
             Log.i(TAG, "startEpisode: fileId=$fileId already queued/downloading — skipping duplicate")
-            return ApiResult.Success(Unit)
+            return alreadyActive()
         }
         val displayTitle = "$seriesTitle S${seasonNumber}E${episodeNumber}" +
             (episodeTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
@@ -250,7 +253,10 @@ class DownloadEnqueuer(
                 // though startEpisode itself honors quality for single episodes.
                 downloadQualityOverride = DownloadQuality.Original,
             )
-            if (result is ApiResult.Success) queued++
+            // An episode that is already in flight counts as queued: the season
+            // is in the state the user asked for, so a re-tap must not report
+            // the whole season as failed.
+            if (result is ApiResult.Success || result.isAlreadyActive()) queued++
             else if (firstError == null) firstError = result
         }
         Log.i(TAG, "startSeason: queued $queued of ${episodes.size}")
@@ -286,16 +292,45 @@ class DownloadEnqueuer(
      * [fileId]. Two workers for one fileId share the same on-disk target, and
      * [DownloadStorage.prepareWrite] recreates that directory — so a duplicate
      * enqueue lets the second worker wipe the first one's partial mid-stream.
-     * The sidecar store is the local source of truth for per-scope status.
+     * The sidecar store is the local source of truth for per-scope status —
+     * but only while a worker is actually alive for it: a row can outlive its
+     * work (cancel, process death mid-stream, WorkManager pruning), and a
+     * stale Queued/Downloading row would otherwise block every future enqueue
+     * for that file forever. So a row with no live work is dropped, not honoured.
      */
     private suspend fun activeDownloadExists(fileId: Int): Boolean {
         val serverId = serverRegistry.activeServerId.value ?: DEFAULT_SERVER_ID
         val profileId = profileRepository.getActiveProfileId() ?: DEFAULT_PROFILE_ID
         val existing = runCatching { metadataStore.readSidecar(serverId, profileId, fileId) }.getOrNull()
             ?: return false
-        return when (existing.record.statusEnum()) {
+        val claimsActive = when (existing.record.statusEnum()) {
             DownloadStatus.Queued, DownloadStatus.Downloading -> true
             else -> false
+        }
+        if (!claimsActive) return false
+        // WorkManager commits an enqueue on its own executor, so a just-written
+        // row can briefly have no visible work. Trust the row inside that window
+        // rather than racing a double-tap into a second worker.
+        if (System.currentTimeMillis() - existing.updatedAtMs < WORK_VISIBILITY_GRACE_MS) return true
+        if (hasLiveWork(existing.record.id)) return true
+        Log.i(TAG, "activeDownloadExists: fileId=$fileId sidecar is stale (no live work) — dropping")
+        runCatching { metadataStore.deleteSidecar(serverId, profileId, fileId) }
+            .onFailure { Log.w(TAG, "activeDownloadExists: stale deleteSidecar failed for fileId=$fileId", it) }
+        return false
+    }
+
+    /** True when WorkManager still holds a non-terminal worker for [downloadId].
+     *  Unknown (query threw) is reported as live so an unreadable WorkManager
+     *  can't turn the duplicate guard into a partial-wiping double enqueue. */
+    private suspend fun hasLiveWork(downloadId: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            WorkManager.getInstance(context)
+                .getWorkInfosForUniqueWork(DownloadWorker.tagFor(downloadId))
+                .get()
+                .any { !it.state.isFinished }
+        }.getOrElse {
+            Log.w(TAG, "hasLiveWork: WorkManager query failed for id=$downloadId", it)
+            true
         }
     }
 
@@ -406,15 +441,45 @@ class DownloadEnqueuer(
     private fun ItemDetail.versionFor(fileId: Int): FileVersion? =
         versions.firstOrNull { it.fileId == fileId }
 
-    /** Cancel a queued / in-flight download by record id (worker-tag). */
+    /** Cancel a queued / in-flight download by record id (worker-tag).
+     *  Callers that own the local metadata (Downloads tab) clean the sidecar up
+     *  themselves; everyone else should use the [fileId] overload. */
     fun cancel(downloadId: String) {
         Log.i(TAG, "cancel: downloadId=$downloadId")
         DownloadWorker.cancel(context, downloadId)
     }
 
+    /**
+     * Cancel and forget: as [cancel], plus drops the local sidecar for
+     * [fileId]. Leaving the row behind is what made a cancelled download
+     * un-restartable — it stays Queued/Downloading in Room, so every later
+     * tap is swallowed by the duplicate guard.
+     */
+    suspend fun cancel(downloadId: String, fileId: Int) {
+        cancel(downloadId)
+        val serverId = serverRegistry.activeServerId.value ?: DEFAULT_SERVER_ID
+        val profileId = profileRepository.getActiveProfileId() ?: DEFAULT_PROFILE_ID
+        runCatching { metadataStore.deleteSidecar(serverId, profileId, fileId) }
+            .onFailure { Log.w(TAG, "cancel: deleteSidecar failed for fileId=$fileId", it) }
+    }
+
+    /** The duplicate-guard skip result. Deliberately not [ApiResult.Success]:
+     *  nothing was enqueued, and callers key their "download started" feedback
+     *  off success. */
+    private fun alreadyActive(): ApiResult<Unit> =
+        ApiResult.Error(409, ALREADY_ACTIVE_ERROR, "Already downloading")
+
+    private fun ApiResult<Unit>.isAlreadyActive(): Boolean =
+        this is ApiResult.Error && error == ALREADY_ACTIVE_ERROR
+
     companion object {
         private const val TAG = "DownloadEnqueuer"
         const val DEFAULT_SERVER_ID = "default"
         const val DEFAULT_PROFILE_ID = "default"
+
+        /** Local-only error code: this file already has a live download worker. */
+        const val ALREADY_ACTIVE_ERROR = "download_already_active"
+
+        private const val WORK_VISIBILITY_GRACE_MS = 5_000L
     }
 }

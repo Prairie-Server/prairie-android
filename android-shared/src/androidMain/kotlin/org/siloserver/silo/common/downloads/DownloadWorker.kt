@@ -242,9 +242,9 @@ class DownloadWorker(
             // Server flips status → completed when its serve handler returns;
             // a refresh here ensures the cache reflects that before the
             // worker exits and the UI re-renders.
-            val finalUri = activeUri ?: error("download target was not created")
-            val finalBytes = storage.partialSize(finalUri)
-            storage.completeWrite(finalUri)
+            val pendingUri = activeUri ?: error("download target was not created")
+            val finalBytes = storage.partialSize(pendingUri)
+            val finalUri = storage.completeWrite(pendingUri)
             Log.i(TAG, "doWork success id=$downloadId bytes=$finalBytes")
             DiagnosticsDownloadLogger.event("download completed")
             repository.refresh()
