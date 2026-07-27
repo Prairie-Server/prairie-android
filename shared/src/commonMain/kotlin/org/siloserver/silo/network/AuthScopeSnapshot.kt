@@ -63,9 +63,22 @@ val AuthScopeAttributeKey: AttributeKey<AuthScopeSnapshot> = AttributeKey("SiloA
  */
 val SkipSiloAuthAttributeKey: AttributeKey<Boolean> = AttributeKey("SiloSkipAuth")
 
+/**
+ * Marks a same-origin request as unsafe to send without a Silo bearer.
+ *
+ * This is intentionally opt-in: public endpoints and [skipSiloAuth] requests
+ * retain their existing behavior.
+ */
+internal val RequireSiloAuthAttributeKey: AttributeKey<Boolean> = AttributeKey("SiloRequireAuth")
+
 /** Pin this request to [snapshot]'s scope; [SiloAuthPlugin] uses it verbatim. */
 fun HttpRequestBuilder.authScope(snapshot: AuthScopeSnapshot) {
     attributes.put(AuthScopeAttributeKey, snapshot)
+}
+
+/** Abort before the engine if the request's exact auth scope has no access token. */
+internal fun HttpRequestBuilder.requireSiloAuth() {
+    attributes.put(RequireSiloAuthAttributeKey, true)
 }
 
 /** Opt this request out of Silo auth/profile headers and auth-refresh handling. */

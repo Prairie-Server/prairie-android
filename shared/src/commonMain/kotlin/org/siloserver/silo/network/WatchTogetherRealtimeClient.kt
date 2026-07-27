@@ -78,6 +78,7 @@ private class KtorWatchTogetherSocketConnector(
             client.webSocketSession {
                 url(request.url)
                 authScope(request.authScope)
+                requireSiloAuth()
             },
         )
 }

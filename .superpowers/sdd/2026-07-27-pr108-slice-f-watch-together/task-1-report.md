@@ -206,3 +206,55 @@ BUILD SUCCESSFUL in 17s
 Total after correction: 66 tests, 0 failures, 0 errors. Existing off-origin and
 cleartext-consent gates, including the real pre-engine rejection test, remain
 covered and green. No push, PR, or merge was performed.
+
+## Review correction 2: token loss before engine
+
+The exact-scope validation at connect start is not the final token read: the
+auth plugin reads the scoped token again while building the request so it can
+honor rotation. A credential scope can disappear between those reads. The
+Watch Together connector now marks its pinned request with the internal,
+opt-in `requireSiloAuth()` attribute. When that marked request's exact scoped
+token is null or blank, `SiloAuthPlugin` removes Silo headers and throws before
+the engine runs. Unmarked public requests and `skipSiloAuth()` paths retain
+their existing behavior.
+
+### Correction 2 TDD evidence
+
+The deterministic real-WebSocket fixture returns `ACCESS_A` for connect
+validation and null for the plugin's second exact-scope read.
+
+RED:
+
+```text
+./gradlew :android-shared:testDebugUnitTest \
+  --tests 'org.siloserver.silo.common.network.WatchTogetherRealtimeWebSocketTest.handshake fails before engine when captured scope token disappears after validation'
+
+1 test completed, 1 failed
+BUILD FAILED in 2s
+```
+
+The failure was the expected zero-request assertion: before the correction,
+the plugin omitted `Authorization` but still sent the query-bearing handshake
+to `MockWebServer`.
+
+Fresh focused GREEN:
+
+```text
+./gradlew \
+  :shared:testDebugUnitTest \
+    --tests 'org.siloserver.silo.network.SiloAuthPluginPinTest' \
+    --tests 'org.siloserver.silo.network.WatchTogetherRealtimeClientTest' \
+  :android-shared:testDebugUnitTest \
+    --tests 'org.siloserver.silo.common.network.WatchTogetherRealtimeWebSocketTest' \
+  --rerun-tasks
+
+SiloAuthPluginPinTest: 20 tests, 0 failures/errors
+WatchTogetherRealtimeClientTest: 8 tests, 0 failures/errors
+WatchTogetherRealtimeWebSocketTest: 5 tests, 0 failures/errors
+BUILD SUCCESSFUL in 15s
+70 actionable tasks: 70 executed
+```
+
+The new regression verifies two scoped token reads, typed transport
+termination, and zero engine/server requests. Total in this focused correction
+run: 33 tests, 0 failures, 0 errors. No push, PR, or merge was performed.

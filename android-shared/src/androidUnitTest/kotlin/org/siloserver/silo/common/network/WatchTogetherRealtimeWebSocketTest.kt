@@ -37,6 +37,31 @@ import kotlin.test.assertTrue
 class WatchTogetherRealtimeWebSocketTest {
 
     @Test
+    fun `handshake fails before engine when captured scope token disappears after validation`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.start()
+        val tokens = VanishingScopeTokenManager(server.url("/").toString())
+        val httpClient = createSiloClient(
+            tokenManager = tokens,
+            cleartextOriginConsent = approvedConsent(server),
+        )
+        try {
+            val events = mutableListOf<RoomRealtimeEvent>()
+            DefaultWatchTogetherRealtimeClient(httpClient, tokens)
+                .connect("room-a", "ROOM_A")
+                .collect(events::add)
+
+            assertIs<RoomRealtimeEvent.TransportTerminated>(events.single())
+            assertEquals(0, server.requestCount)
+            assertEquals(2, tokens.scopedAccessReads)
+        } finally {
+            httpClient.close()
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `handshake remains entirely on captured auth scope when active identity switches`() = runBlocking {
         val serverA = MockWebServer()
         val serverB = MockWebServer()
@@ -314,5 +339,28 @@ class WatchTogetherRealtimeWebSocketTest {
 
         override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? =
             accessToken.takeIf { scope == this.scope }
+    }
+
+    private class VanishingScopeTokenManager(
+        serverUrl: String,
+        private val delegate: TokenManager = TokenManagerImpl(),
+    ) : TokenManager by delegate {
+        private val scope = AuthScopeSnapshot(
+            serverId = "server-a",
+            profileId = "profile-a",
+            serverUrl = serverUrl,
+            profileToken = "PROFILE_A",
+            identityGeneration = 1,
+            credentialEpoch = 1,
+        )
+        var scopedAccessReads = 0
+            private set
+
+        override suspend fun snapshotCurrentScope(): AuthScopeSnapshot = scope
+
+        override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? {
+            scopedAccessReads += 1
+            return "ACCESS_A".takeIf { scope == this.scope && scopedAccessReads == 1 }
+        }
     }
 }
