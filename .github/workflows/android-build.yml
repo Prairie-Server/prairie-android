@@ -56,8 +56,7 @@ jobs:
             testDebugUnitTest \
             :shared:koverXmlReport \
             :shared:koverVerify \
-            --max-workers=4 \
-            --configuration-cache
+            --max-workers=4
 
       - name: Upload test reports
         if: failure()
