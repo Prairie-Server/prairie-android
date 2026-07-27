@@ -100,7 +100,7 @@ class Media3VideoPlaybackBackend(
     }
 
     override fun release() {
-        player.release()
+        playerFactory.releasePlayer(player)
     }
 
     private fun requireMediaSpecForExternalSubtitle(track: VideoPlayerTrackEntry?): VideoPlayerMediaSpec {

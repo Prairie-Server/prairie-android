@@ -34,6 +34,7 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.text.SubtitleExtractor
 import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
@@ -42,6 +43,7 @@ import org.siloserver.silo.common.BuildConfig
 import org.siloserver.silo.common.player.audio.DelayAudioProcessor
 import org.siloserver.silo.common.player.audio.PassthroughSuppressingAudioSink
 import org.siloserver.silo.common.player.subtitle.OffsetSubtitleParserFactory
+import org.siloserver.silo.common.player.subtitle.PgsSupExtractor
 import org.siloserver.silo.common.player.subtitle.SubtitleOffsetHolder
 import org.siloserver.silo.common.player.video.SiloMediaCodecVideoRenderer
 import org.siloserver.silo.common.player.video.PlaybackRuntimeCorrectionState
@@ -107,8 +109,31 @@ class SiloPlayerFactory(
 
     private val sidecarSubtitleParserFactory = OffsetSubtitleParserFactory(
         offsetUsProvider = subtitleOffsetHolder::getOffsetUs,
-        delegate = libassBridge.parserFactory,
+        delegate = BitmapAwareSubtitleParserFactory(libassBridge.parserFactory),
     )
+
+    private class BitmapAwareSubtitleParserFactory(
+        private val delegate: SubtitleParser.Factory,
+        private val media3: SubtitleParser.Factory = DefaultSubtitleParserFactory(),
+    ) : SubtitleParser.Factory {
+        private fun factoryFor(format: androidx.media3.common.Format): SubtitleParser.Factory =
+            when (format.sampleMimeType) {
+                MimeTypes.APPLICATION_PGS,
+                MimeTypes.APPLICATION_VOBSUB,
+                MimeTypes.APPLICATION_DVBSUBS,
+                -> media3
+                else -> delegate
+            }
+
+        override fun supportsFormat(format: androidx.media3.common.Format): Boolean =
+            factoryFor(format).supportsFormat(format)
+
+        override fun getCueReplacementBehavior(format: androidx.media3.common.Format): Int =
+            factoryFor(format).getCueReplacementBehavior(format)
+
+        override fun create(format: androidx.media3.common.Format): SubtitleParser =
+            factoryFor(format).create(format)
+    }
 
     private fun configuredExtractorsFactory() = libassBridge.wrapExtractors(
         DefaultExtractorsFactory()
@@ -238,7 +263,7 @@ class SiloPlayerFactory(
         }
         val renderersFactory = libassBridge.wrapRenderers(
             media3RenderersFactory,
-            subtitleOffsetHolder::getUserOffsetUs,
+            subtitleOffsetHolder::getOffsetUs,
         )
 
         val trackSelector = DefaultTrackSelector(context).apply {
@@ -282,6 +307,7 @@ class SiloPlayerFactory(
             hlsFactory = hlsMediaSourceFactory,
             dataSourceFactory = dataSourceFactory,
             subtitleParserFactory = sidecarSubtitleParserFactory,
+            subtitleOffsetProvider = subtitleOffsetHolder::getOffsetUs,
             loadErrorHandlingPolicy = mediaLoadErrorHandlingPolicy,
         )
 
@@ -333,6 +359,12 @@ class SiloPlayerFactory(
         )
 
         return builder.build().also(libassBridge::initialize)
+    }
+
+    /** Releases the player and the libass handler/font graph adopted for it. */
+    fun releasePlayer(player: Player) {
+        (player as? ExoPlayer)?.let(libassBridge::releasePlayer)
+        player.release()
     }
 
     private fun playbackBufferDeviceProfile(): PlaybackBufferDeviceProfile {
@@ -390,6 +422,7 @@ class SiloPlayerFactory(
      * selected media source factory wires them through a merging source.
      */
     fun buildMediaItem(
+        contentId: String? = null,
         streamUrl: String,
         playMethod: PlayMethod,
         delivery: PlaybackDelivery? = null,
@@ -424,6 +457,7 @@ class SiloPlayerFactory(
 
         val builder = MediaItem.Builder()
             .setUri(absoluteUrl)
+            .apply { contentId?.takeIf(String::isNotBlank)?.let(::setMediaId) }
             .setSubtitleConfigurations(subtitleConfigurations)
             .setTag(
                 SiloMediaTransformTag(
@@ -502,6 +536,7 @@ class SiloPlayerFactory(
         private val hlsFactory: MediaSource.Factory,
         private val dataSourceFactory: DataSource.Factory,
         private val subtitleParserFactory: SubtitleParser.Factory,
+        private val subtitleOffsetProvider: () -> Long,
         private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
     ) : MediaSource.Factory {
         private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
@@ -588,13 +623,25 @@ class SiloPlayerFactory(
                     subtitleParserFactory.getCueReplacementBehavior(baseFormat),
                 )
                 .build()
-            val extractorsFactory = ExtractorsFactory {
-                arrayOf(
-                    SubtitleExtractor(
-                        subtitleParserFactory.create(outputFormat),
-                        outputFormat,
-                    ),
-                )
+            val extractorsFactory = if (configuration.mimeType == MimeTypes.APPLICATION_PGS) {
+                ExtractorsFactory {
+                    arrayOf(
+                        PgsSupExtractor(
+                            subtitleParserFactory,
+                            subtitleOffsetProvider,
+                            outputFormat,
+                        ),
+                    )
+                }
+            } else {
+                ExtractorsFactory {
+                    arrayOf(
+                        SubtitleExtractor(
+                            subtitleParserFactory.create(outputFormat),
+                            outputFormat,
+                        ),
+                    )
+                }
             }
             return ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)

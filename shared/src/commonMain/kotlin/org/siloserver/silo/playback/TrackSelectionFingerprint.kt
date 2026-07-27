@@ -67,6 +67,12 @@ fun encodeCatalogSubtitlePreference(
         ?: return null
     val media = track.catalogMediaIdentity()
     val identity = when {
+        // VobSub/DVB have no sidecar route and are burn-in wherever they live;
+        // PGS keeps the normal embedded/external split because the server does
+        // sidecar it as `.sup`.
+        track.codec.isCatalogBitmapSubtitle() &&
+            !isClientMountableBitmapCodecFamily(track.codec) ->
+            SubtitleIdentity.ServerBurnIn(serverIndex, media)
         !track.external -> SubtitleIdentity.Embedded(
             serverIndex = serverIndex,
             media = media,
@@ -317,9 +323,15 @@ private fun SubtitleTrack.matchesTypedCatalogIdentity(
     val kindMatches = when (identity) {
         is SubtitleIdentity.ServerSidecar ->
             external && !codec.isCatalogBitmapSubtitle()
+        // Burn-in covers external bitmaps plus the embedded families with no
+        // sidecar route; embedded PGS stays on the Embedded side, so the two
+        // remain disjoint.
         is SubtitleIdentity.ServerBurnIn ->
-            external && codec.isCatalogBitmapSubtitle()
-        is SubtitleIdentity.Embedded -> !external
+            codec.isCatalogBitmapSubtitle() &&
+                (external || !isClientMountableBitmapCodecFamily(codec))
+        is SubtitleIdentity.Embedded ->
+            !external &&
+                (!codec.isCatalogBitmapSubtitle() || isClientMountableBitmapCodecFamily(codec))
         SubtitleIdentity.Off,
         is SubtitleIdentity.Downloaded,
         is SubtitleIdentity.LocalMedia3,

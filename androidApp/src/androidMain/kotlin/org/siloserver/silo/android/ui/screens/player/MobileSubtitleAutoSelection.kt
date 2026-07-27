@@ -9,6 +9,7 @@ import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
 import org.siloserver.silo.model.playback.SubtitleMediaIdentity
 import org.siloserver.silo.playback.canonicalSubtitleCodecFamily
+import org.siloserver.silo.playback.isClientMountableBitmapCodecFamily
 import org.siloserver.silo.playback.canonicalSubtitleLanguage
 
 private val hearingImpairedSubtitleTokenRegex = Regex(
@@ -53,17 +54,32 @@ internal fun mobileSubtitleIdentity(subtitle: PlayerSubtitleInfo): SubtitleIdent
     val embedded = (source == "embedded" && subtitle.url.isBlank()) ||
         (source == null && catalogSource == "embedded" && subtitle.url.isBlank())
     if (embedded) {
-        return SubtitleIdentity.Embedded(
-            serverIndex = subtitle.index,
-            media = media,
-        )
+        // PGS stays client-mounted (the server sidecars it as `.sup`); VobSub
+        // and DVB have no sidecar route and always burn in.
+        return if (
+            isBitmapSubtitleCodecOrMime(media.codecFamily) &&
+            !isClientMountableBitmapCodecFamily(media.codecFamily)
+        ) {
+            SubtitleIdentity.ServerBurnIn(subtitle.index, media)
+        } else {
+            SubtitleIdentity.Embedded(
+                serverIndex = subtitle.index,
+                media = media,
+            )
+        }
     }
 
     val external = source == "external" ||
         catalogSource == "external" ||
         source == "server_artifact" ||
         subtitle.url.isNotBlank()
-    return if (external && isBitmapSubtitleCodecOrMime(media.codecFamily)) {
+    val mountableBitmapArtifact = subtitle.url.isNotBlank() &&
+        isClientMountableBitmapCodecFamily(media.codecFamily)
+    return if (
+        external &&
+        isBitmapSubtitleCodecOrMime(media.codecFamily) &&
+        !mountableBitmapArtifact
+    ) {
         SubtitleIdentity.ServerBurnIn(subtitle.index, media)
     } else {
         SubtitleIdentity.ServerSidecar(subtitle.index, media)

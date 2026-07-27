@@ -242,7 +242,7 @@ class SiloPlaybackService : MediaSessionService() {
         subtitleSyncJob?.cancel()
         scope.cancel()
         mediaSession?.run {
-            player.release()
+            playerFactory.releasePlayer(player)
             release()
         }
         mediaSession = null

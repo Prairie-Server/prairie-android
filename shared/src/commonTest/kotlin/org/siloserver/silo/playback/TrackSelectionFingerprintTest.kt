@@ -127,6 +127,30 @@ class TrackSelectionFingerprintTest {
     }
 
     @Test
+    fun embeddedPgsPreferencePersistsAsClientMounted() {
+        val tracks = listOf(
+            SubtitleTrack(index = 2, codec = "hdmv_pgs_subtitle", language = "eng", title = "English PGS"),
+        )
+
+        val encoded = encodeCatalogSubtitlePreference(tracks, selectedOrdinal = 0)
+
+        assertIs<SubtitleIdentity.Embedded>(decodeSubtitleIdentityPreference(encoded!!))
+        assertEquals(0, resolveCatalogSubtitlePreferenceOrdinal(tracks, encoded))
+    }
+
+    @Test
+    fun embeddedVobsubPreferencePersistsAsBurnIn() {
+        val tracks = listOf(
+            SubtitleTrack(index = 3, codec = "dvd_subtitle", language = "eng", title = "English VobSub"),
+        )
+
+        val encoded = encodeCatalogSubtitlePreference(tracks, selectedOrdinal = 0)
+
+        assertIs<SubtitleIdentity.ServerBurnIn>(decodeSubtitleIdentityPreference(encoded!!))
+        assertEquals(0, resolveCatalogSubtitlePreferenceOrdinal(tracks, encoded))
+    }
+
+    @Test
     fun detailPreferenceResolverFallsBackToLegacyFingerprint() {
         val tracks = catalogTracksInMixedIndexSpaces()
 

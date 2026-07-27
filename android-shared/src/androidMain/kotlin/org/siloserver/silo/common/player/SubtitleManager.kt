@@ -68,7 +68,7 @@ class SubtitleManager(
             }
             val absoluteUrl = resolveSubtitleUrl(serverUrl, subtitle.url)
             val mimeType = subtitleMimeType(subtitle.codec, absoluteUrl)
-            if (!isMedia3TextSidecarMimeType(mimeType)) {
+            if (!isMountableSidecarMimeType(mimeType)) {
                 return@mapNotNull null
             }
 
@@ -358,12 +358,22 @@ class SubtitleManager(
         }
     }
 
-    private fun isMedia3TextSidecarMimeType(mimeType: String): Boolean =
+    /**
+     * Sidecar formats Media3 can parse for us. Bitmap families are included:
+     * the server raw-serves an embedded PGS track as `.sup`, and Media3's
+     * DefaultSubtitleParserFactory decodes PGS, VobSub and DVB. Mounting those
+     * is what lets a bitmap subtitle render client-side instead of forcing the
+     * server to burn it into the picture, which costs a full transcode.
+     */
+    private fun isMountableSidecarMimeType(mimeType: String): Boolean =
         when (mimeType) {
             MimeTypes.TEXT_VTT,
             MimeTypes.TEXT_SSA,
             MimeTypes.APPLICATION_SUBRIP,
             MimeTypes.APPLICATION_TTML,
+            MimeTypes.APPLICATION_PGS,
+            MimeTypes.APPLICATION_VOBSUB,
+            MimeTypes.APPLICATION_DVBSUBS,
             -> true
             else -> false
         }

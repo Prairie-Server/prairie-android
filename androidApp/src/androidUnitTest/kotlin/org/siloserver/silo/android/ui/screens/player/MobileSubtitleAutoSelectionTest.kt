@@ -144,6 +144,36 @@ class MobileSubtitleAutoSelectionTest {
     }
 
     @Test
+    fun embeddedBitmapWithoutSidecarRouteRequestsBurnIn() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 6,
+                label = "French VobSub",
+                language = "fr",
+                codec = "dvd_subtitle",
+            ).copy(source = "embedded", url = ""),
+        )
+
+        val burnIn = identity as SubtitleIdentity.ServerBurnIn
+        assertEquals(6, burnIn.serverIndex)
+    }
+
+    @Test
+    fun materializedPgsArtifactUsesServerSidecarTransaction() {
+        val identity = mobileSubtitleIdentity(
+            subtitle(
+                index = 8,
+                label = "English PGS",
+                language = "en",
+                codec = "hdmv_pgs_subtitle",
+            ).copy(source = "server_artifact", url = "/stream/s1/subtitles/8.sup"),
+        )
+
+        val sidecar = identity as SubtitleIdentity.ServerSidecar
+        assertEquals(8, sidecar.serverIndex)
+    }
+
+    @Test
     fun extractedEmbeddedTextArtifactUsesServerSidecarTransaction() {
         val identity = mobileSubtitleIdentity(
             subtitle(

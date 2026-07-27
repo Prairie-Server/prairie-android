@@ -7,6 +7,7 @@ import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
 import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.repository.port.TrackSelectionFingerprintUpdate
+import kotlin.test.assertIs
 
 class TvPlayerSubtitleIntegrationPolicyTest {
     @Test
@@ -70,6 +71,62 @@ class TvPlayerSubtitleIntegrationPolicyTest {
         val legacy = downloadedRow(index = 4, downloadId = null)
 
         assertEquals(null, tvDownloadedRefreshIdentity(legacy))
+    }
+
+    @Test
+    fun `embedded PGS stays a client-mounted identity`() {
+        val identity = tvSubtitleIdentity(
+            PlayerSubtitleInfo(
+                index = 8,
+                language = "en",
+                codec = "hdmv_pgs_subtitle",
+                label = "English PGS",
+                source = "embedded",
+                forced = false,
+                url = "",
+            ),
+        )
+
+        assertIs<SubtitleIdentity.Embedded>(identity)
+        assertEquals(8, identity.serverIndex)
+    }
+
+    @Test
+    fun `embedded bitmap without a sidecar route requests burn-in`() {
+        for (codec in listOf("dvd_subtitle", "dvb_subtitle", "vobsub")) {
+            val identity = tvSubtitleIdentity(
+                PlayerSubtitleInfo(
+                    index = 5,
+                    language = "en",
+                    codec = codec,
+                    label = "English bitmap",
+                    source = "embedded",
+                    forced = false,
+                    url = "",
+                ),
+            )
+
+            assertIs<SubtitleIdentity.ServerBurnIn>(identity)
+            assertEquals(5, identity.serverIndex, codec)
+        }
+    }
+
+    @Test
+    fun `materialized PGS artifact uses a server sidecar identity`() {
+        val identity = tvSubtitleIdentity(
+            PlayerSubtitleInfo(
+                index = 8,
+                language = "en",
+                codec = "hdmv_pgs_subtitle",
+                label = "English PGS",
+                source = "server_artifact",
+                forced = false,
+                url = "/stream/s1/subtitles/8.sup",
+            ),
+        )
+
+        assertIs<SubtitleIdentity.ServerSidecar>(identity)
+        assertEquals(8, identity.serverIndex)
     }
 
     @Test
