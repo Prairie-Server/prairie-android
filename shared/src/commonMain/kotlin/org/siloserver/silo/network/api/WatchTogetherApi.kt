@@ -9,6 +9,9 @@ import org.siloserver.silo.model.watchtogether.SetSelectionRequest
 import org.siloserver.silo.model.watchtogether.SuggestionsResponse
 import org.siloserver.silo.model.watchtogether.UpdatePolicyRequest
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.AuthScopeSnapshot
+import org.siloserver.silo.network.authScope
+import org.siloserver.silo.network.requireSiloAuth
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -34,19 +37,20 @@ import io.ktor.http.contentType
 interface WatchTogetherApi {
 
     /** POST /rooms — caller becomes host; 201 with room + room_access_token. */
-    suspend fun createRoom(request: CreateRoomRequest): ApiResult<RoomResponse>
+    suspend fun createRoom(request: CreateRoomRequest, scope: AuthScopeSnapshot? = null): ApiResult<RoomResponse>
 
     /** POST /join — resolves a code or join token; 200 with room + room_access_token. */
-    suspend fun joinRoom(request: JoinRoomRequest): ApiResult<RoomResponse>
+    suspend fun joinRoom(request: JoinRoomRequest, scope: AuthScopeSnapshot? = null): ApiResult<RoomResponse>
 
     /** GET /rooms/{id}?room_token= — current room snapshot. */
-    suspend fun getRoom(roomId: String, roomToken: String): ApiResult<RoomResponse>
+    suspend fun getRoom(roomId: String, roomToken: String, scope: AuthScopeSnapshot? = null): ApiResult<RoomResponse>
 
     /** PUT /rooms/{id}/selection?room_token= (host-only). */
     suspend fun setSelection(
         roomId: String,
         roomToken: String,
         request: SetSelectionRequest,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<RoomResponse>
 
     /** PATCH /rooms/{id}/policy?room_token= (host-only). */
@@ -54,19 +58,21 @@ interface WatchTogetherApi {
         roomId: String,
         roomToken: String,
         request: UpdatePolicyRequest,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<RoomResponse>
 
     /** DELETE /rooms/{id}?room_token= (host-only) — 204 → Unit. */
-    suspend fun closeRoom(roomId: String, roomToken: String): ApiResult<Unit>
+    suspend fun closeRoom(roomId: String, roomToken: String, scope: AuthScopeSnapshot? = null): ApiResult<Unit>
 
     /** GET /rooms/{id}/suggestions?room_token=. */
-    suspend fun listSuggestions(roomId: String, roomToken: String): ApiResult<SuggestionsResponse>
+    suspend fun listSuggestions(roomId: String, roomToken: String, scope: AuthScopeSnapshot? = null): ApiResult<SuggestionsResponse>
 
     /** POST /rooms/{id}/suggestions?room_token=. */
     suspend fun addSuggestion(
         roomId: String,
         roomToken: String,
         request: AddSuggestionRequest,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<SuggestionsResponse>
 
     /** DELETE /rooms/{id}/suggestions/{sid}?room_token= (host or suggester). */
@@ -74,6 +80,7 @@ interface WatchTogetherApi {
         roomId: String,
         roomToken: String,
         suggestionId: String,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<SuggestionsResponse>
 
     /** POST /rooms/{id}/suggestions/{sid}/vote?room_token= — 409 on dup. */
@@ -81,6 +88,7 @@ interface WatchTogetherApi {
         roomId: String,
         roomToken: String,
         suggestionId: String,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<SuggestionsResponse>
 
     /** DELETE /rooms/{id}/suggestions/{sid}/vote?room_token= — 409 if not voted. */
@@ -88,6 +96,7 @@ interface WatchTogetherApi {
         roomId: String,
         roomToken: String,
         suggestionId: String,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<SuggestionsResponse>
 
     /** POST /rooms/{id}/suggestions/promote?room_token= (host-only) → room. */
@@ -95,38 +104,46 @@ interface WatchTogetherApi {
         roomId: String,
         roomToken: String,
         request: PromoteSuggestionRequest,
+        scope: AuthScopeSnapshot? = null,
     ): ApiResult<RoomResponse>
 }
 
 class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi {
 
-    override suspend fun createRoom(request: CreateRoomRequest): ApiResult<RoomResponse> =
+    override suspend fun createRoom(request: CreateRoomRequest, scope: AuthScopeSnapshot?): ApiResult<RoomResponse> =
         safeApiCall {
             client.post("$BASE/rooms") {
+                pin(scope)
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
         }
 
-    override suspend fun joinRoom(request: JoinRoomRequest): ApiResult<RoomResponse> =
+    override suspend fun joinRoom(request: JoinRoomRequest, scope: AuthScopeSnapshot?): ApiResult<RoomResponse> =
         safeApiCall {
             client.post("$BASE/join") {
+                pin(scope)
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
         }
 
-    override suspend fun getRoom(roomId: String, roomToken: String): ApiResult<RoomResponse> =
+    override suspend fun getRoom(roomId: String, roomToken: String, scope: AuthScopeSnapshot?): ApiResult<RoomResponse> =
         safeApiCall {
-            client.get("$BASE/rooms/$roomId") { parameter("room_token", roomToken) }
+            client.get("$BASE/rooms/$roomId") {
+                pin(scope)
+                parameter("room_token", roomToken)
+            }
         }
 
     override suspend fun setSelection(
         roomId: String,
         roomToken: String,
         request: SetSelectionRequest,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<RoomResponse> = safeApiCall {
         client.put("$BASE/rooms/$roomId/selection") {
+            pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
             setBody(request)
@@ -137,32 +154,47 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         roomId: String,
         roomToken: String,
         request: UpdatePolicyRequest,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<RoomResponse> = safeApiCall {
         client.patch("$BASE/rooms/$roomId/policy") {
+            pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
             setBody(request)
         }
     }
 
-    override suspend fun closeRoom(roomId: String, roomToken: String): ApiResult<Unit> =
+    override suspend fun closeRoom(
+        roomId: String,
+        roomToken: String,
+        scope: AuthScopeSnapshot?,
+    ): ApiResult<Unit> =
         safeApiCall {
-            client.delete("$BASE/rooms/$roomId") { parameter("room_token", roomToken) }
+            client.delete("$BASE/rooms/$roomId") {
+                pin(scope)
+                parameter("room_token", roomToken)
+            }
         }
 
     override suspend fun listSuggestions(
         roomId: String,
         roomToken: String,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
-        client.get("$BASE/rooms/$roomId/suggestions") { parameter("room_token", roomToken) }
+        client.get("$BASE/rooms/$roomId/suggestions") {
+            pin(scope)
+            parameter("room_token", roomToken)
+        }
     }
 
     override suspend fun addSuggestion(
         roomId: String,
         roomToken: String,
         request: AddSuggestionRequest,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
         client.post("$BASE/rooms/$roomId/suggestions") {
+            pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
             setBody(request)
@@ -173,8 +205,10 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         roomId: String,
         roomToken: String,
         suggestionId: String,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
         client.delete("$BASE/rooms/$roomId/suggestions/$suggestionId") {
+            pin(scope)
             parameter("room_token", roomToken)
         }
     }
@@ -183,8 +217,10 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         roomId: String,
         roomToken: String,
         suggestionId: String,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
         client.post("$BASE/rooms/$roomId/suggestions/$suggestionId/vote") {
+            pin(scope)
             parameter("room_token", roomToken)
         }
     }
@@ -193,8 +229,10 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         roomId: String,
         roomToken: String,
         suggestionId: String,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<SuggestionsResponse> = safeApiCall {
         client.delete("$BASE/rooms/$roomId/suggestions/$suggestionId/vote") {
+            pin(scope)
             parameter("room_token", roomToken)
         }
     }
@@ -203,8 +241,10 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
         roomId: String,
         roomToken: String,
         request: PromoteSuggestionRequest,
+        scope: AuthScopeSnapshot?,
     ): ApiResult<RoomResponse> = safeApiCall {
         client.post("$BASE/rooms/$roomId/suggestions/promote") {
+            pin(scope)
             parameter("room_token", roomToken)
             contentType(ContentType.Application.Json)
             setBody(request)
@@ -213,5 +253,12 @@ class DefaultWatchTogetherApi(private val client: HttpClient) : WatchTogetherApi
 
     private companion object {
         const val BASE = "/api/v1/watch-together"
+    }
+
+    private fun io.ktor.client.request.HttpRequestBuilder.pin(scope: AuthScopeSnapshot?) {
+        if (scope != null) {
+            authScope(scope)
+            requireSiloAuth()
+        }
     }
 }

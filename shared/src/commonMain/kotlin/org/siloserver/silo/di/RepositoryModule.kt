@@ -24,6 +24,7 @@ import org.siloserver.silo.repository.RequestsRepository
 import org.siloserver.silo.repository.SectionRepository
 import org.siloserver.silo.repository.SettingsRepository
 import org.siloserver.silo.repository.WatchTogetherRepository
+import org.siloserver.silo.network.TokenManager
 import org.koin.dsl.module
 
 /**
@@ -94,12 +95,14 @@ val repositoryModule = module {
     // query fields are a residual server contract. Lazy so a socket is only minted
     // when connect() runs.
     single {
+        val tokenManager: TokenManager = get()
         WatchTogetherRepository(
             api = get(),
+            authScopeProvider = { tokenManager.snapshotCurrentScope() },
             realtimeFactory = {
                 org.siloserver.silo.network.DefaultWatchTogetherRealtimeClient(
                     client = get(),
-                    tokenManager = get(),
+                    tokenManager = tokenManager,
                 )
             },
         )

@@ -72,7 +72,7 @@ class WatchTogetherLobbyViewModel(
 
     /** Guest/host leave: tear down the WS + clear room state. */
     fun leave() {
-        repository.reset()
+        viewModelScope.launch { repository.reset() }
     }
 
     override fun onCleared() {

@@ -71,7 +71,7 @@ class TvWatchTogetherLobbyViewModel(
      * network call against viewModelScope cancellation during screen dispose.
      */
     fun leave() {
-        repository.reset()
+        viewModelScope.launch { repository.reset() }
     }
 
     override fun onCleared() {
