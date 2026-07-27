@@ -59,7 +59,11 @@ class WatchTogetherMenuEntrySourceTest {
             assertTrue(menuSheet.contains(label))
         }
         assertFalse(menuSheet.contains("WatchTogetherApi"))
+        assertFalse(menuSheet.contains("room_token"))
         assertFalse(menuSheet.contains("roomAccessToken"))
+        assertFalse(menuSheet.contains("Authorization"))
+        assertFalse(menuSheet.contains("CleartextOriginConsent"))
         assertFalse(menuSheet.contains("HttpClient"))
+        assertTrue(menuSheet.contains("state.error"))
     }
 }

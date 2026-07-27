@@ -54,8 +54,13 @@ class TvWatchTogetherMenuEntrySourceTest {
             assertTrue(dialog.contains(label))
         }
         assertFalse(dialog.contains("WatchTogetherApi"))
+        assertFalse(dialog.contains("room_token"))
         assertFalse(dialog.contains("roomAccessToken"))
+        assertFalse(dialog.contains("Authorization"))
+        assertFalse(dialog.contains("CleartextOriginConsent"))
         assertFalse(dialog.contains("HttpClient"))
+        assertTrue(shell.contains("error = watchTogetherState.error"))
+        assertTrue(dialog.contains("error?.let"))
     }
 
     @Test
