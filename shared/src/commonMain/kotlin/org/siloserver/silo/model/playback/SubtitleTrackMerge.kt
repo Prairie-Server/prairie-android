@@ -54,6 +54,7 @@ fun mergeDownloadedSubtitles(
             source = SUBTITLE_SOURCE_DOWNLOADED,
             forced = null,
             url = "/stream/$sessionId/subtitles/$index${subtitleUrlExtension(dl.format)}",
+            downloadId = dl.id,
         )
     }
 

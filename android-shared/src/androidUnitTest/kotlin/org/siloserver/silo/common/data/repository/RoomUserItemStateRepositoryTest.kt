@@ -8,16 +8,21 @@ import org.siloserver.silo.common.data.sync.OutboxSyncScheduler
 import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.repository.port.OutboxHandle
 import org.siloserver.silo.repository.port.PlaybackWriteScope
+import org.siloserver.silo.repository.port.TrackSelectionFingerprintUpdate
 import org.siloserver.silo.repository.port.WriteOutcome
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.util.concurrent.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
@@ -344,6 +349,158 @@ class RoomUserItemStateRepositoryTest {
             repo.localTrackSelection("c1", fileId = 7),
         )
         assertEquals(1, db.dirtyOperationDao().count(), "track selections are local-only; position op is unchanged")
+    }
+
+    @Test
+    fun recordTrackSelectionWritesOneLogicalSnapshotWithoutClobberingOtherFileState() = runTest {
+        repo.recordPosition("c1", fileId = 7, positionSeconds = 456.0, durationSeconds = 3600.0)
+        repo.recordAudioTrackSelection("c1", fileId = 7, audioFingerprint = "old-audio")
+        repo.recordSubtitleTrackSelection("c1", fileId = 7, subtitleFingerprint = "old-subtitle")
+
+        repo.recordTrackSelection(
+            contentId = "c1",
+            fileId = 7,
+            audioFingerprint = " new-audio ",
+            subtitleFingerprint = " new-subtitle ",
+        )
+
+        val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
+        assertEquals(456.0, row?.positionSeconds)
+        assertEquals(3600.0, row?.durationSeconds)
+        assertEquals("new-audio", row?.audioFingerprint)
+        assertEquals("new-subtitle", row?.subtitleFingerprint)
+        assertEquals(1, db.dirtyOperationDao().count())
+    }
+
+    @Test
+    fun recordTrackSelectionCanPreserveAudioWhileReplacingSubtitle() = runTest {
+        repo.recordAudioTrackSelection("c1", fileId = 7, audioFingerprint = "old-audio")
+        repo.recordSubtitleTrackSelection("c1", fileId = 7, subtitleFingerprint = "old-subtitle")
+
+        repo.recordTrackSelection(
+            contentId = "c1",
+            fileId = 7,
+            audioUpdate = TrackSelectionFingerprintUpdate.Preserve,
+            subtitleUpdate = TrackSelectionFingerprintUpdate.Set("new-subtitle"),
+        )
+
+        val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
+        assertEquals("old-audio", row?.audioFingerprint)
+        assertEquals("new-subtitle", row?.subtitleFingerprint)
+    }
+
+    @Test
+    fun recordTrackSelectionCanClearAudioWhilePreservingSubtitle() = runTest {
+        repo.recordAudioTrackSelection("c1", fileId = 7, audioFingerprint = "old-audio")
+        repo.recordSubtitleTrackSelection("c1", fileId = 7, subtitleFingerprint = "old-subtitle")
+
+        repo.recordTrackSelection(
+            contentId = "c1",
+            fileId = 7,
+            audioUpdate = TrackSelectionFingerprintUpdate.Clear,
+            subtitleUpdate = TrackSelectionFingerprintUpdate.Preserve,
+        )
+
+        val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
+        assertNull(row?.audioFingerprint)
+        assertEquals("old-subtitle", row?.subtitleFingerprint)
+    }
+
+    @Test
+    fun delayedTrackSelectionIsRejectedAfterProfileSwitch() = runTest {
+        val playbackScope = PlaybackWriteScope(
+            serverId = "s1",
+            profileId = "p1",
+            credentialGenerationId = null,
+            identityGeneration = 0L,
+        )
+        currentSnapshot = AuthScopeSnapshot("s1", "p2", "https://s1.example", "p2-token")
+
+        val accepted = repo.recordTrackSelection(
+            scope = playbackScope,
+            contentId = "c1",
+            fileId = 7,
+            audioUpdate = TrackSelectionFingerprintUpdate.Set("old-audio"),
+            subtitleUpdate = TrackSelectionFingerprintUpdate.Set("old-subtitle"),
+        )
+
+        assertFalse(accepted)
+        assertNull(db.userItemStateDao().get("s1", "p1", "c1", 7))
+        assertNull(db.userItemStateDao().get("s1", "p2", "c1", 7))
+    }
+
+    @Test
+    fun delayedTrackSelectionIsRejectedAfterServerSwitch() = runTest {
+        val playbackScope = PlaybackWriteScope(
+            serverId = "s1",
+            profileId = "p1",
+            credentialGenerationId = null,
+            identityGeneration = 0L,
+        )
+        currentSnapshot = AuthScopeSnapshot("s2", "p1", "https://s2.example", "p1-token")
+
+        val accepted = repo.recordTrackSelection(
+            scope = playbackScope,
+            contentId = "c1",
+            fileId = 7,
+            audioUpdate = TrackSelectionFingerprintUpdate.Set("old-audio"),
+            subtitleUpdate = TrackSelectionFingerprintUpdate.Set("old-subtitle"),
+        )
+
+        assertFalse(accepted)
+        assertNull(db.userItemStateDao().get("s1", "p1", "c1", 7))
+        assertNull(db.userItemStateDao().get("s2", "p1", "c1", 7))
+    }
+
+    @Test
+    fun recordTrackSelectionRollsBackBothFingerprintsWhenCombinedUpsertFails() = runTest {
+        repo.recordAudioTrackSelection("c1", fileId = 7, audioFingerprint = "old-audio")
+        repo.recordSubtitleTrackSelection("c1", fileId = 7, subtitleFingerprint = "old-subtitle")
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER reject_new_subtitle
+            BEFORE INSERT ON user_item_state
+            WHEN NEW.subtitleFingerprint = 'new-subtitle'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced track selection failure');
+            END
+            """.trimIndent(),
+        )
+
+        assertFails {
+            repo.recordTrackSelection(
+                contentId = "c1",
+                fileId = 7,
+                audioFingerprint = "new-audio",
+                subtitleFingerprint = "new-subtitle",
+            )
+        }
+
+        val row = db.userItemStateDao().get("s1", "p1", "c1", 7)
+        assertEquals("old-audio", row?.audioFingerprint)
+        assertEquals("old-subtitle", row?.subtitleFingerprint)
+    }
+
+    @Test
+    fun recordTrackSelectionPropagatesCancellationWithoutWriting() = runTest {
+        val cancellation = CancellationException("cancel track persistence")
+        val cancelledRepo = RoomUserItemStateRepository(
+            db = db,
+            snapshotProvider = { throw cancellation },
+            now = { 1000L },
+        )
+
+        val thrown = assertFailsWith<CancellationException> {
+            cancelledRepo.recordTrackSelection(
+                contentId = "c1",
+                fileId = 7,
+                audioFingerprint = "new-audio",
+                subtitleFingerprint = "new-subtitle",
+            )
+        }
+
+        assertSame(cancellation, thrown)
+        assertNull(db.userItemStateDao().get("s1", "p1", "c1", 7))
     }
 
     @Test

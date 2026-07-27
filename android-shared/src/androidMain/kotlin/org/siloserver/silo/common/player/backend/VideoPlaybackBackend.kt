@@ -7,6 +7,7 @@ import org.siloserver.silo.common.player.video.VideoPlayerTrackEntry
 import org.siloserver.silo.model.playback.AudioPassthroughCapabilities
 import org.siloserver.silo.model.playback.HdrCapabilities
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import org.siloserver.silo.model.playback.SubtitleIdentity
 
 @UnstableApi
 interface VideoPlaybackBackend {
@@ -24,6 +25,11 @@ interface VideoPlaybackBackend {
 
     fun selectSubtitle(track: VideoPlayerTrackEntry?): Boolean
 
+    fun selectMountedSubtitle(
+        identity: SubtitleIdentity,
+    ): Boolean
+
+    /** Compatibility bridge until every platform adapter publishes typed identity. */
     fun selectMountedSubtitle(
         subtitles: List<PlayerSubtitleInfo>,
         selectedIndex: Int,

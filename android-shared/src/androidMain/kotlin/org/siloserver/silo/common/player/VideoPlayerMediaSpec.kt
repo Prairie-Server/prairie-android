@@ -5,6 +5,12 @@ import org.siloserver.silo.model.playback.PlaybackDelivery
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 
 data class VideoPlayerMediaSpec(
+    /**
+     * Catalog identity of what is playing, carried onto the MediaItem so the
+     * playback service can resolve per-item preferences (subtitle sync) from
+     * the player alone rather than needing a side channel from the UI.
+     */
+    val contentId: String? = null,
     val streamUrl: String,
     val playMethod: PlayMethod,
     val delivery: PlaybackDelivery? = null,
@@ -20,6 +26,7 @@ data class VideoPlayerMediaSpec(
     val audioPassthroughCodecs: List<String> = emptyList(),
     val requestHeaders: Map<String, String> = emptyMap(),
     val expectedDynamicRange: String? = null,
+    val expectedColorRange: String? = null,
     val transformations: List<String> = emptyList(),
     val runtimeCorrections: List<String> = emptyList(),
 ) {

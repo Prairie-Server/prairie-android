@@ -51,9 +51,9 @@ data class SubtitleAppearance(
     val fontFamily: String = SANS_SERIF,
     val fontColor: String = "#ffffff",
     val backgroundColor: String = "#000000",
-    val backgroundStyle: SubtitleBackgroundStylePreset = SubtitleBackgroundStylePreset.None,
+    val backgroundStyle: SubtitleBackgroundStylePreset = SubtitleBackgroundStylePreset.Shadow,
     val backgroundOpacity: Int = 75,
-    val textOutline: Boolean = true,
+    val textOutline: Boolean = false,
     val textOutlineColor: String = "#000000",
     val position: SubtitlePositionPreset = SubtitlePositionPreset.Bottom,
 ) {
