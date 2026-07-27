@@ -901,6 +901,37 @@ class PlaybackSessionManagerStagedReplanTest {
     }
 
     @Test
+    fun `a start still completes when a deferred publication is never settled`() = runTest {
+        val harness = Harness(
+            startResponses = listOf(
+                response(basePlan()),
+                response(basePlan(sessionId = "s9", fileId = 43)),
+            ),
+            pendingPublicationSettleTimeoutMs =
+                PlaybackSessionManager.PENDING_PUBLICATION_SETTLE_TIMEOUT_MS,
+            replanResponse = { _, _ -> response(sidecarPlan(sessionId = "s2")) },
+        )
+        harness.start()
+        val replacement = harness.stageSidecar()
+        assertIs<ApiResult.Success<VideoSessionStartV3.Ready>>(
+            harness.manager.commitStagedVideoReplan(
+                staged = replacement,
+                deferPublication = true,
+            ),
+        )
+
+        // Deliberately leave the publication unresolved. Production must
+        // eventually roll it back so a later content start cannot wedge.
+        harness.start(fileId = 43)
+
+        assertEquals("s9", harness.manager.activeSessionIdForTest())
+        assertTrue(
+            "s2" in harness.stoppedSessions,
+            "the abandoned publication should be rolled back, not left running",
+        )
+    }
+
+    @Test
     fun `stopping unpublished replacement is an idempotent rollback to predecessor`() = runTest {
         val harness = Harness(
             startResponses = listOf(
@@ -1304,6 +1335,7 @@ class PlaybackSessionManagerStagedReplanTest {
     private class Harness(
         startResponses: List<PlaybackDecisionResponseV3> = listOf(response(basePlan())),
         private val startResponseOverride: (suspend (Int) -> PlaybackDecisionResponseV3)? = null,
+        pendingPublicationSettleTimeoutMs: Long? = PlaybackSessionManager.NEVER_SELF_HEAL,
         private val replanResponse: suspend (Int, JsonObject) -> PlaybackDecisionResponseV3,
         private val stopBehavior: suspend (String) -> Unit = {},
     ) {
@@ -1357,6 +1389,10 @@ class PlaybackSessionManagerStagedReplanTest {
         val manager = PlaybackSessionManager(
             playbackRepository = PlaybackRepository(PlaybackApi(client)),
             tokenManager = StagedReplanNoOpTokenManager,
+            // runTest advances virtual time whenever the scheduler idles. The
+            // production timeout would therefore self-heal publications inside
+            // tests that are deliberately asserting the unresolved state.
+            pendingPublicationSettleTimeoutMs = pendingPublicationSettleTimeoutMs,
         )
 
         suspend fun start(
