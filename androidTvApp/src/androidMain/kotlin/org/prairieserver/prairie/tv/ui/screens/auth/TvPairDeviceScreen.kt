@@ -94,7 +94,7 @@ fun TvPairDeviceScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = "Pair Device",
+                text = "Quick Connect",
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.SemiBold,

@@ -60,7 +60,7 @@ fun DevicePairingScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "Pair Device",
+                text = "Quick Connect",
                 style = MaterialTheme.typography.headlineMedium,
                 color = AuthColors.OnBackground,
                 fontWeight = FontWeight.SemiBold,
