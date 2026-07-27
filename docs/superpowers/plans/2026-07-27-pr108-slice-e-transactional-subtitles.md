@@ -160,12 +160,12 @@ Java/JNI libass bridge, Android local unit tests.
 **Files:**
 - Update this plan with final source-to-local commit mapping and verification.
 
-- [ ] Audit the net diff for Watch Together, request UX, home/startup, reader,
+- [x] Audit the net diff for Watch Together, request UX, home/startup, reader,
   and catalog-only leakage; remove any unrelated paths.
-- [ ] Run `git diff --check` and all focused subtitle/player suites.
-- [ ] Run supply-chain policy, `testDebugUnitTest`, and phone/TV release
+- [x] Run `git diff --check` and all focused subtitle/player suites.
+- [x] Run supply-chain policy, `testDebugUnitTest`, and phone/TV release
   assemblies.
-- [ ] Obtain independent code/lifecycle/security review; fix every
+- [x] Obtain independent code/lifecycle/security review; fix every
   Critical/Important finding test-first and repeat the full gate.
 - [ ] Push `split/108-e-subtitles` and create a draft PR based on
   `split/108-d-player-foundation`; do not merge.
@@ -179,4 +179,39 @@ Java/JNI libass bridge, Android local unit tests.
 | `5096cb7a` | `65c4b316`, `f609c431`, `4add279c`, `1ad970c9`, `274ffc61`, `823ca359` |
 | `74907f1c` | `65c4b316`, `a36c7211`, `370c5a79`, `38584061`, corrected `4add279c` boundary |
 | `23df27e4` | `f0bc39fe`, `6a904254`, `eebe9dd3`, `a02d5622`, `05df9c34`, `e080df48`, `f3888bee` |
-| pending appearance/insets commit | `8e42f428`, `8cb8ed3f`, `a910f0d9`, `4b87b24c`, `8c2339c4`, `dcfbece5`, `e22e3190` |
+| `f7f99645` | `8e42f428`, `8cb8ed3f`, `a910f0d9`, `4b87b24c`, `8c2339c4`, `dcfbece5`, `e22e3190` |
+| `2cb70a4d` | Review correction: auth-scoped durable selection writes, cross-adapter ordering, bounded malformed PGS input |
+| `789e5827` | Review correction: propagate Room acceptance, reserve TV retirement order, bounded coordinator state |
+| `0fdfcc26` | Review correction: retain ordering state while abandoned writes remain active |
+
+## Review corrections
+
+- Durable selection writes carry the playback-captured server/profile/auth
+  generation scope through Room and fail closed after an identity switch.
+- Phone and TV adapters share process-level latest-write ordering per captured
+  scope/content/file. TV reserves its retirement order before asynchronous
+  settlement while persisting the exact post-settlement committed identity.
+- Repository rejection remains visible to adapter retry/flush handling.
+- Coordinator state is released after all tickets and active/waiting writes
+  resolve; abandonment cannot create a second mutex while an old write runs.
+- Malformed PGS display sets fail closed before payload allocation after
+  16 MiB or 512 segments.
+- The Dolby Vision/color-range paths in the net diff preserve slice D's
+  playback metadata and fallback behavior across the new adapter boundary;
+  they do not add slice-G catalog behavior.
+
+## Verification record
+
+- `./scripts/check-build-supply-chain.sh` (pass)
+- `./gradlew --no-daemon testDebugUnitTest --max-workers=2 --rerun-tasks`
+  (pass; 127/127 tasks executed in 54s)
+- One earlier full run exposed a pre-existing staged-replan scheduling flake
+  (`s3` cleanup observed twice). The exact test passed five forced isolated
+  reruns before the fresh full suite passed.
+- `./gradlew --no-daemon :androidApp:assembleRelease :androidTvApp:assembleRelease --max-workers=2`
+  (pass; 207 tasks in 3m18s)
+- `git diff --check` (pass)
+- Independent final review verdict: Ready Yes; no remaining Critical,
+  Important, or Minor findings.
+- Net-diff scope audit against `split/108-d-player-foundation`: no Watch
+  Together, home/startup, reader, or TV request paths.
