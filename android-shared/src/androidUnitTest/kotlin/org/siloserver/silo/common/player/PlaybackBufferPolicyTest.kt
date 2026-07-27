@@ -135,6 +135,20 @@ class PlaybackBufferPolicyTest {
         )
     }
 
+    @Test
+    fun bitrateAwareTargetClampsOverflowingBitrateEstimateToDeviceCap() {
+        assertEquals(
+            160 * 1024 * 1024,
+            calculateBitrateTargetBufferBytes(
+                selectedBitrateBps = Long.MAX_VALUE,
+                desiredForwardBufferMs = 50_000,
+                minimumBytes = 16 * 1024 * 1024,
+                maximumBytes = 160 * 1024 * 1024,
+                unknownBitrateFallbackBytes = 96 * 1024 * 1024,
+            ),
+        )
+    }
+
     private companion object {
         val roomyDevice = PlaybackBufferDeviceProfile(memoryClassMb = 384, isLowRamDevice = false)
     }

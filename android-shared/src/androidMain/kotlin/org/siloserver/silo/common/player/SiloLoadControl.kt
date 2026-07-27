@@ -101,7 +101,14 @@ internal fun calculateBitrateTargetBufferBytes(
     val desiredBytes = selectedBitrateBps?.takeIf { it > 0L }?.let { bitrate ->
         // 15% allows for container/segment overhead and ordinary bitrate
         // variance without turning a stream's nominal bitrate into a promise.
-        (bitrate * desiredForwardBufferMs.toLong() * 115L) / (8L * 1_000L * 100L)
+        try {
+            Math.multiplyExact(
+                Math.multiplyExact(bitrate, desiredForwardBufferMs.toLong()),
+                115L,
+            ) / (8L * 1_000L * 100L)
+        } catch (_: ArithmeticException) {
+            Long.MAX_VALUE
+        }
     } ?: unknownBitrateFallbackBytes.toLong()
     return desiredBytes.coerceIn(minimumBytes.toLong(), maximumBytes.toLong()).toInt()
 }
