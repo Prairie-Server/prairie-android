@@ -255,9 +255,10 @@ class SiloPlayerFactory(
         val mediaLoadErrorHandlingPolicy = SiloMediaLoadErrorHandlingPolicy(
             isResumableProgressiveDirectPlay = ::isResumableDirectPlayUri,
         )
-        fun defaultMediaSourceFactory(
+        fun correctedMediaSourceFactory(
             mode: DolbyVisionTransformMode,
             expectedDynamicRange: String? = null,
+            expectedColorRange: String? = null,
         ) =
             DefaultMediaSourceFactory(
                 context,
@@ -265,6 +266,7 @@ class SiloPlayerFactory(
                     configuredExtractorsFactory(),
                     mode,
                     expectedDynamicRange = expectedDynamicRange,
+                    expectedColorRange = expectedColorRange,
                 ),
             )
             .setDataSourceFactory(dataSourceFactory)
@@ -275,13 +277,8 @@ class SiloPlayerFactory(
             .setSubtitleParserFactory(embeddedSubtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
         val mediaSourceFactory = SiloMediaSourceFactory(
-            defaultFactory = defaultMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
-            hlgFactory = defaultMediaSourceFactory(
-                DolbyVisionTransformMode.DISABLED,
-                expectedDynamicRange = "hlg",
-            ),
-            dv81Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_PROFILE81),
-            hdr10Factory = defaultMediaSourceFactory(DolbyVisionTransformMode.PROFILE7_TO_HDR10),
+            defaultFactory = correctedMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
+            correctedFactory = ::correctedMediaSourceFactory,
             hlsFactory = hlsMediaSourceFactory,
             dataSourceFactory = dataSourceFactory,
             subtitleParserFactory = sidecarSubtitleParserFactory,
@@ -406,6 +403,7 @@ class SiloPlayerFactory(
         timelineOffsetSeconds: Double = 0.0,
         requestHeaders: Map<String, String> = emptyMap(),
         expectedDynamicRange: String? = null,
+        expectedColorRange: String? = null,
         transformations: List<String> = emptyList(),
         runtimeCorrections: List<String> = emptyList(),
     ): MediaItem {
@@ -437,6 +435,7 @@ class SiloPlayerFactory(
                         else -> DolbyVisionTransformMode.DISABLED
                     },
                     expectedDynamicRange = expectedDynamicRange,
+                    expectedColorRange = expectedColorRange,
                 ),
             )
 
@@ -495,21 +494,23 @@ class SiloPlayerFactory(
 
     private class SiloMediaSourceFactory(
         private val defaultFactory: MediaSource.Factory,
-        private val hlgFactory: MediaSource.Factory,
-        private val dv81Factory: MediaSource.Factory,
-        private val hdr10Factory: MediaSource.Factory,
+        private val correctedFactory: (
+            DolbyVisionTransformMode,
+            String?,
+            String?,
+        ) -> MediaSource.Factory,
         private val hlsFactory: MediaSource.Factory,
         private val dataSourceFactory: DataSource.Factory,
         private val subtitleParserFactory: SubtitleParser.Factory,
         private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy,
     ) : MediaSource.Factory {
+        private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
+
         override fun setDrmSessionManagerProvider(
             drmSessionManagerProvider: DrmSessionManagerProvider,
         ): MediaSource.Factory {
+            this.drmSessionManagerProvider = drmSessionManagerProvider
             defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
-            hlgFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
-            dv81Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
-            hdr10Factory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             hlsFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
             return this
         }
@@ -519,9 +520,6 @@ class SiloPlayerFactory(
         ): MediaSource.Factory {
             this.loadErrorHandlingPolicy = loadErrorHandlingPolicy
             defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-            hlgFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-            dv81Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-            hdr10Factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             hlsFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             return this
         }
@@ -547,15 +545,7 @@ class SiloPlayerFactory(
                 hlsFactory.createMediaSource(contentItem)
             } else {
                 val tag = localConfiguration.tag as? SiloMediaTransformTag
-                when (tag?.dolbyVisionMode) {
-                    DolbyVisionTransformMode.PROFILE7_TO_PROFILE81 -> dv81Factory.createMediaSource(contentItem)
-                    DolbyVisionTransformMode.PROFILE7_TO_HDR10 -> hdr10Factory.createMediaSource(contentItem)
-                    else -> if (tag?.expectedDynamicRange.equals("hlg", ignoreCase = true)) {
-                        hlgFactory.createMediaSource(contentItem)
-                    } else {
-                        defaultFactory.createMediaSource(contentItem)
-                    }
-                }
+                mediaSourceFactory(tag).createMediaSource(contentItem)
             }
             if (subtitleConfigurations.isEmpty()) return contentSource
 
@@ -566,6 +556,16 @@ class SiloPlayerFactory(
             subtitleConfigurations.mapTo(sources, ::createSubtitleMediaSource)
             return MergingMediaSource(*sources.toTypedArray())
         }
+
+        private fun mediaSourceFactory(tag: SiloMediaTransformTag?): MediaSource.Factory =
+            correctedFactory(
+                tag?.dolbyVisionMode ?: DolbyVisionTransformMode.DISABLED,
+                tag?.expectedDynamicRange,
+                tag?.expectedColorRange,
+            ).also { factory ->
+                drmSessionManagerProvider?.let(factory::setDrmSessionManagerProvider)
+                factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            }
 
         private fun createSubtitleMediaSource(
             configuration: MediaItem.SubtitleConfiguration,

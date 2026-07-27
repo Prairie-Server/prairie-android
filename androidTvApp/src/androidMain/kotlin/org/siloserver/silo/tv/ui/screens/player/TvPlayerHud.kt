@@ -41,6 +41,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -133,7 +135,7 @@ private val LocalHudPickerReturnFocus =
  * Back.
  */
 @Composable
-fun TvPlayerHud(
+internal fun TvPlayerHud(
     title: String,
     positionSec: Double,
     durationSec: Double,
@@ -146,13 +148,12 @@ fun TvPlayerHud(
     onSelectFileVersion: (Int) -> Unit = {},
     subtitleTracks: List<PlayerTrackEntry>,
     subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
+    subtitlePresentation: TvSubtitleHudPresentation,
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
     videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
     onSelectVideoQuality: (String) -> Unit,
-    onSelectSubtitle: (Int) -> Unit,
-    onSelectServerSubtitle: (Int) -> Unit = {},
     onVideoFillModeChanged: (VideoFillMode) -> Unit,
     playbackSpeed: Double,
     onPlaybackSpeedChanged: (Double) -> Unit,
@@ -239,6 +240,28 @@ fun TvPlayerHud(
                 pickerReturnFocus.value = null
                 runCatching { target.requestFocus() }
             }
+        }
+    }
+
+    // Keep an open subtitle picker synchronized with reducer state while
+    // retaining the same stable focused row through Applying -> committed.
+    LaunchedEffect(subtitlePresentation, activePicker?.title) {
+        val current = activePicker
+        if (current?.title == "Subtitle Track") {
+            val checkedRow = subtitlePresentation.rows.firstOrNull { it.checked }
+            val focusedRow = subtitlePresentation.rows.firstOrNull { it.focused }
+            activePicker = current.copy(
+                options = subtitlePresentation.rows.map { row ->
+                    HudPickerOption(
+                        id = row.stableId,
+                        label = if (row.applying) "${row.label} · Applying…" else row.label,
+                    )
+                },
+                selectedId = checkedRow?.stableId
+                    ?: subtitlePresentation.rows.firstOrNull()?.stableId.orEmpty(),
+                focusedId = focusedRow?.stableId
+                    ?: current.focusedId,
+            )
         }
     }
 
@@ -362,10 +385,7 @@ fun TvPlayerHud(
                         onPresentPicker = presentPicker,
                     )
                     HudTab.Subtitles -> HudSubtitlesPane(
-                        subtitleTracks = subtitleTracks,
-                        subtitleUrls = subtitleUrls,
-                        onSelectSubtitle = onSelectSubtitle,
-                        onSelectServerSubtitle = onSelectServerSubtitle,
+                        presentation = subtitlePresentation,
                         subtitleDelayMs = subtitleDelayMs,
                         onSubtitleDelayChanged = onSubtitleDelayChanged,
                         appearance = subtitleAppearance,
@@ -562,9 +582,8 @@ private fun HudInfoPane(
         // Built label ("Danish SRT (External)") via the mounted row — the raw
         // Media3 displayLabel echoes sidecar filenames.
         val subLabel = sub?.let { sel ->
-            subtitleUrls.withIndex()
-                .firstOrNull { (_, row) -> sel.matchesMountedSubtitle(row) }
-                ?.let { (i, row) -> subtitleChoiceLabel(row, i) }
+            resolveMountedSubtitleRow(sel, subtitleTracks, subtitleUrls)
+                ?.let { row -> subtitleChoiceLabel(row, subtitleUrls.indexOf(row)) }
                 ?: sel.displayLabel.ifBlank { "On" }
         } ?: "Off"
         add("Subtitles" to subLabel)
@@ -1193,10 +1212,7 @@ private fun HudAudioPane(
  */
 @Composable
 private fun HudSubtitlesPane(
-    subtitleTracks: List<PlayerTrackEntry>,
-    subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
-    onSelectSubtitle: (Int) -> Unit,
-    onSelectServerSubtitle: (Int) -> Unit = {},
+    presentation: TvSubtitleHudPresentation,
     subtitleDelayMs: Int,
     onSubtitleDelayChanged: (Int) -> Unit,
     appearance: SubtitleAppearance,
@@ -1227,94 +1243,45 @@ private fun HudSubtitlesPane(
                 .verticalScroll(rememberScrollState()),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                val selectedSub = subtitleTracks.firstOrNull { it.isSelected }
+                val checkedRow = presentation.rows.firstOrNull { row -> row.checked }
+                val applyingRow = presentation.rows.firstOrNull { row -> row.applying }
+                val focusedRow = presentation.rows.firstOrNull { row -> row.focused }
                 HudFocusedSettingRow(
                     label = "Subtitles",
-                    // Prefer the mounted row's built label ("Danish SRT") —
-                    // Media3 labels echo server identity strings (sidecar
-                    // filenames) verbatim.
-                    value = selectedSub?.let { sel ->
-                        subtitleUrls.withIndex()
-                            .firstOrNull { (_, row) -> sel.matchesMountedSubtitle(row) }
-                            ?.let { (i, row) -> subtitleChoiceLabel(row, i) }
-                            ?: sel.displayLabel.ifBlank { "On" }
-                    } ?: "Off",
+                    value = applyingRow?.let { "${it.label} · Applying…" }
+                        ?: checkedRow?.label
+                        ?: "Off",
                     enabled = enabled,
                     focusRequester = subtitleTrackFocus,
                     rightFocusRequester = subtitleTextColorFocus,
                     onActivate = {
-                        // The server catalog (subtitleUrls) is the menu source:
-                        // catalog-only/external rows have no mounted Media3
-                        // track until the V3 planner materializes the chosen
-                        // one, so keying this menu off live player tracks
-                        // showed "no subtitles" for titles with plenty. Falls
-                        // back to Media3 tracks only when the server list is
-                        // empty (e.g. embedded-only discoveries).
-                        if (subtitleUrls.isNotEmpty()) {
-                            // Embedded tracks the player discovered but the
-                            // server catalog does not enumerate (e.g. in-stream
-                            // CEA-608) — keep them selectable alongside the
-                            // catalog, tagged "media:" so onSelect routes them
-                            // to the Media3-index path instead of a replan.
-                            val embeddedOnly = subtitleTracks.filter { t ->
-                                subtitleUrls.none { t.matchesMountedSubtitle(it) }
-                            }
-                            val options = buildList {
-                                add(HudPickerOption(id = "-1", label = "Off"))
-                                subtitleUrls.forEachIndexed { idx, row ->
-                                    add(
-                                        HudPickerOption(
-                                            id = row.index.toString(),
-                                            label = subtitleChoiceLabel(row, idx),
-                                        ),
+                        onPresentPicker(
+                            HudPickerPresentation(
+                                title = "Subtitle Track",
+                                options = presentation.rows.map { row ->
+                                    HudPickerOption(
+                                        id = row.stableId,
+                                        label = if (row.applying) {
+                                            "${row.label} · Applying…"
+                                        } else {
+                                            row.label
+                                        },
                                     )
-                                }
-                                embeddedOnly.forEach { track ->
-                                    add(
-                                        HudPickerOption(
-                                            id = "media:${track.index}",
-                                            label = track.displayLabel.ifBlank { "Embedded" },
-                                        ),
-                                    )
-                                }
-                            }
-                            val selectedId = selectedSub?.let { sel ->
-                                subtitleUrls.firstOrNull { sel.matchesMountedSubtitle(it) }?.index?.toString()
-                                    ?: "media:${sel.index}"
-                            } ?: "-1"
-                            onPresentPicker(
-                                HudPickerPresentation(
-                                    title = "Subtitle Track",
-                                    options = options,
-                                    selectedId = selectedId,
-                                    onSelect = { id ->
-                                        val media = id.removePrefix("media:")
-                                        if (media != id) onSelectSubtitle(media.toIntOrNull() ?: -1)
-                                        else onSelectServerSubtitle(id.toIntOrNull() ?: -1)
-                                    },
-                                ),
-                            )
-                        } else {
-                            val options = buildList {
-                                add(HudPickerOption(id = "-1", label = "Off"))
-                                subtitleTracks.forEachIndexed { idx, track ->
-                                    add(
-                                        HudPickerOption(
-                                            id = track.index.toString(),
-                                            label = track.displayLabel.ifBlank { "Track ${idx + 1}" },
-                                        ),
-                                    )
-                                }
-                            }
-                            onPresentPicker(
-                                HudPickerPresentation(
-                                    title = "Subtitle Track",
-                                    options = options,
-                                    selectedId = (selectedSub?.index ?: -1).toString(),
-                                    onSelect = { id -> onSelectSubtitle(id.toIntOrNull() ?: -1) },
-                                ),
-                            )
-                        }
+                                },
+                                selectedId = checkedRow?.stableId
+                                    ?: presentation.rows.firstOrNull()?.stableId.orEmpty(),
+                                focusedId = focusedRow?.stableId
+                                    ?: checkedRow?.stableId
+                                    ?: presentation.rows.firstOrNull()?.stableId.orEmpty(),
+                                closeOnSelect = false,
+                                onFocused = presentation.onFocused,
+                                onSelect = { stableId ->
+                                    presentation.rows
+                                        .firstOrNull { row -> row.stableId == stableId }
+                                        ?.let { row -> presentation.onSelect(row.identity) }
+                                },
+                            ),
+                        )
                     },
                 )
 
@@ -1943,6 +1910,9 @@ internal data class HudPickerPresentation(
     val title: String,
     val options: List<HudPickerOption>,
     val selectedId: String,
+    val focusedId: String = selectedId,
+    val closeOnSelect: Boolean = true,
+    val onFocused: (String) -> Unit = {},
     val onSelect: (String) -> Unit,
 )
 
@@ -2088,8 +2058,11 @@ internal fun HudPickerDialog(
     modifier: Modifier = Modifier,
 ) {
     val options = presentation.options
-    val selectedIndex = options.indexOfFirst { it.id.equals(presentation.selectedId, ignoreCase = true) }
+    val selectedIndex = options.indexOfFirst { it.id == presentation.selectedId }
         .coerceAtLeast(0)
+    val focusedIndex = options.indexOfFirst { it.id == presentation.focusedId }
+        .takeIf { it >= 0 }
+        ?: selectedIndex
     val focusRequester = remember { FocusRequester() }
 
     // Auto-focus the selected option on appear. Because every option is in the
@@ -2129,15 +2102,18 @@ internal fun HudPickerDialog(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 options.forEachIndexed { index, option ->
-                    HudPickerOptionRow(
-                        option = option,
-                        isSelected = index == selectedIndex,
-                        focusRequester = if (index == selectedIndex) focusRequester else null,
-                        onSelect = {
-                            presentation.onSelect(option.id)
-                            onClose()
-                        },
-                    )
+                    key(option.id) {
+                        HudPickerOptionRow(
+                            option = option,
+                            isSelected = index == selectedIndex,
+                            focusRequester = if (index == focusedIndex) focusRequester else null,
+                            onFocused = { presentation.onFocused(option.id) },
+                            onSelect = {
+                                presentation.onSelect(option.id)
+                                if (presentation.closeOnSelect) onClose()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -2149,6 +2125,7 @@ private fun HudPickerOptionRow(
     option: HudPickerOption,
     isSelected: Boolean,
     focusRequester: FocusRequester?,
+    onFocused: () -> Unit,
     onSelect: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -2171,6 +2148,7 @@ private fun HudPickerOptionRow(
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { if (it.isFocused) onFocused() }
             .clickable(interactionSource = interactionSource, indication = null) { onSelect() }
             .semantics { this.selected = isSelected }
             .padding(horizontal = 10.dp, vertical = 8.dp),
