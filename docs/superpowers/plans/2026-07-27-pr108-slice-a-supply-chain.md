@@ -165,7 +165,9 @@ The resulting literal must equal the value recorded in `gradle/verification-meta
 - Modify: `scripts/build-dovi-aar.sh`
 
 **Interfaces:**
-- Consumes: pinned `quietvoid/dovi_tool` source commit, source archive checksum, Cargo lock checksums, Rust 1.88.0, Android NDK 28.0.13004108, and checked-in native outputs.
+- Consumes: pinned `quietvoid/dovi_tool` source commit, source archive checksum,
+  Cargo lock checksums, Rust 1.85.0, Android NDK 26.3.11579264, and checked-in
+  native outputs.
 - Produces: `scripts/build-dovi-aar.sh --verify-provenance`, which verifies source inputs, toolchains, three ABI shared libraries, and the final AAR hash.
 
 - [ ] **Step 1: Port the exact PR 108 native-provenance net diff**

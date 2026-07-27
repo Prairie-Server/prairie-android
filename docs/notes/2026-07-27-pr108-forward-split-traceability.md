@@ -41,12 +41,19 @@ reader, player, subtitle, and Watch Together changes.
 ```text
 74308e48 build(android): enforce verified dependency state
 39379263 build(android): pin native playback provenance
+c8a08e18 docs(android): map PR 108 supply-chain split
+e4ec5880 build(android): verify release tool dependencies
 ```
 
 The patch IDs are intentionally different from the original commits because
 the first commit regenerates dependency state against a different, narrower
 source tree. Reviewer traceability is therefore path- and purpose-based rather
 than claiming false one-to-one patch identity.
+
+`e4ec5880` adds the 26 release/lint tool artifacts found by the first full
+release build; each checksum matches the independently generated PR 108
+metadata. This documentation correction follows those four functional and
+traceability commits and does not change their patch content.
 
 ### Linux AAPT2 correction
 
