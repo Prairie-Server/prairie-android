@@ -97,6 +97,8 @@ class WatchTogetherRepository(
     private var binding: RoomBinding? = null
     private var terminalGeneration: Long? = null
     private var realtimeGeneration: Long? = null
+    private var nextConnectionOwner = 0L
+    private var activeConnectionOwner: Long? = null
     private val _roomSnapshot = MutableStateFlow<RoomSnapshot?>(null)
     private val _suggestions = MutableStateFlow<List<Suggestion>>(emptyList())
 
@@ -223,7 +225,8 @@ class WatchTogetherRepository(
 
     suspend fun closeRoom(): ApiResult<Unit> {
         val lease = activeBinding() ?: return missingRoom()
-        return api.closeRoom(lease.roomId, lease.roomToken, lease.authScope)
+        val result = api.closeRoom(lease.roomId, lease.roomToken, lease.authScope)
+        return if (isCurrent(lease)) result else obsoleteRoomRequest()
     }
 
     // ---- REST: suggestions ----------------------------------------------------
@@ -250,24 +253,26 @@ class WatchTogetherRepository(
         val lease = activeBinding() ?: return missingRoom()
         val r = api.vote(lease.roomId, lease.roomToken, suggestionId, lease.authScope)
         if (r !is ApiResult.Success) return r
-        stateMutex.withLock {
-            if (!isCurrentLocked(lease)) return r
+        val published = stateMutex.withLock {
+            if (!isCurrentLocked(lease)) return@withLock false
             votedIds.add(suggestionId)
             applySuggestions(r.data.suggestions, fromBroadcast = false)
+            true
         }
-        return r
+        return if (published) r else obsoleteRoomRequest()
     }
 
     suspend fun unvote(suggestionId: String): ApiResult<SuggestionsResponse> {
         val lease = activeBinding() ?: return missingRoom()
         val r = api.unvote(lease.roomId, lease.roomToken, suggestionId, lease.authScope)
         if (r !is ApiResult.Success) return r
-        stateMutex.withLock {
-            if (!isCurrentLocked(lease)) return r
+        val published = stateMutex.withLock {
+            if (!isCurrentLocked(lease)) return@withLock false
             votedIds.remove(suggestionId)
             applySuggestions(r.data.suggestions, fromBroadcast = false)
+            true
         }
-        return r
+        return if (published) r else obsoleteRoomRequest()
     }
 
     suspend fun promoteSuggestion(request: PromoteSuggestionRequest): ApiResult<RoomResponse> {
@@ -289,10 +294,12 @@ class WatchTogetherRepository(
     ): ApiResult<RoomResponse> {
         if (result !is ApiResult.Success) return result
         if (result.data.room.roomId != lease.roomId) return invalidRoomResponse()
-        stateMutex.withLock {
-            if (isCurrentLocked(lease)) _roomSnapshot.value = result.data.room
+        val published = stateMutex.withLock {
+            if (!isCurrentLocked(lease)) return@withLock false
+            _roomSnapshot.value = result.data.room
+            true
         }
-        return result
+        return if (published) result else obsoleteRoomRequest()
     }
 
     private suspend fun publishSuggestionsResponse(
@@ -300,10 +307,12 @@ class WatchTogetherRepository(
         result: ApiResult<SuggestionsResponse>,
     ): ApiResult<SuggestionsResponse> {
         if (result !is ApiResult.Success) return result
-        stateMutex.withLock {
-            if (isCurrentLocked(lease)) applySuggestions(result.data.suggestions, fromBroadcast = false)
+        val published = stateMutex.withLock {
+            if (!isCurrentLocked(lease)) return@withLock false
+            applySuggestions(result.data.suggestions, fromBroadcast = false)
+            true
         }
-        return result
+        return if (published) result else obsoleteRoomRequest()
     }
 
     private fun invalidRoomResponse(): ApiResult.Error =
@@ -340,7 +349,9 @@ class WatchTogetherRepository(
             realtime.takeIf {
                 current != null &&
                     terminalGeneration != current.generation &&
-                    realtimeGeneration == current.generation
+                    realtimeGeneration == current.generation &&
+                    activeConnectionOwner != null &&
+                    _connectionState.value.writable
             }
         }
 
@@ -385,53 +396,57 @@ class WatchTogetherRepository(
     suspend fun connect(roomId: String) {
         val lease = activeBinding()?.takeIf { it.roomId == roomId } ?: return
         val client = realtimeFactory() ?: return
-        stateMutex.withLock {
+        val owner = stateMutex.withLock {
             if (!isCurrentLocked(lease)) return
+            val newOwner = ++nextConnectionOwner
+            activeConnectionOwner = newOwner
             realtime = client
             realtimeGeneration = lease.generation
             _roomClosedReason.value = null
+            newOwner
         }
         var backoffIndex = 0
         var failures = 0
         while (true) {
+            if (!isCurrent(lease, owner)) break
             var closedByServer = false
             var openedAtMs: Long? = null
             var sawSnapshot = false
             try {
-                client.connect(lease.roomId, lease.roomToken).collect { event ->
-                    if (!isCurrent(lease)) throw ObsoleteBinding
+                client.connect(lease.roomId, lease.roomToken, lease.authScope).collect { event ->
+                    if (!isCurrent(lease, owner)) throw ObsoleteBinding
                     if (event is RoomRealtimeEvent.Closed) {
                         // Any server-initiated close (with or without a reason) is terminal.
                         // The event flow (a hot SharedFlow) never completes on its
                         // own, so we stop collecting by throwing a private sentinel.
                         closedByServer = true
                         stateMutex.withLock {
-                            if (isCurrentLocked(lease)) {
+                            if (isCurrentOwnerLocked(lease, owner)) {
                                 terminalGeneration = lease.generation
-                                _roomClosedReason.value = event.reason
+                                _roomClosedReason.value = event.reason ?: "room_closed"
                                 _roomSnapshot.value = null
                             }
                         }
                         throw ServerClosed
                     } else if (event is RoomRealtimeEvent.TransportTerminated) {
-                        markNotWritable(lease)
+                        markNotWritable(lease, owner)
                         throw TransportEnded
                     } else if (event is RoomRealtimeEvent.Opened) {
                         openedAtMs = monotonicNowMs()
-                        markOpened(lease)
+                        markOpened(lease, owner)
                     } else if (event is RoomRealtimeEvent.SnapshotEvent) {
                         sawSnapshot = true
                     }
-                    fold(lease, event)
+                    fold(lease, owner, event)
                 }
-                markNotWritable(lease)
+                markNotWritable(lease, owner)
                 if (isStableAttempt(openedAtMs, sawSnapshot)) {
                     failures = 0
                     backoffIndex = 0
                 }
                 failures++
             } catch (e: CancellationException) {
-                clearRealtimeIfCurrent(lease, client)
+                clearRealtimeIfCurrent(lease, client, owner)
                 throw e
             } catch (_: ObsoleteBinding) {
                 break
@@ -447,10 +462,10 @@ class WatchTogetherRepository(
                 failures++
             }
             if (closedByServer) break
-            if (!isCurrent(lease)) break
+            if (!isCurrent(lease, owner)) break
             if (failures >= MAX_RECONNECT_ATTEMPTS) {
                 stateMutex.withLock {
-                    if (isCurrentLocked(lease)) {
+                    if (isCurrentOwnerLocked(lease, owner)) {
                         terminalGeneration = lease.generation
                         _roomClosedReason.value = "connection_lost"
                         _roomSnapshot.value = null
@@ -461,28 +476,40 @@ class WatchTogetherRepository(
             delay(BACKOFF_MS[backoffIndex])
             backoffIndex = (backoffIndex + 1).coerceAtMost(BACKOFF_MS.lastIndex)
         }
-        clearRealtimeIfCurrent(lease, client)
+        clearRealtimeIfCurrent(lease, client, owner)
     }
 
     private suspend fun isCurrent(lease: RoomBinding): Boolean =
         stateMutex.withLock { isCurrentLocked(lease) }
 
+    private suspend fun isCurrent(lease: RoomBinding, owner: Long): Boolean =
+        stateMutex.withLock { isCurrentOwnerLocked(lease, owner) }
+
+    private fun isCurrentOwnerLocked(lease: RoomBinding, owner: Long): Boolean =
+        isCurrentLocked(lease) && activeConnectionOwner == owner
+
     private suspend fun clearRealtimeIfCurrent(
         lease: RoomBinding,
         client: WatchTogetherRealtimeClient,
+        owner: Long,
     ) {
         stateMutex.withLock {
-            if (realtime === client && realtimeGeneration == lease.generation) {
+            if (
+                realtime === client &&
+                realtimeGeneration == lease.generation &&
+                activeConnectionOwner == owner
+            ) {
                 realtime = null
                 realtimeGeneration = null
+                activeConnectionOwner = null
                 _connectionState.value = _connectionState.value.copy(writable = false)
             }
         }
     }
 
-    private suspend fun markOpened(lease: RoomBinding) {
+    private suspend fun markOpened(lease: RoomBinding, owner: Long) {
         stateMutex.withLock {
-            if (isCurrentLocked(lease)) {
+            if (isCurrentOwnerLocked(lease, owner)) {
                 val previous = _connectionState.value
                 _connectionState.value = WatchTogetherConnectionState(
                     generation = lease.generation,
@@ -493,9 +520,9 @@ class WatchTogetherRepository(
         }
     }
 
-    private suspend fun markNotWritable(lease: RoomBinding) {
+    private suspend fun markNotWritable(lease: RoomBinding, owner: Long) {
         stateMutex.withLock {
-            if (binding == lease) {
+            if (binding == lease && activeConnectionOwner == owner) {
                 _connectionState.value = _connectionState.value.copy(writable = false)
             }
         }
@@ -510,12 +537,13 @@ class WatchTogetherRepository(
     private object ObsoleteBinding : Throwable()
 
     /** Pure-ish fold of one realtime event into the state flows + side streams. */
-    private suspend fun fold(lease: RoomBinding, event: RoomRealtimeEvent) {
+    private suspend fun fold(lease: RoomBinding, owner: Long, event: RoomRealtimeEvent) {
         stateMutex.withLock {
-            if (!isCurrentLocked(lease)) return
+            if (!isCurrentOwnerLocked(lease, owner)) return
             when (event) {
                 RoomRealtimeEvent.Opened -> Unit
-                is RoomRealtimeEvent.SnapshotEvent -> _roomSnapshot.value = event.room
+                is RoomRealtimeEvent.SnapshotEvent ->
+                    if (event.room.roomId == lease.roomId) _roomSnapshot.value = event.room
                 is RoomRealtimeEvent.SuggestionsEvent -> applySuggestions(event.suggestions, fromBroadcast = true)
                 is RoomRealtimeEvent.TransportCommandEvent -> _transportCommands.tryEmit(
                     ScheduledTransportCommand(
@@ -553,6 +581,7 @@ class WatchTogetherRepository(
             votedIds.clear()
             realtime = null
             realtimeGeneration = null
+            activeConnectionOwner = null
             _connectionState.value = WatchTogetherConnectionState(generation = nextGeneration)
         }
     }

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -56,19 +57,19 @@ class WatchTogetherRepositoryTest {
         var lastAuthScope: AuthScopeSnapshot? = null
         var createResult: CompletableDeferred<ApiResult<RoomResponse>>? = null
         var selectionResult: CompletableDeferred<ApiResult<RoomResponse>>? = null
-        override suspend fun createRoom(request: CreateRoomRequest, scope: AuthScopeSnapshot?): ApiResult<RoomResponse> {
+        override suspend fun createRoom(request: CreateRoomRequest, scope: AuthScopeSnapshot): ApiResult<RoomResponse> {
             lastAuthScope = scope
             return createResult?.await() ?: createResponse
         }
-        override suspend fun joinRoom(request: JoinRoomRequest, scope: AuthScopeSnapshot?) =
+        override suspend fun joinRoom(request: JoinRoomRequest, scope: AuthScopeSnapshot) =
             createResponse.also { lastAuthScope = scope }
-        override suspend fun getRoom(roomId: String, roomToken: String, scope: AuthScopeSnapshot?) =
+        override suspend fun getRoom(roomId: String, roomToken: String, scope: AuthScopeSnapshot) =
             createResponse.also { lastRoomToken = roomToken; lastAuthScope = scope }
         override suspend fun setSelection(
             roomId: String,
             roomToken: String,
             request: SetSelectionRequest,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ): ApiResult<RoomResponse> {
             lastRoomId = roomId
             lastRoomToken = roomToken
@@ -80,48 +81,48 @@ class WatchTogetherRepositoryTest {
             roomId: String,
             roomToken: String,
             request: UpdatePolicyRequest,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ) = createResponse.also { lastRoomToken = roomToken; lastAuthScope = scope }
         override suspend fun closeRoom(
             roomId: String,
             roomToken: String,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ): ApiResult<Unit> {
             lastRoomToken = roomToken
             lastAuthScope = scope
             return ApiResult.Success(Unit)
         }
-        override suspend fun listSuggestions(roomId: String, roomToken: String, scope: AuthScopeSnapshot?) =
+        override suspend fun listSuggestions(roomId: String, roomToken: String, scope: AuthScopeSnapshot) =
             ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
         override suspend fun addSuggestion(
             roomId: String,
             roomToken: String,
             request: AddSuggestionRequest,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ) = ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
         override suspend fun deleteSuggestion(
             roomId: String,
             roomToken: String,
             suggestionId: String,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ) = ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
         override suspend fun vote(
             roomId: String,
             roomToken: String,
             suggestionId: String,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ) = ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
         override suspend fun unvote(
             roomId: String,
             roomToken: String,
             suggestionId: String,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ) = ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
         override suspend fun promoteSuggestion(
             roomId: String,
             roomToken: String,
             request: PromoteSuggestionRequest,
-            scope: AuthScopeSnapshot?,
+            scope: AuthScopeSnapshot,
         ) = createResponse.also { lastRoomToken = roomToken; lastAuthScope = scope }
     }
 
@@ -141,10 +142,15 @@ class WatchTogetherRepositoryTest {
          * failures were reset per-event rather than per-clean-completion.
          */
         var flappingEvent: RoomRealtimeEvent? = null
-        override fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent> {
+        override fun connect(
+            roomId: String,
+            roomToken: String,
+            authScope: AuthScopeSnapshot?,
+        ): Flow<RoomRealtimeEvent> {
             connectCount++
             connectedRoomIds += roomId
             connectedRoomTokens += roomToken
+            connectedAuthScopes += authScope
             connectBehavior?.let { return it(connectCount) }
             if (failConnect) return flow { throw IllegalStateException("boom") }
             if (terminateImmediately) return flow {
@@ -160,6 +166,7 @@ class WatchTogetherRepositoryTest {
         }
         val connectedRoomIds = mutableListOf<String>()
         val connectedRoomTokens = mutableListOf<String>()
+        val connectedAuthScopes = mutableListOf<AuthScopeSnapshot?>()
         override suspend fun attachSession(sessionId: String): Boolean {
             attachCount++
             return true
@@ -216,6 +223,45 @@ class WatchTogetherRepositoryTest {
         r.setSelection(SetSelectionRequest(contentId = "tt-9"))
 
         assertEquals(scopeA, api.lastAuthScope)
+    }
+
+    @Test
+    fun `realtime reconnect uses the auth scope captured by the room binding`() = runTest {
+        val realtime = FakeRealtime()
+        var currentScope = scopeA
+        val r = repo(realtime = realtime, authScopeProvider = { currentScope })
+        r.createRoom(CreateRoomRequest())
+        currentScope = scopeA.copy(
+            serverId = "server-b",
+            serverUrl = "https://b.example",
+            identityGeneration = 2L,
+        )
+
+        val connection = launch { r.connect("room-1") }
+        runCurrent()
+
+        assertEquals(1, realtime.connectedAuthScopes.size)
+        assertEquals(scopeA, realtime.connectedAuthScopes.single())
+        connection.cancel()
+    }
+
+    @Test
+    fun `every reconnect attempt retains the room auth scope`() = runTest {
+        val realtime = FakeRealtime().apply {
+            connectBehavior = { attempt ->
+                if (attempt == 1) flow { throw IllegalStateException("drop") } else events.asSharedFlow()
+            }
+        }
+        val r = repo(realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val connection = launch { r.connect("room-1") }
+        runCurrent()
+        advanceTimeBy(WatchTogetherRepository.BACKOFF_MS.first())
+        runCurrent()
+
+        assertEquals(2, realtime.connectedAuthScopes.size)
+        assertTrue(realtime.connectedAuthScopes.all { it == scopeA })
+        connection.cancel()
     }
 
     @Test
@@ -313,7 +359,10 @@ class WatchTogetherRepositoryTest {
         r.createRoom(CreateRoomRequest())
         val pending = CompletableDeferred<ApiResult<RoomResponse>>()
         api.selectionResult = pending
-        val stale = launch { r.setSelection(SetSelectionRequest(contentId = "late-a")) }
+        var staleResult: ApiResult<RoomResponse>? = null
+        val stale = launch {
+            staleResult = r.setSelection(SetSelectionRequest(contentId = "late-a"))
+        }
         runCurrent()
 
         api.selectionResult = null
@@ -329,6 +378,7 @@ class WatchTogetherRepositoryTest {
         stale.join()
 
         assertEquals("room-2", r.roomSnapshot.value?.roomId)
+        assertIs<ApiResult.Error>(staleResult)
     }
 
     @Test
@@ -366,6 +416,21 @@ class WatchTogetherRepositoryTest {
         advanceUntilIdle()
         assertEquals(5L, r.roomSnapshot.value?.selectionRevision)
         assertEquals(3, r.roomSnapshot.value?.memberCount)
+        job.cancel()
+    }
+
+    @Test
+    fun `snapshot for another room cannot replace the active room`() = runTest {
+        val realtime = FakeRealtime()
+        val r = repo(realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val job = launch { r.connect("room-1") }
+        runCurrent()
+
+        realtime.events.emit(RoomRealtimeEvent.SnapshotEvent(snapshot(roomId = "room-2", revision = 9)))
+        runCurrent()
+
+        assertEquals("room-1", r.roomSnapshot.value?.roomId)
         job.cancel()
     }
 
@@ -525,7 +590,72 @@ class WatchTogetherRepositoryTest {
         realtime.events.emit(RoomRealtimeEvent.Closed(null))
         advanceUntilIdle()
         assertEquals(1, realtime.connectCount)
+        assertEquals("room_closed", r.roomClosedReason.value)
         assertTrue(job.isCompleted || job.isCancelled)
+    }
+
+    @Test
+    fun `replacement during reconnect backoff cannot open another stale socket`() = runTest {
+        val api = FakeApi()
+        val realtime = FakeRealtime().apply {
+            connectBehavior = { attempt ->
+                if (attempt == 1) flow { throw IllegalStateException("drop") } else events.asSharedFlow()
+            }
+        }
+        val r = repo(api = api, realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val old = launch { r.connect("room-1") }
+        runCurrent() // first attempt failed and is waiting in its 500 ms backoff
+
+        api.createResponse = ApiResult.Success(
+            RoomResponse(RoomSnapshot(roomId = "room-2", code = "EFGH5678"), "jwt-room-2"),
+        )
+        r.createRoom(CreateRoomRequest())
+        advanceUntilIdle()
+
+        assertEquals(1, realtime.connectCount)
+        assertTrue(old.isCompleted)
+    }
+
+    @Test
+    fun `newest duplicate connect exclusively owns folds and writable state`() = runTest {
+        val first = FakeRealtime()
+        val second = FakeRealtime()
+        var factoryCall = 0
+        val r = WatchTogetherRepository(
+            api = FakeApi(),
+            realtimeFactory = { if (factoryCall++ == 0) first else second },
+            authScopeProvider = { scopeA },
+        )
+        r.createRoom(CreateRoomRequest())
+        val old = launch { r.connect("room-1") }
+        runCurrent()
+        val newest = launch { r.connect("room-1") }
+        runCurrent()
+
+        second.events.emit(RoomRealtimeEvent.Opened)
+        second.events.emit(RoomRealtimeEvent.SnapshotEvent(snapshot(revision = 2)))
+        runCurrent()
+        first.events.emit(RoomRealtimeEvent.SnapshotEvent(snapshot(revision = 99)))
+        runCurrent()
+
+        assertEquals(2L, r.roomSnapshot.value?.selectionRevision)
+        assertTrue(r.connectionState.value.writable)
+        assertTrue(old.isCompleted)
+        newest.cancel()
+    }
+
+    @Test
+    fun `send fails before the active connection reports writable`() = runTest {
+        val realtime = FakeRealtime()
+        val r = repo(realtime = realtime)
+        r.createRoom(CreateRoomRequest())
+        val job = launch { r.connect("room-1") }
+        runCurrent()
+
+        assertTrue(!r.attachSession("session-1"))
+        assertEquals(0, realtime.attachCount)
+        job.cancel()
     }
 
     // ---- reconnect gives up after max consecutive failures ----------------------

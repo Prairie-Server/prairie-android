@@ -7,6 +7,7 @@ import org.siloserver.silo.model.watchtogether.PromoteSuggestionRequest
 import org.siloserver.silo.model.watchtogether.SetSelectionRequest
 import org.siloserver.silo.model.watchtogether.UpdatePolicyRequest
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.network.SiloJson
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -25,6 +26,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class WatchTogetherApiTest {
+    private val scope = AuthScopeSnapshot(
+        serverId = "server-1",
+        profileId = "profile-1",
+        serverUrl = "https://silo.example",
+        profileToken = "profile-token",
+    )
 
     private class Captured {
         var method: HttpMethod? = null
@@ -71,7 +78,7 @@ class WatchTogetherApiTest {
             status = HttpStatusCode.Created,
             responseBody = """{"room":$roomJson,"room_access_token":"jwt-1"}""",
         )
-        val r = api.createRoom(CreateRoomRequest(selectionMode = "vote"))
+        val r = api.createRoom(CreateRoomRequest(selectionMode = "vote"), scope)
         assertEquals(HttpMethod.Post, captured.method)
         assertEquals("/api/v1/watch-together/rooms", captured.path)
         assertEquals(setOf("selection_mode"), SiloJson.parseToJsonElement(captured.body).jsonObject.keys)
@@ -82,7 +89,7 @@ class WatchTogetherApiTest {
     @Test
     fun `joinRoom posts code and decodes room`() = runTest {
         val (api, captured) = api(responseBody = """{"room":$roomJson,"room_access_token":"jwt-2"}""")
-        val r = api.joinRoom(JoinRoomRequest(code = "ABCD1234"))
+        val r = api.joinRoom(JoinRoomRequest(code = "ABCD1234"), scope)
         assertEquals(HttpMethod.Post, captured.method)
         assertEquals("/api/v1/watch-together/join", captured.path)
         assertIs<ApiResult.Success<*>>(r)
@@ -92,7 +99,7 @@ class WatchTogetherApiTest {
     @Test
     fun `getRoom passes room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"room":$roomJson}""")
-        api.getRoom("room-1", "jwt-room")
+        api.getRoom("room-1", "jwt-room", scope)
         assertEquals(HttpMethod.Get, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -101,7 +108,7 @@ class WatchTogetherApiTest {
     @Test
     fun `setSelection puts content_id with room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"room":$roomJson}""")
-        api.setSelection("room-1", "jwt-room", SetSelectionRequest(contentId = "tt-9", fileId = 3))
+        api.setSelection("room-1", "jwt-room", SetSelectionRequest(contentId = "tt-9", fileId = 3), scope)
         assertEquals(HttpMethod.Put, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/selection", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -112,7 +119,12 @@ class WatchTogetherApiTest {
     @Test
     fun `updatePolicy patches policy with room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"room":$roomJson}""")
-        api.updatePolicy("room-1", "jwt-room", UpdatePolicyRequest(guestControlPolicy = "guest_play_pause"))
+        api.updatePolicy(
+            "room-1",
+            "jwt-room",
+            UpdatePolicyRequest(guestControlPolicy = "guest_play_pause"),
+            scope,
+        )
         assertEquals(HttpMethod.Patch, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/policy", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -121,7 +133,7 @@ class WatchTogetherApiTest {
     @Test
     fun `closeRoom deletes and maps 204 to Unit with room_token query`() = runTest {
         val (api, captured) = api(status = HttpStatusCode.NoContent, responseBody = "")
-        val r = api.closeRoom("room-1", "jwt-room")
+        val r = api.closeRoom("room-1", "jwt-room", scope)
         assertEquals(HttpMethod.Delete, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -131,7 +143,7 @@ class WatchTogetherApiTest {
     @Test
     fun `listSuggestions gets suggestions with room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"suggestions":[]}""")
-        api.listSuggestions("room-1", "jwt-room")
+        api.listSuggestions("room-1", "jwt-room", scope)
         assertEquals(HttpMethod.Get, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/suggestions", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -146,6 +158,7 @@ class WatchTogetherApiTest {
         api.addSuggestion(
             "room-1", "jwt-room",
             AddSuggestionRequest(contentId = "c", contentType = "movie", title = "T"),
+            scope,
         )
         assertEquals(HttpMethod.Post, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/suggestions", captured.path)
@@ -155,7 +168,7 @@ class WatchTogetherApiTest {
     @Test
     fun `deleteSuggestion deletes suggestion path with room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"suggestions":[]}""")
-        api.deleteSuggestion("room-1", "jwt-room", "sug-5")
+        api.deleteSuggestion("room-1", "jwt-room", "sug-5", scope)
         assertEquals(HttpMethod.Delete, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/suggestions/sug-5", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -164,7 +177,7 @@ class WatchTogetherApiTest {
     @Test
     fun `vote posts vote path with room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"suggestions":[]}""")
-        api.vote("room-1", "jwt-room", "sug-5")
+        api.vote("room-1", "jwt-room", "sug-5", scope)
         assertEquals(HttpMethod.Post, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/suggestions/sug-5/vote", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -173,7 +186,7 @@ class WatchTogetherApiTest {
     @Test
     fun `unvote deletes vote path with room_token query`() = runTest {
         val (api, captured) = api(responseBody = """{"suggestions":[]}""")
-        api.unvote("room-1", "jwt-room", "sug-5")
+        api.unvote("room-1", "jwt-room", "sug-5", scope)
         assertEquals(HttpMethod.Delete, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/suggestions/sug-5/vote", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -182,7 +195,12 @@ class WatchTogetherApiTest {
     @Test
     fun `promote posts suggestion_id with room_token query and decodes room`() = runTest {
         val (api, captured) = api(responseBody = """{"room":$roomJson}""")
-        api.promoteSuggestion("room-1", "jwt-room", PromoteSuggestionRequest(suggestionId = "sug-5"))
+        api.promoteSuggestion(
+            "room-1",
+            "jwt-room",
+            PromoteSuggestionRequest(suggestionId = "sug-5"),
+            scope,
+        )
         assertEquals(HttpMethod.Post, captured.method)
         assertEquals("/api/v1/watch-together/rooms/room-1/suggestions/promote", captured.path)
         assertEquals("jwt-room", captured.query["room_token"])
@@ -196,7 +214,7 @@ class WatchTogetherApiTest {
             status = HttpStatusCode.Conflict,
             responseBody = """{"error":"conflict","message":"Already voted"}""",
         )
-        val r = api.vote("room-1", "jwt-room", "sug-5")
+        val r = api.vote("room-1", "jwt-room", "sug-5", scope)
         assertIs<ApiResult.Error>(r)
         assertEquals(409, r.code)
         assertEquals("Already voted", r.message)
@@ -208,7 +226,7 @@ class WatchTogetherApiTest {
             status = HttpStatusCode.Gone,
             responseBody = """{"error":"gone","message":"Room is no longer active"}""",
         )
-        val r = api.joinRoom(JoinRoomRequest(code = "DEAD0000"))
+        val r = api.joinRoom(JoinRoomRequest(code = "DEAD0000"), scope)
         assertIs<ApiResult.Error>(r)
         assertEquals(410, r.code)
         assertEquals("Room is no longer active", r.message)

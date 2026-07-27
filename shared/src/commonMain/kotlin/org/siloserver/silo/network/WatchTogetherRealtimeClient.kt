@@ -44,7 +44,11 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 interface WatchTogetherRealtimeClient {
     /** Open one physical room socket and publish [RoomRealtimeEvent.Opened] once writable. */
-    fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent>
+    fun connect(
+        roomId: String,
+        roomToken: String,
+        authScope: AuthScopeSnapshot? = null,
+    ): Flow<RoomRealtimeEvent>
 
     /** Client→server sends report whether a frame reached the current writable socket. */
     suspend fun attachSession(sessionId: String): Boolean
@@ -125,8 +129,12 @@ class DefaultWatchTogetherRealtimeClient private constructor(
     private val sessionMutex = Mutex()
     private var session: WatchTogetherSocketConnection? = null
 
-    override fun connect(roomId: String, roomToken: String): Flow<RoomRealtimeEvent> = callbackFlow {
-        val scope = tokenManager.snapshotCurrentScope()
+    override fun connect(
+        roomId: String,
+        roomToken: String,
+        authScope: AuthScopeSnapshot?,
+    ): Flow<RoomRealtimeEvent> = callbackFlow {
+        val scope = authScope ?: tokenManager.snapshotCurrentScope()
         val profileId = scope?.profileId
         val scopedAccessToken = scope?.let { tokenManager.getAccessTokenForScope(it) }
         if (scope == null || scopedAccessToken.isNullOrBlank() || profileId.isNullOrBlank()) {

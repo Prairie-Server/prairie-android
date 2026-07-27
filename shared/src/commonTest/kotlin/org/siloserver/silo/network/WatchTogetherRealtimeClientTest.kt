@@ -209,6 +209,51 @@ class WatchTogetherRealtimeClientTest {
         assertTrue(connector.requests.isEmpty())
     }
 
+    @Test
+    fun `explicit room scope wins over a different live identity without snapshot reads`() = runTest {
+        val scopeA = AuthScopeSnapshot(
+            serverId = "server-a",
+            profileId = "profile-a",
+            serverUrl = "https://a.example",
+            profileToken = "PROFILE_A",
+            identityGeneration = 1L,
+        )
+        val scopeB = AuthScopeSnapshot(
+            serverId = "server-b",
+            profileId = "profile-b",
+            serverUrl = "https://b.example",
+            profileToken = "PROFILE_B",
+            identityGeneration = 2L,
+        )
+        var snapshotReads = 0
+        val delegate = TokenManagerImpl()
+        val tokens = object : TokenManager by delegate {
+            override suspend fun snapshotCurrentScope(): AuthScopeSnapshot {
+                snapshotReads++
+                return scopeB
+            }
+
+            override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? =
+                "ACCESS_A".takeIf { scope == scopeA }
+        }
+        val connection = FakeConnection().apply { incoming.close() }
+        val connector = FakeConnector(connection)
+        val client = DefaultWatchTogetherRealtimeClient(
+            tokenManager = tokens,
+            socketConnector = connector,
+        )
+
+        client.connect("room-a", "ROOM_A", scopeA).collect { }
+
+        assertEquals(0, snapshotReads)
+        val request = connector.requests.single()
+        assertEquals(scopeA, request.authScope)
+        assertTrue(request.url.contains("profile_id=profile-a"))
+        assertTrue(request.url.contains("profile_token=PROFILE_A"))
+        assertFalse(request.url.contains("profile-b"))
+        assertFalse(request.url.contains("PROFILE_B"))
+    }
+
     private suspend fun client(
         connector: WatchTogetherSocketConnector,
         accessToken: String = "access",
