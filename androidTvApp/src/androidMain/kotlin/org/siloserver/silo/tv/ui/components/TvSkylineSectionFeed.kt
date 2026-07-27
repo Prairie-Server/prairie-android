@@ -90,7 +90,7 @@ fun TvSkylineSectionFeed(
         if (it.isTvProgressRow()) TvRowStyle.Backdrop else TvRowStyle.Poster
     },
     cardActions: (ResolvedSection, SectionItem) -> TvMediaCardActions = { _, _ -> TvMediaCardActions() },
-    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
+    onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
 ) {
     val rows = remember(sections) { sections.filter { it.items.isNotEmpty() } }
     val tintState = rememberAmbientBackdropTintState()
@@ -274,26 +274,35 @@ fun TvSkylineSectionFeed(
         }
     }
 
-    val currentContentUpFallback = rememberUpdatedState<() -> Boolean> {
+    var rowRelocationInFlight by remember { mutableStateOf(false) }
+    val currentContentUpFallback = rememberUpdatedState<(Boolean) -> Boolean> { isRepeat ->
         val currentRow = focusedRowIndex
-        when {
-            currentRow <= 0 || currentRow !in rows.indices ->
-                // Top row (or unfocused): report not-handled so the shell hands
-                // focus to the menu bar.
-                false
-            // Previous row is already laid out: move immediately so the returned
-            // value is HONEST — the old code launched the move asynchronously and
-            // returned `true` before it ran, so a failed move stranded focus
-            // (neither moved up nor escalated to the menu).
-            focusManager.moveFocus(FocusDirection.Up) -> true
-            else -> {
+        when (
+            tvSkylineUpAction(
+                currentRow = currentRow,
+                rowCount = rows.size,
+                isRepeat = isRepeat,
+                relocationInFlight = rowRelocationInFlight,
+            )
+        ) {
+            TvSkylineUpAction.EnterMenu -> false
+            TvSkylineUpAction.StayInContent -> true
+            TvSkylineUpAction.TryPreviousRow -> {
+                if (focusManager.moveFocus(FocusDirection.Up)) {
+                    return@rememberUpdatedState true
+                }
                 // Previous row is scrolled off; bring it on-screen first, then
-                // move once the scroll settles (animateScrollToItem suspends until
-                // it does, so the row is laid out before moveFocus).
+                // move once the scroll settles. While this job owns relocation,
+                // key repeats are consumed instead of launching competing jobs.
+                rowRelocationInFlight = true
                 rowBandScope.launch {
-                    rowBandState.animateScrollToItem(currentRow - 1)
-                    withFrameNanos { }
-                    focusManager.moveFocus(FocusDirection.Up)
+                    try {
+                        rowBandState.animateScrollToItem(currentRow - 1)
+                        withFrameNanos { }
+                        focusManager.moveFocus(FocusDirection.Up)
+                    } finally {
+                        rowRelocationInFlight = false
+                    }
                 }
                 true
             }
@@ -302,8 +311,8 @@ fun TvSkylineSectionFeed(
 
     // Stable per-screen registration so the shell can identify THIS feed's
     // ownership of the shared up-fallback slot across sibling (tab) swaps.
-    val contentUpFallbackRegistration: () -> Boolean =
-        remember { { currentContentUpFallback.value() } }
+    val contentUpFallbackRegistration: (Boolean) -> Boolean =
+        remember { { isRepeat -> currentContentUpFallback.value(isRepeat) } }
 
     DisposableEffect(onContentUpFallbackChanged, contentUpFallbackRegistration) {
         onContentUpFallbackChanged?.invoke(contentUpFallbackRegistration)

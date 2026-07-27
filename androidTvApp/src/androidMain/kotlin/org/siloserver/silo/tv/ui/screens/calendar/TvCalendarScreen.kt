@@ -125,7 +125,7 @@ fun TvCalendarScreen(
     onOpenItemDetail: (contentId: String) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
-    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
+    onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
     viewModel: CalendarViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -679,7 +679,7 @@ internal fun shouldReturnCalendarFocusToControls(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 private fun CalendarList(
-    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
+    onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
     state: org.siloserver.silo.viewmodel.CalendarUiState,
     listState: LazyListState,
     controls: @Composable () -> Unit,
@@ -732,7 +732,7 @@ private fun CalendarList(
     // (moveFocus within content; false -> shell hands off to the menu bar).
     var focusedShelfIndex by remember { mutableStateOf<Int?>(null) }
     val calendarUpFallback = remember(firstFocusableDayIndex) {
-        {
+        { _: Boolean ->
             if (shouldReturnCalendarFocusToControls(
                     focusedShelfIndex = focusedShelfIndex,
                     firstFocusableShelfIndex = firstFocusableDayIndex,

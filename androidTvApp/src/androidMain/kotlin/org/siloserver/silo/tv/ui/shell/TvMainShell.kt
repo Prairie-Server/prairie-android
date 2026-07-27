@@ -366,12 +366,12 @@ fun TvMainShell(
         suppressHomeRefreshAfterDetail = true
         onOpenItemDetail(contentId)
     }
-    var contentUpFallback by remember { mutableStateOf<(() -> Boolean)?>(null) }
+    var contentUpFallback by remember { mutableStateOf<((Boolean) -> Boolean)?>(null) }
     // Feeds that registered the up-fallback slot, were superseded by a newer
     // feed, and are still awaiting their (now-stale) onDispose. Tracking them
     // lets us ignore that late dispose instead of nulling the entering feed's
     // registration.
-    val supersededContentUpFallbacks = remember { mutableSetOf<() -> Boolean>() }
+    val supersededContentUpFallbacks = remember { mutableSetOf<(Boolean) -> Boolean>() }
     // Register/relinquish the single D-pad-Up fallback slot BY IDENTITY. A
     // NavHost composes the ENTERING feed (which registers its own lambda) before
     // it disposes the EXITING one, so a blind null-on-dispose would drop the new
@@ -380,7 +380,7 @@ fun TvMainShell(
     // lambda on both register and dispose; we only relinquish the slot for the
     // feed that still owns it, ignore a superseded feed's stale dispose, and let
     // a newly-entering feed take the slot (retiring the previous owner).
-    val onContentUpFallback: ((() -> Boolean)?) -> Unit = remember {
+    val onContentUpFallback: (((Boolean) -> Boolean)?) -> Unit = remember {
         { incoming ->
             if (incoming != null) {
                 when {
@@ -789,7 +789,8 @@ fun TvMainShell(
                 .onPreviewKeyEvent { ev ->
                     when {
                         ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp -> {
-                            val contentHandledUp = contentUpFallback?.invoke()
+                            val isRepeat = ev.nativeKeyEvent.repeatCount > 0
+                            val contentHandledUp = contentUpFallback?.invoke(isRepeat)
                             if (contentHandledUp != null) {
                                 if (!contentHandledUp) {
                                     focusState.requestMenuFocus()
@@ -1391,7 +1392,7 @@ private fun TvLibraryTypeContent(
     onLibraryCollectionClick: (libraryId: Int, collectionId: String, title: String) -> Unit,
     onUserCollectionClick: (collectionId: String, title: String) -> Unit,
     onInitialContentFocus: () -> Unit,
-    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
+    onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
 ) {
     if (library == null) {
         // Only assert "no libraries" once loading has settled AND this type
