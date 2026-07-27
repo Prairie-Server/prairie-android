@@ -647,7 +647,6 @@ git commit -m "fix(tv): stop held up at the first home row"
 **Files:**
 - Create: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequest.kt`
 - Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequestTest.kt`
-- Create: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouSelectorRoutingSourceTest.kt`
 - Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt:67-117`
 - Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt:971-976,1224-1242,1290-1307`
 
@@ -669,6 +668,17 @@ internal data class TvForYouEntryRequest(
     fun next(selection: SavedListSelection?): TvForYouEntryRequest =
         TvForYouEntryRequest(sequence = sequence + 1, selection = selection)
 }
+
+internal data class AppliedForYouSelection(
+    val selection: SavedListSelection?,
+    val lastAppliedSequence: Int,
+)
+
+internal fun applyForYouEntryRequest(
+    currentSelection: SavedListSelection?,
+    lastAppliedSequence: Int,
+    request: TvForYouEntryRequest,
+): AppliedForYouSelection
 ```
 
 `TvRecommendationsScreen` accepts
@@ -700,43 +710,57 @@ fun recommendationsRequestClearsSavedListSelection() {
     assertEquals(5, request.sequence)
     assertNull(request.selection)
 }
+
+@Test
+fun unrelatedRecompositionDoesNotOverrideInPageSelection() {
+    val applied = applyForYouEntryRequest(
+        currentSelection = SavedListSelection.Favorites,
+        lastAppliedSequence = 3,
+        request = TvForYouEntryRequest(
+            sequence = 3,
+            selection = SavedListSelection.Watchlist,
+        ),
+    )
+
+    assertEquals(SavedListSelection.Favorites, applied.selection)
+    assertEquals(3, applied.lastAppliedSequence)
+}
+
+@Test
+fun newerRequestAppliesRequestedInlineSelection() {
+    val applied = applyForYouEntryRequest(
+        currentSelection = null,
+        lastAppliedSequence = 3,
+        request = TvForYouEntryRequest(
+            sequence = 4,
+            selection = SavedListSelection.Watchlist,
+        ),
+    )
+
+    assertEquals(SavedListSelection.Watchlist, applied.selection)
+    assertEquals(4, applied.lastAppliedSequence)
+}
 ```
 
-- [ ] **Step 2: Write the failing source-wiring test**
-
-Create `TvForYouSelectorRoutingSourceTest` that reads `TvMainShell.kt` and
-asserts:
-
-```kotlin
-assertTrue(shell.contains("openForYou(SavedListSelection.Watchlist)"))
-assertTrue(shell.contains("openForYou(SavedListSelection.Favorites)"))
-assertTrue(shell.contains("openForYou(null)"))
-assertTrue(shell.contains("onWatchlist = closeMenuAnd {"))
-assertTrue(shell.contains("navigateToSecondary(TvMainRoute.Watchlist.route)"))
-assertTrue(shell.contains("onFavorites = closeMenuAnd {"))
-assertTrue(shell.contains("navigateToSecondary(TvMainRoute.Favorites.route)"))
-```
-
-This locks the intended split: For You selector choices are inline, while
-profile-menu choices remain standalone.
-
-- [ ] **Step 3: Run the request and wiring tests and verify RED**
+- [ ] **Step 2: Run the request-state tests and verify RED**
 
 Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
   --tests '*TvForYouEntryRequestTest' \
-  --tests '*TvForYouSelectorRoutingSourceTest' \
   --max-workers=2 --no-daemon
 ```
 
-Expected: compilation fails because the request types do not exist; after those
-types compile, the source assertions still fail until shell wiring changes.
+Expected: compilation fails because the request and applied-selection types do
+not exist.
 
-- [ ] **Step 4: Implement the repeatable entry request**
+- [ ] **Step 3: Implement the repeatable entry request**
 
-Create `TvForYouEntryRequest.kt` with the exact interfaces above. Move
+Create `TvForYouEntryRequest.kt` with the exact interfaces above. The apply
+function returns the current selection unchanged when
+`request.sequence <= lastAppliedSequence`; otherwise it returns the request's
+selection and sequence. Move
 `SavedListSelection` out of `TvRecommendationsScreen.kt` into that file.
 
 Add the screen parameter:
@@ -745,21 +769,24 @@ Add the screen parameter:
 entryRequest: TvForYouEntryRequest = TvForYouEntryRequest(),
 ```
 
-Initialize selection with `remember { mutableStateOf(entryRequest.selection) }`
-and add:
+Initialize selection and the last applied sequence with `remember`, then add:
 
 ```kotlin
 LaunchedEffect(entryRequest.sequence) {
-    if (entryRequest.sequence > 0) {
-        savedListSelection = entryRequest.selection
-    }
+    val applied = applyForYouEntryRequest(
+        currentSelection = savedListSelection,
+        lastAppliedSequence = lastAppliedEntrySequence,
+        request = entryRequest,
+    )
+    savedListSelection = applied.selection
+    lastAppliedEntrySequence = applied.lastAppliedSequence
 }
 ```
 
 This permits the same top-menu choice to be selected repeatedly and does not
 overwrite in-page pill changes during unrelated recompositions.
 
-- [ ] **Step 5: Wire only the For You selector to inline requests**
+- [ ] **Step 4: Wire only the For You selector to inline requests**
 
 In `TvMainShell`, remember:
 
@@ -785,19 +812,32 @@ onRecommendations = { openForYou(null) }
 Do not change `TvProfileDropdown` callbacks: they must continue navigating to
 `TvMainRoute.Watchlist` and `TvMainRoute.Favorites`.
 
-- [ ] **Step 6: Run focused routing and existing focus tests**
+- [ ] **Step 5: Run focused routing and existing focus tests**
 
 Run:
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
   --tests '*TvForYouEntryRequestTest' \
-  --tests '*TvForYouSelectorRoutingSourceTest' \
   --tests '*TvRecommendationsFocusBridgeTest' \
   --max-workers=2 --no-daemon
 ```
 
 Expected: all tests pass.
+
+- [ ] **Step 6: Manually inspect the two call-site groups**
+
+Run:
+
+```bash
+git diff -- \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt
+```
+
+Confirm the `TvForYouSelector` callbacks all invoke `openForYou`, while the
+`TvProfileDropdown` Watchlist/Favorites callbacks still navigate directly to
+their standalone routes.
 
 - [ ] **Step 7: Commit Task 6**
 
@@ -806,8 +846,7 @@ git add \
   androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequest.kt \
   androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsScreen.kt \
   androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequestTest.kt \
-  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouSelectorRoutingSourceTest.kt
+  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvForYouEntryRequestTest.kt
 git commit -m "fix(tv): unify for-you saved-list routes"
 ```
 
