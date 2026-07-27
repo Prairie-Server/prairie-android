@@ -95,6 +95,17 @@ class PrairieCastMessageTest {
 
     @Test
     fun controlCommandsUseAppleNamesAndFields() {
+        assertEquals(PrairieCastControlCommand.Play, PrairieCastControlCommand.play().name)
+        assertEquals(PrairieCastControlCommand.Pause, PrairieCastControlCommand.pause().name)
+        assertEquals(PrairieCastControlCommand.Stop, PrairieCastControlCommand.stop().name)
+        assertEquals(12.5, PrairieCastControlCommand.seek(12.5).seconds)
+        assertEquals(1.25, PrairieCastControlCommand.setPlaybackSpeed(1.25).speed)
+        assertEquals("fit", PrairieCastControlCommand.setVideoGravity("fit").value)
+        assertEquals(true, PrairieCastControlCommand.setHdrEnabled(true).enabled)
+        assertEquals("bottom", PrairieCastControlCommand.setSubtitlePosition("bottom").value)
+        assertEquals(0.4, PrairieCastControlCommand.setVolume(0.4).volume)
+        assertEquals(true, PrairieCastControlCommand.setMuted(true).enabled)
+
         assertWireEquals(
             """{"type":"control","v":2,"control":{"name":"play_pause"}}""",
             PrairieCastMessage.Control(PrairieCastControlCommand.playPause()),
