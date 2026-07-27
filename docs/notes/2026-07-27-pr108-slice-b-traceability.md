@@ -3,7 +3,7 @@
 Slice B is stacked on reviewed slice A:
 
 ```text
-base  19bf0dd75d3ffbc9b8734a184a622a50df53baf6
+base  00affacadbcc2ebef7fbfa5711493b246a485d90
 head  split/108-b-auth-epub
 ```
 
@@ -15,21 +15,21 @@ state needed by that slice.
 
 | PR 108 commit | Purpose in slice B | Forward-split disposition |
 | --- | --- | --- |
-| `9597eeee` | Auth refresh/session-safety prerequisite | Relevant `AuthInterceptorImpl` net state is carried by `af886bc7` |
-| `65c4b316` | Credential-generation scope prerequisite | Relevant token/scope net state is carried by `af886bc7` |
-| `1fecf9b1` | Central HTTP origin model | Folded with its follow-up into `fccbf63c` |
-| `cbf398fa` | Reject ambiguous authorities and normalize safe HTTP origins | Folded with `1fecf9b1` into `fccbf63c` |
-| `5d5f0562` | Never attach or refresh Silo credentials off-origin | Ported as `af886bc7` |
-| `e18d092e` | Reject stale persistent credential generations | Ported in `af886bc7` |
-| `c07d9f9f` | Require explicit cleartext-origin consent | Ported as `39aa23f6` |
-| `85890c6d` | Parsed EPUB allowlist sanitizer | Cherry-picked with `-x` as `b592319f` |
-| `5db84af8` | Restrict SVG paint references to safe local forms | Cherry-picked with `-x` as `18049b41` |
-| `14b41b7f` | Bound downloads, ZIP entries, and extracted content | Cherry-picked with `-x` as `a3d3367d` |
-| `5a040e0d` | Isolate EPUB resources behind a WebView asset-loader origin | Cherry-picked with `-x` as `91e2a61d` |
-| `fd545fab` | Remount reader content when the source changes | Cherry-picked with `-x` as `b0c28d25` |
-| `eda4a4a2` | Remove API-26-only hardened-path calls | Cherry-picked with `-x` as `ca6fa611` |
+| `9597eeee` | Auth refresh/session-safety prerequisite | Relevant `AuthInterceptorImpl` net state is carried by `aeead9d9` |
+| `65c4b316` | Credential-generation scope prerequisite | Relevant token/scope net state is carried by `aeead9d9` |
+| `1fecf9b1` | Central HTTP origin model | Folded with its follow-up into `38fbf837` |
+| `cbf398fa` | Reject ambiguous authorities and normalize safe HTTP origins | Folded with `1fecf9b1` into `38fbf837` |
+| `5d5f0562` | Never attach or refresh Silo credentials off-origin | Ported as `aeead9d9` |
+| `e18d092e` | Reject stale persistent credential generations | Ported in `aeead9d9`, with startup-snapshot correction in `15278f95` |
+| `c07d9f9f` | Require explicit cleartext-origin consent | Ported as `dd1e0992`, with client/media/startup/pairing enforcement in `15278f95` |
+| `85890c6d` | Parsed EPUB allowlist sanitizer | Cherry-picked with `-x` as `60d20931` |
+| `5db84af8` | Restrict SVG paint references to safe local forms | Cherry-picked with `-x` as `6b35e3c7` |
+| `14b41b7f` | Bound downloads, ZIP entries, and extracted content | Cherry-picked with `-x` as `9dce6f10`; strict markup limits in `15278f95` |
+| `5a040e0d` | Isolate EPUB resources behind a WebView asset-loader origin | Cherry-picked with `-x` as `1cc0cb79`; exact-book binding in `15278f95` |
+| `fd545fab` | Remount reader content when the source changes | Cherry-picked with `-x` as `ffe24bf1` |
+| `eda4a4a2` | Remove API-26-only hardened-path calls | Cherry-picked with `-x` as `d0d5eaee` |
 
-`c00c2ff1` resolves the stacked slice's dependency state. The jsoup and
+`6240c7fd` resolves the stacked slice's dependency state. The jsoup and
 AndroidX WebKit additions produced seven new artifact checksums; all seven
 exactly match the independently generated metadata in archival PR 108.
 
@@ -72,3 +72,11 @@ commits.
   refresh, credential replacement, mobile/TV cleartext persistence, stream and
   ZIP limits, HTML/SVG sanitization, traversal/encoded traversal, resource
   isolation, source remounting, and API-24-compatible paths.
+- Independent security review identified five important gaps. `15278f95`
+  closes them with regression coverage: consent is enforced at shared Ktor,
+  media, startup, and pairing boundaries; live persistent credential epochs
+  never use the unstamped sentinel; media refresh pins the complete credential
+  scope and cannot fall through from a guest overlay to the owner; resource
+  loading is bound to one exact EPUB cache directory in JavaScript and native
+  code; and container/package/chapter markup has strict type-specific limits
+  while section metadata reads only a bounded prefix.

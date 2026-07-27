@@ -7,10 +7,10 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
+import java.net.URI
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.first
 import org.siloserver.silo.network.CleartextOriginConsent
-import org.siloserver.silo.network.canonicalHttpOrigin
 
 interface CleartextConsentStore : CleartextOriginConsent {
     suspend fun approve(origin: String)
@@ -53,5 +53,9 @@ class DataStoreCleartextConsentStore(
 }
 
 fun cleartextOrigin(url: String): String? = runCatching {
-    canonicalHttpOrigin(url)?.takeIf { it.startsWith("http://") }
+    val uri = URI(url.trim())
+    if (!uri.scheme.equals("http", ignoreCase = true)) return null
+    val host = uri.host?.lowercase()?.takeIf(String::isNotBlank) ?: return null
+    val port = if (uri.port == 80) -1 else uri.port
+    URI("http", null, host, port, null, null, null).toASCIIString()
 }.getOrNull()
