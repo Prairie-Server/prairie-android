@@ -12,9 +12,12 @@ import org.siloserver.silo.model.watchtogether.SuggestionsResponse
 import org.siloserver.silo.model.watchtogether.UpdatePolicyRequest
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.AuthScopeSnapshot
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionKind
 import org.siloserver.silo.network.RoomRealtimeEvent
 import org.siloserver.silo.network.WatchTogetherRealtimeClient
 import org.siloserver.silo.network.api.WatchTogetherApi
+import org.siloserver.silo.watchtogether.RoomSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -279,6 +282,30 @@ class WatchTogetherRepositoryTest {
         create.join()
 
         assertNull(r.roomSnapshot.value)
+    }
+
+    @Test
+    fun `identity barrier invalidates a pending create before identity mutation`() = runTest {
+        val api = FakeApi()
+        val pending = CompletableDeferred<ApiResult<RoomResponse>>()
+        api.createResult = pending
+        val repository = repo(api = api)
+        val barrier = DefaultIdentityTransitionBarrier()
+        RoomSession(repository, backgroundScope, barrier)
+        var createResult: ApiResult<RoomResponse>? = null
+        val create = launch {
+            createResult = repository.createRoom(CreateRoomRequest())
+        }
+        runCurrent()
+
+        barrier.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            assertNull(repository.roomSnapshot.value)
+        }
+        pending.complete(api.createResponse)
+        create.join()
+
+        assertIs<ApiResult.Error>(createResult)
+        assertNull(repository.roomSnapshot.value)
     }
 
     @Test

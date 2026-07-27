@@ -116,6 +116,7 @@ import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.siloserver.silo.model.settings.legacyPosition
 import org.siloserver.silo.model.watchtogether.RoomPlaybackState
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
+import org.siloserver.silo.watchtogether.shouldNavigateToLocalNext
 import org.siloserver.silo.player.DolbyVisionDetection
 import org.siloserver.silo.player.formatSubtitleTrackDisplayLabel
 import org.siloserver.silo.tv.R
@@ -351,15 +352,17 @@ fun TvPlayerScreen(
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
-    // The controller owns the room WS connection + RoomSyncEngine for the
-    // lifetime of this screen and tears them down on explicit leave.
+    // The process RoomSession owns the WS; this controller owns only the
+    // screen's RoomSyncEngine and requests durable teardown on explicit leave.
     val watchTogetherRepository: org.siloserver.silo.repository.WatchTogetherRepository = koinInject()
+    val roomSession: org.siloserver.silo.watchtogether.RoomSession = koinInject()
     val roomScope = rememberCoroutineScope()
     val roomController = remember(roomId) {
         roomId?.takeIf { it.isNotBlank() }?.let { id ->
             TvRoomSyncController(
                 roomId = id,
                 repository = watchTogetherRepository,
+                roomSession = roomSession,
                 viewModel = viewModel,
                 scope = roomScope,
             )
@@ -507,6 +510,10 @@ fun TvPlayerScreen(
     val stopPlaybackAndExit = {
         if (!exitRequested) {
             exitRequested = true
+            // Every terminal player exit must release the process-owned room
+            // session. Explicit host-close paths enqueue close first, then this
+            // idempotent local departure follows behind it.
+            roomController?.leave(closeRoom = false)
             mediaController?.let { controller ->
                 viewModel.onPositionChanged(
                     controller.currentPosition,
@@ -529,6 +536,9 @@ fun TvPlayerScreen(
     // Back doesn't walk back through a chain of auto-played episodes.
     LaunchedEffect(Unit) {
         viewModel.playNextRequests.collect { req ->
+            if (!shouldNavigateToLocalNext(roomController != null)) {
+                return@collect
+            }
             exitRequested = true
             mediaController?.let { c -> c.pause(); c.stop(); c.clearMediaItems() }
             // AWAIT the old session stop before navigating: the lifecycle is a

@@ -11,6 +11,7 @@ import org.siloserver.silo.model.watchtogether.TransportAction
 import org.siloserver.silo.repository.PongSample
 import org.siloserver.silo.repository.ScheduledTransportCommand
 import org.siloserver.silo.repository.WatchTogetherRepository
+import org.siloserver.silo.watchtogether.RoomSession
 import org.siloserver.silo.watchtogether.RoomTransportIntent
 import org.siloserver.silo.watchtogether.roomTransportAuthorized
 import kotlinx.coroutines.CoroutineScope
@@ -115,6 +116,7 @@ fun tvShouldEmitStateReport(
 class TvRoomSyncController(
     private val roomId: String,
     private val repository: WatchTogetherRepository,
+    private val roomSession: RoomSession,
     private val viewModel: TvPlayerViewModel,
     private val scope: CoroutineScope,
     private val engine: RoomSyncEngine = RoomSyncEngine(),
@@ -153,10 +155,9 @@ class TvRoomSyncController(
     @Volatile private var serverHadOurSession: Boolean = false
 
     fun start() {
-        // Reconnect-with-backoff loop. The lobby's connect() ran in its own
-        // (now-dead) scope (the lobby route was popped on hand-off), so the
-        // player owns the live connection and re-runs connect(roomId).
-        scope.launch { repository.connect(roomId) }
+        // Lobby and player adopt the same application-scoped connection; route
+        // disposal does not tear down or duplicate the socket.
+        roomSession.adopt(roomId)
 
         // Attach the player's own playback session id, and RE-attach on WS
         // reconnect. We combine the local session id with each server snapshot
@@ -355,11 +356,8 @@ class TvRoomSyncController(
 
     /** Leave the room. Host close tears the room down for everyone; both reset local state. */
     fun leave(closeRoom: Boolean) {
-        scope.launch {
-            if (closeRoom) repository.closeRoom()
-            engine.reset()
-            repository.reset()
-        }
+        engine.reset()
+        roomSession.depart(closeRoom)
     }
 
     /** Wall-clock RFC3339 string for the ping `client_sent_at`. */

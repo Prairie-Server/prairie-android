@@ -8,6 +8,7 @@ import org.siloserver.silo.model.watchtogether.RoomPhase
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
 import org.siloserver.silo.model.watchtogether.Suggestion
 import org.siloserver.silo.repository.WatchTogetherRepository
+import org.siloserver.silo.watchtogether.RoomSession
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -38,18 +39,17 @@ fun lobbyPlayerDestinationOrNull(room: RoomSnapshot): String? =
  *
  * The repository owns the room JWT and reads the active roomId from its own
  * snapshot, so the room-scoped ops take only request/id params (not a roomId).
- * [connect] is suspend and runs the reconnect-with-backoff loop until the
- * scope is cancelled, so it is launched in [viewModelScope].
+ * The application-scoped [RoomSession] owns reconnect and survives navigation
+ * from this lobby into the synced player.
  */
 class WatchTogetherLobbyViewModel(
     private val roomId: String,
     private val repository: WatchTogetherRepository,
+    private val roomSession: RoomSession,
 ) : ViewModel() {
 
     init {
-        // The repo owns reconnect/backoff; we just bind on enter. connect()
-        // suspends for the lifetime of the socket, so launch it (don't call bare).
-        viewModelScope.launch { repository.connect(roomId) }
+        roomSession.adopt(roomId)
     }
 
     val room: StateFlow<RoomSnapshot?> = repository.roomSnapshot
@@ -72,7 +72,7 @@ class WatchTogetherLobbyViewModel(
 
     /** Guest/host leave: tear down the WS + clear room state. */
     fun leave() {
-        viewModelScope.launch { repository.reset() }
+        roomSession.depart()
     }
 
     override fun onCleared() {

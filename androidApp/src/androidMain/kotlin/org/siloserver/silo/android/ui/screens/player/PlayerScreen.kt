@@ -212,15 +212,17 @@ fun PlayerScreen(
     var wasCasting by remember { mutableStateOf(false) }
 
     // Watch Together binding. Built once per roomId; null for solo playback.
-    // The controller owns the room WS connection + RoomSyncEngine for the
-    // lifetime of this screen and tears them down on explicit leave.
+    // The process RoomSession owns the WS; this controller owns only the
+    // screen's RoomSyncEngine and requests durable teardown on explicit leave.
     val watchTogetherRepository: org.siloserver.silo.repository.WatchTogetherRepository = koinInject()
+    val roomSession: org.siloserver.silo.watchtogether.RoomSession = koinInject()
     val roomScope = rememberCoroutineScope()
     val roomController = remember(roomId) {
         roomId?.takeIf { it.isNotBlank() }?.let { id ->
             RoomSyncController(
                 roomId = id,
                 repository = watchTogetherRepository,
+                roomSession = roomSession,
                 viewModel = viewModel,
                 scope = roomScope,
             )
@@ -266,6 +268,7 @@ fun PlayerScreen(
     LaunchedEffect(Unit) {
         viewModel.remoteStopRequests.collect {
             exitRequested = true
+            roomController?.leave(closeRoom = false)
             viewModel.onExit()
             // Nothing behind the player (launcher/deep-link/notification open) →
             // popBackStack can't land anywhere and leaves a blank NavHost, then
@@ -278,6 +281,7 @@ fun PlayerScreen(
     LaunchedEffect(roomClosedReason) {
         if (roomClosedReason != null && roomController != null) {
             exitRequested = true
+            roomController.leave(closeRoom = false)
             viewModel.onExit()
             // Nothing behind the player (launcher/deep-link/notification open) →
             // popBackStack can't land anywhere and leaves a blank NavHost, then

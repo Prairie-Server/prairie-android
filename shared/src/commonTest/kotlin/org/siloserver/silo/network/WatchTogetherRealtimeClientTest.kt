@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -84,6 +85,31 @@ class WatchTogetherRealtimeClientTest {
 
         assertEquals(1, events.size)
         assertIs<RoomRealtimeEvent.Opened>(events.single())
+    }
+
+    @Test
+    fun `collector cancellation joins physical socket close before completing`() = runTest {
+        val connection = FakeConnection()
+        val closeGate = CompletableDeferred<Unit>()
+        connection.closeGate = closeGate
+        val opened = CompletableDeferred<Unit>()
+        val job = launch {
+            client(FakeConnector(connection))
+                .connect("room-1", "room-token")
+                .collect {
+                    if (it is RoomRealtimeEvent.Opened) opened.complete(Unit)
+                }
+        }
+        opened.await()
+
+        job.cancel()
+        runCurrent()
+
+        assertTrue(connection.closeStarted.isCompleted)
+        assertFalse(job.isCompleted)
+        closeGate.complete(Unit)
+        job.join()
+        assertTrue(connection.closed)
     }
 
     @Test
@@ -307,6 +333,9 @@ class WatchTogetherRealtimeClientTest {
         val incoming = Channel<String>(Channel.UNLIMITED)
         val sent = mutableListOf<String>()
         var sendFailure: Throwable? = null
+        val closeStarted = CompletableDeferred<Unit>()
+        var closeGate: CompletableDeferred<Unit>? = null
+        var closed = false
 
         override suspend fun receiveText(): String? {
             val result = incoming.receiveCatching()
@@ -320,7 +349,10 @@ class WatchTogetherRealtimeClientTest {
         }
 
         override suspend fun close() {
+            closeStarted.complete(Unit)
+            closeGate?.await()
             incoming.cancel(CancellationException("test connection closed"))
+            closed = true
         }
     }
 }

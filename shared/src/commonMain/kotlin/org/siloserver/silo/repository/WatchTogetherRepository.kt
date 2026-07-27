@@ -18,6 +18,7 @@ import org.siloserver.silo.network.RoomRealtimeEvent
 import org.siloserver.silo.network.WatchTogetherRealtimeClient
 import org.siloserver.silo.network.api.WatchTogetherApi
 import org.siloserver.silo.util.parseRfc3339ToEpochMillis
+import org.siloserver.silo.watchtogether.RoomSessionRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -83,7 +84,7 @@ class WatchTogetherRepository(
     private val realtimeFactory: () -> WatchTogetherRealtimeClient? = { null },
     private val monotonicNowMs: () -> Long = { MONOTONIC_ORIGIN.elapsedNow().inWholeMilliseconds },
     private val authScopeProvider: suspend () -> AuthScopeSnapshot? = { null },
-) {
+) : RoomSessionRepository {
     private data class RoomBinding(
         val roomId: String,
         val roomToken: String,
@@ -102,7 +103,7 @@ class WatchTogetherRepository(
     private val _roomSnapshot = MutableStateFlow<RoomSnapshot?>(null)
     private val _suggestions = MutableStateFlow<List<Suggestion>>(emptyList())
 
-    val roomSnapshot: StateFlow<RoomSnapshot?> = _roomSnapshot.asStateFlow()
+    override val roomSnapshot: StateFlow<RoomSnapshot?> = _roomSnapshot.asStateFlow()
     val suggestions: StateFlow<List<Suggestion>> = _suggestions.asStateFlow()
     private val _connectionState = MutableStateFlow(WatchTogetherConnectionState())
     val connectionState: StateFlow<WatchTogetherConnectionState> = _connectionState.asStateFlow()
@@ -140,7 +141,7 @@ class WatchTogetherRepository(
      * this (they would eject the user) — see [errors].
      */
     private val _roomClosedReason = MutableStateFlow<String?>(null)
-    val roomClosedReason: StateFlow<String?> = _roomClosedReason.asStateFlow()
+    override val roomClosedReason: StateFlow<String?> = _roomClosedReason.asStateFlow()
 
     /**
      * Transient, non-terminal server `error` frames (e.g. a rejected
@@ -223,7 +224,7 @@ class WatchTogetherRepository(
         return publishRoomResponse(lease, r)
     }
 
-    suspend fun closeRoom(): ApiResult<Unit> {
+    override suspend fun closeRoom(): ApiResult<Unit> {
         val lease = activeBinding() ?: return missingRoom()
         val result = api.closeRoom(lease.roomId, lease.roomToken, lease.authScope)
         return if (isCurrent(lease)) result else obsoleteRoomRequest()
@@ -393,7 +394,7 @@ class WatchTogetherRepository(
      * server `room_closed` arrives (which stops reconnecting). Backoff steps are
      * [BACKOFF_MS]; a healthy event resets the index.
      */
-    suspend fun connect(roomId: String) {
+    override suspend fun connect(roomId: String) {
         val lease = activeBinding()?.takeIf { it.roomId == roomId } ?: return
         val client = realtimeFactory() ?: return
         val owner = stateMutex.withLock {
@@ -577,7 +578,7 @@ class WatchTogetherRepository(
     }
 
     /** Clear all room state on leave. The connect() loop ends via scope cancellation. */
-    suspend fun reset() {
+    override suspend fun reset() {
         stateMutex.withLock {
             nextGeneration++
             latestRoomRequest++

@@ -25,7 +25,11 @@ import org.siloserver.silo.repository.SectionRepository
 import org.siloserver.silo.repository.SettingsRepository
 import org.siloserver.silo.repository.WatchTogetherRepository
 import org.siloserver.silo.network.TokenManager
+import org.siloserver.silo.watchtogether.RoomSession
 import org.koin.dsl.module
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Koin module providing all repository and domain use case instances.
@@ -105,6 +109,16 @@ val repositoryModule = module {
                     tokenManager = tokenManager,
                 )
             },
+        )
+    }
+    // Eager so the identity-transition privacy gate is installed before any
+    // profile/server/token mutation can occur. This process-lifetime scope,
+    // rather than a screen scope, owns connection replacement and teardown.
+    single(createdAtStart = true) {
+        RoomSession(
+            repository = get<WatchTogetherRepository>(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            identityTransitions = get(),
         )
     }
 

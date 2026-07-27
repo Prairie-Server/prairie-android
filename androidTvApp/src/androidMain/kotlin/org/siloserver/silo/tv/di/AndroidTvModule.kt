@@ -428,6 +428,7 @@ val androidTvModule = module {
         org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherLobbyViewModel(
             roomId = params.get(),
             repository = get(),
+            roomSession = get(),
         )
     }
     viewModel { params ->

@@ -19,9 +19,11 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
@@ -180,10 +182,15 @@ class DefaultWatchTogetherRealtimeClient private constructor(
             trySend(RoomRealtimeEvent.TransportTerminated(failure))
         } finally {
             connection?.let { completed ->
-                sessionMutex.withLock {
-                    if (session === completed) session = null
+                // Cancellation is the privacy boundary for an identity/room
+                // replacement. Explicitly finish clearing and closing the
+                // physical socket before cancelAndJoin is allowed to return.
+                withContext(NonCancellable) {
+                    sessionMutex.withLock {
+                        if (session === completed) session = null
+                    }
+                    runCatching { completed.close() }
                 }
-                runCatching { completed.close() }
             }
             close()
         }

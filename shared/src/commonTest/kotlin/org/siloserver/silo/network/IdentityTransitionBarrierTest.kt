@@ -29,6 +29,20 @@ class IdentityTransitionBarrierTest {
     }
 
     @Test
+    fun allInstalledPrivacyGatesRunBeforeMutation() = runTest {
+        val barrier = DefaultIdentityTransitionBarrier()
+        val timeline = mutableListOf<String>()
+        barrier.installGate { timeline += "diagnostics" }
+        barrier.installGate { timeline += "room" }
+
+        barrier.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            timeline += "mutation"
+        }
+
+        assertEquals(listOf("diagnostics", "room", "mutation"), timeline)
+    }
+
+    @Test
     fun didChangeIsEmittedWhenMutationFails() = runTest {
         val barrier = DefaultIdentityTransitionBarrier()
         val observed = mutableListOf<IdentityTransition>()

@@ -11,6 +11,7 @@ import org.siloserver.silo.repository.PongSample
 import org.siloserver.silo.repository.ScheduledTransportCommand
 import org.siloserver.silo.repository.WatchTogetherRepository
 import org.siloserver.silo.watchtogether.RoomTransportIntent
+import org.siloserver.silo.watchtogether.RoomSession
 import org.siloserver.silo.watchtogether.roomTransportAuthorized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -28,8 +29,8 @@ import java.time.Instant
  *
  * The controller OWNS a [RoomSyncEngine] (the shared engine is a pure class that
  * lives in the binding, not the repo). It:
- *  - launches the repo WS reconnect loop ([WatchTogetherRepository.connect] is
- *    suspend) and attaches the player's playback session id once it resolves;
+ *  - adopts the application-scoped room session and attaches the player's
+ *    playback session id once it resolves;
  *  - drives a ping loop so pongs flow, stamps `clientReceivedMs` on each pong and
  *    feeds [RoomSyncEngine.recordPongSample] to keep the clock offset fresh;
  *  - feeds each [ScheduledTransportCommand] into [RoomSyncEngine.decide] and
@@ -55,6 +56,7 @@ import java.time.Instant
 class RoomSyncController(
     private val roomId: String,
     private val repository: WatchTogetherRepository,
+    private val roomSession: RoomSession,
     private val viewModel: PlayerViewModel,
     private val scope: CoroutineScope,
     private val engine: RoomSyncEngine = RoomSyncEngine(),
@@ -96,10 +98,9 @@ class RoomSyncController(
     @Volatile private var serverHadOurSession: Boolean = false
 
     fun start() {
-        // Reconnect-with-backoff loop. Suspends until the scope is cancelled or
-        // the server closes the room. The lobby's connect() ran in its own
-        // (now-dead) scope, so the player owns the live connection.
-        scope.launch { repository.connect(roomId) }
+        // Lobby and player adopt the same application-scoped connection; route
+        // disposal does not tear down or duplicate the socket.
+        roomSession.adopt(roomId)
 
         // Attach the player's own playback session id, and RE-attach on WS
         // reconnect. We combine the local session id with each server snapshot.
@@ -299,11 +300,8 @@ class RoomSyncController(
 
     /** Leave the room. Host close tears the room down for everyone; both reset local state. */
     fun leave(closeRoom: Boolean) {
-        scope.launch {
-            if (closeRoom) repository.closeRoom()
-            engine.reset()
-            repository.reset()
-        }
+        engine.reset()
+        roomSession.depart(closeRoom)
     }
 
     /** Wall-clock RFC3339 string for the ping `client_sent_at`. */

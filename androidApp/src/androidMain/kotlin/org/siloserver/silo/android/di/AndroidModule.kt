@@ -472,6 +472,7 @@ val androidModule = module {
         org.siloserver.silo.android.ui.screens.watchtogether.WatchTogetherLobbyViewModel(
             roomId = params.get(),
             repository = get(),
+            roomSession = get(),
         )
     }
 }
