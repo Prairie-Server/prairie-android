@@ -50,6 +50,7 @@ import org.siloserver.silo.common.startup.warmProfileSelectionStartup
 import org.siloserver.silo.common.ui.components.StartupSplashVideo
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.network.TokenManager
+import org.siloserver.silo.network.requiresApproval
 import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
@@ -240,6 +241,13 @@ class MainActivity : ComponentActivity() {
 
         val activeEntry = registry.activeEntry.value
             ?: return Route.ServerSetup.route
+
+        val cleartextConsent = get<org.siloserver.silo.network.CleartextOriginConsent>(
+            org.siloserver.silo.network.CleartextOriginConsent::class.java,
+        )
+        if (cleartextConsent.requiresApproval(activeEntry.url)) {
+            return Route.ServerSetup.route
+        }
 
         val accessToken = tokenManager.getAccessToken()
         if (accessToken.isNullOrBlank()) return Route.Login.route

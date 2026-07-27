@@ -19,6 +19,10 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.siloserver.silo.network.TokenManagerImpl
+import org.siloserver.silo.network.CleartextOriginConsent
+import org.siloserver.silo.network.CleartextOriginNotApprovedException
+import org.siloserver.silo.common.io.ContentLimitExceeded
+import androidx.media3.datasource.DataSource
 
 @RunWith(RobolectricTestRunner::class)
 class AuthenticatedDataSourceFactoryTest {
@@ -57,8 +61,42 @@ class AuthenticatedDataSourceFactoryTest {
     }
 
     @Test
+    fun `unapproved cleartext stream is rejected before explicit plan headers reach transport`() {
+        val transport = FakeHttpDataSource()
+        val client = OkHttpClient().also { closeables += it }
+        val tokens = TokenManagerImpl()
+        runBlocking { tokens.setServerUrl("https://silo.example") }
+        val source = RefreshingHttpDataSource(
+            factory = FakeHttpDataSourceFactory(ArrayDeque(listOf(transport))),
+            authSession = MediaAuthSession(
+                tokenManager = tokens,
+                refreshClient = client,
+                cleartextOriginConsent = object : CleartextOriginConsent {
+                    override suspend fun isApproved(origin: String): Boolean = false
+                },
+            ),
+        )
+        val plan = DataSpec.Builder()
+            .setUri(Uri.parse("http://cdn.example/video"))
+            .setHttpRequestHeaders(
+                mapOf(
+                    "Authorization" to "Bearer stream-plan",
+                    "X-Stream-Signature" to "secret",
+                ),
+            )
+            .build()
+
+        assertFailsWith<CleartextOriginNotApprovedException> {
+            source.open(plan)
+        }
+        assertEquals(emptyList(), transport.openedDataSpecs)
+    }
+
+    @Test
     fun explicitPlanHeadersOverrideSessionAuthCaseInsensitively() {
-        val merged = mergeSessionAuthHeaders(
+        val merged = authenticatedHeadersFor(
+            serverUrl = "https://silo.example",
+            requestUrl = "https://silo.example/video",
             sessionHeaders = mapOf(
                 "Authorization" to "Bearer silo-session",
                 "X-Profile-Id" to "profile-1",
@@ -73,6 +111,101 @@ class AuthenticatedDataSourceFactoryTest {
         assertFalse(merged.containsKey("Authorization"))
         assertEquals("profile-1", merged["X-Profile-Id"])
         assertEquals("route-7", merged["X-Stream-Scope"])
+    }
+
+    @Test
+    fun foreignOriginReceivesOnlyExplicitTargetHeaders() {
+        assertEquals(
+            mapOf("X-Stream-Scope" to "route-7"),
+            authenticatedHeadersFor(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://cdn.example/video",
+                sessionHeaders = mapOf(
+                    "Authorization" to "Bearer silo-session",
+                    "X-Profile-Id" to "profile-1",
+                    "X-Profile-Token" to "profile-token",
+                ),
+                explicitHeaders = mapOf("X-Stream-Scope" to "route-7"),
+            ),
+        )
+    }
+
+    @Test
+    fun explicitAuthorizationIsPreservedOnlyForItsIssuedTarget() {
+        assertEquals(
+            mapOf("Authorization" to "Signed cdn-route-7"),
+            authenticatedHeadersFor(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://cdn.example/video",
+                sessionHeaders = mapOf("Authorization" to "Bearer silo-session"),
+                explicitHeaders = mapOf("Authorization" to "Signed cdn-route-7"),
+            ),
+        )
+    }
+
+    @Test
+    fun sessionHeadersRequireExactSchemeHostAndPort() {
+        val sessionHeaders = mapOf(
+            "Authorization" to "Bearer silo-session",
+            "X-Profile-Id" to "profile-1",
+            "X-Profile-Token" to "profile-token",
+        )
+        listOf(
+            "https://cdn.silo.example/video",
+            "https://silo.example:444/video",
+            "http://silo.example/video",
+            "file:///tmp/video",
+            "://malformed",
+        ).forEach { requestUrl ->
+            assertEquals(
+                emptyMap(),
+                authenticatedHeadersFor(
+                    serverUrl = "https://silo.example",
+                    requestUrl = requestUrl,
+                    sessionHeaders = sessionHeaders,
+                    explicitHeaders = emptyMap(),
+                ),
+                "Session credentials leaked to $requestUrl",
+            )
+        }
+    }
+
+    @Test
+    fun relativeMediaAndSubtitleUrlsResolveBeforeOriginPolicy() {
+        val sessionHeaders = mapOf("Authorization" to "Bearer silo-session")
+
+        listOf(
+            "/api/v1/stream/session-1",
+            "api/v1/stream/session-1/subtitles/4.srt",
+        ).forEach { requestUrl ->
+            assertEquals(
+                sessionHeaders,
+                authenticatedHeadersFor(
+                    serverUrl = "https://silo.example",
+                    requestUrl = requestUrl,
+                    sessionHeaders = sessionHeaders,
+                    explicitHeaders = emptyMap(),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun foreignUnauthorizedMediaResponseDoesNotRefresh() {
+        assertFalse(
+            shouldRefreshMediaRequest(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://cdn.example/video",
+                responseCode = 401,
+            ),
+        )
+        assertTrue(
+            shouldRefreshMediaRequest(
+                serverUrl = "https://silo.example",
+                requestUrl = "https://silo.example/video",
+                responseCode = 401,
+            ),
+        )
     }
 
     @Test
@@ -347,6 +480,75 @@ class AuthenticatedDataSourceFactoryTest {
         override fun clearRequestProperty(name: String) = Unit
 
         override fun clearAllRequestProperties() = Unit
+
+        override fun close() {
+            closed = true
+        }
+    }
+
+    @Test
+    fun subripNormalizationAcceptsExactlyTheStreamLimit() {
+        val upstream = ByteArrayDataSource(byteArrayOf(1, 2, 3, 4))
+        val source = SubripNormalizingDataSource(upstream, maxBytes = 4)
+
+        assertEquals(4, source.open(subripDataSpec()))
+        assertTrue(upstream.closed)
+    }
+
+    @Test
+    fun subripNormalizationRejectsDeclaredLimitPlusOneBeforeReading() {
+        val upstream = ByteArrayDataSource(
+            bytes = byteArrayOf(1),
+            declaredLength = 5,
+        )
+        val source = SubripNormalizingDataSource(upstream, maxBytes = 4)
+
+        assertFailsWith<ContentLimitExceeded> {
+            source.open(subripDataSpec())
+        }
+        assertEquals(0, upstream.readCalls)
+        assertTrue(upstream.closed)
+    }
+
+    @Test
+    fun subripNormalizationRejectsStreamedLimitPlusOneAndClosesUpstream() {
+        val upstream = ByteArrayDataSource(
+            bytes = byteArrayOf(1, 2, 3, 4, 5),
+            declaredLength = C.LENGTH_UNSET.toLong(),
+        )
+        val source = SubripNormalizingDataSource(upstream, maxBytes = 4)
+
+        assertFailsWith<ContentLimitExceeded> {
+            source.open(subripDataSpec())
+        }
+        assertTrue(upstream.closed)
+    }
+
+    private fun subripDataSpec(): DataSpec =
+        DataSpec(Uri.parse("https://silo.example/subtitles/1.srt"))
+
+    private class ByteArrayDataSource(
+        private val bytes: ByteArray,
+        private val declaredLength: Long = bytes.size.toLong(),
+    ) : DataSource {
+        private var position = 0
+        var readCalls = 0
+        var closed = false
+
+        override fun addTransferListener(transferListener: TransferListener) = Unit
+
+        override fun open(dataSpec: DataSpec): Long = declaredLength
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            readCalls += 1
+            if (position == bytes.size) return C.RESULT_END_OF_INPUT
+            val count = minOf(length, bytes.size - position)
+            bytes.copyInto(buffer, offset, position, position + count)
+            position += count
+            return count
+        }
+
+        override fun getUri(): Uri = Uri.parse("https://silo.example/subtitles/1.srt")
 
         override fun close() {
             closed = true

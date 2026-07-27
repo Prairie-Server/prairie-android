@@ -1,5 +1,8 @@
 package org.siloserver.silo.android.ui.screens.reader
 
+import kotlinx.coroutines.CancellationException
+import org.siloserver.silo.common.io.ContentLimitExceeded
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -43,6 +46,84 @@ class ReaderFileCacheTest {
             "truncated download must not poison the cache",
         )
         assertTrue(cacheDir.listFiles()?.none { it.name.endsWith(".tmp") } ?: true, "no .tmp residue expected")
+    }
+
+    @Test
+    fun `reader input limit is 2GiB`() {
+        assertEquals(2L * 1024 * 1024 * 1024, MAX_READER_INPUT_BYTES)
+    }
+
+    @Test
+    fun `reader copy accepts exactly the byte limit`() {
+        val cacheDir = newCacheDir()
+
+        val result = cacheReaderFile(cacheDir, "exact.pdf") { out ->
+            ByteArrayInputStream(byteArrayOf(1, 2, 3, 4))
+                .copyReaderInputTo(out, maxBytes = 4)
+        }
+
+        assertEquals(4, result.length())
+    }
+
+    @Test
+    fun `reader declared length accepts exact limit and rejects limit plus one`() {
+        validateReaderDeclaredLength(length = 4, maxBytes = 4)
+
+        assertFailsWith<ContentLimitExceeded> {
+            validateReaderDeclaredLength(length = 5, maxBytes = 4)
+        }
+    }
+
+    @Test
+    fun `reader unknown declared length defers to streamed byte accounting`() {
+        validateReaderDeclaredLength(length = -1, maxBytes = 0)
+    }
+
+    @Test
+    fun `reader copy rejects limit plus one and removes partial files`() {
+        val cacheDir = newCacheDir()
+
+        assertFailsWith<ContentLimitExceeded> {
+            cacheReaderFile(cacheDir, "oversize.pdf") { out ->
+                ByteArrayInputStream(byteArrayOf(1, 2, 3, 4, 5))
+                    .copyReaderInputTo(out, maxBytes = 4)
+            }
+        }
+
+        assertFalse(File(cacheDir, "oversize.pdf").exists())
+        assertTrue(cacheDir.listFiles().isNullOrEmpty(), "no partial reader files expected")
+    }
+
+    @Test
+    fun `cancelled fetch removes partial files`() {
+        val cacheDir = newCacheDir()
+
+        assertFailsWith<CancellationException> {
+            cacheReaderFile(cacheDir, "cancelled.pdf") { out ->
+                out.write(byteArrayOf(1, 2, 3))
+                throw CancellationException("cancelled")
+            }
+        }
+
+        assertFalse(File(cacheDir, "cancelled.pdf").exists())
+        assertTrue(cacheDir.listFiles().isNullOrEmpty(), "no partial reader files expected")
+    }
+
+    @Test
+    fun `cancelled validation removes the newly cached file`() {
+        val cacheDir = newCacheDir()
+
+        assertFailsWith<CancellationException> {
+            cacheReaderFile(
+                cacheDir = cacheDir,
+                fileName = "cancelled-validation.epub",
+                validate = { throw CancellationException("cancelled") },
+            ) { out ->
+                out.write(byteArrayOf(1, 2, 3))
+            }
+        }
+
+        assertTrue(cacheDir.listFiles().isNullOrEmpty(), "no partial reader files expected")
     }
 
     @Test

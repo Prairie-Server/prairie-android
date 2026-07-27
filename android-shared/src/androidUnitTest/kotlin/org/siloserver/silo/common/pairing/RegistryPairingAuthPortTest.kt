@@ -10,9 +10,37 @@ import org.siloserver.silo.network.EncryptedTokenManagerImpl
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFailsWith
+import org.siloserver.silo.network.CleartextOriginConsent
+import org.siloserver.silo.network.CleartextOriginNotApprovedException
 
 @RunWith(RobolectricTestRunner::class)
 class RegistryPairingAuthPortTest {
+    @Test
+    fun unapprovedCleartextPairingCannotPersistCredentials() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("pairing-cleartext-test", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val registry = AndroidServerRegistry(prefs)
+        val tokens = EncryptedTokenManagerImpl(prefs, registry)
+        val consent = object : CleartextOriginConsent {
+            override suspend fun isApproved(origin: String): Boolean = false
+        }
+
+        assertFailsWith<CleartextOriginNotApprovedException> {
+            RegistryPairingAuthPort(tokens, registry, consent).persistApprovedSession(
+                serverUrl = "http://silo.lan",
+                serverName = "Unsafe",
+                accessToken = "access",
+                refreshToken = "refresh",
+                expiresIn = 3600,
+            )
+        }
+
+        assertNull(registry.activeEntry.value)
+        assertNull(tokens.getAccessToken())
+    }
+
     @Test
     fun approvedSameUrlSessionClearsOldProfileAndReplacesTokens() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()

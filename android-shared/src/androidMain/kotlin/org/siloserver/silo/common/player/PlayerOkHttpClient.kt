@@ -4,6 +4,14 @@ import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Interceptor
+import okhttp3.Response
+import kotlinx.coroutines.runBlocking
+import org.siloserver.silo.network.CleartextOriginConsent
+import org.siloserver.silo.network.CleartextOriginNotApprovedException
+import org.siloserver.silo.network.isSameHttpOrigin
+import org.siloserver.silo.network.requiresApproval
 import java.util.concurrent.TimeUnit
 
 /**
@@ -15,16 +23,57 @@ import java.util.concurrent.TimeUnit
  * chain on the Ktor client must not see media traffic. Media3 auth lives above
  * this transport in [RefreshingHttpDataSource].
  */
-internal fun buildPlayerOkHttpClient(): OkHttpClient =
+internal fun buildPlayerOkHttpClient(
+    cleartextOriginConsent: CleartextOriginConsent? = null,
+): OkHttpClient =
     OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        // Network interceptors run once for the initial request and again for
+        // every redirect follow-up. This is the last boundary before bytes
+        // leave the process, so arbitrary plan headers and query credentials
+        // cannot ride an HTTPS→HTTP or approved→unapproved redirect.
+        .addNetworkInterceptor(CleartextConsentNetworkInterceptor(cleartextOriginConsent))
+        .addNetworkInterceptor { chain ->
+            val initialTarget = chain.call().request().url.toString()
+            val networkRequest = chain.request()
+            val safeRequest = if (isSameHttpOrigin(initialTarget, networkRequest.url.toString())) {
+                networkRequest
+            } else {
+                networkRequest.withoutCrossOriginCredentials()
+            }
+            chain.proceed(safeRequest)
+        }
         .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .connectionPool(ConnectionPool(maxIdleConnections = 5, keepAliveDuration = 5, timeUnit = TimeUnit.MINUTES))
         .dispatcher(Dispatcher())
+        .build()
+
+internal class CleartextConsentNetworkInterceptor(
+    private val consent: CleartextOriginConsent?,
+) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val url = chain.request().url.toString()
+        if (runBlocking { consent?.requiresApproval(url) == true }) {
+            throw CleartextOriginNotApprovedException(url)
+        }
+        return chain.proceed(chain.request())
+    }
+}
+
+private fun Request.withoutCrossOriginCredentials(): Request =
+    newBuilder()
+        .removeHeader("Authorization")
+        .removeHeader("X-Profile-Id")
+        .removeHeader("X-Profile-Token")
+        .apply {
+            headers.names()
+                .filter { name -> name.startsWith("X-Silo-", ignoreCase = true) }
+                .forEach(::removeHeader)
+        }
         .build()
 
 /**
