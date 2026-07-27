@@ -3,8 +3,10 @@ package org.siloserver.silo.repository
 import org.siloserver.silo.model.watchtogether.AddSuggestionRequest
 import org.siloserver.silo.model.watchtogether.CreateRoomRequest
 import org.siloserver.silo.model.watchtogether.JoinRoomRequest
+import org.siloserver.silo.model.watchtogether.MemberRole
 import org.siloserver.silo.model.watchtogether.PromoteSuggestionRequest
 import org.siloserver.silo.model.watchtogether.RoomResponse
+import org.siloserver.silo.model.watchtogether.RoomSelectionMode
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
 import org.siloserver.silo.model.watchtogether.SetSelectionRequest
 import org.siloserver.silo.model.watchtogether.Suggestion
@@ -58,6 +60,11 @@ class WatchTogetherRepositoryTest {
             RoomResponse(RoomSnapshot(roomId = "room-1", code = "ABCD1234"), "jwt-room"),
         ),
     ) : WatchTogetherApi {
+        var createCalls = 0
+        var addSuggestionCalls = 0
+        var voteCalls = 0
+        var promoteCalls = 0
+        var closeCalls = 0
         var lastRoomToken: String? = null
         var lastRoomId: String? = null
         var lastSelection: SetSelectionRequest? = null
@@ -69,6 +76,7 @@ class WatchTogetherRepositoryTest {
         var listSuggestionsResult: CompletableDeferred<ApiResult<SuggestionsResponse>>? = null
         var listSuggestionsCalls = 0
         override suspend fun createRoom(request: CreateRoomRequest, scope: AuthScopeSnapshot): ApiResult<RoomResponse> {
+            createCalls++
             lastAuthScope = scope
             return createResult?.await() ?: createResponse
         }
@@ -99,6 +107,7 @@ class WatchTogetherRepositoryTest {
             roomToken: String,
             scope: AuthScopeSnapshot,
         ): ApiResult<Unit> {
+            closeCalls++
             lastRoomToken = roomToken
             lastAuthScope = scope
             return ApiResult.Success(Unit)
@@ -114,7 +123,12 @@ class WatchTogetherRepositoryTest {
             roomToken: String,
             request: AddSuggestionRequest,
             scope: AuthScopeSnapshot,
-        ) = ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
+        ): ApiResult<SuggestionsResponse> {
+            addSuggestionCalls++
+            lastRoomToken = roomToken
+            lastAuthScope = scope
+            return ApiResult.Success(SuggestionsResponse())
+        }
         override suspend fun deleteSuggestion(
             roomId: String,
             roomToken: String,
@@ -126,7 +140,12 @@ class WatchTogetherRepositoryTest {
             roomToken: String,
             suggestionId: String,
             scope: AuthScopeSnapshot,
-        ) = ApiResult.Success(SuggestionsResponse()).also { lastRoomToken = roomToken; lastAuthScope = scope }
+        ): ApiResult<SuggestionsResponse> {
+            voteCalls++
+            lastRoomToken = roomToken
+            lastAuthScope = scope
+            return ApiResult.Success(SuggestionsResponse())
+        }
         override suspend fun unvote(
             roomId: String,
             roomToken: String,
@@ -138,7 +157,12 @@ class WatchTogetherRepositoryTest {
             roomToken: String,
             request: PromoteSuggestionRequest,
             scope: AuthScopeSnapshot,
-        ) = createResponse.also { lastRoomToken = roomToken; lastAuthScope = scope }
+        ): ApiResult<RoomResponse> {
+            promoteCalls++
+            lastRoomToken = roomToken
+            lastAuthScope = scope
+            return createResponse
+        }
     }
 
     private class FakeRealtime(
@@ -245,6 +269,46 @@ class WatchTogetherRepositoryTest {
         r.setSelection(SetSelectionRequest(contentId = "tt-9"))
         assertEquals("jwt-room", api.lastRoomToken)
         assertEquals("tt-9", api.lastSelection?.contentId)
+    }
+
+    @Test
+    fun `empty vote room owner keeps existing suggestion vote override and close authority`() = runTest {
+        val api = FakeApi(
+            createResponse = ApiResult.Success(
+                RoomResponse(
+                    room = RoomSnapshot(
+                        roomId = "room-1",
+                        selectionMode = RoomSelectionMode.Vote,
+                        selfRole = MemberRole.Host,
+                        selfCanManageRoom = true,
+                    ),
+                    roomAccessToken = "room-token",
+                ),
+            ),
+        )
+        val repository = WatchTogetherRepository(
+            api = api,
+            authScopeProvider = { scopeA },
+        )
+
+        repository.createRoom(CreateRoomRequest(selectionMode = RoomSelectionMode.Vote.wire))
+        repository.addSuggestion(
+            AddSuggestionRequest(
+                contentId = "movie-1",
+                contentType = "movie",
+                title = "Movie One",
+            ),
+        )
+        repository.vote("suggestion-1")
+        repository.promoteSuggestion(PromoteSuggestionRequest("suggestion-1"))
+        repository.closeRoom()
+
+        assertEquals(1, api.createCalls)
+        assertEquals(1, api.addSuggestionCalls)
+        assertEquals(1, api.voteCalls)
+        assertEquals(1, api.promoteCalls)
+        assertEquals(1, api.closeCalls)
+        assertEquals("room-token", api.lastRoomToken)
     }
 
     @Test

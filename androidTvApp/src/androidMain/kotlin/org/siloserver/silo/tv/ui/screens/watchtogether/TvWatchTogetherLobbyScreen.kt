@@ -107,10 +107,10 @@ fun TvWatchTogetherLobbyScreen(
     val suggestions by viewModel.suggestions.collectAsState()
     val closedReason by viewModel.roomClosedReason.collectAsState()
 
-    // Role drives only the cosmetic header label; mutating controls (and the
-    // host's room-closing Back behaviour) gate on the server's per-recipient
-    // management capability so a demoted/grace-period host (selfRole still
-    // "host" but management revoked) doesn't see dead buttons.
+    // Role drives only the cosmetic header label; mutating controls gate on
+    // the server's per-recipient management capability so a demoted/
+    // grace-period host (selfRole still "host" but management revoked) doesn't
+    // see dead buttons.
     val snapshot = room
     val isHostLabel = snapshot?.selfRole == MemberRole.Host
     val canManage = snapshot?.selfCanManageRoom == true
@@ -145,14 +145,9 @@ fun TvWatchTogetherLobbyScreen(
         }
     }
 
-    // User-initiated leave just drops our own connection and exits — matching
-    // mobile, where leaving the lobby never closes the room. A host closes the
-    // room for everyone via the explicit "Close room" action (below), which
-    // stays on screen until the server's room_closed broadcast reactively backs
-    // us out. (Auto-closing here raced the closeRoom call against viewModelScope
-    // cancellation on dispose, so the room often never actually closed.)
+    // Browsing away retains the process-scoped room connection. Leaving is an
+    // explicit action below; hosts close the room for everyone via "Close room".
     BackHandler(enabled = true) {
-        viewModel.leave()
         onBack()
     }
 
@@ -262,6 +257,17 @@ fun TvWatchTogetherLobbyScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             if (snapshot != null) {
+                TvDialogActionRow(
+                    title = "Browse titles",
+                    onClick = onBack,
+                )
+                TvDialogActionRow(
+                    title = "Leave room",
+                    onClick = {
+                        viewModel.leave()
+                        onBack()
+                    },
+                )
                 if (canManage) {
                     // Selection mode is fixed at room creation — shown read-only.
                     TvDialogCyclerRow(

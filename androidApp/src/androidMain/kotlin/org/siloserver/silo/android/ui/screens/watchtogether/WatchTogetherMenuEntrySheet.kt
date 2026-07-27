@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,46 +23,41 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import org.siloserver.silo.watchtogether.canDismissRoomEntry
 import org.koin.compose.viewmodel.koinViewModel
+import org.siloserver.silo.watchtogether.canDismissRoomEntry
 
-/**
- * Watch Together entry sheet, opened from the item-detail overflow.
- * Host = create a room with this title pre-selected. Join = enter an
- * invite code. On success [onNavigate] fires with the resolved route
- * (synced player or lobby). Styled after the other detail bottom sheets.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WatchTogetherEntrySheet(
-    contentId: String,
-    fileId: Int?,
+fun WatchTogetherMenuEntrySheet(
     onNavigate: (String) -> Unit,
     onDismiss: () -> Unit,
     viewModel: WatchTogetherEntryViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    var code by remember { mutableStateOf("") }
-    var showJoin by remember { mutableStateOf(false) }
+    val currentRoom by viewModel.currentRoom.collectAsState()
+    var code by rememberSaveable { mutableStateOf("") }
+    var showJoin by rememberSaveable { mutableStateOf(false) }
     val latestBusy by rememberUpdatedState(state.busy)
 
     LaunchedEffect(state.destination) {
-        val dest = state.destination ?: return@LaunchedEffect
+        val destination = state.destination ?: return@LaunchedEffect
         viewModel.consumeDestination()
         onDismiss()
-        onNavigate(dest)
+        onNavigate(destination)
     }
 
     ModalBottomSheet(
         onDismissRequest = {
-            if (canDismissRoomEntry(state.busy)) onDismiss()
+            if (canDismissRoomEntry(state.busy)) {
+                viewModel.clearError()
+                onDismiss()
+            }
         },
         sheetState = rememberModalBottomSheetState(
             skipPartiallyExpanded = true,
@@ -70,7 +65,6 @@ fun WatchTogetherEntrySheet(
                 target != SheetValue.Hidden || canDismissRoomEntry(latestBusy)
             },
         ),
-        containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Text(
             text = "Watch Together",
@@ -78,29 +72,25 @@ fun WatchTogetherEntrySheet(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        HorizontalDivider()
 
         Column(
             modifier = Modifier.fillMaxWidth().padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-            }
-
             if (!showJoin) {
+                if (currentRoom != null) {
+                    Button(
+                        onClick = { viewModel.resumeCurrentRoom() },
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Resume current room") }
+                }
                 Button(
-                    onClick = { viewModel.host(contentId, fileId) },
-                    enabled = !state.busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (state.busy) "Creating…" else "Host a room") }
-
-                OutlinedButton(
                     onClick = { viewModel.hostEmptyVoteRoom() },
                     enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Host a vote room") }
-
+                ) { Text(if (state.busy) "Creating…" else "Host a room") }
                 OutlinedButton(
                     onClick = { viewModel.clearError(); showJoin = true },
                     enabled = !state.busy,
@@ -109,10 +99,11 @@ fun WatchTogetherEntrySheet(
             } else {
                 OutlinedTextField(
                     value = code,
-                    onValueChange = { code = it.uppercase().take(8) },
+                    onValueChange = {
+                        code = it.uppercase().filter(Char::isLetterOrDigit).take(8)
+                    },
                     label = { Text("Invite code") },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(
@@ -120,7 +111,7 @@ fun WatchTogetherEntrySheet(
                     enabled = !state.busy && code.length >= 4,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    if (state.busy) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                    if (state.busy) CircularProgressIndicator(modifier = Modifier.size(18.dp))
                     else Text("Join")
                 }
                 OutlinedButton(
@@ -129,6 +120,7 @@ fun WatchTogetherEntrySheet(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Back") }
             }
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
         Spacer(Modifier.height(24.dp))
     }

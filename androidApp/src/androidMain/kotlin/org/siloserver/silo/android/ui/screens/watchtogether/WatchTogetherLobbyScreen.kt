@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -88,11 +88,22 @@ fun WatchTogetherLobbyScreen(
             TopAppBar(
                 title = { Text("Watch Together") },
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.leave(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Leave room")
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to browse",
+                        )
                     }
                 },
                 actions = {
+                    TextButton(
+                        onClick = {
+                            viewModel.leave()
+                            onBack()
+                        },
+                    ) {
+                        Text("Leave room")
+                    }
                     if (canManage) {
                         TextButton(onClick = { viewModel.closeRoom() }) { Text("Close") }
                     }

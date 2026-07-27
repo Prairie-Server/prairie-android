@@ -101,7 +101,6 @@ import org.siloserver.silo.model.ebook.MediaRelatedItem
 import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.siloserver.silo.model.section.SectionItem
 import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
 import org.siloserver.silo.tv.ui.components.TvDialogOption
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvHeroActionPill
@@ -1086,13 +1085,7 @@ private fun HeroActionRow(
                 isBusy = watchTogetherState.isBusy,
                 error = watchTogetherState.error,
                 onHost = { watchTogetherViewModel.createRoom(playContentId, playFileId) },
-                onHostVote = {
-                    watchTogetherViewModel.createRoom(
-                        playContentId,
-                        playFileId,
-                        RoomSelectionMode.Vote,
-                    )
-                },
+                onHostVote = watchTogetherViewModel::createEmptyVoteRoom,
                 onJoin = {
                     watchTogetherViewModel.clearError()
                     joinCodeOpen = true

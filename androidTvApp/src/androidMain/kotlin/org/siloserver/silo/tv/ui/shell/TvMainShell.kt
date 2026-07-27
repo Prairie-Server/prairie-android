@@ -110,8 +110,10 @@ import org.siloserver.silo.common.ui.components.resolveAvatarUrl
 import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.admin.shouldShowClientAdminSurface
 import org.siloserver.silo.model.auth.isActingAdmin
+import org.siloserver.silo.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.model.personal.UserLibrary
+import org.siloserver.silo.model.watchtogether.RoomSnapshot
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.ServerRegistry
 import org.siloserver.silo.repository.AuthRepository
@@ -149,9 +151,13 @@ import org.siloserver.silo.tv.ui.screens.requests.TvRequestsScreen
 import org.siloserver.silo.tv.ui.screens.search.TvSearchScreen
 import org.siloserver.silo.tv.ui.screens.settings.TvManageSessionsScreen
 import org.siloserver.silo.tv.ui.screens.settings.TvSettingsScreen
+import org.siloserver.silo.tv.ui.screens.watchtogether.TvJoinCodeDialog
+import org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherMenuEntryDialog
+import org.siloserver.silo.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
 import org.siloserver.silo.tv.ui.theme.TvSkyline
 import org.siloserver.silo.tv.ui.util.visibleOnTv
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * Main authenticated TV shell. Mirrors `TVMainTabView` on tvOS: a content
@@ -176,6 +182,7 @@ fun TvMainShell(
     onSwitchServer: () -> Unit,
     onPairDevice: () -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit,
+    onOpenWatchTogether: (RoomSnapshot) -> Unit,
     onOpenPersonDetail: (personId: Long) -> Unit,
 ) {
     val nestedNav = rememberNavController()
@@ -194,6 +201,19 @@ fun TvMainShell(
     val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     val serverUrl = rememberProfileServerUrl()
+    val watchTogetherViewModel = koinViewModel<TvWatchTogetherViewModel>()
+    val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
+    val currentWatchTogetherRoom by watchTogetherViewModel.currentRoom.collectAsState()
+    var watchTogetherEntryOpen by rememberSaveable { mutableStateOf(false) }
+    var watchTogetherJoinOpen by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(watchTogetherState.result) {
+        val room = watchTogetherState.result ?: return@LaunchedEffect
+        watchTogetherViewModel.consumeResult()
+        watchTogetherEntryOpen = false
+        watchTogetherJoinOpen = false
+        onOpenWatchTogether(room)
+    }
 
     // The raw list of libraries visible to this profile on TV, sorted by the
     // server's sort order (ebook-like libraries filtered out by visibleOnTv).
@@ -1290,6 +1310,12 @@ fun TvMainShell(
                     navigateToSecondary(TvMainRoute.Requests.route)
                     moveFocusToContent(TvMainRoute.Requests.route)
                 },
+                showWatchTogether = CLIENT_WATCH_TOGETHER_SURFACE_ENABLED,
+                onWatchTogether = {
+                    focusState.closeProfileMenuForContent()
+                    watchTogetherViewModel.clearError()
+                    watchTogetherEntryOpen = true
+                },
                 onSettings = {
                     // Keep focus on the dropdown row through the route fade.
                     // TvSettingsScreen closes the menu only after its General
@@ -1310,6 +1336,38 @@ fun TvMainShell(
                     )
                     .zIndex(2f),
             )
+        }
+
+        if (watchTogetherEntryOpen) {
+            if (watchTogetherJoinOpen) {
+                TvJoinCodeDialog(
+                    isBusy = watchTogetherState.isBusy,
+                    error = watchTogetherState.error,
+                    onJoin = watchTogetherViewModel::joinRoom,
+                    onDismiss = {
+                        watchTogetherViewModel.clearError()
+                        watchTogetherJoinOpen = false
+                    },
+                )
+            } else {
+                TvWatchTogetherMenuEntryDialog(
+                    canResume = currentWatchTogetherRoom != null,
+                    isBusy = watchTogetherState.isBusy,
+                    error = watchTogetherState.error,
+                    onResume = { watchTogetherViewModel.resumeCurrentRoom() },
+                    onHost = { watchTogetherViewModel.createEmptyVoteRoom() },
+                    onJoin = {
+                        watchTogetherViewModel.clearError()
+                        watchTogetherJoinOpen = true
+                    },
+                    onDismiss = {
+                        watchTogetherViewModel.clearError()
+                        watchTogetherEntryOpen = false
+                        watchTogetherJoinOpen = false
+                        focusState.dismissProfileMenu()
+                    },
+                )
+            }
         }
     }
 }
@@ -1482,8 +1540,8 @@ private fun cascadePanelOffset(
  * returns focus to the avatar via [onDismiss].
  *
  * Row set + order mirrors tvOS: Switch Profile · Watchlist · Favorites ·
- * History · Requests (feature-gated) · Settings · Switch Server · Sign Out.
- * Calendar is a top-level tab.
+ * History · Requests (server-gated) · Watch Together (client-policy-gated) ·
+ * Settings · Switch Server · Sign Out. Calendar is a top-level tab.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -1497,6 +1555,8 @@ private fun TvProfileDropdown(
     onHistory: () -> Unit,
     showRequests: Boolean,
     onRequests: () -> Unit,
+    showWatchTogether: Boolean,
+    onWatchTogether: () -> Unit,
     onSettings: () -> Unit,
     onSwitchServer: () -> Unit,
     onSignOut: () -> Unit,
@@ -1547,6 +1607,13 @@ private fun TvProfileDropdown(
                 label = "Requests",
                 icon = Icons.Filled.AutoAwesome,
                 onClick = onRequests,
+            )
+        }
+        if (showWatchTogether) {
+            ProfileDropdownRow(
+                label = "Watch Together",
+                icon = Icons.Filled.People,
+                onClick = onWatchTogether,
             )
         }
 
