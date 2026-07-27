@@ -12,6 +12,8 @@ import org.siloserver.silo.common.downloads.OfflineMediaResolver
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
+import org.siloserver.silo.common.player.FinalPlaybackPosition
+import org.siloserver.silo.common.player.FinalPlaybackPositionWriter
 import org.siloserver.silo.common.player.Playability
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
@@ -79,15 +81,15 @@ import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.repository.SubtitlesRepository
-import kotlinx.coroutines.Dispatchers
+import org.siloserver.silo.repository.port.PlaybackWriteScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +106,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * ViewModel for the video player screen.
@@ -126,6 +129,49 @@ internal fun selectedServerSubtitleTrackIndex(
     -1 -> -1
     else -> subtitleTracks.getOrNull(selectedOrdinal)?.index
 }
+
+data class PlaybackClock(
+    val position: Double,
+    val duration: Double,
+    val bufferedPosition: Double,
+)
+
+internal class InitialPlayerLoadGate {
+    private val claimed = AtomicBoolean(false)
+
+    fun claim(): Boolean = claimed.compareAndSet(false, true)
+}
+
+internal class SubtitleRefreshGate {
+    private var lastAppliedNonce = 0
+
+    fun claim(nonce: Int): Boolean {
+        if (nonce <= 0 || nonce == lastAppliedNonce) return false
+        lastAppliedNonce = nonce
+        return true
+    }
+
+    fun reset() {
+        lastAppliedNonce = 0
+    }
+}
+
+internal fun PlayerViewModel.PlayerUiState.withoutPlaybackClock(): PlayerViewModel.PlayerUiState =
+    copy(position = 0.0, duration = 0.0, bufferedPosition = 0.0)
+
+internal fun PlayerViewModel.PlayerUiState.toPlaybackClock(): PlaybackClock =
+    PlaybackClock(
+        position = position,
+        duration = duration,
+        bufferedPosition = bufferedPosition,
+    )
+
+internal fun PlayerViewModel.PlayerUiState.withPlaybackClock(clock: PlaybackClock): PlayerViewModel.PlayerUiState =
+    copy(
+        position = clock.position,
+        duration = clock.duration,
+        bufferedPosition = clock.bufferedPosition,
+    )
 
 internal fun selectedServerAudioTrackIndex(
     selectedOrdinal: Int,
@@ -162,7 +208,7 @@ class PlayerViewModel(
     private val subtitlesRepository: SubtitlesRepository,
     // Track B: durable offline-safe position (resume + outbox sync).
     private val userItemStatePort: org.siloserver.silo.repository.port.UserItemStatePort,
-    private val outboxSyncScheduler: org.siloserver.silo.common.data.sync.OutboxSyncScheduler,
+    private val finalPlaybackPositionWriter: FinalPlaybackPositionWriter,
     // iOS PlayerNextUpScreen On Deck carousel — home continue-watching pool.
     private val sectionRepository: org.siloserver.silo.repository.SectionRepository? = null,
     // Google Cast (Chromecast) Tier-2 session preparer. Optional so existing
@@ -339,6 +385,22 @@ class PlayerViewModel(
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+    val presentationState: StateFlow<PlayerUiState> = uiState
+        .map(PlayerUiState::withoutPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.withoutPlaybackClock(),
+        )
+    val playbackClock: StateFlow<PlaybackClock> = uiState
+        .map(PlayerUiState::toPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.toPlaybackClock(),
+        )
 
     /**
      * Explicit user/app seek commands. PlayerScreen collects this flow and
@@ -486,6 +548,7 @@ class PlayerViewModel(
     private var playbackRecoveryGeneration = 0L
     private var mediaMountSequence = 0L
     private var awaitingMediaMountGeneration: Long? = null
+    private val subtitleRefreshGate = SubtitleRefreshGate()
     private var positionReportsBlockedForPendingLoad = false
     private var seekRecoveryRollbackInvalidated = false
     private var pendingNativeSeekAfterMount: Pair<Double, Boolean>? = null
@@ -563,6 +626,12 @@ class PlayerViewModel(
     private var introObserverJob: Job? = null
     private var lifecycleObserverJob: Job? = null
     private var resolveNextEpisodeJob: Job? = null
+    private var contentLoadJob: Job? = null
+    private val exitPrepared = AtomicBoolean(false)
+    private var finalPositionScope: PlaybackWriteScope? = null
+    private val initialPlayerLoadGate = InitialPlayerLoadGate()
+
+    fun claimInitialRouteLoad(): Boolean = initialPlayerLoadGate.claim()
 
     init {
         // Reclaim-Watched must never delete the file the player is using
@@ -727,7 +796,10 @@ class PlayerViewModel(
             )
         }
 
-        viewModelScope.launch {
+        finalPositionScope = null
+        contentLoadJob?.cancel()
+        contentLoadJob = viewModelScope.launch {
+            finalPositionScope = finalPlaybackPositionWriter.captureScope()
             try {
                 // Offline-first fast path: if we have a completed download for
                 // this contentId AND its bytes are still on disk, hand the
@@ -745,7 +817,7 @@ class PlayerViewModel(
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not refresh player settings before playback", e)
                 }
-                when (val playbackState = videoPlaybackCoordinator.start(
+                val playbackState = videoPlaybackCoordinator.start(
                     VideoPlaybackStartRequest(
                         contentId = contentId,
                         preferredFileId = preferredFileId,
@@ -757,7 +829,9 @@ class PlayerViewModel(
                         suppressResumeRewind = suppressResumeRewind,
                         force = force,
                     ),
-                )) {
+                )
+                currentCoroutineContext().ensureActive()
+                when (playbackState) {
                     is VideoPlayerUiState.Ready -> applyCoordinatorStateToUi(
                         playbackState = playbackState,
                         preferredFileId = preferredFileId,
@@ -928,6 +1002,7 @@ class PlayerViewModel(
         // never an Off produced by a failed explicit pick.
         persistNextSubtitleSelection = explicitSubtitlePickResolved || persistedSubtitleIndex != null
 
+        currentCoroutineContext().ensureActive()
         val mountGeneration = expectNextMediaMount()
         _uiState.update {
             it.copy(
@@ -1474,9 +1549,15 @@ class PlayerViewModel(
     }
 
     /** Called synchronously after PlayerScreen has applied this mount to Media3. */
+    fun shouldApplyMediaMount(generation: Long): Boolean =
+        awaitingMediaMountGeneration == generation
+
+    fun claimSubtitleRefresh(nonce: Int): Boolean = subtitleRefreshGate.claim(nonce)
+
     fun onMediaMountApplied(generation: Long) {
         if (awaitingMediaMountGeneration == generation) {
             awaitingMediaMountGeneration = null
+            subtitleRefreshGate.reset()
             positionReportsBlockedForPendingLoad = false
             pendingNativeSeekAfterMount?.let { (targetSeconds, immediate) ->
                 pendingNativeSeekAfterMount = null
@@ -2188,6 +2269,7 @@ class PlayerViewModel(
             renewMissingSessionWithLegacyStart = false,
         )
         if (!isCurrentServerSeek(request, recoveryGeneration)) return
+        currentCoroutineContext().ensureActive()
         val mountGeneration = expectNextMediaMount()
         _uiState.update { current ->
             current.copy(
@@ -3066,45 +3148,49 @@ class PlayerViewModel(
 
     /** Called when the user exits the player. */
     fun onExit() {
+        if (!exitPrepared.compareAndSet(false, true)) return
+        // Before anything else: a running Up Next countdown that fires after the
+        // user has left starts an episode behind a dismissed screen, and the
+        // session it creates outlives the exit that was supposed to end it.
+        cancelUpNextCountdown()
+        _uiState.update { it.copy(showUpNext = false) }
         resetPlaybackRecoveryState()
-        viewModelScope.launch {
-            // Track B: durably record the final position for both paths, then ask
-            // the outbox to drain promptly (covers the online offline-download case
-            // where there's no live session and no connectivity change to trigger it).
-            val cid = _uiState.value.contentId.takeIf { it.isNotBlank() }
-            val fid = currentFileId()
-            if (cid != null && fid != null) {
-                userItemStatePort.recordPosition(
-                    cid,
-                    fid,
-                    _uiState.value.position,
-                    _uiState.value.duration.takeIf { it > 0.0 },
+        contentLoadJob?.cancel()
+        contentLoadJob = null
+        val state = _uiState.value
+        val cid = state.contentId.takeIf { it.isNotBlank() }
+        val fid = currentFileId()
+        val scope = finalPositionScope
+        if (scope != null && cid != null && fid != null) {
+            finalPlaybackPositionWriter.submit(
+                FinalPlaybackPosition(
+                    scope = scope,
+                    contentId = cid,
+                    fileId = fid,
+                    positionSeconds = state.position,
+                    durationSeconds = state.duration.takeIf { it > 0.0 },
                 )
-                outboxSyncScheduler.requestSync()
-            }
-            // Lifecycle.stop() handles: final progress report, snapshot via PersonalData,
-            // session stop, and reporter cancellation. The single call replaces the
-            // duplicated reportProgress/stopSession + syncProgressSnapshot flow.
-            sessionLifecycle.stop()
-            controlsHideJob?.cancel()
-            introObserverJob?.cancel()
-            searchJob?.cancel()
-            aiJobHandle?.cancel()
-            introAutoSkipController.reset()
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    sessionId = null,
-                    playMethod = null,
-                    playbackPlan = null,
-                    delivery = null,
-                    streamUrl = null,
-                    container = null,
-                    subtitleTracks = emptyList(),
-                    isPaused = true,
-                    isPlaying = false,
-                )
-            }
+            )
+        }
+        sessionLifecycle.stopAsync()
+        controlsHideJob?.cancel()
+        introObserverJob?.cancel()
+        searchJob?.cancel()
+        aiJobHandle?.cancel()
+        introAutoSkipController.reset()
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                sessionId = null,
+                playMethod = null,
+                playbackPlan = null,
+                delivery = null,
+                streamUrl = null,
+                container = null,
+                subtitleTracks = emptyList(),
+                isPaused = true,
+                isPlaying = false,
+            )
         }
     }
 
@@ -3206,6 +3292,7 @@ class PlayerViewModel(
             ?: watchDetail?.backdropUrl?.takeIf { url -> url.isNotBlank() }
             ?: sidecar.posterUrl?.takeIf { url -> url.isNotBlank() }
 
+        currentCoroutineContext().ensureActive()
         val mountGeneration = expectNextMediaMount()
         _uiState.update {
             it.copy(
@@ -3263,26 +3350,7 @@ class PlayerViewModel(
     override fun onCleared() {
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
-        resetPlaybackRecoveryState()
-        super.onCleared()
-        // Guarantee the final resume position is persisted on teardown. onExit's
-        // write runs in viewModelScope, which is cancelling here — so AWAIT one
-        // last write under NonCancellable (brief local Room write off the main
-        // thread). Without this, exiting while playing could lose the last spot.
-        val cid = _uiState.value.contentId.takeIf { it.isNotBlank() }
-        val fid = currentFileId()
-        if (cid != null && fid != null) {
-            runCatching {
-                runBlocking(NonCancellable + Dispatchers.IO) {
-                    userItemStatePort.recordPosition(
-                        cid,
-                        fid,
-                        _uiState.value.position,
-                        _uiState.value.duration.takeIf { it > 0.0 },
-                    )
-                }
-            }
-        }
+        onExit()
         controlsHideJob?.cancel()
         introObserverJob?.cancel()
         lifecycleObserverJob?.cancel()
@@ -3290,15 +3358,7 @@ class PlayerViewModel(
         aiJobHandle?.cancel()
         upNextCountdownJob?.cancel()
         introAutoSkipController.reset()
-        // Best-effort session stop. Lifecycle.stop() is suspend-based and may not
-        // complete after onCleared (viewModelScope is cancelling) — fire & forget,
-        // preferring at least one of the two paths to durably persist progress.
-        val sessionId = _uiState.value.sessionId
-        if (sessionId != null) {
-            viewModelScope.launch {
-                playbackSessionManager.stopSession(sessionId)
-            }
-        }
+        super.onCleared()
     }
 
     private suspend fun resolveDownloadScope(): Pair<String, String> {

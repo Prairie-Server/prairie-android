@@ -14,10 +14,14 @@ import org.siloserver.silo.network.api.HealthApi
 import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,6 +32,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Wraps [PlaybackSessionManager] with a unified state machine that handles
@@ -86,6 +91,15 @@ class PlaybackSessionLifecycle(
     private var reporterJob: Job? = null
     private var recoveryJob: Job? = null
     private var outageJob: Job? = null
+    private val pendingStopLock = Any()
+    private var pendingStopJob: Job? = null
+
+    /**
+     * Bumped by every stop that actually tears down. A start snapshots this
+     * before its network call and must not publish if teardown ran meanwhile.
+     */
+    @Volatile
+    private var stopEpoch: Long = 0L
 
     // ---- Public API ---------------------------------------------------------
 
@@ -95,6 +109,7 @@ class PlaybackSessionLifecycle(
      * failure (Error or NetworkError).
      */
     suspend fun start(params: StartParams): SessionState {
+        awaitPendingStop()
         DiagnosticsPlaybackLogger.sessionEvent("session start requested")
         // New start cancels any in-flight recovery / outage probing, by design:
         // this is the explicit "user/code wants a fresh session now" path.
@@ -117,8 +132,68 @@ class PlaybackSessionLifecycle(
         stopSessionOnStop: Boolean = true,
         renewMissingSessionWithLegacyStart: Boolean = true,
     ) {
+        adoptActiveSession(
+            params = params,
+            session = session,
+            manageProgress = manageProgress,
+            stopSessionOnStop = stopSessionOnStop,
+            renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart,
+            expectedOwnershipEpoch = null,
+        )
+    }
+
+    /**
+     * Waits for an older screen's queued teardown before granting ownership to
+     * a new external start, then snapshots the epoch under the lifecycle lock.
+     */
+    suspend fun acquireOwnershipEpoch(): Long {
+        awaitPendingStop()
+        return mutex.withLock { stopEpoch }
+    }
+
+    /**
+     * Adopts an externally-started session only if no teardown has happened
+     * since [expectedOwnershipEpoch] was captured. Rejected sessions are closed
+     * here so callers cannot leak a server stream after their screen exits.
+     */
+    suspend fun adoptActiveSessionIfCurrent(
+        params: StartParams,
+        session: PlaybackSessionResponse,
+        manageProgress: Boolean = true,
+        stopSessionOnStop: Boolean = true,
+        renewMissingSessionWithLegacyStart: Boolean = true,
+        expectedOwnershipEpoch: Long,
+    ): Boolean = try {
+        currentCoroutineContext().ensureActive()
+        adoptActiveSession(
+            params = params,
+            session = session,
+            manageProgress = manageProgress,
+            stopSessionOnStop = stopSessionOnStop,
+            renewMissingSessionWithLegacyStart = renewMissingSessionWithLegacyStart,
+            expectedOwnershipEpoch = expectedOwnershipEpoch,
+        )
+    } catch (cancellation: CancellationException) {
+        withContext(NonCancellable) {
+            sessionManager.stopSession(session.sessionId)
+        }
+        throw cancellation
+    }
+
+    private suspend fun adoptActiveSession(
+        params: StartParams,
+        session: PlaybackSessionResponse,
+        manageProgress: Boolean,
+        stopSessionOnStop: Boolean,
+        renewMissingSessionWithLegacyStart: Boolean,
+        expectedOwnershipEpoch: Long?,
+    ): Boolean {
+        awaitPendingStop()
         val diagnosticsRecording = playbackSessions.recording()
-        mutex.withLock {
+        val adopted = mutex.withLock {
+            if (expectedOwnershipEpoch != null && stopEpoch != expectedOwnershipEpoch) {
+                return@withLock false
+            }
             cancelRecoveryJobs()
             reporterJob?.cancel()
             reporterJob = null
@@ -137,25 +212,43 @@ class PlaybackSessionLifecycle(
             if (manageProgress) {
                 startProgressReporter()
             }
+            true
         }
+        if (!adopted) {
+            sessionManager.stopSession(session.sessionId)
+        }
+        return adopted
     }
 
     private suspend fun startInternal(
         params: StartParams,
         diagnosticsRecording: DiagnosticsPlaybackSessionRecording,
+        alreadyLocked: Boolean = false,
     ): SessionState {
-        _notice.value = null
-        _state.value = SessionState.Loading
-        lastStartParams = params
-        flushProgressOnStop = true
-        stopActiveSessionOnStop = true
-        renewMissingSessionWithLegacyStart = true
+        suspend fun <T> guarded(block: suspend () -> T): T =
+            if (alreadyLocked) block() else mutex.withLock { block() }
+
+        val epochAtStart = guarded {
+            _notice.value = null
+            _state.value = SessionState.Loading
+            lastStartParams = params
+            flushProgressOnStop = true
+            stopActiveSessionOnStop = true
+            renewMissingSessionWithLegacyStart = true
+            stopEpoch
+        }
+        suspend fun publishFailureUnlessStopped(message: String): SessionState =
+            guarded {
+                if (stopEpoch != epochAtStart) {
+                    SessionState.Idle.also { _state.value = it }
+                } else {
+                    SessionState.Failed(message).also { _state.value = it }
+                }
+            }
 
         val profileId = profileRepository.getActiveProfileId()
         if (profileId == null) {
-            val failed = SessionState.Failed("No active profile selected.")
-            _state.value = failed
-            return failed
+            return publishFailureUnlessStopped("No active profile selected.")
         }
 
         val result = if (
@@ -187,11 +280,30 @@ class PlaybackSessionLifecycle(
             )
         }
         return when (result) {
-            is ApiResult.Success -> {
+            is ApiResult.Success -> guarded {
+                if (stopEpoch != epochAtStart) {
+                    DiagnosticsPlaybackLogger.sessionEvent("session abandoned, stopped during start")
+                    Log.w(TAG, "stop landed during start; stopping session ${result.data.sessionId}")
+                    when (val stopResult = sessionManager.stopSession(result.data.sessionId)) {
+                        is ApiResult.Error ->
+                            Log.w(
+                                TAG,
+                                "abandon stopSession error: ${stopResult.code} ${stopResult.message}",
+                            )
+                        is ApiResult.NetworkError ->
+                            Log.w(TAG, "abandon stopSession network error: ${stopResult.exception}")
+                        else -> {}
+                    }
+                    _state.value = SessionState.Idle
+                    return@guarded SessionState.Idle
+                }
                 DiagnosticsPlaybackLogger.sessionEvent("session active")
                 diagnosticsRecording.record(result.data.sessionId)
                 val active = SessionState.Active(result.data)
                 _state.value = active
+                // A concurrent stop clears this while the request is in flight.
+                // Restore it so recovery and the final write retain their identity.
+                lastStartParams = params
                 lastReportedPosition = params.startPosition ?: result.data.position
                 // Clear the missing-session debounce — fresh session id.
                 recoveringFromMissingSession = null
@@ -201,16 +313,14 @@ class PlaybackSessionLifecycle(
             is ApiResult.Error -> {
                 DiagnosticsPlaybackLogger.sessionEvent("session start failed")
                 Log.w(TAG, "start session error: ${result.code} ${result.error} ${result.message}")
-                val failed = SessionState.Failed(result.message.ifBlank { "Failed to start playback." })
-                _state.value = failed
-                failed
+                publishFailureUnlessStopped(
+                    result.message.ifBlank { "Failed to start playback." },
+                )
             }
             is ApiResult.NetworkError -> {
                 DiagnosticsPlaybackLogger.sessionEvent("session start network failure")
                 Log.w(TAG, "start session network error: ${result.exception}")
-                val failed = SessionState.Failed("Network error starting playback.")
-                _state.value = failed
-                failed
+                publishFailureUnlessStopped("Network error starting playback.")
             }
         }
     }
@@ -238,35 +348,39 @@ class PlaybackSessionLifecycle(
      */
     suspend fun stop() {
         DiagnosticsPlaybackLogger.sessionEvent("session stop requested")
-        val current = _state.value
-        cancelRecoveryJobs()
-        reporterJob?.cancel()
-        reporterJob = null
+        mutex.withLock {
+            stopEpoch++
+            val current = _state.value
+            cancelRecoveryJobs()
+            reporterJob?.cancel()
+            reporterJob = null
 
-        val sessionId = (current as? SessionState.Active)?.session?.sessionId
-        // Fire the final snapshot regardless — even during Reconnecting we
-        // want to durably record where the user was so a fresh login resumes
-        // there.
-        if (flushProgressOnStop) {
-            flushFinalProgress()
-        }
-
-        if (sessionId != null && stopActiveSessionOnStop) {
-            when (val r = sessionManager.stopSession(sessionId)) {
-                is ApiResult.Error -> Log.w(TAG, "stopSession error: ${r.code} ${r.message}")
-                is ApiResult.NetworkError -> Log.w(TAG, "stopSession network error: ${r.exception}")
-                else -> {}
+            val sessionId = (current as? SessionState.Active)?.session?.sessionId
+            // Fire the final snapshot regardless — even during Reconnecting we
+            // want to durably record where the user was so a fresh login resumes
+            // there.
+            if (flushProgressOnStop) {
+                flushFinalProgress()
             }
+
+            if (sessionId != null && stopActiveSessionOnStop) {
+                when (val r = sessionManager.stopSession(sessionId)) {
+                    is ApiResult.Error -> Log.w(TAG, "stopSession error: ${r.code} ${r.message}")
+                    is ApiResult.NetworkError ->
+                        Log.w(TAG, "stopSession network error: ${r.exception}")
+                    else -> {}
+                }
+            }
+            lastStartParams = null
+            lastReportedPosition = null
+            lastReportedDuration = 0.0
+            recoveringFromMissingSession = null
+            flushProgressOnStop = true
+            stopActiveSessionOnStop = true
+            renewMissingSessionWithLegacyStart = true
+            _notice.value = null
+            _state.value = SessionState.Idle
         }
-        lastStartParams = null
-        lastReportedPosition = null
-        lastReportedDuration = 0.0
-        recoveringFromMissingSession = null
-        flushProgressOnStop = true
-        stopActiveSessionOnStop = true
-        renewMissingSessionWithLegacyStart = true
-        _notice.value = null
-        _state.value = SessionState.Idle
         DiagnosticsPlaybackLogger.sessionEvent("session stopped")
     }
 
@@ -279,7 +393,25 @@ class PlaybackSessionLifecycle(
      * [NonCancellable] keeps the stop running even if that scope is torn down.
      */
     fun stopAsync() {
-        scope.launch(NonCancellable + Dispatchers.IO) { stop() }
+        val job = synchronized(pendingStopLock) {
+            pendingStopJob?.takeUnless { it.isCompleted } ?: scope.launch(
+                context = NonCancellable + Dispatchers.IO,
+                start = CoroutineStart.LAZY,
+            ) {
+                stop()
+            }.also { pendingStopJob = it }
+        }
+        job.invokeOnCompletion {
+            synchronized(pendingStopLock) {
+                if (pendingStopJob === job) pendingStopJob = null
+            }
+        }
+        job.start()
+    }
+
+    private suspend fun awaitPendingStop() {
+        val job = synchronized(pendingStopLock) { pendingStopJob } ?: return
+        job.join()
     }
 
     // ---- Internal: progress reporter ----------------------------------------
@@ -339,7 +471,11 @@ class PlaybackSessionLifecycle(
                 )
                 // Re-invoke the start flow with the latest position without
                 // cancelling this recovery coroutine out from under itself.
-                startInternal(params.copy(startPosition = resumePos), diagnosticsRecording)
+                startInternal(
+                    params.copy(startPosition = resumePos),
+                    diagnosticsRecording,
+                    alreadyLocked = true,
+                )
                 recoveryJob = null
             }
         }

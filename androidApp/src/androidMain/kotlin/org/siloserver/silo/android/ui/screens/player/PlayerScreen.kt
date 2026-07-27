@@ -86,6 +86,7 @@ import org.siloserver.silo.android.cast.SiloCastOverlay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
@@ -94,6 +95,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.unit.sp
 
 private const val TAG = "PlayerScreen"
+
+internal fun shouldClearPlaybackOnControllerDispose(isChangingConfigurations: Boolean): Boolean =
+    !isChangingConfigurations
+
+@Composable
+private fun PlayerClockScope(
+    viewModel: PlayerViewModel,
+    content: @Composable (PlaybackClock) -> Unit,
+) {
+    val clock by viewModel.playbackClock.collectAsState()
+    content(clock)
+}
 
 /**
  * Full-screen video player screen.
@@ -125,7 +138,7 @@ fun PlayerScreen(
     // room (clock sync, transport mirroring, gating, room_closed exit).
     roomId: String? = null,
     navController: NavHostController,
-    viewModel: PlayerViewModel = koinInject(),
+    viewModel: PlayerViewModel = koinViewModel(),
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -133,7 +146,7 @@ fun PlayerScreen(
     val activePlayerHolder: ActivePlayerHolder = koinInject()
     val pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject()
     val playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore = koinInject()
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.presentationState.collectAsState()
     val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
     val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     val backendFactory: VideoPlaybackBackendFactory = koinInject()
@@ -302,15 +315,19 @@ fun PlayerScreen(
             MoreExecutors.directExecutor(),
         )
         onDispose {
-            // Stop and clear media items before releasing the controller —
-            // releasing the controller alone leaves the service's player
-            // running, so audio keeps playing after the screen exits.
-            // Mirrors TvPlayerScreen.stopPlaybackAndExit semantics.
+            val shouldClearPlayback = shouldClearPlaybackOnControllerDispose(
+                isChangingConfigurations = activity?.isChangingConfigurations == true,
+            )
+            // A configuration recreation releases only this controller connection;
+            // the retained ViewModel and service player keep the active session.
+            // A real destination exit still clears Media3 before releasing.
             mediaController?.let { controller ->
-                runCatching {
-                    controller.pause()
-                    controller.stop()
-                    controller.clearMediaItems()
+                if (shouldClearPlayback) {
+                    runCatching {
+                        controller.pause()
+                        controller.stop()
+                        controller.clearMediaItems()
+                    }
                 }
                 controller.release()
             }
@@ -394,6 +411,7 @@ fun PlayerScreen(
 
     // Load content on first composition
     LaunchedEffect(contentId, initialFileId, initialQuality, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
+        if (!viewModel.claimInitialRouteLoad()) return@LaunchedEffect
         viewModel.loadContent(
             contentId = contentId,
             preferredFileId = initialFileId,
@@ -488,6 +506,7 @@ fun PlayerScreen(
         val backend = videoBackend ?: return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
+        if (!viewModel.shouldApplyMediaMount(uiState.mediaMountGeneration)) return@LaunchedEffect
         val serverUrl = uiState.serverUrl
         // serverUrl is intentionally empty for local-file playback (offline
         // path sets streamUrl to a local file/content URI and serverUrl=""). For remote playback
@@ -518,7 +537,7 @@ fun PlayerScreen(
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
             timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
-            durationSeconds = uiState.duration,
+            durationSeconds = viewModel.uiState.value.duration,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = uiState.requestHeaders,
             expectedDynamicRange = plan?.source?.hdrFormat,
@@ -554,6 +573,7 @@ fun PlayerScreen(
         if (exitRequested) return@LaunchedEffect
         if (uiState.subtitleRefreshNonce == 0) return@LaunchedEffect
         val backend = videoBackend ?: return@LaunchedEffect
+        if (!viewModel.claimSubtitleRefresh(uiState.subtitleRefreshNonce)) return@LaunchedEffect
         val streamUrl = uiState.streamUrl ?: return@LaunchedEffect
         val playMethod = uiState.playMethod ?: return@LaunchedEffect
 
@@ -574,7 +594,7 @@ fun PlayerScreen(
             artworkUrl = uiState.artworkUrl,
             startPositionSeconds = uiState.startPosition,
             timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
-            durationSeconds = uiState.duration,
+            durationSeconds = viewModel.uiState.value.duration,
             audioPassthroughCodecs = if (!isLocalMedia) {
                 plan.validatedPassthroughCodecs()
             } else {
@@ -856,11 +876,6 @@ fun PlayerScreen(
         }
     }
 
-    // Notify the ViewModel we're leaving the screen.
-    DisposableEffect(Unit) {
-        onDispose { viewModel.onExit() }
-    }
-
     LaunchedEffect(
         activity,
         mediaController,
@@ -1021,56 +1036,58 @@ fun PlayerScreen(
             }
 
             if (!isInPictureInPictureMode && !castState.isConnected) {
-                PlayerOverlay(
-                    state = uiState,
-                    viewModel = viewModel,
-                    roomSnapshot = roomSnapshot,
-                    castSlot = {
-                        SiloCastButton(
-                            castManager = castManager,
-                            onStartCast = {
-                                castScope.launch {
-                                    val spec = viewModel.prepareGoogleCastMedia()
-                                    if (spec != null) castManager.prepareMedia(spec)
-                                }
-                            },
-                        )
-                    },
-                    isFastForwardHoldActive = fastForwardHoldActive,
-                    onBack = {
-                        // In-room exit: leave the room (host close confirm is handled
-                        // by the overlay before this fires). The controller resets the
-                        // repo + engine; solo playback just pops.
-                        exitRequested = true
-                        roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
-                        viewModel.onExit()
-                        // Nothing behind the player (launcher/deep-link/notification
-                        // open) → popBackStack can't land anywhere and leaves a blank
-                        // NavHost, then system back exits from a grey screen. Finish
-                        // cleanly instead.
-                        if (!navController.popBackStack()) activity?.finish()
-                    },
-                    onPlayPause = {
-                        // In a room, route through transport_request (gated to
-                        // controllers); solo playback toggles locally.
-                        if (roomController != null) roomController.onUserPlayPause()
-                        else viewModel.onPlayPause()
-                    },
-                    onSeek = { position ->
-                        if (roomController != null) {
-                            // Guest seeks are no-ops in the controller; host seeks
-                            // round-trip through the room and re-apply via a command.
-                            roomController.onUserSeek(position)
-                        } else {
-                            viewModel.onSeek(position)
-                        }
-                    },
-                    onToggleControls = { viewModel.onToggleControls() },
-                    onFastForwardHold = { active -> fastForwardHoldActive = active },
-                    onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
-                    onSelectAudio = { viewModel.onSelectAudio(it) },
-                    onSelectVersion = { viewModel.onSelectVersion(it) },
-                )
+                PlayerClockScope(viewModel) { clock ->
+                    PlayerOverlay(
+                        state = uiState.withPlaybackClock(clock),
+                        viewModel = viewModel,
+                        roomSnapshot = roomSnapshot,
+                        castSlot = {
+                            SiloCastButton(
+                                castManager = castManager,
+                                onStartCast = {
+                                    castScope.launch {
+                                        val spec = viewModel.prepareGoogleCastMedia()
+                                        if (spec != null) castManager.prepareMedia(spec)
+                                    }
+                                },
+                            )
+                        },
+                        isFastForwardHoldActive = fastForwardHoldActive,
+                        onBack = {
+                            // In-room exit: leave the room (host close confirm is handled
+                            // by the overlay before this fires). The controller resets the
+                            // repo + engine; solo playback just pops.
+                            exitRequested = true
+                            roomController?.leave(closeRoom = roomSnapshot?.isHost == true)
+                            viewModel.onExit()
+                            // Nothing behind the player (launcher/deep-link/notification
+                            // open) → popBackStack can't land anywhere and leaves a blank
+                            // NavHost, then system back exits from a grey screen. Finish
+                            // cleanly instead.
+                            if (!navController.popBackStack()) activity?.finish()
+                        },
+                        onPlayPause = {
+                            // In a room, route through transport_request (gated to
+                            // controllers); solo playback toggles locally.
+                            if (roomController != null) roomController.onUserPlayPause()
+                            else viewModel.onPlayPause()
+                        },
+                        onSeek = { position ->
+                            if (roomController != null) {
+                                // Guest seeks are no-ops in the controller; host seeks
+                                // round-trip through the room and re-apply via a command.
+                                roomController.onUserSeek(position)
+                            } else {
+                                viewModel.onSeek(position)
+                            }
+                        },
+                        onToggleControls = { viewModel.onToggleControls() },
+                        onFastForwardHold = { active -> fastForwardHoldActive = active },
+                        onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
+                        onSelectAudio = { viewModel.onSelectAudio(it) },
+                        onSelectVersion = { viewModel.onSelectVersion(it) },
+                    )
+                }
             }
         }
 

@@ -16,17 +16,22 @@ import org.siloserver.silo.repository.PersonalDataRepository
 import org.siloserver.silo.repository.PlaybackRepository
 import org.siloserver.silo.repository.ProfileRepository
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -95,6 +100,93 @@ class PlaybackSessionLifecycleTest {
         assertEquals(listOf("sess-1"), recordedSessions)
 
         lifecycle.stop()
+    }
+
+    @Test
+    fun `a stop during start does not strand the new session`() = runTest {
+        // start() runs its API call outside the lifecycle mutex, and for that
+        // whole window state is Loading with no adopted id — so stop()'s
+        // ownership guard has nothing to compare and tears down anyway. The
+        // start then published Active over a screen the user had dismissed, and
+        // because that stop never saw this session id, the session stayed alive
+        // on the server eating a concurrent-stream slot until it timed out.
+        val gate = kotlinx.coroutines.CompletableDeferred<ApiResult<PlaybackSessionResponse>>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun startSession(
+                fileId: Int,
+                profileId: String,
+                capabilities: ClientCodecCapabilities,
+                audioTrackIndex: Int?,
+                qualityPreference: String?,
+                startPosition: Double?,
+                disableProgressPersistence: Boolean,
+            ): ApiResult<PlaybackSessionResponse> {
+                startCallCount++
+                return gate.await()
+            }
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+
+        val startJob = launch { lifecycle.start(defaultStartParams()) }
+        advanceUntilIdle()
+        assertEquals(SessionState.Loading, lifecycle.state.value)
+
+        // The user leaves. Nothing is Active yet, so the caller has no id to pass.
+        lifecycle.stop()
+        advanceUntilIdle()
+
+        gate.complete(ApiResult.Success(makeSession("sess-late")))
+        advanceUntilIdle()
+        startJob.join()
+
+        assertEquals(
+            SessionState.Idle,
+            lifecycle.state.value,
+            "a dismissed screen must not be resurrected by its own in-flight start",
+        )
+        assertEquals(
+            "sess-late",
+            sessionMgr.lastStoppedSessionId,
+            "the late session must be stopped, not left running on the server",
+        )
+    }
+
+    @Test
+    fun `a failed start finishing after stop does not publish stale failure`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<ApiResult<PlaybackSessionResponse>>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun startSession(
+                fileId: Int,
+                profileId: String,
+                capabilities: ClientCodecCapabilities,
+                audioTrackIndex: Int?,
+                qualityPreference: String?,
+                startPosition: Double?,
+                disableProgressPersistence: Boolean,
+            ): ApiResult<PlaybackSessionResponse> = gate.await()
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+
+        val startJob = launch { lifecycle.start(defaultStartParams()) }
+        advanceUntilIdle()
+        assertEquals(SessionState.Loading, lifecycle.state.value)
+
+        lifecycle.stop()
+        gate.complete(
+            ApiResult.Error(
+                code = 500,
+                error = "start_failed",
+                message = "Start failed",
+            ),
+        )
+        advanceUntilIdle()
+        startJob.join()
+
+        assertEquals(
+            SessionState.Idle,
+            lifecycle.state.value,
+            "a completed teardown must remain terminal for its in-flight start",
+        )
     }
 
     @Test
@@ -182,6 +274,96 @@ class PlaybackSessionLifecycleTest {
         assertEquals(0, sessionMgr.stopCallCount)
         assertTrue(personalRepo.syncCalls.isEmpty())
         assertTrue(lifecycle.state.value is SessionState.Idle)
+    }
+
+    @Test
+    fun `adoption captured before stop is rejected and server session is closed`() = runTest {
+        val sessionMgr = FakeSessionManager()
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        val ownershipEpoch = lifecycle.acquireOwnershipEpoch()
+
+        lifecycle.stop()
+        val adopted = lifecycle.adoptActiveSessionIfCurrent(
+            params = defaultStartParams(),
+            session = makeSession("sess-late-adopt"),
+            expectedOwnershipEpoch = ownershipEpoch,
+        )
+
+        assertFalse(adopted)
+        assertEquals(SessionState.Idle, lifecycle.state.value)
+        assertEquals("sess-late-adopt", sessionMgr.lastStoppedSessionId)
+    }
+
+    @Test
+    fun `ownership acquisition waits for queued stop before accepting a new start`() = runTest {
+        val oldStopEntered = CompletableDeferred<Unit>()
+        val releaseOldStop = CompletableDeferred<Unit>()
+        val stopped = mutableListOf<String>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun stopSession(sessionId: String): ApiResult<Unit> {
+                stopped += sessionId
+                if (sessionId == "sess-old") {
+                    oldStopEntered.complete(Unit)
+                    releaseOldStop.await()
+                }
+                return ApiResult.Success(Unit)
+            }
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        lifecycle.adoptActiveSession(defaultStartParams(), makeSession("sess-old"))
+
+        lifecycle.stopAsync()
+        oldStopEntered.await()
+        val epoch = async { lifecycle.acquireOwnershipEpoch() }
+        assertFalse(epoch.isCompleted)
+
+        releaseOldStop.complete(Unit)
+        val acquired = epoch.await()
+        assertTrue(
+            lifecycle.adoptActiveSessionIfCurrent(
+                params = defaultStartParams(),
+                session = makeSession("sess-new"),
+                expectedOwnershipEpoch = acquired,
+            ),
+        )
+        assertEquals("sess-new", (lifecycle.state.value as SessionState.Active).session.sessionId)
+        assertEquals(listOf("sess-old"), stopped)
+    }
+
+    @Test
+    fun `cancelled adoption closes the allocated server session`() = runTest {
+        val oldStopEntered = CompletableDeferred<Unit>()
+        val releaseOldStop = CompletableDeferred<Unit>()
+        val candidateStopped = CompletableDeferred<Unit>()
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun stopSession(sessionId: String): ApiResult<Unit> {
+                when (sessionId) {
+                    "sess-old" -> {
+                        oldStopEntered.complete(Unit)
+                        releaseOldStop.await()
+                    }
+                    "sess-candidate" -> candidateStopped.complete(Unit)
+                }
+                return ApiResult.Success(Unit)
+            }
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        lifecycle.adoptActiveSession(defaultStartParams(), makeSession("sess-old"))
+        lifecycle.stopAsync()
+        oldStopEntered.await()
+
+        val adoption = async {
+            lifecycle.adoptActiveSessionIfCurrent(
+                params = defaultStartParams(),
+                session = makeSession("sess-candidate"),
+                expectedOwnershipEpoch = 0L,
+            )
+        }
+        yield()
+        adoption.cancelAndJoin()
+
+        assertTrue(candidateStopped.isCompleted)
+        releaseOldStop.complete(Unit)
     }
 
     @Test
@@ -621,6 +803,7 @@ private open class FakeSessionManager : PlaybackSessionManager(
     var startCallCount = 0
     var progressCallCount = 0
     var stopCallCount = 0
+    var lastStoppedSessionId: String? = null
     var lastStartPosition: Double? = null
     var lastProgressSessionId: String? = null
     var lastProgressPosition: Double? = null
@@ -655,6 +838,7 @@ private open class FakeSessionManager : PlaybackSessionManager(
 
     override suspend fun stopSession(sessionId: String): ApiResult<Unit> {
         stopCallCount++
+        lastStoppedSessionId = sessionId
         return stopResult
     }
 }

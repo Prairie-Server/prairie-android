@@ -23,6 +23,7 @@ import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.ProfileRepository
 import org.siloserver.silo.tv.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 class TvVideoPlaybackStarter(
@@ -42,6 +43,7 @@ class TvVideoPlaybackStarter(
         if (!shouldReachServerForPlayback(reachabilityMonitor, request.force)) {
             return VideoPlaybackStartResult.ServerUnreachable(request.contentId)
         }
+        val ownershipEpoch = sessionLifecycle.acquireOwnershipEpoch()
         return try {
             val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
                 is ApiResult.Success -> r.data
@@ -180,7 +182,7 @@ class TvVideoPlaybackStarter(
                 ?: startRequestPosition
                 ?: playerStartPos
 
-            sessionLifecycle.adoptActiveSession(
+            val adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
                 params = StartParams(
                     contentId = request.contentId,
                     fileId = effectiveFileId,
@@ -193,7 +195,15 @@ class TvVideoPlaybackStarter(
                 ),
                 session = resolved,
                 renewMissingSessionWithLegacyStart = false,
+                expectedOwnershipEpoch = ownershipEpoch,
             )
+            if (!adopted) {
+                return failure(
+                    request.contentId,
+                    "Playback start was superseded.",
+                    diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST,
+                )
+            }
 
             VideoPlaybackStartResult.Ready(
                 contentId = request.contentId,
@@ -238,6 +248,8 @@ class TvVideoPlaybackStarter(
                 seasonNumber = watchDetail.seasonNumber,
                 episodeNumber = watchDetail.episodeNumber,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error loading content", e)
             failure(request.contentId, "Unexpected error: ${e.message}", e, PlaybackDiagnosticsCode.UNEXPECTED)

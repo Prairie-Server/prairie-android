@@ -15,6 +15,8 @@ import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
+import org.siloserver.silo.common.player.FinalPlaybackPosition
+import org.siloserver.silo.common.player.FinalPlaybackPositionWriter
 import org.siloserver.silo.common.player.VideoSessionStartV3
 import org.siloserver.silo.common.player.PlayerNotice
 import org.siloserver.silo.common.player.PlayerStatsSnapshot
@@ -69,10 +71,9 @@ import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
 import org.siloserver.silo.playback.subtitleTrackFingerprint
 import org.siloserver.silo.playback.trackSelectionFingerprint
 import org.siloserver.silo.repository.SubtitlesRepository
+import org.siloserver.silo.repository.port.PlaybackWriteScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -91,7 +92,6 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 /**
  * Renderable audio or subtitle track pulled out of ExoPlayer's current
@@ -526,7 +526,7 @@ class TvPlayerViewModel(
     private val subtitlesRepository: SubtitlesRepository,
     // Track B: durable offline-safe position (resume + outbox sync).
     private val userItemStatePort: org.siloserver.silo.repository.port.UserItemStatePort,
-    private val outboxSyncScheduler: org.siloserver.silo.common.data.sync.OutboxSyncScheduler,
+    private val finalPlaybackPositionWriter: FinalPlaybackPositionWriter,
     // Next-episode resolution for auto-advance (F2).
     private val catalogRepository: org.siloserver.silo.repository.CatalogRepository,
     // Pre-play reachability gate (issue #33): drives Retry's fresh probe.
@@ -559,6 +559,7 @@ class TvPlayerViewModel(
 
     private var lastRecordedKey: String? = null
     private var lastRecordedPositionSec: Double = -1.0
+    private var finalPositionScope: PlaybackWriteScope? = null
 
     /** [force] bypasses the time-throttle (used on pause/stop to capture the exact spot). */
     private fun maybeRecordPosition(positionSec: Double, durationSec: Double, force: Boolean = false) {
@@ -829,6 +830,22 @@ class TvPlayerViewModel(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    val presentationState: StateFlow<UiState> = uiState
+        .map(UiState::withoutPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.withoutPlaybackClock(),
+        )
+    val playbackClock: StateFlow<PlaybackClock> = uiState
+        .map(UiState::toPlaybackClock)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = _uiState.value.toPlaybackClock(),
+        )
 
     /** Intro auto-skip banner state. The screen consumes this directly. */
     val introSkipState: StateFlow<IntroAutoSkipState> = introAutoSkipController.state
@@ -1139,7 +1156,9 @@ class TvPlayerViewModel(
         _uiState.update { it.copy(isBuffering = false) }
 
         _uiState.update { it.copy(isLoading = true, error = null, serverUnreachable = false) }
+        finalPositionScope = null
         viewModelScope.launch {
+            finalPositionScope = finalPlaybackPositionWriter.captureScope()
             try {
                 runCatching { playerSettingsStore.refreshFromServer() }
                 val result = videoPlaybackCoordinator.start(
@@ -3194,22 +3213,24 @@ class TvPlayerViewModel(
         sleepTimer.cancel()
     }
 
-    suspend fun stopSessionForExit() {
+    private fun prepareSessionExit() {
+        contentLoadGeneration++
         resetSeekRecoveryForContentChange()
         transportMountGate.reset()
-        // Track B: durably record the final position + prompt a drain (covers the
-        // online offline-download case with no live session / connectivity change).
+        val state = _uiState.value
         val fileId = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId
-        if (contentId.isNotBlank() && fileId != null) {
-            userItemStatePort.recordPosition(
-                contentId,
-                fileId,
-                _uiState.value.position,
-                _uiState.value.duration.takeIf { it > 0.0 },
+        val scope = finalPositionScope
+        if (scope != null && contentId.isNotBlank() && fileId != null) {
+            finalPlaybackPositionWriter.submit(
+                FinalPlaybackPosition(
+                    scope = scope,
+                    contentId = contentId,
+                    fileId = fileId,
+                    positionSeconds = state.position,
+                    durationSeconds = state.duration.takeIf { it > 0.0 },
+                ),
             )
-            outboxSyncScheduler.requestSync()
         }
-        sessionLifecycle.stop()
         introObserveJob?.cancel()
         nextUpCountdownJob?.cancel()
         introAutoSkipController.reset()
@@ -3229,8 +3250,20 @@ class TvPlayerViewModel(
         }
     }
 
+    /** Ordered path used by auto-advance before the singleton lifecycle starts the next item. */
+    suspend fun stopSessionForExit() {
+        prepareSessionExit()
+        sessionLifecycle.stop()
+    }
+
+    /** Ordinary Back/remote-stop path: snapshot locally and return to detail immediately. */
+    fun stopSessionForExitAsync() {
+        prepareSessionExit()
+        sessionLifecycle.stopAsync()
+    }
+
     fun onExit() {
-        viewModelScope.launch { stopSessionForExit() }
+        stopSessionForExitAsync()
     }
 
     /**
@@ -3466,24 +3499,21 @@ class TvPlayerViewModel(
             _uiState.value.selectedFileId ?: _uiState.value.mediaFileId,
         )
         super.onCleared()
-        // Guarantee the final resume position is persisted on teardown. The
-        // periodic write runs in viewModelScope, which is cancelling here — so
-        // AWAIT one last write under NonCancellable (a brief local Room write off
-        // the main thread). Mirrors phone PlayerViewModel.onCleared; without it,
-        // exiting while playing loses the last spot.
+        // The application-owned writer survives ViewModel cancellation and
+        // preserves the final local resume point without blocking main.
         val cid = contentId.takeIf { it.isNotBlank() }
         val fid = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId
-        if (cid != null && fid != null) {
-            runCatching {
-                runBlocking(NonCancellable + Dispatchers.IO) {
-                    userItemStatePort.recordPosition(
-                        cid,
-                        fid,
-                        _uiState.value.position,
-                        _uiState.value.duration.takeIf { it > 0.0 },
-                    )
-                }
-            }
+        val scope = finalPositionScope
+        if (scope != null && cid != null && fid != null) {
+            finalPlaybackPositionWriter.submit(
+                FinalPlaybackPosition(
+                    scope = scope,
+                    contentId = cid,
+                    fileId = fid,
+                    positionSeconds = _uiState.value.position,
+                    durationSeconds = _uiState.value.duration.takeIf { it > 0.0 },
+                ),
+            )
         }
         introObserveJob?.cancel()
         lifecycleObserveJob?.cancel()
@@ -3491,17 +3521,24 @@ class TvPlayerViewModel(
         introAutoSkipController.reset()
         val sessionId = _uiState.value.sessionId
         if (sessionId != null) {
-            // androidx lifecycle 2.10 closes viewModelScope BEFORE onCleared, so a
-            // launch here never runs and the server session leaks until timeout.
-            // Unlike the resume-position write above (a brief local Room write),
-            // stop() makes up to two HTTP calls — blocking main for those network
-            // timeouts is an ANR. stopAsync launches the stop on the lifecycle's
-            // own singleton scope under NonCancellable. Best-effort.
+            // The lifecycle owns an application scope, so this best-effort stop
+            // survives ViewModel cancellation without holding the main thread.
             sessionLifecycle.stopAsync()
         }
     }
 
 }
+
+data class PlaybackClock(
+    val position: Double,
+    val duration: Double,
+)
+
+internal fun TvPlayerViewModel.UiState.withoutPlaybackClock(): TvPlayerViewModel.UiState =
+    copy(position = 0.0, duration = 0.0)
+
+internal fun TvPlayerViewModel.UiState.toPlaybackClock(): PlaybackClock =
+    PlaybackClock(position = position, duration = duration)
 
 private fun PlayerTrackEntry.selectionFingerprint(): String =
     trackSelectionFingerprint(

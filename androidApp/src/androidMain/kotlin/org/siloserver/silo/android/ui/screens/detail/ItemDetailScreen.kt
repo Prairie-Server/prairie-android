@@ -101,8 +101,10 @@ fun ItemDetailScreen(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                viewModel.refreshOnReturn()
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> viewModel.onRouteResumed()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> viewModel.onRoutePaused()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

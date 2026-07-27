@@ -263,7 +263,7 @@ fun TvPlayerScreen(
     // in TvSearchScreen / TvTextInputDialog.
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { runCatching { keyboardController?.hide() } }
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.presentationState.collectAsState()
     val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     // PlayerView surface must bind to THIS, not the MediaController, so the
     // swap. Mirrors phone PlayerScreen. The MediaController is kept for transport.
@@ -291,7 +291,6 @@ fun TvPlayerScreen(
     val aiTranslate by viewModel.aiTranslate.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestOnExit by rememberUpdatedState(onExit)
-    val latestSiloCastState by rememberUpdatedState(state)
     val latestSiloCastPlaybackSpeed by rememberUpdatedState(playbackSpeed)
     val latestSiloCastSubtitleDelayMs by rememberUpdatedState(subtitleDelayMs)
     val latestSiloCastHdrEnabled by rememberUpdatedState(hdrEnabled)
@@ -301,7 +300,6 @@ fun TvPlayerScreen(
     val displayHdr = remember { DisplayHdrProbe.probe(context) }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
     val rootFocus = remember { FocusRequester() }
-    val exitScope = rememberCoroutineScope()
     var exitRequested by remember { mutableStateOf(false) }
     var requestedHudTab by remember { mutableStateOf(HudTab.Info) }
     var showQuickSubtitlePicker by remember { mutableStateOf(false) }
@@ -459,7 +457,7 @@ fun TvPlayerScreen(
             setQuality = { qualityId ->
                 val player = latestSiloCastMediaController ?: latestSiloCastSessionPlayer
                 if (player != null && selectVideoQuality(player, qualityId)) {
-                    val resolution = latestSiloCastState.videoQualities
+                    val resolution = viewModel.uiState.value.videoQualities
                         .firstOrNull { it.id == qualityId }
                         ?.resolution
                     viewModel.onVideoQualitySelectionApplied(resolution)
@@ -492,7 +490,7 @@ fun TvPlayerScreen(
             playNext = viewModel::playNextEpisodeNow,
         )
         val registration = siloCastReceiver.registerPlayer(adapter) {
-            latestSiloCastState.toSiloCastPlaybackState(
+            viewModel.uiState.value.toSiloCastPlaybackState(
                 contentId = contentId,
                 playbackSpeed = latestSiloCastPlaybackSpeed,
                 hdrEnabled = latestSiloCastHdrEnabled,
@@ -515,10 +513,8 @@ fun TvPlayerScreen(
                 controller.stop()
                 controller.clearMediaItems()
             }
-            exitScope.launch {
-                viewModel.stopSessionForExit()
-                latestOnExit()
-            }
+            viewModel.stopSessionForExitAsync()
+            latestOnExit()
         }
     }
     // A remote "stop"/"terminate" command tears the screen down like a Back press.
@@ -539,7 +535,6 @@ fun TvPlayerScreen(
             onPlayNext(req.contentId, req.autoAdvanceCount, req.preferredQuality)
         }
     }
-    val latestPlayerState by rememberUpdatedState(state)
     val latestIntroSkipState by rememberUpdatedState(introSkipState)
     val latestRoomSnapshot by rememberUpdatedState(roomSnapshot)
     val latestShowLeaveDialog by rememberUpdatedState(showLeaveDialog)
@@ -591,7 +586,7 @@ fun TvPlayerScreen(
     }
 
     fun handleSkipIntroNow(): Boolean {
-        val target = latestPlayerState.intro?.end ?: return false
+        val target = viewModel.uiState.value.intro?.end ?: return false
         if (roomController != null) {
             if (tvRoomTransportGate(latestRoomSnapshot, TvTransportIntent.Seek) != TransportGate.Send) {
                 return true
@@ -630,7 +625,7 @@ fun TvPlayerScreen(
         captureQuickSkipBurst: Boolean = false,
     ): Boolean {
         val controller = mediaController ?: return true
-        val playerState = latestPlayerState
+        val playerState = viewModel.uiState.value
         if (roomController != null &&
             tvRoomTransportGate(snapshot, TvTransportIntent.Seek) != TransportGate.Send
         ) {
@@ -699,7 +694,7 @@ fun TvPlayerScreen(
         quickSkipCaptureJob?.cancel()
         quickSkipCaptureJob = null
         quickSkipCaptureActive = false
-        cleanSeekPreviewSec = latestPlayerState.position.coerceAtLeast(0.0)
+        cleanSeekPreviewSec = viewModel.uiState.value.position.coerceAtLeast(0.0)
         cleanSeekRate = if (direction < 0) -1 else 1
 
         cleanSeekTickJob?.cancel()
@@ -707,7 +702,7 @@ fun TvPlayerScreen(
             while (isActive && cleanSeekRate != 0) {
                 cleanSeekPreviewSec = advanceCleanPlaybackSeekPreview(
                     previewSec = cleanSeekPreviewSec,
-                    durationSec = latestPlayerState.duration,
+                    durationSec = viewModel.uiState.value.duration,
                     rate = cleanSeekRate,
                 )
                 delay(CLEAN_SEEK_TICK_MS)
@@ -741,8 +736,8 @@ fun TvPlayerScreen(
                 delay(CLEAN_SEEK_HOLD_THRESHOLD_MS)
                 if (pendingCleanSeekGeneration == generation &&
                     pendingCleanSeekDirection == direction &&
-                    !latestPlayerState.showControls &&
-                    !latestPlayerState.showNextUp
+                    !viewModel.uiState.value.showControls &&
+                    !viewModel.uiState.value.showNextUp
                 ) {
                     beginCleanPlaybackSeek(direction, latestRoomSnapshot)
                 }
@@ -868,7 +863,7 @@ fun TvPlayerScreen(
 
     DisposableEffect(viewModel, roomController) {
         val handler: (KeyEvent) -> Boolean = handler@{ event ->
-            val playerState = latestPlayerState
+            val playerState = viewModel.uiState.value
             if (playerState.streamUrl == null || playerState.isLoading || playerState.error != null) {
                 return@handler false
             }
@@ -1447,7 +1442,11 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
             timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
-            durationSeconds = state.duration,
+            durationSeconds = viewModel.uiState.value.duration.takeIf { it > 0.0 }
+                ?: mediaController?.duration
+                    ?.takeIf { it > 0L }
+                    ?.div(1000.0)
+                ?: 0.0,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = state.requestHeaders,
             expectedDynamicRange = plan?.source?.hdrFormat,
@@ -1497,7 +1496,11 @@ fun TvPlayerScreen(
             artworkUrl = state.artworkUrl,
             startPositionSeconds = state.startPosition,
             timelineOffsetSeconds = plan?.timeline?.timelineOffsetSeconds ?: 0.0,
-            durationSeconds = state.duration,
+            durationSeconds = viewModel.uiState.value.duration.takeIf { it > 0.0 }
+                ?: mediaController?.duration
+                    ?.takeIf { it > 0L }
+                    ?.div(1000.0)
+                ?: 0.0,
             audioPassthroughCodecs = plan.validatedPassthroughCodecs(),
             requestHeaders = state.requestHeaders,
             expectedDynamicRange = plan?.source?.hdrFormat,
@@ -1765,13 +1768,14 @@ fun TvPlayerScreen(
                         (mediaController?.bufferedPosition ?: 0L) -
                             (mediaController?.currentPosition ?: 0L)
                     ).coerceAtLeast(0L) / 1000.0
+                    TvPlayerClockScope(viewModel) { clock ->
                     TvPlayerIdleOverlay(
                         title = state.title,
                         episodeTag = state.seasonNumber?.let { season ->
                             state.episodeNumber?.let { ep -> "S$season·E$ep" }
                         },
-                        positionSec = state.position,
-                        durationSec = state.duration,
+                        positionSec = clock.position,
+                        durationSec = clock.duration,
                         isPaused = state.isPaused,
                         isScrubbing = state.isScrubbing,
                         scrubPreviewSec = state.scrubPreviewSec,
@@ -1858,6 +1862,7 @@ fun TvPlayerScreen(
                             }
                         },
                     )
+                    }
                 }
 
                 if (!isInPictureInPictureMode && state.hudOpen) {
@@ -1869,10 +1874,11 @@ fun TvPlayerScreen(
                             .padding(top = 56.dp),
                         contentAlignment = androidx.compose.ui.Alignment.TopCenter,
                     ) {
+                        TvPlayerClockScope(viewModel) { clock ->
                         TvPlayerHud(
                             title = state.title,
-                            positionSec = state.position,
-                            durationSec = state.duration,
+                            positionSec = clock.position,
+                            durationSec = clock.duration,
                             seasonNumber = state.seasonNumber,
                             episodeNumber = state.episodeNumber,
                             audioTracks = state.audioTracks,
@@ -1967,6 +1973,7 @@ fun TvPlayerScreen(
                             initialTab = requestedHudTab,
                             onPickerOpenChanged = { hudPickerOpen = it },
                         )
+                        }
                     }
                 }
 
@@ -1977,12 +1984,14 @@ fun TvPlayerScreen(
                             .padding(top = 80.dp),
                         contentAlignment = Alignment.TopCenter,
                     ) {
-                        TvHoldSeekIndicator(
-                            isVisible = true,
-                            rate = cleanSeekRate,
-                            previewTimeSec = cleanSeekPreviewSec,
-                            durationSec = state.duration,
-                        )
+                        TvPlayerClockScope(viewModel) { clock ->
+                            TvHoldSeekIndicator(
+                                isVisible = true,
+                                rate = cleanSeekRate,
+                                previewTimeSec = cleanSeekPreviewSec,
+                                durationSec = clock.duration,
+                            )
+                        }
                     }
                 }
 
@@ -3198,6 +3207,15 @@ private fun String.toSiloCastSubtitlePosition(): SubtitlePositionPreset {
             else -> SubtitlePositionPreset.Bottom
         }
     }
+}
+
+@Composable
+private fun TvPlayerClockScope(
+    viewModel: TvPlayerViewModel,
+    content: @Composable (PlaybackClock) -> Unit,
+) {
+    val clock by viewModel.playbackClock.collectAsState()
+    content(clock)
 }
 
 
