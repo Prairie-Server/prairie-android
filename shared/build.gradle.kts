@@ -55,6 +55,17 @@ android {
     }
 }
 
+// commonTest sources are identical across variants. Keep only the debug unit-test
+// variant so Kover report/verify does not also schedule testReleaseUnitTest
+// (compile + run duplicate suite for no extra gate signal).
+androidComponents {
+    beforeVariants { builder ->
+        if (builder.buildType == "release") {
+            builder.enableUnitTest = false
+        }
+    }
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
@@ -72,6 +83,11 @@ kover {
             // drop androidMain from the Android KMP compilation artifact.
             includedSourceSets.addAll("commonMain")
             excludedSourceSets.addAll("androidMain")
+        }
+        instrumentation {
+            // Belt-and-suspenders with androidComponents.enableUnitTest=false:
+            // never pull release unit tests into koverXmlReport/koverVerify.
+            disabledForTestTasks.add("testReleaseUnitTest")
         }
     }
     reports {
