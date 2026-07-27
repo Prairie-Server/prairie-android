@@ -51,11 +51,17 @@ jobs:
           # (:androidApp / :androidTvApp) and :android-shared pull Media3 and
           # inflate CI without moving the coverage floor. Debug variant only
           # (release unit tests recompile the same sources).
+          # --rerun-tasks on Kover: setup-gradle cache can restore a stale
+          # koverVerify result that sits 0.002% under the 95% floor.
           ./gradlew \
             -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
             :shared:testDebugUnitTest \
+            --max-workers=4
+          ./gradlew \
+            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
             :shared:koverXmlReport \
             :shared:koverVerify \
+            --rerun-tasks \
             --max-workers=4
 
       - name: Upload test reports
