@@ -15,6 +15,7 @@ import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -261,6 +262,40 @@ class PlaybackSessionManagerStagedReplanTest {
         harness.awaitStopped("s1")
         assertEquals("s2", harness.manager.activeSessionIdForTest())
         assertEquals(mapOf("s1" to 1), harness.stoppedSessions.groupingBy { it }.eachCount())
+    }
+
+    @Test
+    fun `committed predecessor cleanup can be owned and awaited by the caller scope`() = runTest {
+        val cleanupEntered = CompletableDeferred<Unit>()
+        val releaseCleanup = CompletableDeferred<Unit>()
+        val harness = Harness(
+            committedSessionCleanupScope = backgroundScope,
+            replanResponse = { _, _ -> response(sidecarPlan(sessionId = "s2")) },
+            stopBehavior = {
+                cleanupEntered.complete(Unit)
+                releaseCleanup.await()
+            },
+        )
+        harness.start()
+        val replacement = harness.stageSidecar()
+        assertIs<ApiResult.Success<VideoSessionStartV3.Ready>>(
+            harness.manager.commitStagedVideoReplan(
+                staged = replacement,
+                deferPublication = true,
+            ),
+        )
+
+        assertTrue(harness.manager.confirmVideoSessionPublication("s2"))
+        assertEquals(emptyList(), harness.stoppedSessions)
+
+        cleanupEntered.await()
+
+        assertEquals(emptyList(), harness.stoppedSessions)
+        releaseCleanup.complete(Unit)
+        harness.awaitStopped("s1")
+
+        assertEquals(listOf("s1"), harness.stoppedSessions)
+        assertEquals("s2", harness.manager.activeSessionIdForTest())
     }
 
     @Test
@@ -1345,6 +1380,7 @@ class PlaybackSessionManagerStagedReplanTest {
         startResponses: List<PlaybackDecisionResponseV3> = listOf(response(basePlan())),
         private val startResponseOverride: (suspend (Int) -> PlaybackDecisionResponseV3)? = null,
         pendingPublicationSettleTimeoutMs: Long? = PlaybackSessionManager.NEVER_SELF_HEAL,
+        committedSessionCleanupScope: CoroutineScope? = null,
         private val replanResponse: suspend (Int, JsonObject) -> PlaybackDecisionResponseV3,
         private val stopBehavior: suspend (String) -> Unit = {},
     ) {
@@ -1402,6 +1438,7 @@ class PlaybackSessionManagerStagedReplanTest {
             // production timeout would therefore self-heal publications inside
             // tests that are deliberately asserting the unresolved state.
             pendingPublicationSettleTimeoutMs = pendingPublicationSettleTimeoutMs,
+            committedSessionCleanupScope = committedSessionCleanupScope,
         )
 
         suspend fun start(

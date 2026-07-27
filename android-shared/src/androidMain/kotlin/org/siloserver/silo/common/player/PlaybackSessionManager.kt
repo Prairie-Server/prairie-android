@@ -71,6 +71,12 @@ open class PlaybackSessionManager(
     private val tokenManager: TokenManager,
     private val networkEvidenceProvider: PlaybackNetworkEvidenceProvider = PlaybackNetworkEvidenceProvider.None,
     /**
+     * Owns asynchronous predecessor cleanup after a committed publication.
+     * Production uses the manager's long-lived IO scope. Tests may inject their
+     * structured scope so cleanup is observable and cannot outlive the test.
+     */
+    private val committedSessionCleanupScope: CoroutineScope? = null,
+    /**
      * How long a content reset waits for a deferred publication before rolling
      * it back itself. Injectable because it is a wall-clock safety net, and
      * `runTest` advances virtual time whenever the scheduler idles — a fixed
@@ -162,6 +168,7 @@ open class PlaybackSessionManager(
     private val contentStartMutex = Mutex()
     private val immediateVideoReplanMutex = Mutex()
     private val telemetryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val sessionCleanupScope = committedSessionCleanupScope ?: telemetryScope
     private val activeVideoAttempt = AtomicReference<ActiveVideoAttempt?>()
     private val stagedVideoReplans =
         IdentityHashMap<StagedVideoReplan, PreparedStagedVideoReplan>()
@@ -1099,7 +1106,7 @@ open class PlaybackSessionManager(
     ) {
         if (oldSessionId == activeSessionId) return
         runCatching {
-            telemetryScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            sessionCleanupScope.launch(start = CoroutineStart.UNDISPATCHED) {
                 var stopped = false
                 for (attempt in 0 until COMMITTED_SESSION_CLEANUP_ATTEMPTS) {
                     val result = try {

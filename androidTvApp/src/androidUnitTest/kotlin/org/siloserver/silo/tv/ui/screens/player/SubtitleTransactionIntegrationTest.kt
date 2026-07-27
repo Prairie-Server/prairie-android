@@ -429,6 +429,7 @@ class SubtitleTransactionIntegrationTest {
         val manager = PlaybackSessionManager(
             playbackRepository = PlaybackRepository(PlaybackApi(client)),
             tokenManager = IntegrationTokenManager,
+            committedSessionCleanupScope = scope,
         )
         val lifecycle = PlaybackSessionLifecycle(
             sessionManager = manager,
@@ -733,12 +734,11 @@ class SubtitleTransactionIntegrationTest {
     }
 
     private companion object {
-        // Manager publication cleanup and orphan drainage use real IO
-        // dispatchers. This budget is their deadlock backstop, not a performance
-        // assertion: five seconds starved under the hosted two-worker full
-        // suite. Test-scope replan/adoption/persistence waits keep the tighter
-        // guard above.
-        const val EVENT_TIMEOUT_MS = 30_000L
+        // Publication cleanup, orphan drainage, replan, adoption, and
+        // persistence are all owned by this harness's structured scope. Keep a
+        // short deadlock backstop: hosted scheduling must not require a wider
+        // wall-clock allowance.
+        const val EVENT_TIMEOUT_MS = 5_000L
 
         const val CONTENT_ID = "content-1"
         const val FILE_ID = 42
