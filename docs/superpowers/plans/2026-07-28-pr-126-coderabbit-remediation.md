@@ -282,7 +282,7 @@ Assert each room-sync controller reporting block does not contain
 
 ```bash
 ./gradlew --no-daemon \
-  :shared:jvmTest \
+  :shared:test \
   :androidApp:testDebugUnitTest \
   :androidTvApp:testDebugUnitTest \
   --tests '*RoomDeliveryLatchTest' \
@@ -339,7 +339,7 @@ git commit -m "refactor(watch-together): make delivery keys explicit"
 - [ ] **Step 1: Establish the characterization-test baseline**
 
 ```bash
-./gradlew --no-daemon :shared:jvmTest \
+./gradlew --no-daemon :shared:test \
   --tests '*SectionRepositoryCacheTest' \
   --tests '*CatalogRepositoryDetailCacheTest' \
   --tests '*PersonalDataRepositoryCacheTest' \
@@ -466,7 +466,7 @@ git commit -m "docs: resolve PR 126 review findings"
 
 ```bash
 ./gradlew --no-daemon \
-  :shared:jvmTest \
+  :shared:test \
   :android-shared:testDebugUnitTest \
   :androidApp:testDebugUnitTest \
   :androidTvApp:testDebugUnitTest \
