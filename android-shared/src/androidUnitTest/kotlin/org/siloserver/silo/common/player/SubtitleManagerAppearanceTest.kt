@@ -38,16 +38,16 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
-    fun phoneSubtitleTextFractionsAreOneQuarterLarger() {
+    fun phoneSubtitleTextFractionsAreOneEighthLarger() {
         val manager = SubtitleManager(
             presentation = AndroidSubtitlePresentation.Phone,
         )
 
-        assertEquals(25f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
-        assertEquals(32.5f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
-        assertEquals(40f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
-        assertEquals(50f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
-        assertEquals(60f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
+        assertEquals(22.5f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
+        assertEquals(29.25f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
+        assertEquals(36f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
+        assertEquals(45f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
+        assertEquals(54f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
     }
 
     @Test

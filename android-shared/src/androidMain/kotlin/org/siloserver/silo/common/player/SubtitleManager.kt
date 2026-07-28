@@ -284,6 +284,7 @@ class SubtitleManager(
         val sync = if (existing?.isDisposed == true || existing == null) {
             SubtitleVideoRectSync(
                 playerView = playerView,
+                presentation = presentation,
                 onPostLayoutReconciled = { postLayoutReconciliationObserver?.invoke() },
             ).also {
                 it.letterbox = letterbox
@@ -342,11 +343,11 @@ class SubtitleManager(
     private fun fractionalSizeFor(preset: SubtitleFontSizePreset): Float {
         val numerator = when (presentation) {
             AndroidSubtitlePresentation.Phone -> when (preset) {
-                SubtitleFontSizePreset.Small -> 25f
-                SubtitleFontSizePreset.Medium -> 32.5f
-                SubtitleFontSizePreset.Large -> 40f
-                SubtitleFontSizePreset.XLarge -> 50f
-                SubtitleFontSizePreset.XXLarge -> 60f
+                SubtitleFontSizePreset.Small -> 22.5f
+                SubtitleFontSizePreset.Medium -> 29.25f
+                SubtitleFontSizePreset.Large -> 36f
+                SubtitleFontSizePreset.XLarge -> 45f
+                SubtitleFontSizePreset.XXLarge -> 54f
             }
             AndroidSubtitlePresentation.Television -> when (preset) {
                 SubtitleFontSizePreset.Small -> 20f
@@ -600,6 +601,7 @@ internal fun neutralizeFullWidthCueSizes(cueGroup: CueGroup): CueGroup {
 @UnstableApi
 private class SubtitleVideoRectSync(
     playerView: PlayerView,
+    private val presentation: AndroidSubtitlePresentation,
     private val onPostLayoutReconciled: () -> Unit,
 ) :
     View.OnLayoutChangeListener,
@@ -802,8 +804,29 @@ private class SubtitleVideoRectSync(
 
     private fun applyRect(playerView: PlayerView) {
         val subtitleView = playerView.subtitleView ?: return
-        val videoSize = playerView.player?.videoSize ?: VideoSize.UNKNOWN
         val resizeMode = playerView.resizeMode
+        val gravity = Gravity.TOP or Gravity.START
+        if (
+            presentation == AndroidSubtitlePresentation.Phone &&
+            (
+                resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT ||
+                    resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL
+            ) &&
+            !letterbox.isDetected &&
+            titleSafeFraction <= 0f
+        ) {
+            applyLayoutParams(
+                subtitleView = subtitleView,
+                width = FrameLayout.LayoutParams.MATCH_PARENT,
+                height = FrameLayout.LayoutParams.MATCH_PARENT,
+                leftMargin = 0,
+                topMargin = 0,
+                gravity = gravity,
+            )
+            return
+        }
+
+        val videoSize = playerView.player?.videoSize ?: VideoSize.UNKNOWN
         val displayedVideoRect = displayedSubtitleVideoRect(
             viewWidth = playerView.width,
             viewHeight = playerView.height,
@@ -819,7 +842,6 @@ private class SubtitleVideoRectSync(
         ).insetByLetterbox(letterbox).insetByTitleSafe(titleSafeFraction)
         val current = subtitleView.layoutParams as? FrameLayout.LayoutParams
         val params = current ?: FrameLayout.LayoutParams(rect.width, rect.height)
-        val gravity = Gravity.TOP or Gravity.START
         if (
             current == null ||
             params.width != rect.width ||
@@ -832,6 +854,34 @@ private class SubtitleVideoRectSync(
             params.height = rect.height
             params.leftMargin = rect.left
             params.topMargin = rect.top
+            params.gravity = gravity
+            subtitleView.layoutParams = params
+            subtitleView.requestLayout()
+        }
+    }
+
+    private fun applyLayoutParams(
+        subtitleView: View,
+        width: Int,
+        height: Int,
+        leftMargin: Int,
+        topMargin: Int,
+        gravity: Int,
+    ) {
+        val current = subtitleView.layoutParams as? FrameLayout.LayoutParams
+        val params = current ?: FrameLayout.LayoutParams(width, height)
+        if (
+            current == null ||
+            params.width != width ||
+            params.height != height ||
+            params.leftMargin != leftMargin ||
+            params.topMargin != topMargin ||
+            params.gravity != gravity
+        ) {
+            params.width = width
+            params.height = height
+            params.leftMargin = leftMargin
+            params.topMargin = topMargin
             params.gravity = gravity
             subtitleView.layoutParams = params
             subtitleView.requestLayout()
