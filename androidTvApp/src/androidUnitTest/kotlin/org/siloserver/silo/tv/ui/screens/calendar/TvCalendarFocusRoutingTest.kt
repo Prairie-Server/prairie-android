@@ -37,4 +37,17 @@ class TvCalendarFocusRoutingTest {
     fun returnInFlightDoesNotRestartChoreography() {
         assertFalse(shouldReturnCalendarFocusToControls(2, 2, true))
     }
+
+    @Test
+    fun heldUpOnCalendarControlsStaysInContent() {
+        assertEquals(
+            CalendarUpFallbackAction.StayInContent,
+            calendarUpFallbackAction(
+                focusedShelfIndex = null,
+                firstFocusableShelfIndex = 2,
+                isReturningToControls = false,
+                isRepeat = true,
+            ),
+        )
+    }
 }

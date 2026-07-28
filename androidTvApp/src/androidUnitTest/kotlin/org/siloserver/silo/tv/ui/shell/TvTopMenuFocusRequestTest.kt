@@ -33,4 +33,22 @@ class TvTopMenuFocusRequestTest {
 
         assertEquals(listOf("frame", "focus", "frame", "focus"), events)
     }
+
+    @Test
+    fun retryStopsWhenItsTargetIsNoLongerCurrent() = runTest {
+        val events = mutableListOf<String>()
+        var targetIsCurrent = true
+
+        requestTopMenuFocusUntilApplied(
+            awaitFrame = { events += "frame" },
+            isTargetCurrent = { targetIsCurrent },
+            requestFocus = {
+                events += "focus"
+                targetIsCurrent = false
+                false
+            },
+        )
+
+        assertEquals(listOf("frame", "focus"), events)
+    }
 }

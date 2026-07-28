@@ -2,9 +2,12 @@ package org.siloserver.silo.tv.ui.shell
 
 internal suspend fun requestTopMenuFocusUntilApplied(
     awaitFrame: suspend () -> Unit,
+    isTargetCurrent: () -> Boolean = { true },
     requestFocus: () -> Boolean,
 ) {
-    do {
+    while (isTargetCurrent()) {
         awaitFrame()
-    } while (!requestFocus())
+        if (!isTargetCurrent()) return
+        if (requestFocus()) return
+    }
 }

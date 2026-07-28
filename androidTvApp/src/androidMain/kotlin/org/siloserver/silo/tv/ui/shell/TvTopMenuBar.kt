@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -229,20 +230,23 @@ fun TvTopMenuBar(
     // suppression lift (e.g. closing the profile dropdown, which flips
     // isFocusSuppressed false) does NOT also re-grab the selected tab and fight
     // the dedicated profile-avatar focus path below.
-    var lastHandledFocusRequest by remember { mutableStateOf(0) }
-    LaunchedEffect(focusRequest, isFocusSuppressed) {
+    val currentFocusRequestTarget by rememberUpdatedState(focusRequestTarget)
+    var lastHandledFocusRequest by remember { mutableStateOf<Pair<Int, TvTopMenuPanel?>>(0 to null) }
+    val focusRequestIdentity = focusRequest to focusRequestTarget
+    LaunchedEffect(focusRequest, focusRequestTarget, isFocusSuppressed) {
         if (isFocusSuppressed) return@LaunchedEffect
-        if (focusRequest == lastHandledFocusRequest) return@LaunchedEffect
+        if (focusRequestIdentity == lastHandledFocusRequest) return@LaunchedEffect
         val explicitFocus = focusRequestTarget?.let(::focusForPanel)
         dwellSuppressedButton = explicitFocus
         val requester = explicitFocus?.let(::requesterForFocus) ?: selectedEntryRequester()
         requestTopMenuFocusUntilApplied(
             awaitFrame = { androidx.compose.runtime.withFrameNanos { } },
+            isTargetCurrent = { currentFocusRequestTarget == focusRequestTarget },
             requestFocus = {
                 runCatching { requester.requestFocus() }.getOrDefault(false)
             },
         )
-        lastHandledFocusRequest = focusRequest
+        lastHandledFocusRequest = focusRequestIdentity
     }
 
     LaunchedEffect(focusedButton) {

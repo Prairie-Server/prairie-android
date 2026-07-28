@@ -805,7 +805,7 @@ fun TvMainShell(
                             val isRepeat = ev.nativeKeyEvent.repeatCount > 0
                             val contentHandledUp = contentUpFallback?.invoke(isRepeat)
                             if (contentHandledUp != null) {
-                                if (!contentHandledUp) {
+                                if (shouldRequestMenuAfterContentUp(contentHandledUp, isRepeat)) {
                                     focusState.requestMenuFocusIfAvailable(
                                         selectedMenuFocusTarget,
                                         allowNullTarget = currentRoute == TvMainRoute.Search.route,
@@ -816,7 +816,7 @@ fun TvMainShell(
                                 // fails (we're already on the top row), hand
                                 // focus to the menu bar.
                                 val moved = focusManager.moveFocus(FocusDirection.Up)
-                                if (!moved) {
+                                if (shouldRequestMenuAfterContentUp(moved, isRepeat)) {
                                     focusState.requestMenuFocusIfAvailable(
                                         selectedMenuFocusTarget,
                                         allowNullTarget = currentRoute == TvMainRoute.Search.route,
