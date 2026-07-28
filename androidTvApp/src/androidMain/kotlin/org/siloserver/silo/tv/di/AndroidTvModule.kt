@@ -207,6 +207,7 @@ val androidTvModule = module {
         org.siloserver.silo.common.player.AudiobookPlayerViewModel(
             catalogRepository = get(),
             playbackSessionManager = get(),
+            playbackSessionLifecycle = get(),
             capabilityDetector = get(),
             bookmarksStore = get(),
             userItemStatePort = get(),
