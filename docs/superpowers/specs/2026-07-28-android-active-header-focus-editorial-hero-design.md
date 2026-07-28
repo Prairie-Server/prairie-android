@@ -1,8 +1,8 @@
-# Android TV Active Header Focus and Editorial Hero Design
+# Android Active Header Focus and Editorial Hero Design
 
-**Date:** 2026-07-28  
-**Status:** Approved for implementation planning  
-**Scope:** Android TV browsing shell and browsing heroes only
+**Date:** 2026-07-28
+**Status:** Approved for implementation planning
+**Scope:** Android TV header focus; Android phone and TV browsing heroes
 
 ## Context
 
@@ -13,14 +13,15 @@ presentation defects:
 1. Pressing Up from the first content row can focus Search instead of the
    currently active top-menu destination. Pressing Back from the same page
    correctly focuses the active destination.
-2. Browsing heroes prioritize technical stream badges such as resolution,
-   HDR, and audio format ahead of editorial information. This can crowd or
-   truncate the year, runtime, episode identity, and rating that people use to
-   decide what to watch.
+2. TV browsing heroes prioritize technical stream badges such as resolution,
+   HDR, and audio format ahead of editorial information. Phone library heroes
+   already avoid those technical fields, but their generic type/year/rating
+   chips omit runtime, content classification, and genre.
 
 Issue #78 asks for richer title metadata, but its current wording refers to the
-player. This change applies the approved behavior to browsing heroes only and
-does not change the player or item-detail surfaces.
+player. This change applies the approved behavior to Android phone and TV
+browsing heroes only and does not change either player's or item-detail
+surface.
 
 ## Goals
 
@@ -29,18 +30,23 @@ does not change the player or item-detail surfaces.
 - Search receives this focus only when Search is the active route.
 - Preserve the existing held-Up boundary: a held key stops on the first
   content row and requires a fresh Up press before entering the menu.
-- Browsing heroes describe the focused title using editorial metadata instead
-  of video/audio delivery characteristics.
-- Keep the change inside the existing shared TV shell and marquee model.
+- Phone and TV browsing heroes describe the title using consistent editorial
+  metadata instead of delivery characteristics or generic media-type labels.
+- Keep TV focus behavior inside the existing shared TV shell.
+- Keep hero presentation inside the existing TV marquee model and phone
+  featured-carousel metadata helper.
 
 ## Non-goals
 
 - No server, API, database, or payload changes.
-- No Android phone changes.
 - No player-overlay, playback-settings, or item-detail redesign.
+- No phone Home hero: Android phone Home intentionally renders rows without a
+  billboard, so phone changes apply only to the existing Library Recommended
+  featured carousel.
 - No changes to stream selection, transcoding, subtitle behavior, or technical
   metadata availability outside the browsing hero.
 - No new user preference or display toggle.
+- No Apple-client changes.
 
 ## Focus Behavior
 
@@ -65,13 +71,14 @@ previous-row relocation and ordinary row-to-row Up movement are unchanged.
 Panel preview, profile menu, Left/Right menu traversal, and Down-to-content
 behavior are unchanged.
 
-## Browsing Hero Metadata
+## Shared Browsing Hero Metadata
 
-The browsing marquee stops rendering resolution, HDR, and audio-format badges.
-Technical overlay data remains in the model for other consumers but is not
-converted into hero badges.
+The TV browsing marquee stops rendering resolution, HDR, and audio-format
+badges. Technical overlay data remains in the model for other consumers but is
+not converted into hero badges. The phone featured carousel continues to avoid
+technical delivery data.
 
-The hero uses the following ordered editorial fields when present:
+Both Android clients use the following ordered editorial fields when present:
 
 ### Movies and other non-episode titles
 
@@ -104,6 +111,31 @@ line if the current payload/enrichment boundary does not expose air date early
 enough for the primary metadata line. It must not add another detail request or
 delay first paint to rearrange those fields.
 
+### TV presentation
+
+TV retains its existing badge-plus-metadata-line layout. Content
+classification is its only hero badge; the remaining fields form the ordered
+single metadata line. The existing episode series title, episode-name
+placement, synopsis, and quieter air-date/cast enrichment remain unchanged.
+
+### Phone presentation
+
+Phone applies the editorial fields to the existing featured carousel used on
+Library Recommended pages:
+
+- Remove the generic `Movie` or `Episode` type chip.
+- Preserve the existing series eyebrow and title treatment, so an episode
+  continues to show the series name and episode name without duplication.
+- Present the ordered metadata as compact chips using the existing chip visual
+  style.
+- Allow chips to wrap onto a second line on narrow phones rather than clipping
+  or forcing horizontal scrolling.
+- Do not add a hero to phone Home or change item-card overlays.
+
+Phone does not perform detail enrichment in the carousel. Air date remains
+absent when it is not carried by the existing section payload; no new request
+is introduced to obtain it.
+
 ## Data Flow and Boundaries
 
 - `TvMainShell` derives the active root destination from the current route.
@@ -115,8 +147,13 @@ delay first paint to rearrange those fields.
   ordered editorial metadata.
 - Existing detail enrichment may continue to add air-date/cast information
   without blocking or re-fetching on focus.
+- `FeaturedCarousel.metadataChips` converts the same existing `SectionItem`
+  fields into ordered phone chips.
+- The phone carousel layout owns responsive wrapping without changing its
+  paging, play, More Info, or backdrop behavior.
 
-No parallel focus coordinator or marquee data source is introduced.
+No parallel focus coordinator, marquee data source, or phone detail fetch is
+introduced.
 
 ## Error and Edge Handling
 
@@ -124,11 +161,13 @@ No parallel focus coordinator or marquee data source is introduced.
   route-specific behavior rather than silently selecting Home.
 - If a requested library pill is temporarily absent, use the existing safe
   requester fallback and do not crash.
-- Invalid, zero, blank, or unavailable metadata is omitted.
-- Ratings and runtimes keep the existing formatting and rounding rules unless
-  a focused test demonstrates an incorrect value.
+- Invalid, non-finite, zero, negative, blank, or unavailable metadata is
+  omitted.
+- Valid ratings and runtimes keep the existing formatting and rounding rules.
 - Removing technical badges must not create an empty visual row; the row is
   omitted when no editorial badge or metadata value exists.
+- Phone wrapping is bounded to two lines of metadata chips; it must not cover
+  the carousel actions or change the carousel's page height.
 
 ## Verification
 
@@ -136,13 +175,16 @@ Focused tests should cover:
 
 - route-to-menu target mapping for every root destination and Search;
 - the held-Up first-row boundary remains unchanged;
-- movie metadata ordering and omission of resolution/HDR/audio;
-- episode metadata ordering, series/episode naming, runtime, rating, and
+- TV movie metadata ordering and omission of resolution/HDR/audio;
+- TV episode metadata ordering, series/episode naming, runtime, rating, and
   content-classification handling;
-- absent or invalid metadata without dangling separators.
+- phone movie and episode chip ordering, removal of the generic type chip,
+  runtime/content-classification inclusion, and no technical delivery fields;
+- absent, zero, negative, NaN, or infinite ratings and runtimes without empty
+  chips or dangling separators.
 
-Regression verification should include the complete Android TV unit suite,
-supply-chain checks, and the minified Android TV release assembly. A TV
+Regression verification should include the complete Android phone and TV unit
+suites, supply-chain checks, and both minified release assemblies. A TV
 emulator or external-device smoke should verify:
 
 - Up from the first row lands on the active pill across at least Home, a
@@ -152,8 +194,14 @@ emulator or external-device smoke should verify:
 - representative movie and episode heroes contain editorial metadata and no
   resolution/HDR/audio badges.
 
+A phone emulator smoke should verify that representative movie and episode
+featured-carousel pages show the approved chips, wrap without overlapping
+actions on a narrow viewport, and retain Play, More Info, paging, and artwork.
+
 ## Rollout
 
-Implement this as a focused follow-up on PR #126 while it remains open. Update
-the tester APK after automated verification. Do not merge or deploy as part of
-implementation.
+Implement this as a focused follow-up on PR #126 while it remains open. The
+shared hydration/navigation-performance commits already in PR #126 are its
+accepted baseline and remain unchanged; this follow-up does not need to split
+or reclassify them. Update both tester APKs after automated verification. Do
+not merge or deploy as part of implementation.
