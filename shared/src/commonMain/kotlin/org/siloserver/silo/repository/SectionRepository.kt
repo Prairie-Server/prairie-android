@@ -7,6 +7,8 @@ import org.siloserver.silo.model.section.LibraryCollection
 import org.siloserver.silo.model.section.LibraryCollectionsResponse
 import org.siloserver.silo.model.section.SectionsResponse
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.network.api.SectionApi
 import org.siloserver.silo.network.map
 import org.siloserver.silo.repository.port.CatalogCachePort
@@ -25,12 +27,14 @@ class SectionRepository(
     private val sectionApi: SectionApi,
     /** Offline read cache for a library's Recommended sections (Track B). No-op by default. */
     private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) {
     private val homeRequestScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val homeRequestMutex = Mutex()
-    private var homeSectionsInFlight: Deferred<ApiResult<SectionsResponse>>? = null
+    private val homeSectionsInFlight =
+        mutableMapOf<Long, Deferred<ApiResult<SectionsResponse>>>()
     private val homeSectionItemsInFlight =
-        mutableMapOf<String, Deferred<ApiResult<HomeSectionItemsResponse>>>()
+        mutableMapOf<Pair<Long, String>, Deferred<ApiResult<HomeSectionItemsResponse>>>()
 
     /** Fetches the home screen layout configuration. */
     suspend fun getHomeLayout(): ApiResult<HomeLayoutResponse> =
@@ -38,19 +42,22 @@ class SectionRepository(
 
     /** Fetches all home screen sections (with items pre-resolved). */
     suspend fun getHomeSections(): ApiResult<SectionsResponse> {
+        val identityGeneration = identityTransitions.generation.value
         val request = homeRequestMutex.withLock {
-            homeSectionsInFlight ?: run {
+            homeSectionsInFlight[identityGeneration] ?: run {
                 lateinit var created: Deferred<ApiResult<SectionsResponse>>
                 created = homeRequestScope.async(start = CoroutineStart.LAZY) {
                     try {
                         sectionApi.getHomeSections()
                     } finally {
                         homeRequestMutex.withLock {
-                            if (homeSectionsInFlight === created) homeSectionsInFlight = null
+                            if (homeSectionsInFlight[identityGeneration] === created) {
+                                homeSectionsInFlight.remove(identityGeneration)
+                            }
                         }
                     }
                 }
-                homeSectionsInFlight = created
+                homeSectionsInFlight[identityGeneration] = created
                 created.start()
                 created
             }
@@ -60,21 +67,22 @@ class SectionRepository(
 
     /** Fetches the items within a specific home section. */
     suspend fun getHomeSectionItems(sectionId: String): ApiResult<HomeSectionItemsResponse> {
+        val requestKey = identityTransitions.generation.value to sectionId
         val request = homeRequestMutex.withLock {
-            homeSectionItemsInFlight[sectionId] ?: run {
+            homeSectionItemsInFlight[requestKey] ?: run {
                 lateinit var created: Deferred<ApiResult<HomeSectionItemsResponse>>
                 created = homeRequestScope.async(start = CoroutineStart.LAZY) {
                     try {
                         sectionApi.getHomeSectionItems(sectionId)
                     } finally {
                         homeRequestMutex.withLock {
-                            if (homeSectionItemsInFlight[sectionId] === created) {
-                                homeSectionItemsInFlight.remove(sectionId)
+                            if (homeSectionItemsInFlight[requestKey] === created) {
+                                homeSectionItemsInFlight.remove(requestKey)
                             }
                         }
                     }
                 }
-                homeSectionItemsInFlight[sectionId] = created
+                homeSectionItemsInFlight[requestKey] = created
                 created.start()
                 created
             }

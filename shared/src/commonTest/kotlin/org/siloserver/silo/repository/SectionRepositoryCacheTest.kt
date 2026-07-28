@@ -2,6 +2,8 @@ package org.siloserver.silo.repository
 
 import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionKind
 import org.siloserver.silo.network.SiloJson
 import org.siloserver.silo.network.api.SectionApi
 import org.siloserver.silo.repository.port.CatalogCachePort
@@ -171,6 +173,50 @@ class SectionRepositoryCacheTest {
 
         assertTrue(survivingCaller.await() is ApiResult.Success)
         assertTrue(repository.getHomeSections() is ApiResult.Success)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun homeRequestStartedBeforeProfileSwitchDoesNotServeOldProfileSectionsToNewProfile() = runTest {
+        var calls = 0
+        val oldRequestEntered = CompletableDeferred<Unit>()
+        val releaseOldRequest = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine {
+                calls += 1
+                val body = if (calls == 1) {
+                    oldRequestEntered.complete(Unit)
+                    releaseOldRequest.await()
+                    """{"sections":[{"id":"old","section_type":"old","title":"Old"}]}"""
+                } else {
+                    """{"sections":[{"id":"new","section_type":"new","title":"New"}]}"""
+                }
+                respond(
+                    body,
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val repository = SectionRepository(
+            sectionApi = SectionApi(client),
+            identityTransitions = identityTransitions,
+        )
+
+        val oldProfileRequest = async { repository.getHomeSections() }
+        oldRequestEntered.await()
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) { }
+        val newProfileRequest = async { repository.getHomeSections() }
+
+        releaseOldRequest.complete(Unit)
+        val oldProfileResult = oldProfileRequest.await()
+        val newProfileResult = newProfileRequest.await()
+
+        assertEquals("Old", (oldProfileResult as ApiResult.Success).data.sections.single().title)
+        assertEquals("New", (newProfileResult as ApiResult.Success).data.sections.single().title)
         assertEquals(2, calls)
     }
 }
