@@ -691,10 +691,7 @@ class LibrariesViewModel(
         state: LibrariesUiState = _uiState.value,
     ): Boolean =
         generation == catalogRequestGeneration &&
-            state.selectedLibraryId == identity.libraryId &&
-            state.browseSort == identity.browseSort &&
-            state.selectedNamePrefix == identity.selectedNamePrefix &&
-            state.filterState == identity.filterState
+            identity.matches(state)
 
     private fun isCatalogQueryCurrent(
         generation: Long,
@@ -702,10 +699,13 @@ class LibrariesViewModel(
         state: LibrariesUiState = _uiState.value,
     ): Boolean =
         generation == catalogQueryGeneration &&
-            state.selectedLibraryId == identity.libraryId &&
-            state.browseSort == identity.browseSort &&
-            state.selectedNamePrefix == identity.selectedNamePrefix &&
-            state.filterState == identity.filterState
+            identity.matches(state)
+
+    private fun CatalogRequestIdentity.matches(state: LibrariesUiState): Boolean =
+        state.selectedLibraryId == libraryId &&
+            state.browseSort == browseSort &&
+            state.selectedNamePrefix == selectedNamePrefix &&
+            state.filterState == filterState
 
     private fun isCollectionsRequestCurrent(
         generation: Long,

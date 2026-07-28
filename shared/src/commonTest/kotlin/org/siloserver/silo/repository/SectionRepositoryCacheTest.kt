@@ -3,6 +3,7 @@ package org.siloserver.silo.repository
 import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.network.IdentityTransitionKind
 import org.siloserver.silo.network.SiloJson
 import org.siloserver.silo.network.api.SectionApi
@@ -15,11 +16,13 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import kotlin.test.Test
@@ -48,6 +51,36 @@ class SectionRepositoryCacheTest {
             install(ContentNegotiation) { json(SiloJson) }
         }
         return SectionRepository(SectionApi(client), cache)
+    }
+
+    private fun gatedRepository(
+        homeRequestDispatcher: CoroutineDispatcher,
+        requestEntered: CompletableDeferred<Unit>,
+        releaseResponse: CompletableDeferred<Unit>,
+        body: () -> String,
+        onRequest: () -> Unit = {},
+        identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
+    ): SectionRepository {
+        val client = HttpClient(
+            MockEngine {
+                onRequest()
+                requestEntered.complete(Unit)
+                val responseBody = body()
+                releaseResponse.await()
+                respond(
+                    responseBody,
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        return SectionRepository(
+            sectionApi = SectionApi(client),
+            identityTransitions = identityTransitions,
+            homeRequestDispatcher = homeRequestDispatcher,
+        )
     }
 
     private fun section(id: String) = ResolvedSection(id = id, sectionType = id, title = id)
@@ -82,21 +115,13 @@ class SectionRepositoryCacheTest {
         var calls = 0
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        val client = HttpClient(
-            MockEngine {
-                calls += 1
-                entered.complete(Unit)
-                release.await()
-                respond(
-                    """{"sections":[]}""",
-                    HttpStatusCode.OK,
-                    headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-            },
-        ) {
-            install(ContentNegotiation) { json(SiloJson) }
-        }
-        val repository = SectionRepository(SectionApi(client))
+        val repository = gatedRepository(
+            homeRequestDispatcher = StandardTestDispatcher(testScheduler),
+            requestEntered = entered,
+            releaseResponse = release,
+            body = { """{"sections":[]}""" },
+            onRequest = { calls += 1 },
+        )
 
         val requests = listOf(
             async { repository.getHomeSections() },
@@ -115,21 +140,13 @@ class SectionRepositoryCacheTest {
         var calls = 0
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        val client = HttpClient(
-            MockEngine {
-                calls += 1
-                entered.complete(Unit)
-                release.await()
-                respond(
-                    """{"items":[],"total":0}""",
-                    HttpStatusCode.OK,
-                    headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-            },
-        ) {
-            install(ContentNegotiation) { json(SiloJson) }
-        }
-        val repository = SectionRepository(SectionApi(client))
+        val repository = gatedRepository(
+            homeRequestDispatcher = StandardTestDispatcher(testScheduler),
+            requestEntered = entered,
+            releaseResponse = release,
+            body = { """{"items":[],"total":0}""" },
+            onRequest = { calls += 1 },
+        )
 
         val requests = listOf(
             async { repository.getHomeSectionItems("same") },
@@ -148,21 +165,13 @@ class SectionRepositoryCacheTest {
         var calls = 0
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        val client = HttpClient(
-            MockEngine {
-                calls += 1
-                entered.complete(Unit)
-                release.await()
-                respond(
-                    """{"sections":[]}""",
-                    HttpStatusCode.OK,
-                    headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-            },
-        ) {
-            install(ContentNegotiation) { json(SiloJson) }
-        }
-        val repository = SectionRepository(SectionApi(client))
+        val repository = gatedRepository(
+            homeRequestDispatcher = StandardTestDispatcher(testScheduler),
+            requestEntered = entered,
+            releaseResponse = release,
+            body = { """{"sections":[]}""" },
+            onRequest = { calls += 1 },
+        )
 
         val firstCaller = launch { repository.getHomeSections() }
         entered.await()
@@ -181,28 +190,19 @@ class SectionRepositoryCacheTest {
         var calls = 0
         val oldRequestEntered = CompletableDeferred<Unit>()
         val releaseOldRequest = CompletableDeferred<Unit>()
-        val client = HttpClient(
-            MockEngine {
-                calls += 1
-                val body = if (calls == 1) {
-                    oldRequestEntered.complete(Unit)
-                    releaseOldRequest.await()
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val repository = gatedRepository(
+            homeRequestDispatcher = StandardTestDispatcher(testScheduler),
+            requestEntered = oldRequestEntered,
+            releaseResponse = releaseOldRequest,
+            body = {
+                if (calls == 1) {
                     """{"sections":[{"id":"old","section_type":"old","title":"Old"}]}"""
                 } else {
                     """{"sections":[{"id":"new","section_type":"new","title":"New"}]}"""
                 }
-                respond(
-                    body,
-                    HttpStatusCode.OK,
-                    headersOf(HttpHeaders.ContentType, "application/json"),
-                )
             },
-        ) {
-            install(ContentNegotiation) { json(SiloJson) }
-        }
-        val identityTransitions = DefaultIdentityTransitionBarrier()
-        val repository = SectionRepository(
-            sectionApi = SectionApi(client),
+            onRequest = { calls += 1 },
             identityTransitions = identityTransitions,
         )
 

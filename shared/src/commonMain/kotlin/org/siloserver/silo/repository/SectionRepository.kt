@@ -15,6 +15,7 @@ import org.siloserver.silo.repository.port.CatalogCachePort
 import org.siloserver.silo.repository.port.CatalogCacheWriteLease
 import org.siloserver.silo.repository.port.NoOpCatalogCachePort
 import org.siloserver.silo.repository.port.canServeCache
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -29,8 +30,9 @@ class SectionRepository(
     /** Offline read cache for a library's Recommended sections (Track B). No-op by default. */
     private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
     private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
+    private val homeRequestDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
-    private val homeRequestScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val homeRequestScope = CoroutineScope(SupervisorJob() + homeRequestDispatcher)
     private val homeRequestMutex = Mutex()
     private val homeSectionsInFlight =
         mutableMapOf<Long, Deferred<ApiResult<SectionsResponse>>>()

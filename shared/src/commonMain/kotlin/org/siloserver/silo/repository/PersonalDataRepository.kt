@@ -37,10 +37,9 @@ open class PersonalDataRepository(
     /** Lists the libraries visible to the current user (offline: last cached list). */
     suspend fun listUserLibraries(): ApiResult<List<UserLibrary>> {
         val requestIdentityGeneration = identityTransitions.generation.value
-        val cacheWriteLease = CatalogCacheWriteLease(requestIdentityGeneration)
         val result = personalDataApi.listUserLibraries()
         if (result is ApiResult.Success) {
-            if (requestIdentityGeneration == identityTransitions.generation.value) {
+            writeIfIdentityUnchanged(requestIdentityGeneration) { cacheWriteLease ->
                 catalogCache.cacheLibraries(result.data, cacheWriteLease)
             }
             return result
@@ -172,4 +171,13 @@ open class PersonalDataRepository(
 
     open suspend fun dismissNextUp(itemId: String, seriesId: String): ApiResult<Unit> =
         personalDataApi.dismissNextUp(itemId, seriesId)
+
+    private suspend fun writeIfIdentityUnchanged(
+        requestGeneration: Long,
+        write: suspend (CatalogCacheWriteLease) -> Unit,
+    ) {
+        if (requestGeneration == identityTransitions.generation.value) {
+            write(CatalogCacheWriteLease(requestGeneration))
+        }
+    }
 }
