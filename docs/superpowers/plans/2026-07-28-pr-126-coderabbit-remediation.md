@@ -1,6 +1,8 @@
 # PR #126 CodeRabbit Remediation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status:** Completed 2026-07-28. All remediation tasks and their recorded verification/review steps were completed on `fix/tv-for-you-cold-navigation`.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkboxes for tracking.
 
 **Goal:** Resolve every substantiated CodeRabbit finding on PR #126 while preserving intentional shared-request and Watch Together delivery semantics.
 
@@ -48,7 +50,7 @@
 - Consumes: `TvForYouEntryRequest.next(selection: SavedListSelection?)`.
 - Produces: `TvForYouEntryRequest.nextForTopLevelForYou(): TvForYouEntryRequest`; Alphabet and Calendar both register their content-Up fallback with the shell.
 
-- [ ] **Step 1: Write the For You RED regression**
+- [x] **Step 1: Write the For You RED regression**
 
 Add to `TvForYouEntryRequestTest`:
 
@@ -65,7 +67,7 @@ fun topLevelForYouRequestClearsSavedListSelection() {
 }
 ```
 
-- [ ] **Step 2: Write the Alphabet wiring RED regression**
+- [x] **Step 2: Write the Alphabet wiring RED regression**
 
 Create a source-contract test that loads
 `TvLibraryDetailScreen.kt`, isolates the
@@ -78,7 +80,7 @@ onContentUpFallbackChanged = onContentUpFallbackChanged
 Also assert the existing `TvCalendarScreen(...)` call still contains
 `onContentUpFallbackChanged = onContentUpFallback`.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run:
 
@@ -92,7 +94,7 @@ Run:
 Expected: failure because `nextForTopLevelForYou` is absent and the Alphabet
 branch does not forward the fallback.
 
-- [ ] **Step 4: Implement the minimal GREEN changes**
+- [x] **Step 4: Implement the minimal GREEN changes**
 
 Add:
 
@@ -111,7 +113,7 @@ if (dest == TvRootDestination.ForYou) {
 Forward `onContentUpFallbackChanged` in the Alphabet `LibraryTab` call exactly
 as Browse already does.
 
-- [ ] **Step 5: Run GREEN and focused neighboring tests**
+- [x] **Step 5: Run GREEN and focused neighboring tests**
 
 Run:
 
@@ -126,7 +128,7 @@ Run:
 
 Expected: all selected tests pass.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add androidTvApp/src/androidMain androidTvApp/src/androidUnitTest
@@ -147,7 +149,7 @@ git commit -m "fix(tv): close reviewed focus routing gaps"
 - Consumes: `TvFocusMarqueeState.seedInitialPreview`, `TvMarqueeContent.from`, and `featuredHeroMetadata`.
 - Produces: identity-aware page-entry reseeding that stops after real focus; consistent `(0, 10]` rating tokens on both clients.
 
-- [ ] **Step 1: Write page-entry identity RED tests**
+- [x] **Step 1: Write page-entry identity RED tests**
 
 Add tests that:
 
@@ -168,7 +170,7 @@ assertEquals("focused-row#focused-item", state.content?.id)
 assertEquals("focused-row#focused-item", state.candidate?.id)
 ```
 
-- [ ] **Step 2: Write phone/TV rating and mixed-field RED tests**
+- [x] **Step 2: Write phone/TV rating and mixed-field RED tests**
 
 For both clients assert:
 
@@ -192,7 +194,7 @@ durationSeconds = Double.NaN
 
 retains `"8.4"`.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 ./gradlew --no-daemon \
@@ -206,7 +208,7 @@ retains `"8.4"`.
 
 Expected: the row-identity and upper-bound assertions fail.
 
-- [ ] **Step 4: Implement minimal marquee arbitration**
+- [x] **Step 4: Implement minimal marquee arbitration**
 
 Keep `seedInitialPreview` as the boundary. Build `next` first, ignore seeds once
 `focusedMarqueeId != null`, and otherwise replace a different page-entry
@@ -224,7 +226,7 @@ fun seedInitialPreview(item: SectionItem, rowTitle: String, rowIdentity: String 
 Include `initialMarqueeSeed?.rowIdentity` in the `LaunchedEffect` key and call
 `seedInitialPreview` without an outer `marquee.content == null` gate.
 
-- [ ] **Step 5: Implement bounded shared rating helpers**
+- [x] **Step 5: Implement bounded shared rating helpers**
 
 In each client boundary use a small private helper equivalent to:
 
@@ -236,11 +238,11 @@ private fun validImdbRating(rating: Double?): Double? =
 Route both TV episode/non-episode branches through one TV `ratingToken` helper
 to remove the duplicated filter.
 
-- [ ] **Step 6: Run GREEN**
+- [x] **Step 6: Run GREEN**
 
 Repeat the Task 2 focused command. Expected: all selected tests pass.
 
-- [ ] **Step 7: Commit Task 2**
+- [x] **Step 7: Commit Task 2**
 
 ```bash
 git add androidApp/src/androidMain androidApp/src/androidUnitTest \
@@ -262,7 +264,7 @@ git commit -m "fix(android): bound hero metadata and marquee identity"
 - Consumes: `RoomDeliveryLatch.isServerAttached`.
 - Produces: identical delivery decisions with no nullable-key dereference or force-unwrapped reporting key.
 
-- [ ] **Step 1: Strengthen nullable-key characterization**
+- [x] **Step 1: Strengthen nullable-key characterization**
 
 Add latch cases asserting `false` for:
 
@@ -272,13 +274,13 @@ isServerAttached(key = validKey, echo = null)
 isServerAttached(key = validKey, echo = wrongEpochEcho)
 ```
 
-- [ ] **Step 2: Write source-contract RED tests**
+- [x] **Step 2: Write source-contract RED tests**
 
 Assert each room-sync controller reporting block does not contain
 `deliveryKey!!` and does contain an explicit `deliveryKey != null` guard before
 `stateReport`.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 ./gradlew --no-daemon \
@@ -291,10 +293,11 @@ Assert each room-sync controller reporting block does not contain
   --max-workers=2
 ```
 
-Expected: latch behavior remains green; both source-contract tests fail on
-`deliveryKey!!`.
+Historical pre-fix result: latch behavior remained green while both
+source-contract tests failed because their reporting blocks used
+`deliveryKey!!`. The current tree binds a non-null key before state reporting.
 
-- [ ] **Step 4: Make nullability explicit without semantic changes**
+- [x] **Step 4: Make nullability explicit without semantic changes**
 
 Use:
 
@@ -308,11 +311,11 @@ key != null &&
 in the latch. In both controllers require a non-null local key before
 `isServerAttached` and pass `key.playbackSessionId` to `stateReport`.
 
-- [ ] **Step 5: Run GREEN and neighboring room-sync tests**
+- [x] **Step 5: Run GREEN and neighboring room-sync tests**
 
 Run the Task 3 command plus `*RoomSyncStateReportGateTest`. Expected: all pass.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```bash
 git add shared/src/commonMain shared/src/commonTest \
@@ -336,7 +339,7 @@ git commit -m "refactor(watch-together): make delivery keys explicit"
 - Consumes: `CoroutineDispatcher`, identity transition generations, and `CatalogCacheWriteLease`.
 - Produces: injectable home-request dispatcher and private helpers that preserve existing generation and cache-write decisions.
 
-- [ ] **Step 1: Establish the characterization-test baseline**
+- [x] **Step 1: Establish the characterization-test baseline**
 
 ```bash
 ./gradlew --no-daemon :shared:test \
@@ -348,7 +351,7 @@ git commit -m "refactor(watch-together): make delivery keys explicit"
 
 Expected: all selected tests pass before refactoring.
 
-- [ ] **Step 2: Inject the home request dispatcher**
+- [x] **Step 2: Inject the home request dispatcher**
 
 Add a constructor parameter with the existing runtime default:
 
@@ -360,7 +363,7 @@ and use it in `homeRequestScope`. Update gated concurrency tests to pass a
 `StandardTestDispatcher(testScheduler)` and extract one local helper that builds
 the gated `MockEngine`/repository without changing assertions.
 
-- [ ] **Step 3: Extract the phone library identity comparison**
+- [x] **Step 3: Extract the phone library identity comparison**
 
 Add:
 
@@ -376,7 +379,7 @@ Keep request/query generation comparisons in their respective methods.
 Do not retain or cancel a recommendation `Job`; shared repository work must
 remain independent of one superseded UI caller.
 
-- [ ] **Step 4: Extract repository-local guarded-write helpers**
+- [x] **Step 4: Extract repository-local guarded-write helpers**
 
 In both repositories add the private pattern:
 
@@ -394,12 +397,12 @@ private suspend fun writeIfIdentityUnchanged(
 Route existing cache write sites through it without moving network calls or
 changing success/fallback behavior.
 
-- [ ] **Step 5: Re-run characterization tests**
+- [x] **Step 5: Re-run characterization tests**
 
 Repeat the Task 4 baseline command. Expected: all selected tests pass with the
 same assertions.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```bash
 git add shared/src/commonMain shared/src/commonTest androidApp/src/androidMain
@@ -417,20 +420,20 @@ git commit -m "refactor(android): clarify reviewed request guards"
 - Consumes: current helper and focus-routing names.
 - Produces: reproducible repository-relative evidence and implementation-accurate plan text.
 
-- [ ] **Step 1: Replace local paths**
+- [x] **Step 1: Replace local paths**
 
 Replace the worktree with `fix/tv-for-you-cold-navigation worktree` and replace
 Desktop artifact paths with the artifact filenames while retaining hashes and
 signing notes.
 
-- [ ] **Step 2: Correct stale wording**
+- [x] **Step 2: Correct stale wording**
 
 Change `TV focused` to `TV-focused`, replace the stale
 `FeaturedCarousel.metadataChips` reference with `featuredHeroMetadata`, and
 update focus pseudocode to use `requestMenuFocusIfAvailable` plus the
 `(focusRequest, focusRequestTarget)` handled identity.
 
-- [ ] **Step 3: Verify documentation**
+- [x] **Step 3: Verify documentation**
 
 ```bash
 rg -n --pcre2 '/(Users|home)/[^/[:space:]]+' \
@@ -443,7 +446,7 @@ git diff --check
 
 Expected: both `rg` commands return no matches and `git diff --check` passes.
 
-- [ ] **Step 4: Commit Task 5**
+- [x] **Step 4: Commit Task 5**
 
 ```bash
 git add .superpowers/sdd/2026-07-28-android-tv-active-header-focus-editorial-hero/task-4-report.md \
@@ -462,7 +465,7 @@ git commit -m "docs: resolve PR 126 review findings"
 - Consumes: all correction commits.
 - Produces: reviewed branch with fresh focused, full, supply-chain, and release evidence.
 
-- [ ] **Step 1: Run complete unit gates**
+- [x] **Step 1: Run complete unit gates**
 
 ```bash
 ./gradlew --no-daemon \
@@ -475,7 +478,7 @@ git commit -m "docs: resolve PR 126 review findings"
 
 Expected: exit 0 with no failed tests.
 
-- [ ] **Step 2: Run supply-chain policy**
+- [x] **Step 2: Run supply-chain policy**
 
 ```bash
 ./scripts/test-check-build-supply-chain.sh
@@ -484,7 +487,7 @@ Expected: exit 0 with no failed tests.
 
 Expected: both exit 0.
 
-- [ ] **Step 3: Run phone and TV release compilation**
+- [x] **Step 3: Run phone and TV release compilation**
 
 ```bash
 ./gradlew --no-daemon \
@@ -497,7 +500,7 @@ Expected: both exit 0.
 Expected: `BUILD SUCCESSFUL`; these artifacts are verification-only and are not
 installed or deployed.
 
-- [ ] **Step 4: Perform diff and scope checks**
+- [x] **Step 4: Perform diff and scope checks**
 
 ```bash
 git diff --check origin/main...HEAD
@@ -508,7 +511,7 @@ git log --oneline origin/main..HEAD
 Expected: no whitespace errors, no uncommitted changes, and only the documented
 PR #126 plus review-remediation commits.
 
-- [ ] **Step 5: Obtain independent focused review**
+- [x] **Step 5: Obtain independent focused review**
 
 Request review of `f822d22c..HEAD` against this plan and the design spec. Require
 explicit assessment of the marquee real-focus invariant, For You reset,
@@ -516,7 +519,7 @@ Alphabet fallback, request-sharing non-cancellation, Watch Together delivery
 semantics, and test adequacy. Fix any critical or important finding with a new
 focused RED/GREEN cycle.
 
-- [ ] **Step 6: Push and update PR #126**
+- [x] **Step 6: Push and update PR #126**
 
 Push `fix/tv-for-you-cold-navigation`, update the PR verification summary with
 fresh commands, and leave the PR open and unmerged. Record which CodeRabbit
