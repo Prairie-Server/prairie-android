@@ -145,6 +145,8 @@ import org.siloserver.silo.tv.ui.screens.personal.TvFavoritesScreen
 import org.siloserver.silo.tv.ui.screens.personal.TvHistoryScreen
 import org.siloserver.silo.tv.ui.screens.personal.TvWatchlistScreen
 import org.siloserver.silo.tv.ui.screens.recommendations.TvRecommendationsScreen
+import org.siloserver.silo.tv.ui.screens.recommendations.SavedListSelection
+import org.siloserver.silo.tv.ui.screens.recommendations.TvForYouEntryRequest
 import org.siloserver.silo.tv.ui.screens.requests.TvMyRequestsScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestDetailScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestsScreen
@@ -366,12 +368,12 @@ fun TvMainShell(
         suppressHomeRefreshAfterDetail = true
         onOpenItemDetail(contentId)
     }
-    var contentUpFallback by remember { mutableStateOf<(() -> Boolean)?>(null) }
+    var contentUpFallback by remember { mutableStateOf<((Boolean) -> Boolean)?>(null) }
     // Feeds that registered the up-fallback slot, were superseded by a newer
     // feed, and are still awaiting their (now-stale) onDispose. Tracking them
     // lets us ignore that late dispose instead of nulling the entering feed's
     // registration.
-    val supersededContentUpFallbacks = remember { mutableSetOf<() -> Boolean>() }
+    val supersededContentUpFallbacks = remember { mutableSetOf<(Boolean) -> Boolean>() }
     // Register/relinquish the single D-pad-Up fallback slot BY IDENTITY. A
     // NavHost composes the ENTERING feed (which registers its own lambda) before
     // it disposes the EXITING one, so a blind null-on-dispose would drop the new
@@ -380,7 +382,7 @@ fun TvMainShell(
     // lambda on both register and dispose; we only relinquish the slot for the
     // feed that still owns it, ignore a superseded feed's stale dispose, and let
     // a newly-entering feed take the slot (retiring the previous owner).
-    val onContentUpFallback: ((() -> Boolean)?) -> Unit = remember {
+    val onContentUpFallback: (((Boolean) -> Boolean)?) -> Unit = remember {
         { incoming ->
             if (incoming != null) {
                 when {
@@ -411,6 +413,7 @@ fun TvMainShell(
     // top), while ordinary content re-entry keeps the focusRestorer()'s
     // last-focused card.
     var contentFocusRequest by remember { mutableIntStateOf(0) }
+    var forYouEntryRequest by remember { mutableStateOf(TvForYouEntryRequest()) }
 
     // --- Skyline cascade panel host (Stage 4) ----------------------------------
     // Mirrors tvOS `TVMainTabView.persistentPanels`. The cascade overlays are
@@ -463,6 +466,7 @@ fun TvMainShell(
     val selectedRoot by remember(currentRoute) {
         derivedStateOf { mapRouteToRoot(currentRoute) }
     }
+    val selectedMenuFocusTarget = selectedRoot?.let(TvTopMenuPanel::Root)
 
     // Which libraries actually HAVE collections — gates the cascade's
     // Collections pill so an empty library doesn't offer a dead-end section
@@ -534,9 +538,18 @@ fun TvMainShell(
             runCatching { contentFocusRequester.requestFocus() }
         }
     }
+    val openForYou: (SavedListSelection?) -> Unit = { selection ->
+        forYouEntryRequest = forYouEntryRequest.next(selection)
+        focusState.closePanel(false)
+        navigateToSecondary(TvMainRoute.ForYou.route)
+        moveFocusToContent(TvMainRoute.ForYou.route)
+    }
 
     val onSelectRoot: (TvRootDestination) -> Unit = { dest ->
         val route = dest.toRoute()
+        if (dest == TvRootDestination.ForYou) {
+            forYouEntryRequest = forYouEntryRequest.nextForTopLevelForYou()
+        }
         if (dest == TvRootDestination.Home) {
             // Detail return deliberately preserves the card that opened the
             // detail page, but that protection must end when the user
@@ -707,7 +720,10 @@ fun TvMainShell(
                     // half (close panel / dropdown); we run only the side effect
                     // each action needs. Keeping it here — not in the selector or
                     // the bar — means Back can never be double-handled.
-                    when (focusState.onBack(onTabRoot = selectedRoot != null)) {
+                    when (focusState.onBack(
+                        onTabRoot = selectedRoot != null,
+                        menuFocusTarget = selectedMenuFocusTarget,
+                    )) {
                         // Panel/dropdown already closed by onBack(): just consume.
                         TvShellBackAction.ClosePanel,
                         TvShellBackAction.CloseProfileMenu -> true
@@ -789,18 +805,25 @@ fun TvMainShell(
                 .onPreviewKeyEvent { ev ->
                     when {
                         ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp -> {
-                            val contentHandledUp = contentUpFallback?.invoke()
+                            val isRepeat = ev.nativeKeyEvent.repeatCount > 0
+                            val contentHandledUp = contentUpFallback?.invoke(isRepeat)
                             if (contentHandledUp != null) {
-                                if (!contentHandledUp) {
-                                    focusState.requestMenuFocus()
+                                if (shouldRequestMenuAfterContentUp(contentHandledUp, isRepeat)) {
+                                    focusState.requestMenuFocusIfAvailable(
+                                        selectedMenuFocusTarget,
+                                        allowNullTarget = currentRoute == TvMainRoute.Search.route,
+                                    )
                                 }
                             } else {
                                 // Try to move focus up inside content; if that
                                 // fails (we're already on the top row), hand
                                 // focus to the menu bar.
                                 val moved = focusManager.moveFocus(FocusDirection.Up)
-                                if (!moved) {
-                                    focusState.requestMenuFocus()
+                                if (shouldRequestMenuAfterContentUp(moved, isRepeat)) {
+                                    focusState.requestMenuFocusIfAvailable(
+                                        selectedMenuFocusTarget,
+                                        allowNullTarget = currentRoute == TvMainRoute.Search.route,
+                                    )
                                 }
                             }
                             // Always consume: we performed the move (or routed
@@ -838,8 +861,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
                         onOpenForYou = {
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -860,8 +882,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
                         onOpenForYou = {
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -973,6 +994,7 @@ fun TvMainShell(
                         onItemClick = onOpenItemDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
+                        entryRequest = forYouEntryRequest,
                     )
                 }
                 composable(TvMainRoute.Requests.route) {
@@ -1062,7 +1084,13 @@ fun TvMainShell(
                             focusState.closeProfileMenuForContent()
                             calendarFocusHandoffPending = false
                         },
+                        onMoveUpToMenu = {
+                            focusState.requestMenuFocus(
+                                TvTopMenuPanel.Root(TvRootDestination.Calendar),
+                            )
+                        },
                         focusRequest = contentFocusRequest,
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Browse.route) {
@@ -1225,19 +1253,13 @@ fun TvMainShell(
                         entersPanel = active && focusState.panelEntersFocus,
                         focusEntryToken = focusState.panelFocusEntryToken,
                         onWatchlist = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.Watchlist.route)
-                            moveFocusToContent(TvMainRoute.Watchlist.route)
+                            openForYou(SavedListSelection.Watchlist)
                         },
                         onFavorites = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.Favorites.route)
-                            moveFocusToContent(TvMainRoute.Favorites.route)
+                            openForYou(SavedListSelection.Favorites)
                         },
                         onRecommendations = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                     )
                 }
@@ -1391,7 +1413,7 @@ private fun TvLibraryTypeContent(
     onLibraryCollectionClick: (libraryId: Int, collectionId: String, title: String) -> Unit,
     onUserCollectionClick: (collectionId: String, title: String) -> Unit,
     onInitialContentFocus: () -> Unit,
-    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
+    onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
 ) {
     if (library == null) {
         // Only assert "no libraries" once loading has settled AND this type

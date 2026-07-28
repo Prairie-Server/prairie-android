@@ -341,7 +341,13 @@ class SubtitleManager(
             SubtitlePositionPreset.LowerThird -> 0.18f
             SubtitlePositionPreset.Top -> 0.74f
         }
-        return (base - titleSafeFraction).coerceAtLeast(0.02f)
+        // The title-safe inset moves the subtitle surface in by f on both
+        // edges, leaving a height of (1 - 2f). Preserve the original physical
+        // preset by solving f + p(1 - 2f) = base for the new padding p.
+        val safeFraction = titleSafeFraction
+        val remainingScale = 1f - 2f * safeFraction
+        if (remainingScale <= 0f) return base
+        return ((base - safeFraction) / remainingScale).coerceAtLeast(0.02f)
     }
 
     private fun parseHexColor(hex: String, alpha: Int = 255): Int {
