@@ -93,4 +93,3 @@ Tests and validation must cover:
   expose scrolling content beneath its anchor.
 
 Physical devices are excluded unless separately authorized.
-
