@@ -311,7 +311,7 @@ class WatchTogetherRepository(
         val published = stateMutex.withLock {
             if (!isCurrentLocked(lease)) return@withLock false
             votedIds.add(suggestionId)
-            applySuggestions(r.data.suggestions, fromBroadcast = false)
+            applySuggestions(r.data.suggestions, fromBroadcast = true)
             true
         }
         return if (published) r else obsoleteRoomRequest()
@@ -324,7 +324,7 @@ class WatchTogetherRepository(
         val published = stateMutex.withLock {
             if (!isCurrentLocked(lease)) return@withLock false
             votedIds.remove(suggestionId)
-            applySuggestions(r.data.suggestions, fromBroadcast = false)
+            applySuggestions(r.data.suggestions, fromBroadcast = true)
             true
         }
         return if (published) r else obsoleteRoomRequest()
@@ -385,12 +385,14 @@ class WatchTogetherRepository(
         lease: RoomBinding,
         result: ApiResult<SuggestionsResponse>,
         expectedRoomRequest: Long? = null,
+        expectedConnectionOwner: Long? = null,
     ): ApiResult<SuggestionsResponse> {
         if (result !is ApiResult.Success) return result
         val published = stateMutex.withLock {
             if (
                 !isCurrentLocked(lease) ||
-                (expectedRoomRequest != null && latestRoomRequest != expectedRoomRequest)
+                (expectedRoomRequest != null && latestRoomRequest != expectedRoomRequest) ||
+                (expectedConnectionOwner != null && activeConnectionOwner != expectedConnectionOwner)
             ) {
                 return@withLock false
             }
@@ -414,12 +416,14 @@ class WatchTogetherRepository(
 
     /**
      * Publish suggestions, re-merging `voted_by_me` from the local [votedIds]
-     * set. For REST results we also seed [votedIds] from authoritative
-     * voted_by_me; broadcasts force false, so we only OR the local set in.
+     * set. Authoritative REST lists replace [votedIds]; broadcasts and
+     * optimistic vote mutation responses preserve the local set because their
+     * per-recipient vote flags are not authoritative.
      */
     private fun applySuggestions(list: List<Suggestion>, fromBroadcast: Boolean) {
         if (!fromBroadcast) {
-            list.forEach { if (it.votedByMe) votedIds.add(it.id) }
+            votedIds.clear()
+            votedIds.addAll(list.filter { it.votedByMe }.map { it.id })
         }
         _suggestions.value = list.map { s ->
             if (s.id in votedIds) s.copy(votedByMe = true) else s
@@ -569,6 +573,15 @@ class WatchTogetherRepository(
                     } else if (event is RoomRealtimeEvent.Opened) {
                         openedAtMs = monotonicNowMs()
                         markOpened(lease, owner, client.currentConnectionId())
+                        publishSuggestionsResponse(
+                            lease = lease,
+                            result = api.listSuggestions(
+                                lease.roomId,
+                                lease.roomToken,
+                                lease.authScope,
+                            ),
+                            expectedConnectionOwner = owner,
+                        )
                     } else if (
                         event is RoomRealtimeEvent.SnapshotEvent &&
                         event.room.roomId == lease.roomId

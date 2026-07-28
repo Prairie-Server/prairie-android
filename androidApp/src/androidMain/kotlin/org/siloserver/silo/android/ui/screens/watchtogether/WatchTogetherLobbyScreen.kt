@@ -1,6 +1,7 @@
 package org.siloserver.silo.android.ui.screens.watchtogether
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -75,6 +76,14 @@ fun WatchTogetherLobbyScreen(
     // Server closed the room (host left / explicit close) — back out.
     LaunchedEffect(closedReason) {
         if (closedReason != null) onBack()
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.errors.collect { message ->
+            if (message.isNotBlank()) {
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     // Role drives only the cosmetic header label; mutating controls gate on the

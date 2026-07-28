@@ -840,6 +840,84 @@ class WatchTogetherRepositoryTest {
     // ---- suggestions fold + voted_by_me re-merge ------------------------------
 
     @Test
+    fun `opened refreshes suggestions after reconnect without refreshing after room closed`() = runTest {
+        val api = FakeApi().apply {
+            listSuggestionsResponse = ApiResult.Success(
+                SuggestionsResponse(suggestions = listOf(suggestion("before-drop"))),
+            )
+        }
+        val realtime = FakeRealtime()
+        val repository = repo(api = api, realtime = realtime)
+        repository.createRoom(CreateRoomRequest())
+        val connection = launch { repository.connect("room-1") }
+        runCurrent()
+
+        realtime.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+        assertEquals(1, api.listSuggestionsCalls)
+        assertEquals(listOf("before-drop"), repository.suggestions.value.map { it.id })
+
+        realtime.events.emit(RoomRealtimeEvent.TransportTerminated())
+        runCurrent()
+        api.listSuggestionsResponse = ApiResult.Success(
+            SuggestionsResponse(
+                suggestions = listOf(
+                    suggestion("before-drop"),
+                    suggestion("missed-during-drop"),
+                ),
+            ),
+        )
+        advanceTimeBy(WatchTogetherRepository.BACKOFF_MS.first())
+        runCurrent()
+        assertEquals(2, realtime.connectCount)
+
+        realtime.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+        assertEquals(2, api.listSuggestionsCalls)
+        assertEquals(
+            listOf("before-drop", "missed-during-drop"),
+            repository.suggestions.value.map { it.id },
+        )
+
+        realtime.events.emit(RoomRealtimeEvent.Closed("host_left"))
+        advanceUntilIdle()
+        assertEquals(2, realtime.connectCount)
+        assertEquals(2, api.listSuggestionsCalls)
+        assertTrue(connection.isCompleted || connection.isCancelled)
+    }
+
+    @Test
+    fun `rest refresh replaces authoritative local vote set`() = runTest {
+        val api = FakeApi().apply {
+            listSuggestionsResponse = ApiResult.Success(
+                SuggestionsResponse(
+                    suggestions = listOf(
+                        suggestion("removed-vote", votedByMe = true),
+                        suggestion("preserved-vote", votedByMe = true),
+                    ),
+                ),
+            )
+        }
+        val repository = repo(api = api)
+        repository.createRoom(CreateRoomRequest())
+
+        repository.refreshSuggestions()
+        api.listSuggestionsResponse = ApiResult.Success(
+            SuggestionsResponse(
+                suggestions = listOf(
+                    suggestion("removed-vote", votedByMe = false),
+                    suggestion("preserved-vote", votedByMe = true),
+                ),
+            ),
+        )
+        repository.refreshSuggestions()
+
+        val byId = repository.suggestions.value.associateBy { it.id }
+        assertFalse(byId.getValue("removed-vote").votedByMe)
+        assertTrue(byId.getValue("preserved-vote").votedByMe)
+    }
+
+    @Test
     fun `suggestions event re-merges voted_by_me from local vote set`() = runTest {
         val api = FakeApi()
         val realtime = FakeRealtime()

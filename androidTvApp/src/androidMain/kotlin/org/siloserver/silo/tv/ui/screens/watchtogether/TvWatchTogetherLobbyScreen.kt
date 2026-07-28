@@ -1,5 +1,6 @@
 package org.siloserver.silo.tv.ui.screens.watchtogether
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -106,6 +108,7 @@ fun TvWatchTogetherLobbyScreen(
     val room by viewModel.room.collectAsState()
     val suggestions by viewModel.suggestions.collectAsState()
     val closedReason by viewModel.roomClosedReason.collectAsState()
+    val context = LocalContext.current
 
     // Role drives only the cosmetic header label; mutating controls gate on
     // the server's per-recipient management capability so a demoted/
@@ -142,6 +145,14 @@ fun TvWatchTogetherLobbyScreen(
         if (closedReason != null) {
             viewModel.leave()
             onBack()
+        }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.errors.collect { message ->
+            if (message.isNotBlank()) {
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
