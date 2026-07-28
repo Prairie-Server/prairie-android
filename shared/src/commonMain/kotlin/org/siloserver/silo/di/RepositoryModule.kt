@@ -49,7 +49,14 @@ val repositoryModule = module {
     // multi-server side effects when the registry is null.
     single { AuthRepository(get(), get(), getOrNull(), getOrNull()) }
     single { DeviceLoginRepository(get()) }
-    single { CatalogRepository(get(), getOrNull<org.siloserver.silo.repository.port.CatalogCachePort>() ?: org.siloserver.silo.repository.port.NoOpCatalogCachePort) }
+    single {
+        CatalogRepository(
+            catalogApi = get(),
+            catalogCache = getOrNull<org.siloserver.silo.repository.port.CatalogCachePort>()
+                ?: org.siloserver.silo.repository.port.NoOpCatalogCachePort,
+            identityTransitions = get(),
+        )
+    }
     single { CalendarRepository(get()) }
     single { PlaybackRepository(get()) }
     // `getOrNull()` picks up the Room-backed ports when the Android platform

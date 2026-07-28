@@ -7,6 +7,10 @@ import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.catalog.CatalogResponse
 import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.network.AuthScopeSnapshot
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionKind
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -68,5 +72,34 @@ class RoomCatalogCacheRepositoryTest {
         assertNull(repo.getCachedLibraries())
         scope = null
         assertNull(repo.getCachedLibraries())
+    }
+
+    @Test
+    fun writeStartedBeforeProfileSwitchIsNotAttributedToNewProfile() = runTest {
+        val snapshotRequested = CompletableDeferred<Unit>()
+        val releaseSnapshot = CompletableDeferred<Unit>()
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val delayedRepo = RoomCatalogCacheRepository(
+            db = db,
+            snapshotProvider = {
+                snapshotRequested.complete(Unit)
+                releaseSnapshot.await()
+                scope
+            },
+            identityTransitions = identityTransitions,
+            now = { 1000L },
+        )
+
+        val oldProfileWrite = async {
+            delayedRepo.cacheLibraries(listOf(UserLibrary(id = 1, name = "Profile A", type = "movie")))
+        }
+        snapshotRequested.await()
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            scope = AuthScopeSnapshot("s1", "p2", "https://s1.example", null)
+        }
+        releaseSnapshot.complete(Unit)
+        oldProfileWrite.await()
+
+        assertNull(delayedRepo.getCachedLibraries())
     }
 }

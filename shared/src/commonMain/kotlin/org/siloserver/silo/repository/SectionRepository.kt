@@ -92,9 +92,12 @@ class SectionRepository(
 
     /** Fetches a library's resolved sections (offline: last cached sections). */
     suspend fun getLibrarySections(libraryId: Int): ApiResult<SectionsResponse> {
+        val requestIdentityGeneration = identityTransitions.generation.value
         val result = sectionApi.getLibrarySections(libraryId)
         if (result is ApiResult.Success) {
-            catalogCache.cacheLibrarySections(libraryId, result.data.sections)
+            if (requestIdentityGeneration == identityTransitions.generation.value) {
+                catalogCache.cacheLibrarySections(libraryId, result.data.sections)
+            }
             return result
         }
         if (result.canServeCache()) {

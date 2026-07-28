@@ -9,6 +9,8 @@ import org.siloserver.silo.model.catalog.SeasonsResponse
 import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.network.AuthScopeSnapshot
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.repository.port.CatalogCachePort
 import kotlinx.serialization.json.Json
 
@@ -21,6 +23,7 @@ import kotlinx.serialization.json.Json
 class RoomCatalogCacheRepository(
     db: SiloDatabase,
     private val snapshotProvider: suspend () -> AuthScopeSnapshot?,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
     private val now: () -> Long = { System.currentTimeMillis() },
 ) : CatalogCachePort {
 
@@ -64,8 +67,10 @@ class RoomCatalogCacheRepository(
         get(episodesKey(seriesId, seasonNumber))?.let { runCatching { json.decodeFromString<EpisodesResponse>(it) }.getOrNull() }
 
     private suspend fun put(cacheKey: String, jsonStr: String) {
+        val requestIdentityGeneration = identityTransitions.generation.value
         val snapshot = snapshotProvider() ?: return
         val profileId = snapshot.profileId ?: return
+        if (requestIdentityGeneration != identityTransitions.generation.value) return
         // A Room row must fit SQLite's ~2MB CursorWindow or the *read* throws
         // SQLiteBlobTooBigException. Big library pages can exceed it, so don't
         // store an unreadable row — drop any prior row for this key and skip.

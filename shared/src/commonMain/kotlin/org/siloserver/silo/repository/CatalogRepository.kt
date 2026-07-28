@@ -11,6 +11,8 @@ import org.siloserver.silo.model.catalog.Person
 import org.siloserver.silo.model.catalog.SeasonsResponse
 import org.siloserver.silo.model.catalog.WatchDetail
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.network.api.CatalogApi
 import org.siloserver.silo.repository.port.CatalogCachePort
 import org.siloserver.silo.repository.port.NoOpCatalogCachePort
@@ -20,6 +22,7 @@ class CatalogRepository(
     private val catalogApi: CatalogApi,
     /** Offline read cache for a library's default first page (Track B). No-op by default. */
     private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) {
     /** Browse the catalog with optional filters, sorting, and pagination. */
     suspend fun browse(
@@ -40,6 +43,7 @@ class CatalogRepository(
         queryGroups: List<CatalogQueryGroup> = emptyList(),
         match: String? = null,
     ): ApiResult<CatalogResponse> {
+        val requestIdentityGeneration = identityTransitions.generation.value
         val result = catalogApi.getCatalog(
             source = source,
             query = query,
@@ -71,7 +75,9 @@ class CatalogRepository(
         } ?: return result
 
         if (result is ApiResult.Success) {
-            catalogCache.cacheDefaultLibraryPage(cacheableLibraryId, result.data)
+            if (requestIdentityGeneration == identityTransitions.generation.value) {
+                catalogCache.cacheDefaultLibraryPage(cacheableLibraryId, result.data)
+            }
             return result
         }
         if (result.canServeCache()) {
@@ -109,9 +115,12 @@ class CatalogRepository(
 
     /** Fetches full metadata for a single catalog item (offline: last cached detail). */
     suspend fun getItemDetail(contentId: String): ApiResult<ItemDetail> {
+        val requestIdentityGeneration = identityTransitions.generation.value
         val result = catalogApi.getItemDetail(contentId)
         if (result is ApiResult.Success) {
-            catalogCache.cacheItemDetail(contentId, result.data)
+            if (requestIdentityGeneration == identityTransitions.generation.value) {
+                catalogCache.cacheItemDetail(contentId, result.data)
+            }
             return result
         }
         if (result.canServeCache()) {
@@ -139,9 +148,12 @@ class CatalogRepository(
 
     /** Lists seasons for a series (offline: last cached seasons). */
     suspend fun getSeasons(seriesId: String): ApiResult<SeasonsResponse> {
+        val requestIdentityGeneration = identityTransitions.generation.value
         val result = catalogApi.getSeasons(seriesId)
         if (result is ApiResult.Success) {
-            catalogCache.cacheSeasons(seriesId, result.data)
+            if (requestIdentityGeneration == identityTransitions.generation.value) {
+                catalogCache.cacheSeasons(seriesId, result.data)
+            }
             return result
         }
         if (result.canServeCache()) {
@@ -152,9 +164,12 @@ class CatalogRepository(
 
     /** Lists episodes for a specific season of a series (offline: last cached episodes). */
     suspend fun getEpisodes(seriesId: String, seasonNumber: Int): ApiResult<EpisodesResponse> {
+        val requestIdentityGeneration = identityTransitions.generation.value
         val result = catalogApi.getEpisodes(seriesId, seasonNumber)
         if (result is ApiResult.Success) {
-            catalogCache.cacheEpisodes(seriesId, seasonNumber, result.data)
+            if (requestIdentityGeneration == identityTransitions.generation.value) {
+                catalogCache.cacheEpisodes(seriesId, seasonNumber, result.data)
+            }
             return result
         }
         if (result.canServeCache()) {

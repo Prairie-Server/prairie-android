@@ -119,6 +119,7 @@ val androidTvModule = module {
         org.siloserver.silo.common.data.repository.RoomCatalogCacheRepository(
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
+            identityTransitions = get(),
         )
     }
     single<org.siloserver.silo.repository.port.DownloadDeletionPort> {

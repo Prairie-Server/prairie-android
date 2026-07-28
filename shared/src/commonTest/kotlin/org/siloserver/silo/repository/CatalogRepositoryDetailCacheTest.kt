@@ -3,6 +3,8 @@ package org.siloserver.silo.repository
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.SeasonsResponse
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionKind
 import org.siloserver.silo.network.SiloJson
 import org.siloserver.silo.network.api.CatalogApi
 import org.siloserver.silo.repository.port.CatalogCachePort
@@ -15,6 +17,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -102,5 +106,39 @@ class CatalogRepositoryDetailCacheTest {
         val cache = FakeCache(seasonsPreset = SeasonsResponse(seasons = emptyList()))
         val result = repo(HttpStatusCode.ServiceUnavailable, "{}", cache).getSeasons("series-1")
         assertTrue(result is ApiResult.Success)
+    }
+
+    @Test
+    fun detailResponseStartedBeforeProfileSwitchIsNotCachedForNewProfile() = runTest {
+        val requestEntered = CompletableDeferred<Unit>()
+        val releaseResponse = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine {
+                requestEntered.complete(Unit)
+                releaseResponse.await()
+                respond(
+                    """{"content_id":"c1","type":"movie","title":"Profile A"}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        val cache = FakeCache()
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val repository = CatalogRepository(
+            catalogApi = CatalogApi(client),
+            catalogCache = cache,
+            identityTransitions = identityTransitions,
+        )
+
+        val oldProfileRequest = async { repository.getItemDetail("c1") }
+        requestEntered.await()
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) { }
+        releaseResponse.complete(Unit)
+
+        assertTrue(oldProfileRequest.await() is ApiResult.Success)
+        assertEquals(null, cache.cachedId)
     }
 }

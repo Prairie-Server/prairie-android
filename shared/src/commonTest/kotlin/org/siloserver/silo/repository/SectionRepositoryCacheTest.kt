@@ -219,4 +219,39 @@ class SectionRepositoryCacheTest {
         assertEquals("New", (newProfileResult as ApiResult.Success).data.sections.single().title)
         assertEquals(2, calls)
     }
+
+    @Test
+    fun librarySectionsStartedBeforeProfileSwitchAreNotCachedForNewProfile() = runTest {
+        val requestEntered = CompletableDeferred<Unit>()
+        val releaseResponse = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine {
+                requestEntered.complete(Unit)
+                releaseResponse.await()
+                respond(
+                    """{"sections":[{"id":"old","section_type":"old","title":"Profile A"}]}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        val cache = FakeCache(preset = null)
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val repository = SectionRepository(
+            sectionApi = SectionApi(client),
+            catalogCache = cache,
+            identityTransitions = identityTransitions,
+        )
+
+        val oldProfileRequest = async { repository.getLibrarySections(7) }
+        requestEntered.await()
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) { }
+        releaseResponse.complete(Unit)
+
+        assertTrue(oldProfileRequest.await() is ApiResult.Success)
+        assertEquals(null, cache.cachedFor)
+        assertEquals(null, cache.cachedSections)
+    }
 }
