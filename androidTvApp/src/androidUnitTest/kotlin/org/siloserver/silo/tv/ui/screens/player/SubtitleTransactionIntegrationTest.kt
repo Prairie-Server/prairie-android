@@ -251,6 +251,10 @@ class SubtitleTransactionIntegrationTest {
         harness.awaitReplans(2)
         harness.awaitStopped("s2")
         harness.awaitAdopted("s3")
+        assertTrue(
+            testScheduler.currentTime < EVENT_TIMEOUT_MS,
+            "Adoption reached the pending Media3 mount deadline before the test could mount it.",
+        )
         runCurrent()
 
         assertEquals(listOf("s1", "s1"), harness.replanBaseSessions)
@@ -472,7 +476,6 @@ class SubtitleTransactionIntegrationTest {
         val media3Selections = mutableListOf<MountedSelection>()
 
         private val replanEvents = Channel<Unit>(Channel.UNLIMITED)
-        private val adoptedEvents = Channel<String>(Channel.UNLIMITED)
         private val persistenceEvents = Channel<Unit>(Channel.UNLIMITED)
         private val startIndex = AtomicInteger()
         private val replanIndex = AtomicInteger()
@@ -616,7 +619,6 @@ class SubtitleTransactionIntegrationTest {
                     if (adopted && adoption.isCurrent()) {
                         adoptedPlaybackRows[candidate.session.sessionId] =
                             adoption.playback.subtitleTracks
-                        adoptedEvents.send(candidate.session.sessionId)
                         TvSubtitleAdoptionResult.Adopted
                     } else {
                         TvSubtitleAdoptionResult.Superseded
@@ -790,14 +792,15 @@ class SubtitleTransactionIntegrationTest {
         }
 
         suspend fun awaitAdopted(sessionId: String) {
-            if (lifecycle.activeSessionId() == sessionId) return
-            withContext(Dispatchers.Default) {
-                withTimeout(5_000) {
-                    while (adoptedEvents.receive() != sessionId) {
-                        // Drain unrelated adoption completions.
-                    }
-                }
-            }
+            awaitHarnessCondition(
+                transactionScheduler = transactionScheduler,
+                cleanupScheduler = transactionScheduler,
+                timeoutMillis = EVENT_TIMEOUT_MS,
+                condition = {
+                    manager.activeSessionIdForTest() == sessionId &&
+                        lifecycle.activeSessionId() == sessionId
+                },
+            )
         }
 
         suspend fun awaitPersistence(count: Int) {
