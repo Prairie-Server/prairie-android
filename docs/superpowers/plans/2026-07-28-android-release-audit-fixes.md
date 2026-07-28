@@ -142,6 +142,15 @@ git commit -m "fix(shared): keep cache writes identity scoped"
 - Consumes: both reviewed fix commits.
 - Produces: one clean branch with green supply-chain, phone/TV unit, and phone/TV release gates.
 
+- [ ] **Step 0: Preserve request-time ownership for Home cache writes**
+
+Add a Home-cache write lease using the shared identity generation, propagate it
+from the section request through both `StartupWarmup` and `HomeViewModel`, and
+make `RoomHomeCacheRepository` reject stale leases before and after resolving
+the identity snapshot. First add a deterministic delayed A→B regression that
+proves A's Home sections cannot be stored or read as B. Preserve existing
+offline Home reads and successful same-identity warmup behavior.
+
 - [ ] **Step 1: Review each task diff independently**
 
 Require explicit spec-compliance and code-quality approval; fix every Critical, Important, or Minor release finding before continuing.
