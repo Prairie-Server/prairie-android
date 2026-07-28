@@ -335,10 +335,102 @@ git add \
 git commit -m "fix(subtitles): converge aspect bounds after layout"
 ```
 
-### Task 3: Regression, release, and Pixel validation
+### Task 3: Stabilize initial phone subtitle restore
 
 **Files:**
-- Modify only if evidence requires a test correction: files from Tasks 1-2.
+- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/MobileSubtitleTransactionAdapter.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerScreen.kt`
+- Test: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/player/MobileSubtitleTransactionAdapterTest.kt`
+- Verify unchanged: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/player/TvSubtitleRemountReselection.kt`
+- Test: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/player/SubtitleRemountReselectionTest.kt`
+
+**Interfaces:**
+- Consumes: `MobileSubtitleTransactionAdapter.reportMountedSelection(...)` and
+  the existing five-second mobile mount deadline.
+- Produces: stable-snapshot evidence owned by the pending mobile mount
+  generation; the first non-empty miss remains pending, a changed snapshot
+  restarts settlement, and a repeated identical miss may fail.
+
+- [ ] **Step 1: Write the failing mobile transaction tests**
+
+Change the immediate-miss test so it reports one ready, non-empty catalog and
+asserts that the pending local restore remains active with no failure. Add a
+second test that reports the same key twice and asserts the existing failure,
+plus a changed-key test that requires the changed key to repeat before failure.
+
+```kotlin
+harness.adapter.reportMountedSelection(
+    identity = local,
+    selected = false,
+    snapshotKey = "intermediate",
+    settled = true,
+)
+assertEquals(local, harness.adapter.snapshot.localMountIdentity)
+assertNull(harness.adapter.snapshot.failureMessage)
+
+harness.adapter.reportMountedSelection(
+    identity = local,
+    selected = false,
+    snapshotKey = "intermediate",
+    settled = true,
+)
+assertNull(harness.adapter.snapshot.localMountIdentity)
+assertTrue(harness.adapter.snapshot.failureMessage?.contains("mount", true) == true)
+```
+
+- [ ] **Step 2: Run RED**
+
+```bash
+./gradlew :androidApp:testDebugUnitTest \
+  --tests '*MobileSubtitleTransactionAdapterTest*' \
+  --rerun-tasks --max-workers=2 --no-daemon
+```
+
+Expected: the first-snapshot assertion fails because the adapter currently
+calls `failLocalMount` immediately.
+
+- [ ] **Step 3: Implement generation-owned snapshot stabilization**
+
+Add one nullable last-miss snapshot key to
+`MobileSubtitleTransactionAdapter`. For a non-selected result with
+`settled=true`, record the first non-blank key; fail only when the same key is
+reported again. A changed key replaces the candidate and remains provisional.
+Clear the candidate from `invalidateLocalMount()` so content, identity, and
+generation changes cannot inherit old evidence.
+
+In `PlayerScreen` keep the immediate `LaunchedEffect` mount attempt
+provisional (`settled = false`). Track callbacks remain the source of settled
+catalog evidence. Do not change the five-second timeout, successful-selection
+path, persisted identity, or error copy.
+
+- [ ] **Step 4: Run GREEN and focused TV parity**
+
+```bash
+./gradlew \
+  :androidApp:testDebugUnitTest \
+  :androidTvApp:testDebugUnitTest \
+  --tests '*MobileSubtitleTransactionAdapterTest*' \
+  --tests '*SubtitleRemountReselectionTest*' \
+  --rerun-tasks --max-workers=2 --no-daemon
+```
+
+Expected: mobile first/changed/repeated snapshot tests pass, and TV's existing
+first-snapshot stabilization tests remain green without TV production edits.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add \
+  androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/MobileSubtitleTransactionAdapter.kt \
+  androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/player/PlayerScreen.kt \
+  androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/player/MobileSubtitleTransactionAdapterTest.kt
+git commit -m "fix(subtitles): await stable tracks on playback restore"
+```
+
+### Task 4: Regression, release, and Pixel validation
+
+**Files:**
+- Modify only if evidence requires a test correction: files from Tasks 1-3.
 - Record verification in the PR description; do not add generated artifacts to git.
 
 **Interfaces:**
