@@ -19,6 +19,7 @@ import org.siloserver.silo.network.createSecureSharedPrefs
 import org.siloserver.silo.tv.ui.screens.servers.TvServerListViewModel
 import org.siloserver.silo.common.player.AudioCapabilityManager
 import org.siloserver.silo.common.player.AudioTrackManager
+import org.siloserver.silo.common.player.AndroidSubtitlePresentation
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.tv.ui.screens.settings.TvSettingsViewModel
@@ -141,7 +142,12 @@ val androidTvModule = module {
         AndroidDeviceMetadataProvider(androidContext(), platform = "android-tv")
     }
     // Player infrastructure (duplicate-for-now; extract to :android-player later).
-    single { SubtitleManager(get()) }
+    single {
+        SubtitleManager(
+            libassBridge = get(),
+            presentation = AndroidSubtitlePresentation.Television,
+        )
+    }
     single { AudioTrackManager() }
     single {
         VideoPlaybackBackendFactory(
