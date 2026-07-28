@@ -1,7 +1,7 @@
 # Task 4 Report: Android TV Focus and Phone/TV Hero Verification
 
 Date: 2026-07-28
-Worktree: `/Users/jimcole/projects/silo/silo-android/.worktrees/tv-for-you-cold-navigation`
+Worktree: `fix/tv-for-you-cold-navigation worktree`
 Final local HEAD: `9c251293dc321385ea9be205a0732cc7b14b1251`
 
 ## Summary
@@ -140,8 +140,8 @@ Signing caveat: these are debug-signed release builds. They only upgrade install
 
 Copied artifacts:
 
-- `/Users/jimcole/Desktop/Silo Releases/Silo-Phone-Universal-0.3.11-FocusHeroFix-9c251293.apk`
-- `/Users/jimcole/Desktop/Silo Releases/Silo-TV-Universal-0.3.11-TVFocusHeroFix-9c251293.apk`
+- `Silo-Phone-Universal-0.3.11-FocusHeroFix-9c251293.apk`
+- `Silo-TV-Universal-0.3.11-TVFocusHeroFix-9c251293.apk`
 
 SHA-256:
 

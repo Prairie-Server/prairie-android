@@ -68,7 +68,7 @@ After the change, a combined cold-navigation run recorded 769 frames, 114
 janky frames (14.82%), p50 10 ms, p90 24 ms, p95 46 ms, and p99 300 ms. The
 captured run contained only five combined HTTP-completion/GC log matches.
 
-Supply-chain policy checks, shared and TV focused unit tests, Android shared
+Supply-chain policy checks, shared and TV-focused unit tests, Android shared
 tests, and the minified TV release assembly passed. A final independent review
 approved the branch after two correction rounds.
 

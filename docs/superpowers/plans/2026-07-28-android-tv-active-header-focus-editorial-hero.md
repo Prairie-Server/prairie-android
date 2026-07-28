@@ -4,7 +4,7 @@
 
 **Goal:** Make content-to-header navigation land on the active TV section and present ordered editorial browsing metadata on Android phone and TV.
 
-**Architecture:** Keep `TvMainShell` as the route-aware focus coordinator, pass its active root explicitly through `TvShellFocusState`, and let `TvTopMenuBar` apply the existing requester after composition. Keep TV hero transformation inside `TvMarqueeContent.from` and phone hero transformation in a small pure `FeaturedCarousel` metadata helper, using only existing `SectionItem` data and leaving player/detail surfaces unchanged.
+**Architecture:** Keep `TvMainShell` as the route-aware focus coordinator, pass its active root explicitly through `TvShellFocusState`, and let `TvTopMenuBar` apply the existing requester after composition. Keep TV hero transformation inside `TvMarqueeContent.from` and phone hero transformation in the small pure `featuredHeroMetadata` mapper, using only existing `SectionItem` data and leaving player/detail surfaces unchanged.
 
 **Tech Stack:** Kotlin 2.1, Jetpack Compose/Compose for TV, Compose focus and `FlowRow` layout APIs, Kotlin coroutines, Kotlin test/JUnit, Gradle.
 
@@ -70,7 +70,7 @@
 - Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/shell/TvShellFocusStateTest.kt:90-125,245-280`
 
 **Interfaces:**
-- Consumes: `TvTopMenuPanel.Root(TvRootDestination)`, `TvShellFocusState.requestMenuFocus(TvTopMenuPanel?)`, and each existing top-menu `FocusRequester`.
+- Consumes: `TvTopMenuPanel.Root(TvRootDestination)`, `TvShellFocusState.requestMenuFocusIfAvailable(TvTopMenuPanel?, Boolean)`, and each existing top-menu `FocusRequester`.
 - Produces: `internal suspend fun requestTopMenuFocusUntilApplied(awaitFrame: suspend () -> Unit, requestFocus: () -> Boolean)`.
 - Produces: `TvShellFocusState.onBack(onTabRoot: Boolean, menuFocusTarget: TvTopMenuPanel? = null): TvShellBackAction`.
 - Produces: one `selectedMenuFocusTarget: TvTopMenuPanel?` in `TvMainShell`, reused by content Up and Back.
@@ -218,32 +218,41 @@ focusState.onBack(
 Use it at both first-row Up handoffs:
 
 ```kotlin
-focusState.requestMenuFocus(selectedMenuFocusTarget)
+focusState.requestMenuFocusIfAvailable(
+    selectedMenuFocusTarget,
+    allowNullTarget = currentRoute == TvMainRoute.Search.route,
+)
 ```
 
 Leave `selectedMenuFocusTarget` null on Search. `TvTopMenuBar` must continue
 using `isSearchActive` to select Search for that route; other secondary routes
 must not silently select Home.
 
-- [ ] **Step 7: Apply the requester after composition and only acknowledge success**
+- [ ] **Step 7: Apply the requester after composition and record the handled identity**
 
-In `TvTopMenuBar`, replace the immediate focus call inside the
-`LaunchedEffect(focusRequest, isFocusSuppressed)` with:
+In `TvTopMenuBar`, track `focusRequestIdentity` as
+`focusRequest to focusRequestTarget`, then replace the immediate focus call
+inside the `LaunchedEffect(focusRequest, focusRequestTarget, isFocusSuppressed)`
+with:
 
 ```kotlin
 requestTopMenuFocusUntilApplied(
     awaitFrame = { androidx.compose.runtime.withFrameNanos { } },
+    isTargetCurrent = {
+        currentFocusRequestTarget == focusRequestTarget &&
+            isTopMenuFocusTargetAvailable(focusRequestTarget, currentDestinations)
+    },
     requestFocus = {
         runCatching { requester.requestFocus() }.getOrDefault(false)
     },
 )
-lastHandledFocusRequest = focusRequest
+lastHandledFocusRequest = focusRequestIdentity
 ```
 
-Move the existing `lastHandledFocusRequest = focusRequest` assignment out of
-the pre-request path. The frame loop suspends rather than spins and is cancelled
-automatically if the `LaunchedEffect` keys change. Keep the explicit-target
-resolution and `dwellSuppressedButton` behavior unchanged.
+Move the existing `lastHandledFocusRequest = focusRequestIdentity` assignment
+out of the pre-request path. The frame loop suspends rather than spins and is
+cancelled automatically if the `LaunchedEffect` keys change. Keep the
+explicit-target resolution and `dwellSuppressedButton` behavior unchanged.
 
 - [ ] **Step 8: Run focused tests and verify GREEN**
 
@@ -700,8 +709,8 @@ In `FeaturedCarousel.kt`:
 - import `ExperimentalLayoutApi` and `FlowRow` from
   `androidx.compose.foundation.layout`;
 - annotate `FeaturedCardContent` with `@OptIn(ExperimentalLayoutApi::class)`;
-- replace `remember(item) { metadataChips(item) }` with
-  `remember(item) { featuredHeroMetadata(item) }`;
+- use `remember(item) { featuredHeroMetadata(item) }` for the phone hero
+  metadata;
 - replace the single `Row` with:
 
 ```kotlin
