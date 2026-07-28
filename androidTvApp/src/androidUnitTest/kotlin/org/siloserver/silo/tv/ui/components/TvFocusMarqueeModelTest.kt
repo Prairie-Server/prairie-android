@@ -82,4 +82,28 @@ class TvFocusMarqueeModelTest {
         assertEquals(emptyList(), content.badges)
         assertEquals(emptyList(), content.metaParts)
     }
+
+    @Test
+    fun invalidRatingsAndDurationsAreOmittedFromTvMetadata() {
+        listOf(
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY,
+            0.0,
+            -1.0,
+        ).forEachIndexed { index, invalid ->
+            val content = TvMarqueeContent.from(
+                item = SectionItem(
+                    contentId = "invalid-$index",
+                    type = "movie",
+                    title = "Invalid",
+                    ratingImdb = invalid,
+                    durationSeconds = invalid,
+                ),
+                rowTitle = "Invalid",
+            )
+
+            assertEquals(emptyList(), content.metaParts)
+        }
+    }
 }

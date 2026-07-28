@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -279,6 +281,7 @@ private fun FeaturedCard(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun FeaturedCardContent(
     item: SectionItem,
     visibility: Float,
@@ -336,9 +339,14 @@ private fun FeaturedCardContent(
             )
         }
 
-        val chips = remember(item) { metadataChips(item) }
+        val chips = remember(item) { featuredHeroMetadata(item) }
         if (chips.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                maxLines = 2,
+            ) {
                 chips.forEach { chip -> MetadataChip(chip) }
             }
         }
@@ -352,7 +360,7 @@ private fun FeaturedCardContent(
 }
 
 @Composable
-private fun MetadataChip(chip: HeroChip) {
+private fun MetadataChip(chip: FeaturedHeroMetadataChip) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -366,16 +374,16 @@ private fun MetadataChip(chip: HeroChip) {
             )
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        if (chip.icon != null) {
+        if (chip.kind == FeaturedHeroMetadataKind.Rating) {
             Icon(
-                imageVector = chip.icon,
+                imageVector = Icons.Default.Star,
                 contentDescription = null,
-                tint = chip.iconTint ?: Color.White.copy(alpha = 0.94f),
+                tint = Color(0xFFFFCA28),
                 modifier = Modifier.size(12.dp),
             )
         }
         Text(
-            text = chip.title,
+            text = chip.label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = Color.White.copy(alpha = 0.94f),
@@ -464,41 +472,8 @@ private fun FeaturedActionRow(
     }
 }
 
-private data class HeroChip(
-    val title: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    val iconTint: Color? = null,
-)
-
-private fun metadataChips(item: SectionItem): List<HeroChip> {
-    val chips = mutableListOf<HeroChip>()
-    chips += HeroChip(title = item.type.replaceFirstChar { it.uppercase() })
-    episodeToken(item)?.let { chips += HeroChip(title = it) }
-    item.ratingImdb?.let { rating ->
-        chips += HeroChip(
-            title = "%.1f".format(rating),
-            icon = Icons.Default.Star,
-            iconTint = Color(0xFFFFCA28),
-        )
-    }
-    if (item.year > 0) chips += HeroChip(title = item.year.toString())
-    return chips
-}
-
 private fun eyebrowFor(item: SectionItem): String? {
     if (!item.type.equals("episode", ignoreCase = true)) return null
     val seriesTitle = item.seriesTitle
     return if (!seriesTitle.isNullOrBlank()) seriesTitle else null
-}
-
-private fun episodeToken(item: SectionItem): String? {
-    if (!item.type.equals("episode", ignoreCase = true)) return null
-    val season = item.seasonNumber
-    val episode = item.episodeNumber
-    return when {
-        season != null && episode != null -> "S$season E$episode"
-        season != null -> "Season $season"
-        episode != null -> "Episode $episode"
-        else -> null
-    }
 }

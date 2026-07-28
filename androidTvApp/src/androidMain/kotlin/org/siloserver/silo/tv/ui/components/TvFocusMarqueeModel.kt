@@ -86,11 +86,15 @@ data class TvMarqueeContent(
                 episodeToken(item.seasonNumber, item.episodeNumber)?.let(meta::add)
                 if (item.title.isNotBlank()) meta.add(item.title)
                 lengthText(item.durationSeconds)?.let(meta::add)
-                item.ratingImdb?.let { meta.add(formatRating(it)) }
+                item.ratingImdb
+                    ?.takeIf { it.isFinite() && it > 0.0 }
+                    ?.let { meta.add(formatRating(it)) }
             } else {
                 if (item.year > 0) meta.add(item.year.toString())
                 lengthText(item.durationSeconds)?.let(meta::add)
-                item.ratingImdb?.let { meta.add(formatRating(it)) }
+                item.ratingImdb
+                    ?.takeIf { it.isFinite() && it > 0.0 }
+                    ?.let { meta.add(formatRating(it)) }
                 item.genres.firstOrNull { it.isNotBlank() }?.let(meta::add)
             }
 
@@ -141,8 +145,9 @@ data class TvMarqueeContent(
         }
 
         private fun lengthText(durationSeconds: Double?): String? {
-            if (durationSeconds == null || durationSeconds <= 0) return null
-            val minutes = (durationSeconds / 60.0).roundToInt()
+            val duration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
+                ?: return null
+            val minutes = (duration / 60.0).roundToInt()
             if (minutes <= 0) return null
             return if (minutes >= 60) {
                 val hours = minutes / 60
