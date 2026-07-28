@@ -112,6 +112,7 @@ val androidTvModule = module {
         org.siloserver.silo.common.data.repository.RoomHomeCacheRepository(
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
+            identityTransitions = get(),
         )
     }
     single<org.siloserver.silo.repository.port.CatalogCachePort> {
@@ -359,7 +360,7 @@ val androidTvModule = module {
     }
 
     // Content ViewModels
-    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get()) }
     viewModel { org.siloserver.silo.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { RequestsViewModel(get()) }

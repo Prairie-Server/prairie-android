@@ -7,8 +7,11 @@ import org.siloserver.silo.model.catalog.MediaItemUserState
 import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.model.section.SectionItem
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.repository.SectionRepository
 import org.siloserver.silo.repository.port.HomeCachePort
+import org.siloserver.silo.repository.port.HomeCacheWriteLease
 import org.siloserver.silo.repository.port.NoOpHomeCachePort
 import org.siloserver.silo.repository.port.NoOpUserItemStatePort
 import org.siloserver.silo.repository.port.UserItemStatePort
@@ -43,6 +46,7 @@ class HomeViewModel(
     // Live-home accelerator (Apple realtime-updates spec). Null keeps
     // commonMain/tests network-only; the apps inject the shared coordinator.
     private val homeRealtime: org.siloserver.silo.repository.HomeRealtimeCoordinator? = null,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -115,6 +119,8 @@ class HomeViewModel(
     }
 
     private suspend fun fetchSections() {
+        val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = HomeCacheWriteLease(requestIdentityGeneration)
         // Whether we already have something to show (cached or prior fetch) — if a
         // refresh fails we keep it rather than replacing it with a blocking error.
         val hadSections = _uiState.value.sections.isNotEmpty()
@@ -137,8 +143,11 @@ class HomeViewModel(
 
                 // Cache the RAW server sections (snapshot), but display with the
                 // local optimistic overlay applied.
-                if (fullyResolved) {
-                    homeCache.cacheHome(resolved)
+                if (
+                    fullyResolved &&
+                    requestIdentityGeneration == identityTransitions.generation.value
+                ) {
+                    homeCache.cacheHome(resolved, cacheWriteLease)
                 }
                 val overlaid = overlayLocalState(resolved)
                 _uiState.update {
