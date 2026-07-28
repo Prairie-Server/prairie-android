@@ -78,6 +78,21 @@ class RoomDeliveryLatchTest {
     }
 
     @Test
+    fun `session traffic waits for both attach delivery and the server echo`() {
+        val latch = RoomDeliveryLatch()
+        val key = assertNotNull(latch.keyOrNull(open1, "session-a"))
+
+        assertFalse(latch.isServerAttached(key, echoedSessionId = null))
+        latch.recordAttach(key, delivered = true)
+        assertFalse(latch.isServerAttached(key, echoedSessionId = null))
+        assertFalse(latch.isServerAttached(key, echoedSessionId = "session-b"))
+        assertTrue(latch.isServerAttached(key, echoedSessionId = "session-a"))
+
+        val replacementEpoch = assertNotNull(latch.keyOrNull(open2, "session-a"))
+        assertFalse(latch.isServerAttached(replacementEpoch, echoedSessionId = "session-a"))
+    }
+
+    @Test
     fun `delayed command for session A cannot mutate replacement session B`() {
         val command = TransportCommand(
             commandId = "cmd-1",

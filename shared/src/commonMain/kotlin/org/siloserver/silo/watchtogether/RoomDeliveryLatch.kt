@@ -45,6 +45,13 @@ class RoomDeliveryLatch {
 
     fun isAttached(key: RoomDeliveryKey?): Boolean = key != null && attached == key
 
+    /**
+     * Session-scoped traffic is safe only after the attach frame was delivered
+     * and the server echoed that exact session in a room snapshot.
+     */
+    fun isServerAttached(key: RoomDeliveryKey?, echoedSessionId: String?): Boolean =
+        isAttached(key) && echoedSessionId == key?.playbackSessionId
+
     fun recordAttach(key: RoomDeliveryKey, delivered: Boolean) {
         if (delivered) attached = key
     }
