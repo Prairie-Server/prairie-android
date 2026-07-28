@@ -194,6 +194,9 @@ class LibrariesViewModel(
     private var recommendedLoadedLibraryId: Int? = null
     private var browseLoadedLibraryId: Int? = null
     private var collectionsLoadedLibraryId: Int? = null
+    private var recommendedRequestGeneration = 0L
+    private var catalogRequestGeneration = 0L
+    private var collectionsRequestGeneration = 0L
     private val pageSize = 42
 
     init {
@@ -400,41 +403,62 @@ class LibrariesViewModel(
     private fun loadRecommended(libraryId: Int, force: Boolean) {
         if (!force && recommendedLoadedLibraryId == libraryId) return
         recommendedLoadedLibraryId = libraryId
+        val requestGeneration = ++recommendedRequestGeneration
         viewModelScope.launch {
+            if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
             _uiState.update {
-                it.copy(
-                    isLoadingSections = true,
-                    sectionsError = null,
-                    sections = emptyList(),
-                )
+                if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                    it.copy(
+                        isLoadingSections = true,
+                        sectionsError = null,
+                        sections = emptyList(),
+                    )
+                } else {
+                    it
+                }
             }
 
             when (val result = sectionRepository.getLibrarySections(libraryId)) {
                 is ApiResult.Success -> {
+                    if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingSections = false,
-                            sections = result.data.sections.filter { section -> section.items.isNotEmpty() },
-                            sectionsError = null,
-                        )
+                        if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingSections = false,
+                                sections = result.data.sections.filter { section -> section.items.isNotEmpty() },
+                                sectionsError = null,
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.Error -> {
+                    if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingSections = false,
-                            sections = emptyList(),
-                            sectionsError = result.message.ifBlank { "Failed to load recommendations" },
-                        )
+                        if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingSections = false,
+                                sections = emptyList(),
+                                sectionsError = result.message.ifBlank { "Failed to load recommendations" },
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.NetworkError -> {
+                    if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingSections = false,
-                            sections = emptyList(),
-                            sectionsError = "Network error: ${result.exception.message ?: "unknown"}",
-                        )
+                        if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingSections = false,
+                                sections = emptyList(),
+                                sectionsError = "Network error: ${result.exception.message ?: "unknown"}",
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
             }
@@ -446,18 +470,35 @@ class LibrariesViewModel(
             return
         }
         browseLoadedLibraryId = libraryId
+        val requestState = _uiState.value
+        val requestIdentity = CatalogRequestIdentity(
+            libraryId = libraryId,
+            browseSort = requestState.browseSort,
+            selectedNamePrefix = requestState.selectedNamePrefix,
+            filterState = requestState.filterState,
+        )
+        val requestGeneration = ++catalogRequestGeneration
+        val offset = if (reset) 0 else requestState.catalogItems.size
         viewModelScope.launch {
-            val state = _uiState.value
-            val offset = if (reset) 0 else state.catalogItems.size
+            if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
 
-            if (reset && state.availableFilters == null) {
+            if (reset && requestState.availableFilters == null) {
                 launch {
                     // includeTechnical: resolution + audio/subtitle-language facets
                     // are only fetched on request (iOS parity). Keep the FULL
                     // response so the filter sheet has every facet, not just genres.
                     when (val filters = catalogRepository.getFilters(libraryId, includeTechnical = true)) {
                         is ApiResult.Success -> {
-                            _uiState.update { it.copy(availableFilters = filters.data) }
+                            if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) {
+                                return@launch
+                            }
+                            _uiState.update {
+                                if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                                    it.copy(availableFilters = filters.data)
+                                } else {
+                                    it
+                                }
+                            }
                         }
                         else -> Unit
                     }
@@ -465,38 +506,34 @@ class LibrariesViewModel(
             }
 
             _uiState.update {
-                if (reset) {
-                    it.copy(
-                        isLoadingCatalog = true,
-                        isLoadingMoreCatalog = false,
-                        catalogError = null,
-                    )
+                if (!isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                    it
+                } else if (reset) {
+                    it.copy(isLoadingCatalog = true, isLoadingMoreCatalog = false, catalogError = null)
                 } else {
-                    it.copy(
-                        isLoadingMoreCatalog = true,
-                        catalogError = null,
-                    )
+                    it.copy(isLoadingMoreCatalog = true, catalogError = null)
                 }
             }
 
             when (
                 val result = catalogRepository.browse(
                     libraryId = libraryId,
-                    sort = state.browseSort.sortField,
-                    order = state.browseSort.sortOrder,
+                    sort = requestState.browseSort.sortField,
+                    order = requestState.browseSort.sortOrder,
                     offset = offset,
                     limit = pageSize,
-                    namePrefix = state.selectedNamePrefix,
+                    namePrefix = requestState.selectedNamePrefix,
                     // Full facet filtering (genre/decade/rating/studio/language/...)
                     // via the shared query builder — replaces the single-genre param.
-                    queryGroups = CatalogFilterQueryBuilder.buildGroups(state.filterState),
-                    match = CatalogFilterQueryBuilder.matchParam(state.filterState)
-                        .takeIf { state.filterState.hasActiveFilters },
+                    queryGroups = CatalogFilterQueryBuilder.buildGroups(requestState.filterState),
+                    match = CatalogFilterQueryBuilder.matchParam(requestState.filterState)
+                        .takeIf { requestState.filterState.hasActiveFilters },
                 )
             ) {
                 is ApiResult.Success -> {
                     // Overlay local optimistic watched/favorite (mirrors Home/Browse).
                     val overlaid = overlayLocalState(result.data.items)
+                    if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
                     // Audiobook libraries expose book-native facets
                     // (author/narrator/series) — detected from the first item.
                     val detectedMediaType = overlaid.firstOrNull()?.let { first ->
@@ -507,33 +544,47 @@ class LibrariesViewModel(
                         }
                     }
                     _uiState.update {
-                        it.copy(
-                            isLoadingCatalog = false,
-                            isLoadingMoreCatalog = false,
-                            catalogItems = if (reset) overlaid else it.catalogItems + overlaid,
-                            catalogTotal = result.data.total,
-                            catalogHasMore = result.data.hasMore,
-                            browseMediaType = detectedMediaType ?: it.browseMediaType,
-                            catalogError = null,
-                        )
+                        if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                            it.copy(
+                                isLoadingCatalog = false,
+                                isLoadingMoreCatalog = false,
+                                catalogItems = if (reset) overlaid else it.catalogItems + overlaid,
+                                catalogTotal = result.data.total,
+                                catalogHasMore = result.data.hasMore,
+                                browseMediaType = detectedMediaType ?: it.browseMediaType,
+                                catalogError = null,
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.Error -> {
+                    if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCatalog = false,
-                            isLoadingMoreCatalog = false,
-                            catalogError = result.message.ifBlank { "Failed to load catalog" },
-                        )
+                        if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                            it.copy(
+                                isLoadingCatalog = false,
+                                isLoadingMoreCatalog = false,
+                                catalogError = result.message.ifBlank { "Failed to load catalog" },
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.NetworkError -> {
+                    if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCatalog = false,
-                            isLoadingMoreCatalog = false,
-                            catalogError = "Network error: ${result.exception.message ?: "unknown"}",
-                        )
+                        if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                            it.copy(
+                                isLoadingCatalog = false,
+                                isLoadingMoreCatalog = false,
+                                catalogError = "Network error: ${result.exception.message ?: "unknown"}",
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
             }
@@ -565,43 +616,96 @@ class LibrariesViewModel(
             return
         }
         collectionsLoadedLibraryId = libraryId
+        val requestGeneration = ++collectionsRequestGeneration
         viewModelScope.launch {
+            if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
             _uiState.update {
-                it.copy(
-                    isLoadingCollections = true,
-                    collectionsError = null,
-                    collections = emptyList(),
-                )
+                if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                    it.copy(
+                        isLoadingCollections = true,
+                        collectionsError = null,
+                        collections = emptyList(),
+                    )
+                } else {
+                    it
+                }
             }
             when (val result = sectionRepository.getLibraryCollections(libraryId)) {
                 is ApiResult.Success -> {
+                    if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCollections = false,
-                            collections = result.data,
-                            collectionsError = null,
-                        )
+                        if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingCollections = false,
+                                collections = result.data,
+                                collectionsError = null,
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.Error -> {
+                    if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCollections = false,
-                            collectionsError = result.message.ifBlank { "Failed to load collections" },
-                        )
+                        if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingCollections = false,
+                                collectionsError = result.message.ifBlank { "Failed to load collections" },
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.NetworkError -> {
+                    if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCollections = false,
-                            collectionsError = "Network error: ${result.exception.message ?: "unknown"}",
-                        )
+                        if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingCollections = false,
+                                collectionsError = "Network error: ${result.exception.message ?: "unknown"}",
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
             }
         }
     }
+
+    private fun isRecommendedRequestCurrent(
+        generation: Long,
+        libraryId: Int,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == recommendedRequestGeneration && state.selectedLibraryId == libraryId
+
+    private fun isCatalogRequestCurrent(
+        generation: Long,
+        identity: CatalogRequestIdentity,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == catalogRequestGeneration &&
+            state.selectedLibraryId == identity.libraryId &&
+            state.browseSort == identity.browseSort &&
+            state.selectedNamePrefix == identity.selectedNamePrefix &&
+            state.filterState == identity.filterState
+
+    private fun isCollectionsRequestCurrent(
+        generation: Long,
+        libraryId: Int,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == collectionsRequestGeneration && state.selectedLibraryId == libraryId
+
+    private data class CatalogRequestIdentity(
+        val libraryId: Int,
+        val browseSort: LibraryBrowseSort,
+        val selectedNamePrefix: String?,
+        val filterState: CatalogFilterState,
+    )
 }
 
 // Distance the Recommended tab must scroll for the chrome scrim to fully
@@ -982,6 +1086,7 @@ private fun BrowseTabContent(
                     selectedNamePrefix = state.selectedNamePrefix,
                     onNamePrefixSelected = onNamePrefixChanged,
                     viewDensity = state.catalogDensity,
+                    bottomContentInset = LocalBottomChromeInset.current,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

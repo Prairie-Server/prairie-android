@@ -18,6 +18,9 @@ class LibraryChromeInsetSourceTest {
     private val carousel = source(
         "org/siloserver/silo/android/ui/screens/home/FeaturedCarousel.kt",
     )
+    private val catalogGrid = source(
+        "org/siloserver/silo/android/ui/screens/browse/CatalogGrid.kt",
+    )
 
     @Test
     fun sharedChromeOwnsReservedSpaceBeforeEveryLibraryTab() {
@@ -35,5 +38,13 @@ class LibraryChromeInsetSourceTest {
         assertFalse(libraries.contains(".windowInsetsPadding(WindowInsets.statusBars)"))
         assertFalse(carousel.contains("WindowInsets.statusBars"))
         assertTrue(carousel.contains("topInset: androidx.compose.ui.unit.Dp = 16.dp"))
+    }
+
+    @Test
+    fun browseCatalogAndAlphabetRailReserveMeasuredBottomChromeInset() {
+        assertTrue(libraries.contains("bottomContentInset = LocalBottomChromeInset.current"))
+        assertTrue(catalogGrid.contains("bottomContentInset: Dp = 0.dp"))
+        assertTrue(catalogGrid.contains("bottom = 8.dp + bottomContentInset"))
+        assertTrue(catalogGrid.contains(".padding(bottom = bottomContentInset)"))
     }
 }
