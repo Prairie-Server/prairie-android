@@ -38,18 +38,41 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
-    fun subtitleTextFractionsMatchTheWebScale() {
+    fun phoneSubtitleTextFractionsAreOneQuarterLarger() {
+        val manager = SubtitleManager(
+            presentation = AndroidSubtitlePresentation.Phone,
+        )
+
+        assertEquals(25f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
+        assertEquals(32.5f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
+        assertEquals(40f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
+        assertEquals(50f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
+        assertEquals(60f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
+    }
+
+    @Test
+    fun televisionSubtitleTextFractionsPreserveExistingScale() {
+        val manager = SubtitleManager(
+            presentation = AndroidSubtitlePresentation.Television,
+        )
+
+        assertEquals(20f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
+        assertEquals(26f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
+        assertEquals(32f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
+        assertEquals(40f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
+        assertEquals(48f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
+    }
+
+    private fun fractionalSize(
+        manager: SubtitleManager,
+        preset: SubtitleFontSizePreset,
+    ): Float {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "fractionalSizeFor",
             SubtitleFontSizePreset::class.java,
         )
         method.isAccessible = true
-
-        assertEquals(20f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Small) as Float)
-        assertEquals(26f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Medium) as Float)
-        assertEquals(32f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.Large) as Float)
-        assertEquals(40f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.XLarge) as Float)
-        assertEquals(48f / 720f, method.invoke(SubtitleManager(), SubtitleFontSizePreset.XXLarge) as Float)
+        return method.invoke(manager, preset) as Float
     }
 
     @Test

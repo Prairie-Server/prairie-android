@@ -20,6 +20,7 @@ import org.siloserver.silo.common.pairing.RepositoryCompanionDeviceLoginApprover
 import org.siloserver.silo.common.pairing.TlsPskPairingClientTransport
 import org.siloserver.silo.common.player.AudioCapabilityManager
 import org.siloserver.silo.common.player.AudioTrackManager
+import org.siloserver.silo.common.player.AndroidSubtitlePresentation
 import org.siloserver.silo.common.player.SiloPlayerFactory
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackSessionManager
@@ -217,7 +218,12 @@ val androidModule = module {
     single { PushMessageHandler(presenter = get()) }
 
     // Player infrastructure
-    single { SubtitleManager(get()) }
+    single {
+        SubtitleManager(
+            libassBridge = get(),
+            presentation = AndroidSubtitlePresentation.Phone,
+        )
+    }
     single { AudioTrackManager() }
     single {
         VideoPlaybackBackendFactory(

@@ -41,8 +41,16 @@ import kotlin.math.roundToInt
  * This manager builds subtitle configurations and applies track selection.
  */
 @UnstableApi
+enum class AndroidSubtitlePresentation {
+    Phone,
+    Television,
+}
+
+@UnstableApi
 class SubtitleManager(
     private val libassBridge: LibassBridge? = null,
+    private val presentation: AndroidSubtitlePresentation =
+        AndroidSubtitlePresentation.Television,
 ) {
 
     private val videoRectSyncs = WeakHashMap<PlayerView, SubtitleVideoRectSync>()
@@ -332,13 +340,23 @@ class SubtitleManager(
     }
 
     private fun fractionalSizeFor(preset: SubtitleFontSizePreset): Float {
-        return when (preset) {
-            SubtitleFontSizePreset.Small -> 20f / 720f
-            SubtitleFontSizePreset.Medium -> 26f / 720f
-            SubtitleFontSizePreset.Large -> 32f / 720f
-            SubtitleFontSizePreset.XLarge -> 40f / 720f
-            SubtitleFontSizePreset.XXLarge -> 48f / 720f
+        val numerator = when (presentation) {
+            AndroidSubtitlePresentation.Phone -> when (preset) {
+                SubtitleFontSizePreset.Small -> 25f
+                SubtitleFontSizePreset.Medium -> 32.5f
+                SubtitleFontSizePreset.Large -> 40f
+                SubtitleFontSizePreset.XLarge -> 50f
+                SubtitleFontSizePreset.XXLarge -> 60f
+            }
+            AndroidSubtitlePresentation.Television -> when (preset) {
+                SubtitleFontSizePreset.Small -> 20f
+                SubtitleFontSizePreset.Medium -> 26f
+                SubtitleFontSizePreset.Large -> 32f
+                SubtitleFontSizePreset.XLarge -> 40f
+                SubtitleFontSizePreset.XXLarge -> 48f
+            }
         }
+        return numerator / 720f
     }
 
     private fun bottomPaddingFor(position: SubtitlePositionPreset): Float {
