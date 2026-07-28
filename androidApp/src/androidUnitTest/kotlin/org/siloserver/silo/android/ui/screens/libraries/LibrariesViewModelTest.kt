@@ -232,6 +232,7 @@ class LibrariesViewModelTest {
         private val deferredKeys: Set<String>,
     ) {
         private val requests = Channel<String>(Channel.UNLIMITED)
+        private val pendingRequests = mutableListOf<String>()
         private val responses = deferredKeys.associateWith { CompletableDeferred<String>() }
         private val client = HttpClient(
             MockEngine { request ->
@@ -277,8 +278,15 @@ class LibrariesViewModelTest {
         )
 
         suspend fun awaitRequest(expected: String) {
-            while (requests.receive() != expected) {
-                // Ignore setup requests and wait for the exact request under test.
+            val pendingIndex = pendingRequests.indexOf(expected)
+            if (pendingIndex >= 0) {
+                pendingRequests.removeAt(pendingIndex)
+                return
+            }
+            while (true) {
+                val actual = requests.receive()
+                if (actual == expected) return
+                pendingRequests += actual
             }
         }
 
