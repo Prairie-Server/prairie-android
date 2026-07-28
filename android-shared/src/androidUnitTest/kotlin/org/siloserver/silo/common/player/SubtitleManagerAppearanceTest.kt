@@ -1,17 +1,25 @@
 package org.siloserver.silo.common.player
 
+import android.app.Activity
+import android.os.Looper
+import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.PlayerView
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(UnstableApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -327,6 +335,41 @@ class SubtitleManagerAppearanceTest {
         )
     }
 
+    @Test
+    fun explicitSyncQueuesOnlyOnePostLayoutReconciliation() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val playerView = PlayerView(activity)
+        activity.setContentView(playerView)
+        playerView.layout(0, 0, 2400, 1080)
+        val manager = SubtitleManager()
+
+        manager.syncSubtitleVideoBounds(playerView)
+        manager.syncSubtitleVideoBounds(playerView)
+
+        val sync = manager.subtitleRectSyncForTest(playerView)
+        assertTrue(sync.postLayoutPendingForTest())
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(sync.postLayoutPendingForTest())
+    }
+
+    @Test
+    fun detachCancelsPendingPostLayoutReconciliation() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val playerView = PlayerView(activity)
+        activity.setContentView(playerView)
+        playerView.layout(0, 0, 2400, 1080)
+        val manager = SubtitleManager()
+
+        manager.syncSubtitleVideoBounds(playerView)
+        val sync = manager.subtitleRectSyncForTest(playerView)
+        activity.setContentView(FrameLayout(activity))
+
+        assertTrue(sync.isDisposedForTest())
+        assertFalse(sync.postLayoutPendingForTest())
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(sync.isDisposedForTest())
+    }
+
     private fun captionStyleFor(appearance: SubtitleAppearance): CaptionStyleCompat {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "buildCaptionStyle",
@@ -335,4 +378,23 @@ class SubtitleManagerAppearanceTest {
         method.isAccessible = true
         return method.invoke(SubtitleManager(), appearance) as CaptionStyleCompat
     }
+}
+
+private fun SubtitleManager.subtitleRectSyncForTest(playerView: PlayerView): Any {
+    val field = SubtitleManager::class.java.getDeclaredField("videoRectSyncs")
+    field.isAccessible = true
+    val syncs = field.get(this) as Map<*, *>
+    return requireNotNull(syncs[playerView])
+}
+
+private fun Any.postLayoutPendingForTest(): Boolean {
+    val field = javaClass.getDeclaredField("postLayoutPending")
+    field.isAccessible = true
+    return field.getBoolean(this)
+}
+
+private fun Any.isDisposedForTest(): Boolean {
+    val field = javaClass.getDeclaredField("isDisposed")
+    field.isAccessible = true
+    return field.getBoolean(this)
 }

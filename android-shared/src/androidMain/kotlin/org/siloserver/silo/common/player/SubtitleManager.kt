@@ -279,7 +279,7 @@ class SubtitleManager(
         } else {
             existing
         }
-        sync.update()
+        sync.updateAndReconcileAfterLayout()
     }
 
     private fun buildCaptionStyle(appearance: SubtitleAppearance): CaptionStyleCompat {
@@ -601,6 +601,12 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     var isDisposed: Boolean = false
         private set
 
+    private var postLayoutPending = false
+    private val postLayoutUpdate = Runnable {
+        postLayoutPending = false
+        if (!isDisposed) update()
+    }
+
     init {
         playerView.addOnLayoutChangeListener(this)
         playerView.addOnAttachStateChangeListener(this)
@@ -626,6 +632,14 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
             currentPlayer?.let { forwardNeutralizedCues(playerView, it.currentCues) }
         }
         applyRect(playerView)
+    }
+
+    fun updateAndReconcileAfterLayout() {
+        update()
+        val playerView = playerViewRef.get() ?: return
+        if (isDisposed || postLayoutPending) return
+        postLayoutPending = true
+        playerView.postOnAnimation(postLayoutUpdate)
     }
 
     override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -710,9 +724,11 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
 
     private fun dispose(view: View?) {
         if (isDisposed) return
+        val playerView = (view as? PlayerView) ?: playerViewRef.get()
+        playerView?.removeCallbacks(postLayoutUpdate)
+        postLayoutPending = false
         observedPlayer?.removeListener(this)
         observedPlayer = null
-        val playerView = (view as? PlayerView) ?: playerViewRef.get()
         playerView?.removeOnLayoutChangeListener(this)
         playerView?.removeOnAttachStateChangeListener(this)
         contentFrameRef.get()?.removeOnLayoutChangeListener(this)
