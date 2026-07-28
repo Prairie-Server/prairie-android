@@ -115,11 +115,13 @@ fun TvSkylineSectionFeed(
         }
     }
 
-    LaunchedEffect(initialMarqueeSeed?.item?.contentId, initialMarqueeSeed?.rowTitle) {
+    LaunchedEffect(
+        initialMarqueeSeed?.item?.contentId,
+        initialMarqueeSeed?.rowTitle,
+        initialMarqueeSeed?.rowIdentity,
+    ) {
         val seed = initialMarqueeSeed ?: return@LaunchedEffect
-        if (marquee.content == null) {
-            marquee.seedInitialPreview(seed.item, seed.rowTitle, seed.rowIdentity)
-        }
+        marquee.seedInitialPreview(seed.item, seed.rowTitle, seed.rowIdentity)
     }
 
     val rowBandState = rememberLazyListState()

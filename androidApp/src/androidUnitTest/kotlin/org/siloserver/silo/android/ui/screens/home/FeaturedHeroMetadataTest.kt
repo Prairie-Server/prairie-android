@@ -72,6 +72,7 @@ class FeaturedHeroMetadataTest {
             Double.NEGATIVE_INFINITY,
             0.0,
             -1.0,
+            11.0,
         ).forEachIndexed { index, invalid ->
             val chips = featuredHeroMetadata(
                 SectionItem(
@@ -85,5 +86,35 @@ class FeaturedHeroMetadataTest {
 
             assertEquals(emptyList(), chips)
         }
+    }
+
+    @Test
+    fun invalidRatingDoesNotHideValidPhoneRuntime() {
+        val chips = featuredHeroMetadata(
+            SectionItem(
+                contentId = "runtime-with-invalid-rating",
+                type = "movie",
+                title = "Movie",
+                ratingImdb = Double.NaN,
+                durationSeconds = 7_200.0,
+            ),
+        )
+
+        assertEquals(listOf("2h"), chips.map { it.label })
+    }
+
+    @Test
+    fun validRatingDoesNotHideInvalidPhoneRuntime() {
+        val chips = featuredHeroMetadata(
+            SectionItem(
+                contentId = "rating-with-invalid-runtime",
+                type = "movie",
+                title = "Movie",
+                ratingImdb = 8.4,
+                durationSeconds = Double.NaN,
+            ),
+        )
+
+        assertEquals(listOf("8.4"), chips.map { it.label })
     }
 }

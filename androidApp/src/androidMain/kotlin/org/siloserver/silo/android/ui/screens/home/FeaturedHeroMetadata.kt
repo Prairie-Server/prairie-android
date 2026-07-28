@@ -30,8 +30,7 @@ internal fun featuredHeroMetadata(item: SectionItem): List<FeaturedHeroMetadataC
     formatFeaturedRuntime(item.durationSeconds)?.let {
         result += FeaturedHeroMetadataChip(it)
     }
-    item.ratingImdb
-        ?.takeIf { it.isFinite() && it > 0.0 }
+    validImdbRating(item.ratingImdb)
         ?.let {
             result += FeaturedHeroMetadataChip(
                 label = String.format(Locale.US, "%.1f", it),
@@ -54,6 +53,9 @@ internal fun featuredHeroMetadata(item: SectionItem): List<FeaturedHeroMetadataC
         }
     return result
 }
+
+private fun validImdbRating(rating: Double?): Double? =
+    rating?.takeIf { it.isFinite() && it > 0.0 && it <= 10.0 }
 
 private fun episodeToken(season: Int?, episode: Int?): String? = when {
     season != null && episode != null -> "S$season E$episode"

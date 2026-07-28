@@ -91,6 +91,7 @@ class TvFocusMarqueeModelTest {
             Double.NEGATIVE_INFINITY,
             0.0,
             -1.0,
+            11.0,
         ).forEachIndexed { index, invalid ->
             val content = TvMarqueeContent.from(
                 item = SectionItem(
@@ -105,5 +106,37 @@ class TvFocusMarqueeModelTest {
 
             assertEquals(emptyList(), content.metaParts)
         }
+    }
+
+    @Test
+    fun invalidRatingDoesNotHideValidTvRuntime() {
+        val content = TvMarqueeContent.from(
+            item = SectionItem(
+                contentId = "runtime-with-invalid-rating",
+                type = "movie",
+                title = "Movie",
+                ratingImdb = Double.NaN,
+                durationSeconds = 7_200.0,
+            ),
+            rowTitle = "Row",
+        )
+
+        assertEquals(listOf("2h"), content.metaParts)
+    }
+
+    @Test
+    fun validRatingDoesNotHideInvalidTvRuntime() {
+        val content = TvMarqueeContent.from(
+            item = SectionItem(
+                contentId = "rating-with-invalid-runtime",
+                type = "movie",
+                title = "Movie",
+                ratingImdb = 8.4,
+                durationSeconds = Double.NaN,
+            ),
+            rowTitle = "Row",
+        )
+
+        assertEquals(listOf("8.4"), content.metaParts)
     }
 }

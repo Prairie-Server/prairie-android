@@ -86,15 +86,11 @@ data class TvMarqueeContent(
                 episodeToken(item.seasonNumber, item.episodeNumber)?.let(meta::add)
                 if (item.title.isNotBlank()) meta.add(item.title)
                 lengthText(item.durationSeconds)?.let(meta::add)
-                item.ratingImdb
-                    ?.takeIf { it.isFinite() && it > 0.0 }
-                    ?.let { meta.add(formatRating(it)) }
+                ratingToken(item.ratingImdb)?.let(meta::add)
             } else {
                 if (item.year > 0) meta.add(item.year.toString())
                 lengthText(item.durationSeconds)?.let(meta::add)
-                item.ratingImdb
-                    ?.takeIf { it.isFinite() && it > 0.0 }
-                    ?.let { meta.add(formatRating(it)) }
+                ratingToken(item.ratingImdb)?.let(meta::add)
                 item.genres.firstOrNull { it.isNotBlank() }?.let(meta::add)
             }
 
@@ -157,6 +153,12 @@ data class TvMarqueeContent(
                 "$minutes min"
             }
         }
+
+        private fun ratingToken(rating: Double?): String? =
+            validImdbRating(rating)?.let(::formatRating)
+
+        private fun validImdbRating(rating: Double?): Double? =
+            rating?.takeIf { it.isFinite() && it > 0.0 && it <= 10.0 }
 
         private fun formatRating(rating: Double): String {
             val rounded = (rating * 10).roundToInt() / 10.0
@@ -273,8 +275,10 @@ class TvFocusMarqueeState internal constructor() {
      * content, the seed is ignored so it never fights real navigation.
      */
     fun seedInitialPreview(item: SectionItem, rowTitle: String, rowIdentity: String = rowTitle) {
-        if (content != null || candidate != null) return
-        candidate = TvMarqueeContent.from(item, rowTitle, rowIdentity)
+        if (focusedMarqueeId != null) return
+        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity)
+        if (candidate?.id == next.id || content?.id == next.id) return
+        candidate = next
     }
 
     internal fun commit(value: TvMarqueeContent?) {
