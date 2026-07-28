@@ -231,6 +231,7 @@ fun TvTopMenuBar(
     // isFocusSuppressed false) does NOT also re-grab the selected tab and fight
     // the dedicated profile-avatar focus path below.
     val currentFocusRequestTarget by rememberUpdatedState(focusRequestTarget)
+    val currentDestinations by rememberUpdatedState(destinations)
     var lastHandledFocusRequest by remember { mutableStateOf<Pair<Int, TvTopMenuPanel?>>(0 to null) }
     val focusRequestIdentity = focusRequest to focusRequestTarget
     LaunchedEffect(focusRequest, focusRequestTarget, isFocusSuppressed) {
@@ -241,7 +242,10 @@ fun TvTopMenuBar(
         val requester = explicitFocus?.let(::requesterForFocus) ?: selectedEntryRequester()
         requestTopMenuFocusUntilApplied(
             awaitFrame = { androidx.compose.runtime.withFrameNanos { } },
-            isTargetCurrent = { currentFocusRequestTarget == focusRequestTarget },
+            isTargetCurrent = {
+                currentFocusRequestTarget == focusRequestTarget &&
+                    isTopMenuFocusTargetAvailable(focusRequestTarget, currentDestinations)
+            },
             requestFocus = {
                 runCatching { requester.requestFocus() }.getOrDefault(false)
             },

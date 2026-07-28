@@ -51,4 +51,34 @@ class TvTopMenuFocusRequestTest {
 
         assertEquals(listOf("frame", "focus"), events)
     }
+
+    @Test
+    fun retryStopsAfterSixFramesWhenTheTargetNeverAttaches() = runTest {
+        var frames = 0
+        var attempts = 0
+
+        requestTopMenuFocusUntilApplied(
+            awaitFrame = { frames += 1 },
+            requestFocus = {
+                attempts += 1
+                attempts == 7
+            },
+        )
+
+        assertEquals(6, frames)
+        assertEquals(6, attempts)
+    }
+
+    @Test
+    fun libraryTargetIsNotAvailableAfterItsDestinationDisappears() {
+        val movies = TvRootDestination.LibraryType(TvLibraryTabType.Movies)
+
+        assertEquals(
+            false,
+            isTopMenuFocusTargetAvailable(
+                target = TvTopMenuPanel.Root(movies),
+                destinations = listOf(TvRootDestination.Home, TvRootDestination.Calendar),
+            ),
+        )
+    }
 }
