@@ -4,7 +4,12 @@
 
 **Goal:** Keep the Android phone and TV subtitle canvas aligned with the final visible video viewport when switching among Fit, Fill/Zoom, and Stretch.
 
-**Architecture:** `SubtitleManager` remains the only subtitle-geometry owner. A pure mode-aware selector will reject stale fitted content-frame geometry for modes whose video fills the viewport, and the existing per-`PlayerView` synchronizer will perform one lifecycle-owned post-layout reconciliation after each explicit sync request.
+**Architecture:** `SubtitleManager` remains the only subtitle-geometry owner. A
+pure mode-aware selector rejects stale fitted content-frame geometry while
+preserving a matching post-layout content-frame rectangle so Zoom retains the
+visible viewport's parent-local offset. The existing per-`PlayerView`
+synchronizer performs one lifecycle-owned pre-draw reconciliation after each
+explicit sync request and removes that observer on completion or disposal.
 
 **Tech Stack:** Kotlin 2.1, Android Views, Media3 `PlayerView`/`AspectRatioFrameLayout`, Robolectric/JUnit, Gradle 8.12.
 
@@ -31,7 +36,7 @@
 - Consumes: `SubtitleVideoRect`, Media3 resize-mode constants, `displayedSubtitleVideoRect(...)`, and the current content-frame rectangle.
 - Produces: `internal fun selectSubtitleCanvasRect(resizeMode: Int, contentFrameRect: SubtitleVideoRect?, displayedVideoRect: SubtitleVideoRect): SubtitleVideoRect`.
 
-- [ ] **Step 1: Add failing stale-frame regression tests**
+- [x] **Step 1: Add failing stale-frame regression tests**
 
 Add these tests to `SubtitleManagerAppearanceTest`:
 
@@ -108,7 +113,7 @@ fun repeatedModeSelectionDoesNotRetainPreviousCanvas() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -120,7 +125,7 @@ Run:
 
 Expected: compilation fails because `selectSubtitleCanvasRect` does not exist.
 
-- [ ] **Step 3: Implement the minimal mode-aware selector**
+- [x] **Step 3: Implement the minimal mode-aware selector**
 
 Add beside `displayedSubtitleVideoRect`:
 
@@ -132,7 +137,10 @@ internal fun selectSubtitleCanvasRect(
 ): SubtitleVideoRect = when (resizeMode) {
     AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
     AspectRatioFrameLayout.RESIZE_MODE_FILL,
-    -> displayedVideoRect
+    -> contentFrameRect?.takeIf {
+        it.width == displayedVideoRect.width &&
+            it.height == displayedVideoRect.height
+    } ?: displayedVideoRect
     else -> contentFrameRect ?: displayedVideoRect
 }
 ```
@@ -157,16 +165,18 @@ val rect = selectSubtitleCanvasRect(
 ).insetByLetterbox(letterbox).insetByTitleSafe(titleSafeFraction)
 ```
 
-This deliberately selects the already-full `displayedVideoRect` for Zoom and
-Fill even when the content frame has not completed its next layout.
+For Zoom and Fill, a content-frame rectangle is used only when its dimensions
+match the visible viewport. This preserves the post-layout parent-local offset
+of an oversized, negatively positioned Zoom frame. A stale fitted rectangle
+does not match, so selection falls back to `displayedVideoRect`.
 
-- [ ] **Step 4: Run the focused class and verify GREEN**
+- [x] **Step 4: Run the focused class and verify GREEN**
 
 Run the Step 2 command.
 
 Expected: `SubtitleManagerAppearanceTest` passes with zero failures.
 
-- [ ] **Step 5: Commit the independently testable geometry correction**
+- [x] **Step 5: Commit the independently testable geometry correction**
 
 ```bash
 git add \
@@ -185,81 +195,50 @@ git commit -m "fix(subtitles): recenter canvas for fill modes"
 
 **Interfaces:**
 - Consumes: Task 1's `selectSubtitleCanvasRect(...)`.
-- Produces: `SubtitleVideoRectSync.updateAndReconcileAfterLayout()`; at most one posted callback per `PlayerView`, removed during disposal.
+- Produces: `SubtitleVideoRectSync.updateAndReconcileAfterLayout()`; at most one
+  pre-draw observer per `PlayerView`, removed after execution or during disposal.
 
-- [ ] **Step 1: Add failing lifecycle regression tests**
+- [x] **Step 1: Add failing lifecycle regression tests**
 
 Add Robolectric tests that mount a real `PlayerView` in an `Activity`, invoke
-`SubtitleManager.syncSubtitleVideoBounds`, and inspect the private synchronizer
-through the manager's `videoRectSyncs` field:
+`SubtitleManager.syncSubtitleVideoBounds`, drive layout and pre-draw, and assert
+the actual `SubtitleView` layout parameters for Fit → Zoom, Fit → Fill,
+repeated switching, and Zoom → Fit. Count completed reconciliations so deleting
+the coalescing guard fails the suite, and use sentinel layout parameters to
+prove a detached view cannot be mutated by a pending observer:
 
 ```kotlin
 @Test
-fun explicitSyncQueuesOnlyOnePostLayoutReconciliation() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-    val playerView = PlayerView(activity)
-    activity.setContentView(playerView)
-    playerView.layout(0, 0, 2400, 1080)
-    val manager = SubtitleManager()
+fun repeatedExplicitSyncsRunOnePostLayoutReconciliation() {
+    val mounted = MountedSubtitleCanvas()
+    var reconciliations = 0
+    mounted.manager.postLayoutReconciliationObserver = { reconciliations++ }
 
-    manager.syncSubtitleVideoBounds(playerView)
-    manager.syncSubtitleVideoBounds(playerView)
+    repeat(5) {
+        mounted.manager.syncSubtitleVideoBounds(mounted.playerView)
+    }
+    mounted.dispatchPreDraw()
 
-    val sync = manager.subtitleRectSyncForTest(playerView)
-    assertTrue(sync.postLayoutPendingForTest())
-    Shadows.shadowOf(Looper.getMainLooper()).idle()
-    assertFalse(sync.postLayoutPendingForTest())
+    assertEquals(1, reconciliations)
 }
 
 @Test
-fun detachCancelsPendingPostLayoutReconciliation() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-    val playerView = PlayerView(activity)
-    activity.setContentView(playerView)
-    playerView.layout(0, 0, 2400, 1080)
-    val manager = SubtitleManager()
+fun detachCancelsPendingPostLayoutReconciliationWithoutMutatingLayout() {
+    val mounted = MountedSubtitleCanvas()
+    val sentinel = FrameLayout.LayoutParams(17, 19)
+    mounted.subtitleView.layoutParams = sentinel
 
-    manager.syncSubtitleVideoBounds(playerView)
-    val sync = manager.subtitleRectSyncForTest(playerView)
-    activity.setContentView(FrameLayout(activity))
+    mounted.detach()
+    mounted.dispatchPreDraw()
 
-    assertTrue(sync.isDisposedForTest())
-    assertFalse(sync.postLayoutPendingForTest())
-    Shadows.shadowOf(Looper.getMainLooper()).idle()
-    assertTrue(sync.isDisposedForTest())
+    assertSame(sentinel, mounted.subtitleView.layoutParams)
 }
 ```
 
-Keep reflection helpers private to the test file. They must expose existing
-objects only; do not add production `ForTest` methods:
+The execution observer is instance-local, internal, and null by default. It
+adds only a null check in production and does not retain a `PlayerView`.
 
-```kotlin
-private fun SubtitleManager.subtitleRectSyncForTest(playerView: PlayerView): Any {
-    val field = SubtitleManager::class.java.getDeclaredField("videoRectSyncs")
-    field.isAccessible = true
-    val syncs = field.get(this) as Map<*, *>
-    return requireNotNull(syncs[playerView])
-}
-
-private fun Any.postLayoutPendingForTest(): Boolean {
-    val field = javaClass.getDeclaredField("postLayoutPending")
-    field.isAccessible = true
-    return field.getBoolean(this)
-}
-
-private fun Any.isDisposedForTest(): Boolean {
-    val field = javaClass.getDeclaredField("isDisposed")
-    field.isAccessible = true
-    return field.getBoolean(this)
-}
-```
-
-The test file imports `android.app.Activity`, `android.os.Looper`,
-`android.widget.FrameLayout`, `androidx.media3.ui.PlayerView`,
-`org.robolectric.Robolectric`, `org.robolectric.Shadows`,
-`kotlin.test.assertFalse`, and `kotlin.test.assertTrue`.
-
-- [ ] **Step 2: Run the focused class and verify RED**
+- [x] **Step 2: Run the focused class and verify RED**
 
 Run:
 
@@ -269,26 +248,36 @@ Run:
   --max-workers=2 --no-daemon
 ```
 
-Expected: the test cannot find `postLayoutPending`, proving the bounded
-reconciliation is absent.
+Expected: mounted transition assertions fail before the content-frame offset
+and lifecycle-owned post-layout reconciliation are implemented.
 
-- [ ] **Step 3: Implement one lifecycle-owned post-layout callback**
+- [x] **Step 3: Implement one lifecycle-owned post-layout callback**
 
-In `SubtitleVideoRectSync`, add:
+In `SubtitleVideoRectSync`, register one removable pre-draw observer:
 
 ```kotlin
-private var postLayoutPending = false
-private val postLayoutUpdate = Runnable {
-    postLayoutPending = false
-    if (!isDisposed) update()
+private var pendingPreDrawObserver: ViewTreeObserver? = null
+private val postLayoutUpdate = ViewTreeObserver.OnPreDrawListener {
+    clearPendingPostLayoutUpdate()
+    if (!isDisposed) {
+        update()
+        onPostLayoutReconciled()
+    }
+    true
 }
 
 fun updateAndReconcileAfterLayout() {
     update()
     val playerView = playerViewRef.get() ?: return
-    if (isDisposed || postLayoutPending) return
-    postLayoutPending = true
-    playerView.postOnAnimation(postLayoutUpdate)
+    if (isDisposed) return
+    pendingPreDrawObserver?.let { observer ->
+        if (observer.isAlive) return
+        pendingPreDrawObserver = null
+    }
+    val observer = playerView.viewTreeObserver
+    if (!observer.isAlive) return
+    pendingPreDrawObserver = observer
+    observer.addOnPreDrawListener(postLayoutUpdate)
 }
 ```
 
@@ -298,24 +287,24 @@ Change `SubtitleManager.syncSubtitleVideoBounds` to call:
 sync.updateAndReconcileAfterLayout()
 ```
 
-In `dispose`, remove the callback before clearing listeners:
+In `dispose`, remove the observer before clearing listeners:
 
 ```kotlin
-playerView?.removeCallbacks(postLayoutUpdate)
-postLayoutPending = false
+clearPendingPostLayoutUpdate()
 ```
 
-Do not post from ordinary layout/video-size callbacks; those continue calling
-`update()` directly. This keeps the extra reconciliation bounded to explicit
-screen sync requests.
+`clearPendingPostLayoutUpdate()` removes the listener from the exact
+`ViewTreeObserver` used for registration and clears the reference. Ordinary
+layout/video-size callbacks continue calling `update()` directly, keeping the
+extra reconciliation bounded to explicit screen sync requests.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run the Step 2 command.
 
 Expected: all `SubtitleManagerAppearanceTest` tests pass.
 
-- [ ] **Step 5: Run neighboring subtitle geometry tests**
+- [x] **Step 5: Run neighboring subtitle geometry tests**
 
 ```bash
 ./gradlew :android-shared:testDebugUnitTest \
@@ -327,7 +316,7 @@ Expected: all `SubtitleManagerAppearanceTest` tests pass.
 
 Expected: zero failures.
 
-- [ ] **Step 6: Commit the lifecycle correction**
+- [x] **Step 6: Commit the lifecycle correction**
 
 ```bash
 git add \
@@ -350,7 +339,7 @@ git commit -m "fix(subtitles): reconcile canvas after aspect layout"
 - Consumes: existing `SubtitleManager.syncSubtitleVideoBounds(PlayerView)`, phone resize-mode mapping, and TV `applyPlayerViewVideoFillMode`.
 - Produces: platform source-contract tests ensuring each resize update is immediately followed by shared subtitle reconciliation.
 
-- [ ] **Step 1: Add phone and TV source-contract tests**
+- [x] **Step 1: Add phone and TV source-contract tests**
 
 Phone:
 
@@ -362,13 +351,28 @@ class SubtitleAspectModeWiringSourceTest {
         return (moduleRelative.takeIf(File::exists) ?: projectRelative).readText()
     }
 
+    private fun playerViewUpdateBlock(source: String): String {
+        val factoryIndex = source.indexOf("PlayerView(ctx).apply {")
+        require(factoryIndex >= 0) { "PlayerView factory anchor is missing" }
+        val androidViewIndex = source.lastIndexOf("AndroidView(", factoryIndex)
+        require(androidViewIndex >= 0) { "Enclosing AndroidView is missing" }
+        val updateIndex = source.indexOf("update = { view ->", factoryIndex)
+        require(updateIndex > factoryIndex) {
+            "PlayerView update lambda is missing or misordered"
+        }
+        val endIndex = source.indexOf("modifier = Modifier", updateIndex)
+        require(endIndex > updateIndex) {
+            "PlayerView update lambda terminator is missing or misordered"
+        }
+        return source.substring(updateIndex, endIndex)
+    }
+
     @Test
     fun playerViewReconcilesSubtitlesAfterResizeModeUpdate() {
         val source = source(
             "org/siloserver/silo/android/ui/screens/player/PlayerScreen.kt"
         )
-        val update = source.substringAfter("update = { view ->")
-            .substringBefore("modifier = Modifier")
+        val update = playerViewUpdateBlock(source)
 
         assertTrue(update.contains("view.resizeMode = resizeMode"))
         assertTrue(update.contains("subtitleManager.syncSubtitleVideoBounds(view)"))
@@ -390,13 +394,31 @@ class TvSubtitleAspectModeWiringSourceTest {
         return (moduleRelative.takeIf(File::exists) ?: projectRelative).readText()
     }
 
+    private fun playerViewUpdateBlock(source: String): String {
+        val factoryIndex = source.indexOf(") as PlayerView).apply {")
+        require(factoryIndex >= 0) { "PlayerView factory anchor is missing" }
+        val androidViewIndex = source.lastIndexOf("AndroidView(", factoryIndex)
+        require(androidViewIndex >= 0) { "Enclosing AndroidView is missing" }
+        val updateIndex = source.indexOf("update = { view ->", factoryIndex)
+        require(updateIndex > factoryIndex) {
+            "PlayerView update lambda is missing or misordered"
+        }
+        val endIndex = source.indexOf(
+            "if (!isInPictureInPictureMode",
+            updateIndex,
+        )
+        require(endIndex > updateIndex) {
+            "PlayerView update lambda terminator is missing or misordered"
+        }
+        return source.substring(updateIndex, endIndex)
+    }
+
     @Test
     fun playerViewReconcilesSubtitlesAfterFillModeUpdate() {
         val source = source(
             "org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt"
         )
-        val update = source.substringAfter("update = { view ->")
-            .substringBefore("if (!isInPictureInPictureMode")
+        val update = playerViewUpdateBlock(source)
 
         val aspectCall = "applyPlayerViewVideoFillMode(view, state.videoFillMode)"
         val subtitleCall = "subtitleManager.syncSubtitleVideoBounds(view)"
@@ -410,7 +432,7 @@ class TvSubtitleAspectModeWiringSourceTest {
 Both files import `java.io.File`, `kotlin.test.Test`, and
 `kotlin.test.assertTrue`.
 
-- [ ] **Step 2: Prove the source tests detect reversed ordering**
+- [x] **Step 2: Prove the source tests detect reversed ordering**
 
 Temporarily reverse each extracted ordering assertion (`<` to `>`) and run:
 
@@ -425,13 +447,13 @@ Temporarily reverse each extracted ordering assertion (`<` to `>`) and run:
 Expected: both tests fail on their ordering assertion. Restore `<` before
 continuing.
 
-- [ ] **Step 3: Run the source tests GREEN**
+- [x] **Step 3: Run the source tests GREEN**
 
 Run the Step 2 command after restoring the intended assertions.
 
 Expected: both tests pass.
 
-- [ ] **Step 4: Run the complete relevant feature gate**
+- [x] **Step 4: Run the complete relevant feature gate**
 
 ```bash
 ./gradlew \
@@ -447,7 +469,7 @@ Expected: both tests pass.
 
 Expected: zero failures.
 
-- [ ] **Step 5: Run full debug unit tests**
+- [x] **Step 5: Run full debug unit tests**
 
 ```bash
 ./gradlew testDebugUnitTest --max-workers=2 --no-daemon
@@ -455,7 +477,7 @@ Expected: zero failures.
 
 Expected: build succeeds with zero test failures.
 
-- [ ] **Step 6: Run supply-chain and release compilation gates**
+- [x] **Step 6: Run supply-chain and release compilation gates**
 
 ```bash
 ./scripts/test-check-build-supply-chain.sh
@@ -469,7 +491,7 @@ Expected: build succeeds with zero test failures.
 
 Expected: policy scripts exit zero and both minified release assemblies succeed.
 
-- [ ] **Step 7: Verify on the physical Pixel only**
+- [ ] **Step 7: Verify on the physical Pixel only — blocked: device disconnected**
 
 First confirm serial `58211FDCQ000CU`, compare the candidate and installed
 package/version/signing certificate, and stop if the signer differs. Then use
@@ -494,7 +516,7 @@ layout settles and verify:
 
 Do not issue any ADB command to the Shield or an emulator.
 
-- [ ] **Step 8: Request independent focused review**
+- [x] **Step 8: Request independent focused review**
 
 Review only the branch diff against:
 
@@ -507,7 +529,7 @@ Review only the branch diff against:
 Address every substantive finding test-first and rerun Tasks 1-3's focused
 gates.
 
-- [ ] **Step 9: Commit verification contracts**
+- [x] **Step 9: Commit verification contracts**
 
 ```bash
 git add \
@@ -516,7 +538,7 @@ git add \
 git commit -m "test(subtitles): lock aspect recenter wiring"
 ```
 
-- [ ] **Step 10: Final diff and branch verification**
+- [x] **Step 10: Final diff and branch verification**
 
 ```bash
 git diff --check origin/main...HEAD

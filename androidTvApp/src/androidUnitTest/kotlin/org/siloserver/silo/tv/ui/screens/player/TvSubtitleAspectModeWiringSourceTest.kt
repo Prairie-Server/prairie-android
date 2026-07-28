@@ -11,13 +11,27 @@ class TvSubtitleAspectModeWiringSourceTest {
         return (moduleRelative.takeIf(File::exists) ?: projectRelative).readText()
     }
 
+    private fun playerViewUpdateBlock(source: String): String {
+        val factoryAnchor = ") as PlayerView).apply {"
+        val updateAnchor = "update = { view ->"
+        val endAnchor = "if (!isInPictureInPictureMode"
+        val factoryIndex = source.indexOf(factoryAnchor)
+        require(factoryIndex >= 0) { "PlayerView factory anchor is missing" }
+        val androidViewIndex = source.lastIndexOf("AndroidView(", factoryIndex)
+        require(androidViewIndex >= 0) { "Enclosing AndroidView is missing" }
+        val updateIndex = source.indexOf(updateAnchor, factoryIndex)
+        require(updateIndex > factoryIndex) { "PlayerView update lambda is missing or misordered" }
+        val endIndex = source.indexOf(endAnchor, updateIndex)
+        require(endIndex > updateIndex) { "PlayerView update lambda terminator is missing or misordered" }
+        return source.substring(updateIndex, endIndex)
+    }
+
     @Test
     fun playerViewReconcilesSubtitlesAfterFillModeUpdate() {
         val source = source(
             "org/siloserver/silo/tv/ui/screens/player/TvPlayerScreen.kt"
         )
-        val update = source.substringAfter("update = { view ->")
-            .substringBefore("if (!isInPictureInPictureMode")
+        val update = playerViewUpdateBlock(source)
 
         val aspectCall = "applyPlayerViewVideoFillMode(view, state.videoFillMode)"
         val subtitleCall = "subtitleManager.syncSubtitleVideoBounds(view)"

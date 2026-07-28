@@ -11,13 +11,27 @@ class SubtitleAspectModeWiringSourceTest {
         return (moduleRelative.takeIf(File::exists) ?: projectRelative).readText()
     }
 
+    private fun playerViewUpdateBlock(source: String): String {
+        val factoryAnchor = "PlayerView(ctx).apply {"
+        val updateAnchor = "update = { view ->"
+        val endAnchor = "modifier = Modifier"
+        val factoryIndex = source.indexOf(factoryAnchor)
+        require(factoryIndex >= 0) { "PlayerView factory anchor is missing" }
+        val androidViewIndex = source.lastIndexOf("AndroidView(", factoryIndex)
+        require(androidViewIndex >= 0) { "Enclosing AndroidView is missing" }
+        val updateIndex = source.indexOf(updateAnchor, factoryIndex)
+        require(updateIndex > factoryIndex) { "PlayerView update lambda is missing or misordered" }
+        val endIndex = source.indexOf(endAnchor, updateIndex)
+        require(endIndex > updateIndex) { "PlayerView update lambda terminator is missing or misordered" }
+        return source.substring(updateIndex, endIndex)
+    }
+
     @Test
     fun playerViewReconcilesSubtitlesAfterResizeModeUpdate() {
         val source = source(
             "org/siloserver/silo/android/ui/screens/player/PlayerScreen.kt"
         )
-        val update = source.substringAfter("update = { view ->")
-            .substringBefore("modifier = Modifier")
+        val update = playerViewUpdateBlock(source)
 
         assertTrue(update.contains("view.resizeMode = resizeMode"))
         assertTrue(update.contains("subtitleManager.syncSubtitleVideoBounds(view)"))
