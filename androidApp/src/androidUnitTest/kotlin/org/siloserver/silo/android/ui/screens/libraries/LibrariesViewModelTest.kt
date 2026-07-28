@@ -16,11 +16,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.siloserver.silo.catalog.filter.CatalogFacet
 import org.siloserver.silo.catalog.filter.CatalogFilterState
 import org.siloserver.silo.network.SiloJson
@@ -113,6 +116,7 @@ class LibrariesViewModelTest {
         val viewModel = fixture.viewModel()
         val store = ViewModelStore().also { it.put("libraries", viewModel) }
         try {
+            viewModel.viewModelScope.launch { delay(1) }
             fixture.awaitRequest("sections:1")
             viewModel.uiState.first { !it.isLoadingSections }
             viewModel.selectTab(LibrariesSubtab.Browse)
@@ -222,11 +226,21 @@ class LibrariesViewModelTest {
         }
     }
 
-    private fun LibrariesViewModel.onlyActiveRequest(): Job =
-        viewModelScope.coroutineContext[Job]
-            ?.children
-            ?.single { it.isActive }
-            ?: error("Expected exactly one active Libraries request")
+    private suspend fun LibrariesViewModel.onlyActiveRequest(): Job = withTimeout(5_000) {
+        while (true) {
+            val activeRequests = viewModelScope.coroutineContext[Job]
+                ?.children
+                ?.filter { it.isActive }
+                ?.toList()
+                .orEmpty()
+            when (activeRequests.size) {
+                0 -> error("Expected an active Libraries request")
+                1 -> return@withTimeout activeRequests.single()
+                else -> delay(1)
+            }
+        }
+        error("Unreachable")
+    }
 
     private class DeferredLibrariesFixture(
         private val deferredKeys: Set<String>,
