@@ -46,6 +46,8 @@ class SubtitleManager(
 ) {
 
     private val videoRectSyncs = WeakHashMap<PlayerView, SubtitleVideoRectSync>()
+    /** Test-only execution observer; null in production. */
+    internal var postLayoutReconciliationObserver: (() -> Unit)? = null
 
     var letterbox: LetterboxInsets = LetterboxInsets.NONE
         set(value) {
@@ -272,7 +274,10 @@ class SubtitleManager(
         playerView.subtitleView?.let { libassBridge?.attachTo(it) }
         val existing = videoRectSyncs[playerView]
         val sync = if (existing?.isDisposed == true || existing == null) {
-            SubtitleVideoRectSync(playerView).also {
+            SubtitleVideoRectSync(
+                playerView = playerView,
+                onPostLayoutReconciled = { postLayoutReconciliationObserver?.invoke() },
+            ).also {
                 it.letterbox = letterbox
                 it.titleSafeFraction = titleSafeFraction
                 videoRectSyncs[playerView] = it
@@ -575,7 +580,10 @@ internal fun neutralizeFullWidthCueSizes(cueGroup: CueGroup): CueGroup {
 }
 
 @UnstableApi
-private class SubtitleVideoRectSync(playerView: PlayerView) :
+private class SubtitleVideoRectSync(
+    playerView: PlayerView,
+    private val onPostLayoutReconciled: () -> Unit,
+) :
     View.OnLayoutChangeListener,
     View.OnAttachStateChangeListener,
     Player.Listener {
@@ -608,7 +616,10 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     private var pendingPreDrawObserver: ViewTreeObserver? = null
     private val postLayoutUpdate = ViewTreeObserver.OnPreDrawListener {
         clearPendingPostLayoutUpdate()
-        if (!isDisposed) update()
+        if (!isDisposed) {
+            update()
+            onPostLayoutReconciled()
+        }
         true
     }
 

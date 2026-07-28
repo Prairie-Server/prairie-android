@@ -437,6 +437,29 @@ class SubtitleManagerAppearanceTest {
         assertEquals(sentinel, canvas.subtitleRect())
     }
 
+    @Test
+    fun repeatedExplicitSyncsRunOnePostLayoutReconciliation() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val playerView = PlayerView(activity)
+        val manager = SubtitleManager()
+        activity.setContentView(playerView)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        manager.syncSubtitleVideoBounds(playerView)
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+
+        var reconciliations = 0
+        manager.postLayoutReconciliationObserver = { reconciliations++ }
+        repeat(3) {
+            manager.syncSubtitleVideoBounds(playerView)
+        }
+
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+
+        assertEquals(1, reconciliations)
+    }
+
     private fun captionStyleFor(appearance: SubtitleAppearance): CaptionStyleCompat {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "buildCaptionStyle",
