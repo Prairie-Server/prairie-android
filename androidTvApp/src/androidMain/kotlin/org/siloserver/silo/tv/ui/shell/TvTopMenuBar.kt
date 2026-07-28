@@ -233,11 +233,16 @@ fun TvTopMenuBar(
     LaunchedEffect(focusRequest, isFocusSuppressed) {
         if (isFocusSuppressed) return@LaunchedEffect
         if (focusRequest == lastHandledFocusRequest) return@LaunchedEffect
-        lastHandledFocusRequest = focusRequest
         val explicitFocus = focusRequestTarget?.let(::focusForPanel)
         dwellSuppressedButton = explicitFocus
         val requester = explicitFocus?.let(::requesterForFocus) ?: selectedEntryRequester()
-        runCatching { requester.requestFocus() }
+        requestTopMenuFocusUntilApplied(
+            awaitFrame = { androidx.compose.runtime.withFrameNanos { } },
+            requestFocus = {
+                runCatching { requester.requestFocus() }.getOrDefault(false)
+            },
+        )
+        lastHandledFocusRequest = focusRequest
     }
 
     LaunchedEffect(focusedButton) {

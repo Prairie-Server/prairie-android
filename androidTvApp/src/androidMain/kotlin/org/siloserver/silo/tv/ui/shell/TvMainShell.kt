@@ -466,6 +466,7 @@ fun TvMainShell(
     val selectedRoot by remember(currentRoute) {
         derivedStateOf { mapRouteToRoot(currentRoute) }
     }
+    val selectedMenuFocusTarget = selectedRoot?.let(TvTopMenuPanel::Root)
 
     // Which libraries actually HAVE collections — gates the cascade's
     // Collections pill so an empty library doesn't offer a dead-end section
@@ -716,7 +717,10 @@ fun TvMainShell(
                     // half (close panel / dropdown); we run only the side effect
                     // each action needs. Keeping it here — not in the selector or
                     // the bar — means Back can never be double-handled.
-                    when (focusState.onBack(onTabRoot = selectedRoot != null)) {
+                    when (focusState.onBack(
+                        onTabRoot = selectedRoot != null,
+                        menuFocusTarget = selectedMenuFocusTarget,
+                    )) {
                         // Panel/dropdown already closed by onBack(): just consume.
                         TvShellBackAction.ClosePanel,
                         TvShellBackAction.CloseProfileMenu -> true
@@ -802,7 +806,7 @@ fun TvMainShell(
                             val contentHandledUp = contentUpFallback?.invoke(isRepeat)
                             if (contentHandledUp != null) {
                                 if (!contentHandledUp) {
-                                    focusState.requestMenuFocus()
+                                    focusState.requestMenuFocus(selectedMenuFocusTarget)
                                 }
                             } else {
                                 // Try to move focus up inside content; if that
@@ -810,7 +814,7 @@ fun TvMainShell(
                                 // focus to the menu bar.
                                 val moved = focusManager.moveFocus(FocusDirection.Up)
                                 if (!moved) {
-                                    focusState.requestMenuFocus()
+                                    focusState.requestMenuFocus(selectedMenuFocusTarget)
                                 }
                             }
                             // Always consume: we performed the move (or routed

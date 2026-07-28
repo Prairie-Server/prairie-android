@@ -289,7 +289,10 @@ class TvShellFocusState {
      * and [TvShellBackAction.DelegateToNav] are left to the composable, which owns
      * the focus manager and nav controller).
      */
-    fun onBack(onTabRoot: Boolean): TvShellBackAction {
+    fun onBack(
+        onTabRoot: Boolean,
+        menuFocusTarget: TvTopMenuPanel? = null,
+    ): TvShellBackAction {
         val action = tvShellBackAction(
             panelOpen = openPanel != null,
             profileMenuOpen = profileMenuOpen,
@@ -299,7 +302,7 @@ class TvShellFocusState {
         when (action) {
             TvShellBackAction.ClosePanel -> closePanel(returnFocusToBar = true)
             TvShellBackAction.CloseProfileMenu -> dismissProfileMenu()
-            TvShellBackAction.MoveFocusToMenu -> requestMenuFocus()
+            TvShellBackAction.MoveFocusToMenu -> requestMenuFocus(menuFocusTarget)
             TvShellBackAction.MenuBack,
             TvShellBackAction.DelegateToNav -> Unit
         }

@@ -99,6 +99,21 @@ class TvShellFocusStateTest {
     }
 
     @Test
+    fun backFromRootContentRetainsTheActiveRootAsItsMenuTarget() {
+        val state = TvShellFocusState()
+
+        assertEquals(
+            TvShellBackAction.MoveFocusToMenu,
+            state.onBack(
+                onTabRoot = true,
+                menuFocusTarget = moviesPanel,
+            ),
+        )
+
+        assertEquals(moviesPanel, state.menuFocusTarget)
+    }
+
+    @Test
     fun backOnSecondaryScreensStillDelegatesToNav() {
         assertEquals(
             TvShellBackAction.DelegateToNav,
