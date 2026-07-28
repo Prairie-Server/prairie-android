@@ -547,6 +547,9 @@ fun TvMainShell(
 
     val onSelectRoot: (TvRootDestination) -> Unit = { dest ->
         val route = dest.toRoute()
+        if (dest == TvRootDestination.ForYou) {
+            forYouEntryRequest = forYouEntryRequest.nextForTopLevelForYou()
+        }
         if (dest == TvRootDestination.Home) {
             // Detail return deliberately preserves the card that opened the
             // detail page, but that protection must end when the user

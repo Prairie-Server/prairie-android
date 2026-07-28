@@ -31,6 +31,17 @@ class TvForYouEntryRequestTest {
     }
 
     @Test
+    fun topLevelForYouRequestClearsSavedListSelection() {
+        val request = TvForYouEntryRequest(
+            sequence = 9,
+            selection = SavedListSelection.Watchlist,
+        ).nextForTopLevelForYou()
+
+        assertEquals(10, request.sequence)
+        assertNull(request.selection)
+    }
+
+    @Test
     fun unrelatedRecompositionDoesNotOverrideInPageSelection() {
         val applied = applyForYouEntryRequest(
             currentSelection = SavedListSelection.Favorites,

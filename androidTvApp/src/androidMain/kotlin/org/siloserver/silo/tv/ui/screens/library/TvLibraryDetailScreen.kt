@@ -164,6 +164,7 @@ fun TvLibraryDetailScreen(
                 onRetry = viewModel::retryBrowse,
                 onInitialContentFocus = onInitialContentFocus,
                 showAlphabetRail = true,
+                onContentUpFallbackChanged = onContentUpFallbackChanged,
             )
             TvLibraryTab.RecentlyAdded -> LibraryTab(
                 state = state,

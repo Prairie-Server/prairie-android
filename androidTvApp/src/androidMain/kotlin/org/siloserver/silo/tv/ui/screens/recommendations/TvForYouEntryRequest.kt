@@ -11,6 +11,8 @@ data class TvForYouEntryRequest(
 ) {
     fun next(selection: SavedListSelection?): TvForYouEntryRequest =
         TvForYouEntryRequest(sequence = sequence + 1, selection = selection)
+
+    fun nextForTopLevelForYou(): TvForYouEntryRequest = next(null)
 }
 
 internal data class AppliedForYouSelection(
