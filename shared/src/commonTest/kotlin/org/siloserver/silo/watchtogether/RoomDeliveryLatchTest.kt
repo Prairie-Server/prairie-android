@@ -108,6 +108,23 @@ class RoomDeliveryLatchTest {
     }
 
     @Test
+    fun `server attach rejects nullable keys and stale echoes`() {
+        val latch = RoomDeliveryLatch()
+        val key = assertNotNull(latch.keyOrNull(open1, "session-a"))
+        val matchingEcho = RoomDeliveryEcho(7, 1, "session-a")
+        latch.recordAttach(key, delivered = true)
+
+        assertFalse(latch.isServerAttached(key = null, echo = matchingEcho))
+        assertFalse(latch.isServerAttached(key = key, echo = null))
+        assertFalse(
+            latch.isServerAttached(
+                key = key,
+                echo = RoomDeliveryEcho(7, 2, "session-a"),
+            ),
+        )
+    }
+
+    @Test
     fun `stale prior epoch echo cannot authorize a newly delivered reconnect attach`() {
         val latch = RoomDeliveryLatch()
         val firstEpoch = assertNotNull(latch.keyOrNull(open1, "session-a"))

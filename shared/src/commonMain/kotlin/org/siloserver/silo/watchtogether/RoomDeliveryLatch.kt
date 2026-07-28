@@ -56,9 +56,10 @@ class RoomDeliveryLatch {
      * and the server echoed that exact session in a room snapshot.
      */
     fun isServerAttached(key: RoomDeliveryKey?, echo: RoomDeliveryEcho?): Boolean =
-        isAttached(key) &&
+        key != null &&
+            isAttached(key) &&
             echo != null &&
-            echo.connectionGeneration == key?.connectionGeneration &&
+            echo.connectionGeneration == key.connectionGeneration &&
             echo.connectionEpoch == key.connectionEpoch &&
             echo.playbackSessionId == key.playbackSessionId
 

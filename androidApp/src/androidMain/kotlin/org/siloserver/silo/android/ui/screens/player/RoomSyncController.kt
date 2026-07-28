@@ -152,12 +152,12 @@ class RoomSyncController(
                     repository.connectionState.value,
                     sessionId,
                 )
-                val serverAttached = deliveryLatch.isServerAttached(
-                    deliveryKey,
-                    repository.roomDeliveryEcho.value,
-                )
                 val now = monotonicMs()
-                if (serverAttached &&
+                if (deliveryKey != null &&
+                    deliveryLatch.isServerAttached(
+                        deliveryKey,
+                        repository.roomDeliveryEcho.value,
+                    ) &&
                     shouldEmitStateReport(
                         now,
                         lastReportMs,
@@ -168,7 +168,7 @@ class RoomSyncController(
                 ) {
                     lastReportMs = now
                     repository.stateReport(
-                        sessionId = deliveryKey!!.playbackSessionId,
+                        sessionId = deliveryKey.playbackSessionId,
                         positionSeconds = state.position,
                         isPaused = state.isPaused,
                     )
