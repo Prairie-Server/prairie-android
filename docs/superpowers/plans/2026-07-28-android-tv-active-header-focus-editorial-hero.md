@@ -1,23 +1,28 @@
-# Android TV Active Header Focus and Editorial Hero Implementation Plan
+# Android Active Header Focus and Editorial Hero Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make content-to-header navigation land on the active TV section and replace browsing-hero stream badges with ordered editorial metadata.
+**Goal:** Make content-to-header navigation land on the active TV section and present ordered editorial browsing metadata on Android phone and TV.
 
-**Architecture:** Keep `TvMainShell` as the route-aware focus coordinator, pass its active root explicitly through `TvShellFocusState`, and let `TvTopMenuBar` apply the existing requester after one composition frame. Keep hero transformation inside `TvMarqueeContent.from`, using only existing `SectionItem` and enrichment data and leaving player/detail surfaces unchanged.
+**Architecture:** Keep `TvMainShell` as the route-aware focus coordinator, pass its active root explicitly through `TvShellFocusState`, and let `TvTopMenuBar` apply the existing requester after composition. Keep TV hero transformation inside `TvMarqueeContent.from` and phone hero transformation in a small pure `FeaturedCarousel` metadata helper, using only existing `SectionItem` data and leaving player/detail surfaces unchanged.
 
-**Tech Stack:** Kotlin 2.1, Jetpack Compose for TV, Compose focus APIs, Kotlin coroutines, Kotlin test/JUnit, Gradle.
+**Tech Stack:** Kotlin 2.1, Jetpack Compose/Compose for TV, Compose focus and `FlowRow` layout APIs, Kotlin coroutines, Kotlin test/JUnit, Gradle.
 
 ## Global Constraints
 
-- Android TV only; no Android phone behavior changes.
+- TV header-focus behavior is Android TV only.
+- Editorial browsing-hero metadata applies to Android phone and TV.
 - No server, API, database, payload, schema, or production-configuration changes.
 - No player-overlay, playback-settings, item-detail, stream-selection, transcoding, or subtitle changes.
+- No phone Home hero; phone scope is the existing Library Recommended featured carousel only.
+- No Apple-client changes.
 - Preserve the held-Up boundary: repeated Up stops on the first content row and a fresh Up enters the menu.
 - Search receives content-to-menu focus only while Search is the active route.
 - Technical resolution, HDR, and audio data remains available to other consumers but is not rendered in browsing heroes.
 - Preserve synopsis, cast/air-date enrichment, artwork, cache-first loading, and crossfade behavior.
-- Missing or invalid metadata is omitted without placeholders or dangling separators.
+- Invalid, non-finite, zero, negative, blank, or unavailable metadata is omitted without placeholders, empty chips, or dangling separators.
+- Phone metadata may wrap to at most two lines and must not overlap carousel actions or change the carousel page height.
+- Shared hydration/navigation-performance changes already present in PR #126 are its accepted baseline and remain unchanged.
 - Do not merge or deploy; update open PR #126 only after all required verification is green.
 
 ---
@@ -41,7 +46,16 @@
 - `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/shell/TvShellFocusStateTest.kt`
   proves Up/Back retain the requested active root.
 - `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt`
-  proves movie/episode metadata ordering and technical-badge removal.
+  proves TV movie/episode metadata ordering, technical-badge removal, and
+  invalid-value omission.
+- `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedCarousel.kt`
+  renders phone Library Recommended hero chips in a bounded two-line
+  `FlowRow`.
+- `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedHeroMetadata.kt`
+  maps existing `SectionItem` fields to ordered, testable phone hero chips.
+- `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedHeroMetadataTest.kt`
+  proves phone movie/episode ordering, generic-type removal, and invalid-value
+  omission.
 
 ---
 
@@ -433,16 +447,351 @@ git commit -m "fix(tv): show editorial metadata in browse heroes"
 
 ---
 
-### Task 3: Verify, review, package, and update PR #126
+### Task 3: Add phone parity and reject invalid hero metadata
+
+**Files:**
+- Create: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedHeroMetadata.kt`
+- Create: `androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedHeroMetadataTest.kt`
+- Modify: `androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedCarousel.kt:1-65,275-375,467-505`
+- Modify: `androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt:80-100,185-215`
+- Modify: `androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt`
+
+**Interfaces:**
+- Consumes: existing `SectionItem` editorial fields only.
+- Produces: `internal enum class FeaturedHeroMetadataKind { Plain, Rating, Classification }`.
+- Produces: `internal data class FeaturedHeroMetadataChip(val label: String, val kind: FeaturedHeroMetadataKind = FeaturedHeroMetadataKind.Plain)`.
+- Produces: `internal fun featuredHeroMetadata(item: SectionItem): List<FeaturedHeroMetadataChip>`.
+- Preserves: TV `TvMarqueeContent` ordering from Task 2 while filtering invalid ratings and durations.
+
+- [ ] **Step 1: Write phone movie and episode metadata tests**
+
+Create `FeaturedHeroMetadataTest.kt`:
+
+```kotlin
+package org.siloserver.silo.android.ui.screens.home
+
+import org.siloserver.silo.model.catalog.OverlaySummary
+import org.siloserver.silo.model.section.SectionItem
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class FeaturedHeroMetadataTest {
+    @Test
+    fun movieUsesOrderedEditorialMetadataWithoutGenericOrTechnicalChips() {
+        val chips = featuredHeroMetadata(
+            SectionItem(
+                contentId = "movie-1",
+                type = "movie",
+                title = "Arrival",
+                year = 2016,
+                genres = listOf("Science Fiction"),
+                ratingImdb = 7.9,
+                contentRating = "PG-13",
+                durationSeconds = 6_960.0,
+                overlaySummary = OverlaySummary(
+                    resolution = "2160p",
+                    hdr = "Dolby Vision",
+                    audio = "Atmos",
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf("2016", "1h 56m", "7.9", "Science Fiction", "PG-13"),
+            chips.map { it.label },
+        )
+        assertEquals(
+            listOf(
+                FeaturedHeroMetadataKind.Plain,
+                FeaturedHeroMetadataKind.Plain,
+                FeaturedHeroMetadataKind.Rating,
+                FeaturedHeroMetadataKind.Plain,
+                FeaturedHeroMetadataKind.Classification,
+            ),
+            chips.map { it.kind },
+        )
+    }
+
+    @Test
+    fun episodeReliesOnExistingSeriesEyebrowAndTitleWithoutDuplicatingName() {
+        val chips = featuredHeroMetadata(
+            SectionItem(
+                contentId = "episode-1",
+                type = "episode",
+                title = "Long, Long Time",
+                seriesTitle = "The Last of Us",
+                seasonNumber = 1,
+                episodeNumber = 3,
+                ratingImdb = 8.6,
+                contentRating = "TV-MA",
+                durationSeconds = 4_560.0,
+            ),
+        )
+
+        assertEquals(
+            listOf("S1 E3", "1h 16m", "8.6", "TV-MA"),
+            chips.map { it.label },
+        )
+    }
+}
+```
+
+- [ ] **Step 2: Write phone invalid-value tests**
+
+Append:
+
+```kotlin
+@Test
+fun invalidRatingsAndDurationsAreOmitted() {
+    listOf(
+        Double.NaN,
+        Double.POSITIVE_INFINITY,
+        Double.NEGATIVE_INFINITY,
+        0.0,
+        -1.0,
+    ).forEachIndexed { index, invalid ->
+        val chips = featuredHeroMetadata(
+            SectionItem(
+                contentId = "invalid-$index",
+                type = "movie",
+                title = "Invalid",
+                ratingImdb = invalid,
+                durationSeconds = invalid,
+            ),
+        )
+
+        assertEquals(emptyList(), chips)
+    }
+}
+```
+
+- [ ] **Step 3: Strengthen the TV invalid-value regression**
+
+Append to `TvFocusMarqueeModelTest`:
+
+```kotlin
+@Test
+fun invalidRatingsAndDurationsAreOmittedFromTvMetadata() {
+    listOf(
+        Double.NaN,
+        Double.POSITIVE_INFINITY,
+        Double.NEGATIVE_INFINITY,
+        0.0,
+        -1.0,
+    ).forEachIndexed { index, invalid ->
+        val content = TvMarqueeContent.from(
+            item = SectionItem(
+                contentId = "invalid-$index",
+                type = "movie",
+                title = "Invalid",
+                ratingImdb = invalid,
+                durationSeconds = invalid,
+            ),
+            rowTitle = "Invalid",
+        )
+
+        assertEquals(emptyList(), content.metaParts)
+    }
+}
+```
+
+- [ ] **Step 4: Run both focused model tests and verify RED**
+
+```bash
+./gradlew \
+  :androidApp:testDebugUnitTest \
+  :androidTvApp:testDebugUnitTest \
+  --tests "org.siloserver.silo.android.ui.screens.home.FeaturedHeroMetadataTest" \
+  --tests "org.siloserver.silo.tv.ui.components.TvFocusMarqueeModelTest" \
+  --rerun-tasks --max-workers=2 --no-daemon
+```
+
+Expected: phone compilation fails because the new metadata types/functions do
+not exist; the TV invalid-value case also fails before the production guard is
+added. If Gradle applies each `--tests` pattern to both module tasks and reports
+that one module has no matching tests, run the two module/test pairs as separate
+commands while retaining the same worker/no-daemon/rerun shape.
+
+- [ ] **Step 5: Implement the pure phone metadata mapper**
+
+Create `FeaturedHeroMetadata.kt`:
+
+```kotlin
+package org.siloserver.silo.android.ui.screens.home
+
+import java.util.Locale
+import kotlin.math.roundToInt
+import org.siloserver.silo.model.section.SectionItem
+
+internal enum class FeaturedHeroMetadataKind {
+    Plain,
+    Rating,
+    Classification,
+}
+
+internal data class FeaturedHeroMetadataChip(
+    val label: String,
+    val kind: FeaturedHeroMetadataKind = FeaturedHeroMetadataKind.Plain,
+)
+
+internal fun featuredHeroMetadata(item: SectionItem): List<FeaturedHeroMetadataChip> {
+    val result = mutableListOf<FeaturedHeroMetadataChip>()
+    val isEpisode = item.type.equals("episode", ignoreCase = true)
+
+    if (isEpisode) {
+        episodeToken(item.seasonNumber, item.episodeNumber)?.let {
+            result += FeaturedHeroMetadataChip(it)
+        }
+    } else if (item.year > 0) {
+        result += FeaturedHeroMetadataChip(item.year.toString())
+    }
+
+    formatFeaturedRuntime(item.durationSeconds)?.let {
+        result += FeaturedHeroMetadataChip(it)
+    }
+    item.ratingImdb
+        ?.takeIf { it.isFinite() && it > 0.0 }
+        ?.let {
+            result += FeaturedHeroMetadataChip(
+                label = String.format(Locale.US, "%.1f", it),
+                kind = FeaturedHeroMetadataKind.Rating,
+            )
+        }
+    if (!isEpisode) {
+        item.genres.firstOrNull { it.isNotBlank() }?.let {
+            result += FeaturedHeroMetadataChip(it)
+        }
+    }
+    item.contentRating
+        ?.takeIf { it.isNotBlank() }
+        ?.uppercase(Locale.US)
+        ?.let {
+            result += FeaturedHeroMetadataChip(
+                label = it,
+                kind = FeaturedHeroMetadataKind.Classification,
+            )
+        }
+    return result
+}
+
+private fun episodeToken(season: Int?, episode: Int?): String? = when {
+    season != null && episode != null -> "S$season E$episode"
+    season != null -> "Season $season"
+    episode != null -> "Episode $episode"
+    else -> null
+}
+
+private fun formatFeaturedRuntime(durationSeconds: Double?): String? {
+    val duration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
+        ?: return null
+    val minutes = (duration / 60.0).roundToInt().takeIf { it > 0 }
+        ?: return null
+    if (minutes < 60) return "$minutes min"
+    val hours = minutes / 60
+    val remainder = minutes % 60
+    return if (remainder == 0) "${hours}h" else "${hours}h ${remainder}m"
+}
+```
+
+- [ ] **Step 6: Render bounded phone chips without changing carousel actions**
+
+In `FeaturedCarousel.kt`:
+
+- import `ExperimentalLayoutApi` and `FlowRow` from
+  `androidx.compose.foundation.layout`;
+- annotate `FeaturedCardContent` with `@OptIn(ExperimentalLayoutApi::class)`;
+- replace `remember(item) { metadataChips(item) }` with
+  `remember(item) { featuredHeroMetadata(item) }`;
+- replace the single `Row` with:
+
+```kotlin
+FlowRow(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+    maxLines = 2,
+) {
+    chips.forEach { chip -> MetadataChip(chip) }
+}
+```
+
+Change `MetadataChip` to accept `FeaturedHeroMetadataChip` and render the star
+only for `FeaturedHeroMetadataKind.Rating`:
+
+```kotlin
+if (chip.kind == FeaturedHeroMetadataKind.Rating) {
+    Icon(
+        imageVector = Icons.Default.Star,
+        contentDescription = null,
+        tint = Color(0xFFFFCA28),
+        modifier = Modifier.size(12.dp),
+    )
+}
+Text(
+    text = chip.label,
+    style = MaterialTheme.typography.labelMedium,
+    fontWeight = FontWeight.SemiBold,
+    color = Color.White.copy(alpha = 0.94f),
+    maxLines = 1,
+)
+```
+
+Delete `HeroChip`, `metadataChips`, and the duplicate item-based
+`episodeToken`; keep `eyebrowFor`, paging, actions, backdrop, and carousel
+geometry unchanged.
+
+- [ ] **Step 7: Reject invalid TV ratings and durations**
+
+In `TvMarqueeContent.from`, guard the rating at both movie and episode call
+sites:
+
+```kotlin
+item.ratingImdb
+    ?.takeIf { it.isFinite() && it > 0.0 }
+    ?.let { meta.add(formatRating(it)) }
+```
+
+Start `lengthText` with:
+
+```kotlin
+val duration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
+    ?: return null
+val minutes = (duration / 60.0).roundToInt()
+```
+
+Use `duration` rather than the nullable input for the calculation. Do not alter
+valid formatting or field order.
+
+- [ ] **Step 8: Run both focused model tests and verify GREEN**
+
+Run the module-specific commands described in Step 4.
+
+Expected: all phone metadata tests and all TV marquee-model tests pass.
+
+- [ ] **Step 9: Commit the phone-parity and invalid-value correction**
+
+```bash
+git add \
+  androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedCarousel.kt \
+  androidApp/src/androidMain/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedHeroMetadata.kt \
+  androidApp/src/androidUnitTest/kotlin/org/siloserver/silo/android/ui/screens/home/FeaturedHeroMetadataTest.kt \
+  androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModel.kt \
+  androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/components/TvFocusMarqueeModelTest.kt
+git commit -m "fix(android): align editorial browse hero metadata"
+```
+
+---
+
+### Task 4: Verify, review, package, and update PR #126
 
 **Files:**
 - Verify only: all branch changes against `origin/main`
-- Output only, not committed: Android TV universal minified release APK
+- Output only, not committed: Android phone and TV universal minified release APKs
 - Update remotely after green: existing PR #126 description/checklist
 
 **Interfaces:**
-- Consumes: Tasks 1 and 2 commits.
-- Produces: independently reviewed, fully verified PR #126 head and a clearly named tester APK.
+- Consumes: Tasks 1–3 commits.
+- Produces: independently reviewed, fully verified PR #126 head and clearly named phone/TV tester APKs.
 
 - [ ] **Step 1: Run all focused regressions together**
 
@@ -452,6 +801,10 @@ git commit -m "fix(tv): show editorial metadata in browse heroes"
   --tests "org.siloserver.silo.tv.ui.shell.TvShellFocusStateTest" \
   --tests "org.siloserver.silo.tv.ui.components.TvSkylineUpNavigationTest" \
   --tests "org.siloserver.silo.tv.ui.components.TvFocusMarqueeModelTest" \
+  --rerun-tasks --max-workers=2 --no-daemon
+
+./gradlew :androidApp:testDebugUnitTest \
+  --tests "org.siloserver.silo.android.ui.screens.home.FeaturedHeroMetadataTest" \
   --rerun-tasks --max-workers=2 --no-daemon
 ```
 
@@ -466,18 +819,20 @@ Expected: all selected tests pass with zero failures.
 
 Expected: both scripts exit 0.
 
-- [ ] **Step 3: Run the complete fresh TV test and release gate**
+- [ ] **Step 3: Run the complete fresh phone/TV test and release gate**
 
 ```bash
 ./gradlew \
+  :androidApp:testDebugUnitTest \
   :androidTvApp:testDebugUnitTest \
+  :androidApp:assembleRelease \
   :androidTvApp:assembleRelease \
   -PallowDebugReleaseSigning=true \
   --rerun-tasks --max-workers=2 --no-daemon
 ```
 
-Expected: `BUILD SUCCESSFUL`; all TV unit XML results have zero failures and
-the minified release APK is produced.
+Expected: `BUILD SUCCESSFUL`; all phone and TV unit XML results have zero
+failures and both universal minified release APKs are produced.
 
 - [ ] **Step 4: Perform the required device/emulator smoke**
 
@@ -497,6 +852,21 @@ Record the emulator/device identity and pass/fail result in the PR. If no
 approved target is available, mark this smoke as pending instead of claiming
 it passed.
 
+On a dedicated phone emulator, without touching an unapproved physical device:
+
+1. Open a Library Recommended featured carousel containing a movie and verify
+   year, runtime, IMDb, genre, and classification appear without a generic
+   `Movie` chip.
+2. Open an episode carousel page and verify the series eyebrow/title remain,
+   with season/episode, runtime, IMDb, and classification chips and no generic
+   `Episode` chip.
+3. Use a narrow phone viewport and verify chips wrap to no more than two lines
+   without covering Play or More Info.
+4. Verify carousel paging, artwork, Play, and More Info behavior remain intact.
+
+Record the phone emulator identity and result, or mark this smoke pending when
+no approved target is available.
+
 - [ ] **Step 5: Request independent focused review**
 
 Provide the reviewer:
@@ -505,9 +875,10 @@ Provide the reviewer:
 - `git diff origin/main...HEAD`;
 - focused and full test results;
 - the focus request timing/target contract;
-- movie and episode metadata order;
-- explicit instruction to flag production-semantic changes outside the TV
-  shell/marquee scope.
+- phone and TV movie/episode metadata ordering and invalid-value omission;
+- the explicit scope boundary: Task 1 focus is TV-only, Task 2/3 hero metadata
+  is phone+TV, and earlier shared hydration/navigation-performance commits in
+  PR #126 are an accepted unchanged baseline rather than new Task 3 scope.
 
 Address only verified findings, rerun the affected focused test, and repeat
 review until approved.
@@ -521,21 +892,23 @@ git log --oneline origin/main..HEAD
 ```
 
 Expected: no whitespace errors, no uncommitted files, and only the documented
-TV navigation/hero commits plus their specs/plans.
+navigation/hero commits plus their specs/plans.
 
-- [ ] **Step 7: Copy and verify the tester APK**
+- [ ] **Step 7: Copy and verify both tester APKs**
 
-Select the universal APK from the TV release output, verify it with
+Select the universal APK from each release output, verify each with
 `apksigner verify --verbose`, inspect package/version/ABI metadata with
 `apkanalyzer`, calculate `shasum -a 256`, and copy it without overwriting prior
 artifacts:
 
 ```bash
+cp androidApp/build/outputs/apk/release/androidApp-universal-release.apk \
+  "/Users/jimcole/Desktop/Silo Releases/Silo-Phone-Universal-0.3.11-FocusHeroFix-$(git rev-parse --short HEAD).apk"
 cp androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk \
   "/Users/jimcole/Desktop/Silo Releases/Silo-TV-Universal-0.3.11-TVFocusHeroFix-$(git rev-parse --short HEAD).apk"
 ```
 
-If the generated filename differs, select the universal artifact explicitly;
+If a generated filename differs, select its universal artifact explicitly;
 never substitute an ABI-specific split. Report that
 `-PallowDebugReleaseSigning=true` produces a debug-signed release build that
 only upgrades installations signed by the same certificate.
@@ -551,10 +924,11 @@ gh pr view 126 --repo Silo-Server/silo-android \
 Update the PR description to include:
 
 - active-section focus restoration;
-- editorial-only movie/episode hero metadata;
+- editorial-only phone and TV movie/episode hero metadata;
+- invalid rating/runtime omission;
 - focused/full verification evidence;
 - independent review verdict;
-- device-smoke result or its explicit pending status;
-- tester APK signing caveat.
+- phone and TV smoke results or their explicit pending status;
+- both tester APK signing caveats.
 
 Do not merge PR #126.
