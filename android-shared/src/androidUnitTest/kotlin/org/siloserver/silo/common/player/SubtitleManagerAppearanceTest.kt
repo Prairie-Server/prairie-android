@@ -7,6 +7,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
+import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.test.Test
@@ -46,7 +47,7 @@ class SubtitleManagerAppearanceTest {
     fun bottomSubtitlesUseTheReferenceSafeMargin() {
         val method = SubtitleManager::class.java.getDeclaredMethod(
             "bottomPaddingFor",
-            org.siloserver.silo.model.settings.SubtitlePositionPreset::class.java,
+            SubtitlePositionPreset::class.java,
         )
         method.isAccessible = true
 
@@ -54,8 +55,39 @@ class SubtitleManagerAppearanceTest {
             0.09f,
             method.invoke(
                 SubtitleManager(),
-                org.siloserver.silo.model.settings.SubtitlePositionPreset.Bottom,
+                SubtitlePositionPreset.Bottom,
             ) as Float,
+        )
+    }
+
+    @Test
+    fun titleSafeCompensationDoesNotDoubleShiftTopSubtitles() {
+        val manager = SubtitleManager().apply {
+            titleSafeFraction = 0.05f
+        }
+        val method = SubtitleManager::class.java.getDeclaredMethod(
+            "bottomPaddingFor",
+            SubtitlePositionPreset::class.java,
+        )
+        method.isAccessible = true
+
+        // The padding fraction is evaluated inside a surface scaled to 90% of
+        // the original video height. Preserve the original physical presets:
+        // f + p(1 - 2f) = base, so p = (base - f) / (1 - 2f).
+        assertEquals(
+            expected = (0.74f - 0.05f) / 0.90f,
+            actual = method.invoke(manager, SubtitlePositionPreset.Top) as Float,
+            absoluteTolerance = 0.0001f,
+        )
+        assertEquals(
+            expected = (0.09f - 0.05f) / 0.90f,
+            actual = method.invoke(manager, SubtitlePositionPreset.Bottom) as Float,
+            absoluteTolerance = 0.0001f,
+        )
+        assertEquals(
+            expected = (0.18f - 0.05f) / 0.90f,
+            actual = method.invoke(manager, SubtitlePositionPreset.LowerThird) as Float,
+            absoluteTolerance = 0.0001f,
         )
     }
 
