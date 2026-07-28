@@ -5,9 +5,11 @@ import org.siloserver.silo.model.catalog.SeasonsResponse
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
 import org.siloserver.silo.network.IdentityTransitionKind
+import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.network.SiloJson
 import org.siloserver.silo.network.api.CatalogApi
 import org.siloserver.silo.repository.port.CatalogCachePort
+import org.siloserver.silo.repository.port.CatalogCacheWriteLease
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -29,9 +31,23 @@ class CatalogRepositoryDetailCacheTest {
     private class FakeCache(
         val preset: ItemDetail? = null,
         val seasonsPreset: SeasonsResponse? = null,
+        val identityTransitions: IdentityTransitionBarrier? = null,
+        val beforeItemCache: suspend () -> Unit = {},
     ) : CatalogCachePort {
         var cachedId: String? = null
-        override suspend fun cacheItemDetail(contentId: String, detail: ItemDetail) { cachedId = contentId }
+        override suspend fun cacheItemDetail(
+            contentId: String,
+            detail: ItemDetail,
+            lease: CatalogCacheWriteLease,
+        ) {
+            beforeItemCache()
+            if (
+                identityTransitions == null ||
+                lease.identityGeneration == identityTransitions.generation.value
+            ) {
+                cachedId = contentId
+            }
+        }
         override suspend fun getCachedItemDetail(contentId: String): ItemDetail? = preset
         override suspend fun getCachedSeasons(seriesId: String): SeasonsResponse? = seasonsPreset
     }
@@ -139,6 +155,36 @@ class CatalogRepositoryDetailCacheTest {
         releaseResponse.complete(Unit)
 
         assertTrue(oldProfileRequest.await() is ApiResult.Success)
+        assertEquals(null, cache.cachedId)
+    }
+
+    @Test
+    fun profileSwitchBetweenRepositoryGuardAndCacheWriteDoesNotCacheOldDetail() = runTest {
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val cache = FakeCache(
+            identityTransitions = identityTransitions,
+            beforeItemCache = {
+                identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) { }
+            },
+        )
+        val client = HttpClient(
+            MockEngine {
+                respond(
+                    """{"content_id":"c1","type":"movie","title":"Profile A"}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+        val repository = CatalogRepository(
+            catalogApi = CatalogApi(client),
+            catalogCache = cache,
+            identityTransitions = identityTransitions,
+        )
+
+        assertTrue(repository.getItemDetail("c1") is ApiResult.Success)
         assertEquals(null, cache.cachedId)
     }
 }

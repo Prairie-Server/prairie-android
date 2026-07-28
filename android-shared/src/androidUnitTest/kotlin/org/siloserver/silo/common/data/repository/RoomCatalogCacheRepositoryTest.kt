@@ -9,6 +9,7 @@ import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.network.AuthScopeSnapshot
 import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
 import org.siloserver.silo.network.IdentityTransitionKind
+import org.siloserver.silo.repository.port.CatalogCacheWriteLease
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -101,5 +102,28 @@ class RoomCatalogCacheRepositoryTest {
         oldProfileWrite.await()
 
         assertNull(delayedRepo.getCachedLibraries())
+    }
+
+    @Test
+    fun writeRequestedByOldProfileButInvokedAfterSwitchIsNotAttributedToNewProfile() = runTest {
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val oldProfileGeneration = identityTransitions.generation.value
+        val guardedRepo = RoomCatalogCacheRepository(
+            db = db,
+            snapshotProvider = { scope },
+            identityTransitions = identityTransitions,
+            now = { 1000L },
+        )
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            scope = AuthScopeSnapshot("s1", "p2", "https://s1.example", null)
+        }
+
+        guardedRepo.cacheLibraries(
+            listOf(UserLibrary(id = 1, name = "Profile A", type = "movie")),
+            CatalogCacheWriteLease(oldProfileGeneration),
+        )
+
+        assertEquals(0L, oldProfileGeneration)
+        assertNull(guardedRepo.getCachedLibraries())
     }
 }

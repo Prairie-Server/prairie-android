@@ -7,9 +7,12 @@ import org.siloserver.silo.model.personal.SyncProgressItem
 import org.siloserver.silo.model.personal.SyncProgressRequest
 import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.network.api.PersonalDataApi
 import org.siloserver.silo.network.map
 import org.siloserver.silo.repository.port.CatalogCachePort
+import org.siloserver.silo.repository.port.CatalogCacheWriteLease
 import org.siloserver.silo.repository.port.NoOpCatalogCachePort
 import org.siloserver.silo.repository.port.NoOpUserItemStatePort
 import org.siloserver.silo.repository.port.UserItemStatePort
@@ -27,14 +30,19 @@ open class PersonalDataRepository(
     private val userItemStatePort: UserItemStatePort = NoOpUserItemStatePort,
     /** Offline read cache for the library list (Track B). No-op by default. */
     private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) {
     // -- Libraries --
 
     /** Lists the libraries visible to the current user (offline: last cached list). */
     suspend fun listUserLibraries(): ApiResult<List<UserLibrary>> {
+        val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = CatalogCacheWriteLease(requestIdentityGeneration)
         val result = personalDataApi.listUserLibraries()
         if (result is ApiResult.Success) {
-            catalogCache.cacheLibraries(result.data)
+            if (requestIdentityGeneration == identityTransitions.generation.value) {
+                catalogCache.cacheLibraries(result.data, cacheWriteLease)
+            }
             return result
         }
         if (result.canServeCache()) {

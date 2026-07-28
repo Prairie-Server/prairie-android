@@ -15,6 +15,7 @@ import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
 import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.network.api.CatalogApi
 import org.siloserver.silo.repository.port.CatalogCachePort
+import org.siloserver.silo.repository.port.CatalogCacheWriteLease
 import org.siloserver.silo.repository.port.NoOpCatalogCachePort
 import org.siloserver.silo.repository.port.canServeCache
 
@@ -44,6 +45,7 @@ class CatalogRepository(
         match: String? = null,
     ): ApiResult<CatalogResponse> {
         val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = CatalogCacheWriteLease(requestIdentityGeneration)
         val result = catalogApi.getCatalog(
             source = source,
             query = query,
@@ -76,7 +78,7 @@ class CatalogRepository(
 
         if (result is ApiResult.Success) {
             if (requestIdentityGeneration == identityTransitions.generation.value) {
-                catalogCache.cacheDefaultLibraryPage(cacheableLibraryId, result.data)
+                catalogCache.cacheDefaultLibraryPage(cacheableLibraryId, result.data, cacheWriteLease)
             }
             return result
         }
@@ -116,10 +118,11 @@ class CatalogRepository(
     /** Fetches full metadata for a single catalog item (offline: last cached detail). */
     suspend fun getItemDetail(contentId: String): ApiResult<ItemDetail> {
         val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = CatalogCacheWriteLease(requestIdentityGeneration)
         val result = catalogApi.getItemDetail(contentId)
         if (result is ApiResult.Success) {
             if (requestIdentityGeneration == identityTransitions.generation.value) {
-                catalogCache.cacheItemDetail(contentId, result.data)
+                catalogCache.cacheItemDetail(contentId, result.data, cacheWriteLease)
             }
             return result
         }
@@ -149,10 +152,11 @@ class CatalogRepository(
     /** Lists seasons for a series (offline: last cached seasons). */
     suspend fun getSeasons(seriesId: String): ApiResult<SeasonsResponse> {
         val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = CatalogCacheWriteLease(requestIdentityGeneration)
         val result = catalogApi.getSeasons(seriesId)
         if (result is ApiResult.Success) {
             if (requestIdentityGeneration == identityTransitions.generation.value) {
-                catalogCache.cacheSeasons(seriesId, result.data)
+                catalogCache.cacheSeasons(seriesId, result.data, cacheWriteLease)
             }
             return result
         }
@@ -165,10 +169,11 @@ class CatalogRepository(
     /** Lists episodes for a specific season of a series (offline: last cached episodes). */
     suspend fun getEpisodes(seriesId: String, seasonNumber: Int): ApiResult<EpisodesResponse> {
         val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = CatalogCacheWriteLease(requestIdentityGeneration)
         val result = catalogApi.getEpisodes(seriesId, seasonNumber)
         if (result is ApiResult.Success) {
             if (requestIdentityGeneration == identityTransitions.generation.value) {
-                catalogCache.cacheEpisodes(seriesId, seasonNumber, result.data)
+                catalogCache.cacheEpisodes(seriesId, seasonNumber, result.data, cacheWriteLease)
             }
             return result
         }

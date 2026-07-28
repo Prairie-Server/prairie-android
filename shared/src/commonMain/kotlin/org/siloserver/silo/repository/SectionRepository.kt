@@ -12,6 +12,7 @@ import org.siloserver.silo.network.IdentityTransitionBarrier
 import org.siloserver.silo.network.api.SectionApi
 import org.siloserver.silo.network.map
 import org.siloserver.silo.repository.port.CatalogCachePort
+import org.siloserver.silo.repository.port.CatalogCacheWriteLease
 import org.siloserver.silo.repository.port.NoOpCatalogCachePort
 import org.siloserver.silo.repository.port.canServeCache
 import kotlinx.coroutines.CoroutineScope
@@ -93,10 +94,11 @@ class SectionRepository(
     /** Fetches a library's resolved sections (offline: last cached sections). */
     suspend fun getLibrarySections(libraryId: Int): ApiResult<SectionsResponse> {
         val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = CatalogCacheWriteLease(requestIdentityGeneration)
         val result = sectionApi.getLibrarySections(libraryId)
         if (result is ApiResult.Success) {
             if (requestIdentityGeneration == identityTransitions.generation.value) {
-                catalogCache.cacheLibrarySections(libraryId, result.data.sections)
+                catalogCache.cacheLibrarySections(libraryId, result.data.sections, cacheWriteLease)
             }
             return result
         }

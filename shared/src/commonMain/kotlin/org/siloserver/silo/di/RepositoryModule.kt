@@ -64,9 +64,12 @@ val repositoryModule = module {
     // back to the network-only no-op ports in commonMain tests / when unbound.
     single {
         PersonalDataRepository(
-            get(),
-            getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>() ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
-            getOrNull<org.siloserver.silo.repository.port.CatalogCachePort>() ?: org.siloserver.silo.repository.port.NoOpCatalogCachePort,
+            personalDataApi = get(),
+            userItemStatePort = getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>()
+                ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
+            catalogCache = getOrNull<org.siloserver.silo.repository.port.CatalogCachePort>()
+                ?: org.siloserver.silo.repository.port.NoOpCatalogCachePort,
+            identityTransitions = get(),
         )
     }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get(), get()) }
