@@ -196,6 +196,7 @@ class LibrariesViewModel(
     private var collectionsLoadedLibraryId: Int? = null
     private var recommendedRequestGeneration = 0L
     private var catalogRequestGeneration = 0L
+    private var catalogQueryGeneration = 0L
     private var collectionsRequestGeneration = 0L
     private val pageSize = 42
 
@@ -478,6 +479,8 @@ class LibrariesViewModel(
             filterState = requestState.filterState,
         )
         val requestGeneration = ++catalogRequestGeneration
+        val queryGeneration =
+            if (reset) ++catalogQueryGeneration else catalogQueryGeneration
         val offset = if (reset) 0 else requestState.catalogItems.size
         viewModelScope.launch {
             if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
@@ -489,11 +492,11 @@ class LibrariesViewModel(
                     // response so the filter sheet has every facet, not just genres.
                     when (val filters = catalogRepository.getFilters(libraryId, includeTechnical = true)) {
                         is ApiResult.Success -> {
-                            if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) {
+                            if (!isCatalogQueryCurrent(queryGeneration, requestIdentity)) {
                                 return@launch
                             }
                             _uiState.update {
-                                if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                                if (isCatalogQueryCurrent(queryGeneration, requestIdentity, it)) {
                                     it.copy(availableFilters = filters.data)
                                 } else {
                                     it
@@ -688,6 +691,17 @@ class LibrariesViewModel(
         state: LibrariesUiState = _uiState.value,
     ): Boolean =
         generation == catalogRequestGeneration &&
+            state.selectedLibraryId == identity.libraryId &&
+            state.browseSort == identity.browseSort &&
+            state.selectedNamePrefix == identity.selectedNamePrefix &&
+            state.filterState == identity.filterState
+
+    private fun isCatalogQueryCurrent(
+        generation: Long,
+        identity: CatalogRequestIdentity,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == catalogQueryGeneration &&
             state.selectedLibraryId == identity.libraryId &&
             state.browseSort == identity.browseSort &&
             state.selectedNamePrefix == identity.selectedNamePrefix &&

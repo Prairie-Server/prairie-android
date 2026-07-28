@@ -21,6 +21,8 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import org.siloserver.silo.catalog.filter.CatalogFacet
+import org.siloserver.silo.catalog.filter.CatalogFilterState
 import org.siloserver.silo.network.SiloJson
 import org.siloserver.silo.network.api.CatalogApi
 import org.siloserver.silo.network.api.PersonalDataApi
@@ -100,6 +102,93 @@ class LibrariesViewModelTest {
     }
 
     @Test
+    fun browseResponseFromPreviousFilterStateCannotReplaceCurrentQueryGrid() = runTest {
+        val fixture = DeferredLibrariesFixture(
+            deferredKeys = setOf(
+                "catalog:1:added_at:desc",
+                "catalog:1:added_at:desc:filtered",
+            ),
+        )
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val viewModel = fixture.viewModel()
+        val store = ViewModelStore().also { it.put("libraries", viewModel) }
+        try {
+            fixture.awaitRequest("sections:1")
+            viewModel.uiState.first { !it.isLoadingSections }
+            viewModel.selectTab(LibrariesSubtab.Browse)
+            fixture.awaitRequest("catalog:1:added_at:desc")
+            val staleRequest = viewModel.onlyActiveRequest()
+
+            val dramaOnly = CatalogFilterState(
+                selections = mapOf(CatalogFacet.Genre to setOf("Drama")),
+            )
+            viewModel.applyFilterState(dramaOnly)
+            fixture.awaitRequest("catalog:1:added_at:desc:filtered")
+            fixture.complete(
+                "catalog:1:added_at:desc:filtered",
+                catalogBody("current-filter"),
+            )
+            viewModel.uiState.first {
+                it.catalogItems.map { item -> item.contentId } == listOf("current-filter")
+            }
+
+            fixture.complete("catalog:1:added_at:desc", catalogBody("stale-unfiltered"))
+            staleRequest.join()
+
+            assertEquals(dramaOnly, viewModel.uiState.value.filterState)
+            assertEquals(
+                listOf("current-filter"),
+                viewModel.uiState.value.catalogItems.map { it.contentId },
+            )
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun delayedFilterVocabularyStillAppliesAfterLoadingNextPage() = runTest {
+        val firstPageKey = "catalog:1:added_at:desc:0"
+        val secondPageKey = "catalog:1:added_at:desc:1"
+        val fixture = DeferredLibrariesFixture(
+            deferredKeys = setOf("filters", firstPageKey, secondPageKey),
+        )
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val viewModel = fixture.viewModel()
+        val store = ViewModelStore().also { it.put("libraries", viewModel) }
+        try {
+            fixture.awaitRequest("sections:1")
+            viewModel.uiState.first { !it.isLoadingSections }
+            viewModel.selectTab(LibrariesSubtab.Browse)
+            fixture.awaitRequest("filters")
+            fixture.awaitRequest(firstPageKey)
+            val filterRequest = viewModel.onlyActiveRequest()
+            fixture.complete(firstPageKey, catalogPageBody("page-1", hasMore = true))
+            viewModel.uiState.first {
+                it.catalogItems.map { item -> item.contentId } == listOf("page-1") &&
+                    it.catalogHasMore
+            }
+
+            viewModel.loadMoreCatalog()
+            fixture.awaitRequest(secondPageKey)
+            fixture.complete(secondPageKey, catalogPageBody("page-2", hasMore = false))
+            viewModel.uiState.first {
+                it.catalogItems.map { item -> item.contentId } == listOf("page-1", "page-2")
+            }
+
+            fixture.complete("filters", filtersBody("Drama"))
+            filterRequest.join()
+
+            assertEquals(listOf("Drama"), viewModel.uiState.value.availableFilters?.genres)
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+            fixture.close()
+        }
+    }
+
+    @Test
     fun collectionsResponseFromPreviousLibraryCannotReplaceCurrentLibraryCollections() = runTest {
         val fixture = DeferredLibrariesFixture(
             deferredKeys = setOf("collections:1", "collections:2"),
@@ -150,8 +239,22 @@ class LibrariesViewModelTest {
                     "/api/v1/user/libraries" -> "libraries"
                     "/api/v1/catalog/filters" -> "filters"
                     "/api/v1/catalog" -> {
-                        "catalog:${request.url.parameters["library_id"]}:" +
+                        val baseKey = "catalog:${request.url.parameters["library_id"]}:" +
                             "${request.url.parameters["sort"]}:${request.url.parameters["order"]}"
+                        val filterSuffix = if (
+                            request.url.parameters.names().any { it.startsWith("groups[") }
+                        ) {
+                            ":filtered"
+                        } else {
+                            ""
+                        }
+                        val offsetSuffix = ":${request.url.parameters["offset"]}"
+                        listOf(
+                            baseKey + filterSuffix + offsetSuffix,
+                            baseKey + filterSuffix,
+                            baseKey + offsetSuffix,
+                            baseKey,
+                        ).firstOrNull(responses::containsKey) ?: (baseKey + filterSuffix)
                     }
                     else -> {
                         val segments = request.url.encodedPath.split('/')
@@ -228,6 +331,17 @@ class LibrariesViewModelTest {
               "items":[{"content_id":"$id","type":"movie","title":"$id"}]
             }
         """.trimIndent()
+
+        private fun catalogPageBody(id: String, hasMore: Boolean) = """
+            {
+              "total":2,
+              "has_more":$hasMore,
+              "items":[{"content_id":"$id","type":"movie","title":"$id"}]
+            }
+        """.trimIndent()
+
+        private fun filtersBody(genre: String) =
+            """{"genres":["$genre"],"studios":[],"networks":[],"countries":[],"content_ratings":[]}"""
 
         private fun collectionsBody(id: String) =
             """{"collections":[{"id":"$id","name":"$id"}]}"""
