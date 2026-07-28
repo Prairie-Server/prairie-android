@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Eliminate stale/clipped subtitle geometry after Android aspect changes and make all phone subtitle presets 1.25× larger without changing TV sizing.
+**Goal:** Eliminate stale/clipped subtitle geometry after Android aspect changes and make all phone subtitle presets 1.125× larger without changing TV sizing.
 
 **Architecture:** `SubtitleManager` remains the shared owner of Media3 and libass subtitle presentation. A fixed phone/television presentation class selects the font fraction, while `SubtitleVideoRectSync` uses generation-bound post-layout snapshot verification to request at most one corrective pre-draw pass when an aspect change exposes stale `exo_content_frame` bounds.
 
@@ -12,7 +12,7 @@
 
 - Preserve subtitle selection, cue styling, authored positioning, libass/ASS, bitmap subtitle, letterbox, and title-safe behavior.
 - Do not change subtitle tracks, server subtitle processing, playback protocols, preset names, or persisted subtitle appearance schema.
-- Phone fractions are exactly Small `25 / 720`, Medium `32.5 / 720`, Large `40 / 720`, XLarge `50 / 720`, and XXLarge `60 / 720`.
+- Phone fractions are exactly Small `22.5 / 720`, Medium `29.25 / 720`, Large `36 / 720`, XLarge `45 / 720`, and XXLarge `54 / 720`.
 - Television fractions remain Small `20 / 720`, Medium `26 / 720`, Large `32 / 720`, XLarge `40 / 720`, and XXLarge `48 / 720`.
 - Reconciliation is bounded to two post-layout applications per explicit sync generation, coalesces repeated requests, and cancels all pending work on detach/dispose.
 - Use Media3's measured `exo_content_frame`; do not duplicate Media3's aspect-ratio algorithm.
@@ -41,15 +41,15 @@ Replace the single reflected web-scale test with explicit phone and television a
 
 ```kotlin
 @Test
-fun phoneSubtitleTextFractionsAreOneQuarterLarger() {
+fun phoneSubtitleTextFractionsUseApprovedPhoneScale() {
     val manager = SubtitleManager(
         presentation = AndroidSubtitlePresentation.Phone,
     )
-    assertEquals(25f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
-    assertEquals(32.5f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
-    assertEquals(40f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
-    assertEquals(50f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
-    assertEquals(60f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
+    assertEquals(22.5f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
+    assertEquals(29.25f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
+    assertEquals(36f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
+    assertEquals(45f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
+    assertEquals(54f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
 }
 
 @Test
@@ -109,11 +109,11 @@ class SubtitleManager(
     private fun fractionalSizeFor(preset: SubtitleFontSizePreset): Float {
         val numerator = when (presentation) {
             AndroidSubtitlePresentation.Phone -> when (preset) {
-                SubtitleFontSizePreset.Small -> 25f
-                SubtitleFontSizePreset.Medium -> 32.5f
-                SubtitleFontSizePreset.Large -> 40f
-                SubtitleFontSizePreset.XLarge -> 50f
-                SubtitleFontSizePreset.XXLarge -> 60f
+                SubtitleFontSizePreset.Small -> 22.5f
+                SubtitleFontSizePreset.Medium -> 29.25f
+                SubtitleFontSizePreset.Large -> 36f
+                SubtitleFontSizePreset.XLarge -> 45f
+                SubtitleFontSizePreset.XXLarge -> 54f
             }
             AndroidSubtitlePresentation.Television -> when (preset) {
                 SubtitleFontSizePreset.Small -> 20f
