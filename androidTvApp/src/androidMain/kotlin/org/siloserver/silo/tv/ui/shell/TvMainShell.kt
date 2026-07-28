@@ -1081,7 +1081,13 @@ fun TvMainShell(
                             focusState.closeProfileMenuForContent()
                             calendarFocusHandoffPending = false
                         },
+                        onMoveUpToMenu = {
+                            focusState.requestMenuFocus(
+                                TvTopMenuPanel.Root(TvRootDestination.Calendar),
+                            )
+                        },
                         focusRequest = contentFocusRequest,
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Browse.route) {

@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.screens.calendar
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -18,6 +19,18 @@ class TvCalendarFocusRoutingTest {
     @Test
     fun controlsUseNormalUpMovement() {
         assertFalse(shouldReturnCalendarFocusToControls(null, 2, false))
+    }
+
+    @Test
+    fun controlsReturnToShellMenuTarget() {
+        assertEquals(
+            CalendarUpFallbackAction.EnterMenu,
+            calendarUpFallbackAction(
+                focusedShelfIndex = null,
+                firstFocusableShelfIndex = 2,
+                isReturningToControls = false,
+            ),
+        )
     }
 
     @Test
