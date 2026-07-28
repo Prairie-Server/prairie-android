@@ -33,6 +33,7 @@ smaller than the shared model's nominal 56-point Large value.
 - Reimplementing Media3's aspect-ratio measurement algorithm.
 - Adding unbounded frame callbacks, polling, delays, or timeout-based layout
   workarounds.
+- Reworking Android TV's existing subtitle remount transaction architecture.
 
 ## Design
 
@@ -40,9 +41,14 @@ smaller than the shared model's nominal 56-point Large value.
 
 `SubtitleVideoRectSync` remains the single owner of subtitle-view geometry. An
 aspect change may expose old `exo_content_frame` bounds during the immediate
-Compose `AndroidView.update` callback. The sync will therefore reconcile from
-the actual post-layout content-frame geometry and verify that the rectangle it
-applied still matches the current resize mode and content-frame snapshot.
+Compose `AndroidView.update` callback. Mobile Fit and Stretch must not convert
+those transitional bounds into fixed pixel dimensions: they set the subtitle
+child to `MATCH_PARENT` with zero margins, allowing the Media3 content frame to
+remeasure the subtitle child automatically.
+
+Mobile Fill maps to Media3 Zoom and still needs a parent-local visible crop
+rectangle because its content frame extends beyond the viewport. That mode
+continues to reconcile from the measured `exo_content_frame`.
 
 If the snapshot changes during that traversal, one further pre-draw
 reconciliation is scheduled. The operation is generation-bound and capped at
@@ -54,22 +60,24 @@ applied; the permanent content-frame layout listener still handles any later
 real layout change without spinning.
 
 The sync continues using Media3's measured `exo_content_frame` instead of
-duplicating its aspect calculations. Geometry remains expressed in the
-subtitle view's parent-local coordinate space.
+duplicating its aspect calculations. Fixed geometry remains expressed in the
+subtitle view's parent-local coordinate space. Television title-safe and
+letterbox insets retain their existing fixed-rectangle behavior; the
+`MATCH_PARENT` shortcut applies only when both insets are absent.
 
 ### Phone-only subtitle scaling
 
 Font-size conversion will accept an explicit Android presentation class:
-`Phone` or `Television`. Phone uses a 1.25 multiplier over the current
+`Phone` or `Television`. Phone uses a 1.125 multiplier over the current
 fractions:
 
 | Preset | Phone | Television |
 | --- | ---: | ---: |
-| Small | 25 / 720 | 20 / 720 |
-| Medium | 32.5 / 720 | 26 / 720 |
-| Large | 40 / 720 | 32 / 720 |
-| XLarge | 50 / 720 | 40 / 720 |
-| XXLarge | 60 / 720 | 48 / 720 |
+| Small | 22.5 / 720 | 20 / 720 |
+| Medium | 29.25 / 720 | 26 / 720 |
+| Large | 36 / 720 | 32 / 720 |
+| XLarge | 45 / 720 | 40 / 720 |
+| XXLarge | 54 / 720 | 48 / 720 |
 
 The phone and TV dependency-injection modules construct `SubtitleManager` with
 their fixed presentation class. The persisted preset remains unchanged, so an
@@ -78,6 +86,25 @@ and retains its current appearance on TV.
 
 Fractional sizing remains relative to the active subtitle canvas. It therefore
 continues to respond naturally to orientation and displayed-video bounds.
+
+### Initial subtitle restore settlement
+
+On phone, restoring a persisted mounted subtitle must not treat Media3
+`Player.STATE_READY` as proof that its text-track catalog has settled. Media3
+can report ready while publishing an intermediate non-empty text-track
+snapshot; failing the restore against that first snapshot produces a transient
+error even though the requested track appears moments later.
+
+The phone player will follow the existing TV settlement rule: the first
+non-empty text-track snapshot is provisional, a changed snapshot restarts
+settlement, and only a repeated identical non-empty snapshot may prove that a
+requested track is missing. A successful identity match still commits
+immediately. The existing bounded mobile mount timeout remains the terminal
+fallback when no stable success arrives.
+
+Android TV already implements this rule through
+`TvSubtitleSnapshotSettlementTracker` and `SubtitleRemountReselection`; its
+production path remains unchanged and receives focused regression coverage.
 
 ## Correctness and lifecycle constraints
 
@@ -100,10 +127,20 @@ Unit and mounted Robolectric coverage will prove:
 - A changed content-frame snapshot receives the bounded second pass.
 - Stable geometry uses no extra pass, repeated explicit syncs coalesce, and
   detach cancels pending work.
-- Every phone preset is exactly 1.25 times its TV fraction.
-- The default `Large` preset resolves to `40 / 720` on phone and `32 / 720` on
+- Every phone preset is exactly 1.125 times its TV fraction.
+- The default `Large` preset resolves to `36 / 720` on phone and `32 / 720` on
   TV.
 - Phone and TV construction paths select their intended presentation class.
+- Mobile Fit and Stretch apply `MATCH_PARENT` dimensions and zero margins when
+  no title-safe or letterbox inset is configured.
+- A stale Zoom crop followed immediately by Fit cannot retain its top/left
+  offsets, even before the Media3 parent completes its new layout.
+- A restored phone subtitle cannot fail on the first non-empty Media3
+  text-track snapshot, and a changed snapshot must stabilize again before it is
+  terminal.
+- A matching restored phone subtitle commits as soon as it appears; a track
+  that never appears still fails through the existing bounded timeout.
+- TV's first-snapshot and changed-snapshot settlement regressions remain green.
 
 Focused shared, phone, and TV subtitle tests will run first, followed by the
 full unit suite and phone/TV release assemblies. Physical validation will use
@@ -116,7 +153,9 @@ separate authorization.
 - The reproduced Fill-to-Fit cue is fully visible immediately after the sheet
   closes and remains visible across subsequent cues.
 - No supported aspect transition leaves stale subtitle margins or dimensions.
-- Default phone subtitles are visibly larger while all phone presets remain
-  ordered and selectable.
+- Default phone subtitles sit between the original undersized build and the
+  rejected 1.25× build while all phone presets remain ordered and selectable.
+- Restarting playback with a persisted subtitle does not show a transient mount
+  error while Media3 is still publishing text tracks.
 - TV output, persistence, selection, styling, and subtitle formats show no
   regression in automated verification.
