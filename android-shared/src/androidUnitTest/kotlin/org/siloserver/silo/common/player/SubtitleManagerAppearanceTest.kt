@@ -201,6 +201,77 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
+    fun zoomIgnoresStaleFittedContentFrameAndUsesFullViewport() {
+        val staleFit = SubtitleVideoRect(left = 0, top = 236, width = 2404, height = 1352)
+        val fullViewport = SubtitleVideoRect(left = 0, top = 0, width = 2404, height = 1080)
+
+        assertEquals(
+            fullViewport,
+            selectSubtitleCanvasRect(
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                contentFrameRect = staleFit,
+                displayedVideoRect = fullViewport,
+            ),
+        )
+    }
+
+    @Test
+    fun stretchIgnoresStaleFittedContentFrameAndUsesFullViewport() {
+        val staleFit = SubtitleVideoRect(left = 240, top = 0, width = 1920, height = 1080)
+        val fullViewport = SubtitleVideoRect(left = 0, top = 0, width = 2400, height = 1080)
+
+        assertEquals(
+            fullViewport,
+            selectSubtitleCanvasRect(
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                contentFrameRect = staleFit,
+                displayedVideoRect = fullViewport,
+            ),
+        )
+    }
+
+    @Test
+    fun fitContinuesToUsePostLayoutContentFrame() {
+        val fittedFrame = SubtitleVideoRect(left = 0, top = 0, width = 1920, height = 1080)
+        val computedFallback = SubtitleVideoRect(left = 240, top = 0, width = 1920, height = 1080)
+
+        assertEquals(
+            fittedFrame,
+            selectSubtitleCanvasRect(
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                contentFrameRect = fittedFrame,
+                displayedVideoRect = computedFallback,
+            ),
+        )
+    }
+
+    @Test
+    fun repeatedModeSelectionDoesNotRetainPreviousCanvas() {
+        val fit = SubtitleVideoRect(left = 240, top = 0, width = 1920, height = 1080)
+        val full = SubtitleVideoRect(left = 0, top = 0, width = 2400, height = 1080)
+
+        val fill = selectSubtitleCanvasRect(
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            fit,
+            full,
+        )
+        val stretch = selectSubtitleCanvasRect(
+            AspectRatioFrameLayout.RESIZE_MODE_FILL,
+            fit,
+            full,
+        )
+        val restoredFit = selectSubtitleCanvasRect(
+            AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            fit,
+            fit,
+        )
+
+        assertEquals(full, fill)
+        assertEquals(full, stretch)
+        assertEquals(fit, restoredFit)
+    }
+
+    @Test
     fun invalidVideoSizeUsesFullViewRect() {
         val rect = displayedSubtitleVideoRect(
             viewWidth = 1080,

@@ -493,6 +493,17 @@ internal fun displayedSubtitleVideoRect(
     )
 }
 
+internal fun selectSubtitleCanvasRect(
+    resizeMode: Int,
+    contentFrameRect: SubtitleVideoRect?,
+    displayedVideoRect: SubtitleVideoRect,
+): SubtitleVideoRect = when (resizeMode) {
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+    AspectRatioFrameLayout.RESIZE_MODE_FILL,
+    -> displayedVideoRect
+    else -> contentFrameRect ?: displayedVideoRect
+}
+
 internal fun displayedSubtitleContentFrameRect(
     viewWidth: Int,
     viewHeight: Int,
@@ -662,15 +673,20 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     private fun applyRect(playerView: PlayerView) {
         val subtitleView = playerView.subtitleView ?: return
         val videoSize = playerView.player?.videoSize ?: VideoSize.UNKNOWN
-        val rect = (playerView.contentFrameSubtitleRect()
-            ?: displayedSubtitleVideoRect(
-                viewWidth = playerView.width,
-                viewHeight = playerView.height,
-                videoWidth = videoSize.width,
-                videoHeight = videoSize.height,
-                videoPixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
-                resizeMode = playerView.resizeMode,
-            )).insetByLetterbox(letterbox).insetByTitleSafe(titleSafeFraction)
+        val resizeMode = playerView.resizeMode
+        val displayedVideoRect = displayedSubtitleVideoRect(
+            viewWidth = playerView.width,
+            viewHeight = playerView.height,
+            videoWidth = videoSize.width,
+            videoHeight = videoSize.height,
+            videoPixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
+            resizeMode = resizeMode,
+        )
+        val rect = selectSubtitleCanvasRect(
+            resizeMode = resizeMode,
+            contentFrameRect = playerView.contentFrameSubtitleRect(),
+            displayedVideoRect = displayedVideoRect,
+        ).insetByLetterbox(letterbox).insetByTitleSafe(titleSafeFraction)
         val current = subtitleView.layoutParams as? FrameLayout.LayoutParams
         val params = current ?: FrameLayout.LayoutParams(rect.width, rect.height)
         val gravity = Gravity.TOP or Gravity.START
