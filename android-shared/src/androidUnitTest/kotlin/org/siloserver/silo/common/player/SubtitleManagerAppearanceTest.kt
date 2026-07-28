@@ -2,6 +2,7 @@ package org.siloserver.silo.common.player
 
 import android.app.Activity
 import android.os.Looper
+import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -16,13 +17,13 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.robolectric.annotation.Config
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 @OptIn(UnstableApi::class)
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w1920dp-h1080dp-mdpi")
 class SubtitleManagerAppearanceTest {
 
     @Test
@@ -224,6 +225,30 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
+    fun zoomUsesVisibleViewportInNegativeContentFrameParentCoordinates() {
+        val visibleCanvas = requireNotNull(
+            displayedSubtitleContentFrameRect(
+                viewWidth = 1920,
+                viewHeight = 1080,
+                frameLeft = -120,
+                frameTop = -64,
+                frameWidth = 2160,
+                frameHeight = 1208,
+            ),
+        )
+        val fullViewport = SubtitleVideoRect(left = 0, top = 0, width = 1920, height = 1080)
+
+        assertEquals(
+            SubtitleVideoRect(left = 120, top = 64, width = 1920, height = 1080),
+            selectSubtitleCanvasRect(
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                contentFrameRect = visibleCanvas,
+                displayedVideoRect = fullViewport,
+            ),
+        )
+    }
+
+    @Test
     fun stretchIgnoresStaleFittedContentFrameAndUsesFullViewport() {
         val staleFit = SubtitleVideoRect(left = 240, top = 0, width = 1920, height = 1080)
         val fullViewport = SubtitleVideoRect(left = 0, top = 0, width = 2400, height = 1080)
@@ -336,38 +361,80 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
-    fun explicitSyncQueuesOnlyOnePostLayoutReconciliation() {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        val playerView = PlayerView(activity)
-        activity.setContentView(playerView)
-        playerView.layout(0, 0, 2400, 1080)
-        val manager = SubtitleManager()
+    fun mountedCanvasReconcilesFitToZoomAfterContentFrameLayout() {
+        val canvas = MountedSubtitleCanvas()
 
-        manager.syncSubtitleVideoBounds(playerView)
-        manager.syncSubtitleVideoBounds(playerView)
+        assertEquals(SubtitleVideoRect(0, 0, 1440, 1016), canvas.subtitleRect())
 
-        val sync = manager.subtitleRectSyncForTest(playerView)
-        assertTrue(sync.postLayoutPendingForTest())
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        assertFalse(sync.postLayoutPendingForTest())
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            frame = FrameBounds(-120, -64, 2040, 1080),
+        )
+
+        assertEquals(SubtitleVideoRect(120, 64, 1920, 1016), canvas.subtitleRect())
     }
 
     @Test
-    fun detachCancelsPendingPostLayoutReconciliation() {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        val playerView = PlayerView(activity)
-        activity.setContentView(playerView)
-        playerView.layout(0, 0, 2400, 1080)
-        val manager = SubtitleManager()
+    fun mountedCanvasReconcilesFitToFillAfterContentFrameLayout() {
+        val canvas = MountedSubtitleCanvas()
 
-        manager.syncSubtitleVideoBounds(playerView)
-        val sync = manager.subtitleRectSyncForTest(playerView)
-        activity.setContentView(FrameLayout(activity))
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL,
+            frame = FrameBounds(0, 0, 1920, 1016),
+        )
 
-        assertTrue(sync.isDisposedForTest())
-        assertFalse(sync.postLayoutPendingForTest())
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        assertTrue(sync.isDisposedForTest())
+        assertEquals(SubtitleVideoRect(0, 0, 1920, 1016), canvas.subtitleRect())
+    }
+
+    @Test
+    fun mountedCanvasDoesNotRetainOffsetsAcrossRepeatedZoomAndFillSwitches() {
+        val canvas = MountedSubtitleCanvas()
+
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            frame = FrameBounds(-120, -64, 2040, 1080),
+        )
+        assertEquals(SubtitleVideoRect(120, 64, 1920, 1016), canvas.subtitleRect())
+
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL,
+            frame = FrameBounds(0, 0, 1920, 1016),
+        )
+        assertEquals(SubtitleVideoRect(0, 0, 1920, 1016), canvas.subtitleRect())
+
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            frame = FrameBounds(-120, -64, 2040, 1080),
+        )
+        assertEquals(SubtitleVideoRect(120, 64, 1920, 1016), canvas.subtitleRect())
+    }
+
+    @Test
+    fun mountedCanvasReconcilesZoomBackToFitAfterContentFrameLayout() {
+        val canvas = MountedSubtitleCanvas()
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            frame = FrameBounds(-120, -64, 2040, 1080),
+        )
+
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            frame = FrameBounds(240, 0, 1680, 1016),
+        )
+
+        assertEquals(SubtitleVideoRect(0, 0, 1440, 1016), canvas.subtitleRect())
+    }
+
+    @Test
+    fun detachedPendingReconciliationLeavesSubtitleLayoutSentinelUnchanged() {
+        val canvas = MountedSubtitleCanvas()
+
+        canvas.schedule(AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+        val sentinel = SubtitleVideoRect(33, 44, 777, 555)
+        canvas.setSubtitleRect(sentinel)
+        canvas.detachAndDrain(FrameBounds(-120, -64, 2040, 1080))
+
+        assertEquals(sentinel, canvas.subtitleRect())
     }
 
     private fun captionStyleFor(appearance: SubtitleAppearance): CaptionStyleCompat {
@@ -387,14 +454,83 @@ private fun SubtitleManager.subtitleRectSyncForTest(playerView: PlayerView): Any
     return requireNotNull(syncs[playerView])
 }
 
-private fun Any.postLayoutPendingForTest(): Boolean {
-    val field = javaClass.getDeclaredField("postLayoutPending")
-    field.isAccessible = true
-    return field.getBoolean(this)
-}
+private data class FrameBounds(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+)
 
-private fun Any.isDisposedForTest(): Boolean {
-    val field = javaClass.getDeclaredField("isDisposed")
-    field.isAccessible = true
-    return field.getBoolean(this)
+private class MountedSubtitleCanvas {
+    private val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    private val playerView = PlayerView(activity)
+    private val contentFrame = requireNotNull(
+        playerView.findViewById<AspectRatioFrameLayout>(
+            androidx.media3.ui.R.id.exo_content_frame,
+        ),
+    )
+    private val subtitleView = requireNotNull(playerView.subtitleView)
+    private val manager = SubtitleManager()
+
+    init {
+        activity.setContentView(playerView)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        check(playerView.width == 1920 && playerView.height == 1016)
+        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        manager.syncSubtitleVideoBounds(playerView)
+        drainScheduledWork()
+
+        // Isolate the explicit post-layout reconciliation from the permanent
+        // frame listener: production has both, but this harness proves the
+        // bounded fallback still works when an early callback runs before the
+        // content-frame traversal that supplies the final geometry.
+        contentFrame.removeOnLayoutChangeListener(
+            manager.subtitleRectSyncForTest(playerView) as View.OnLayoutChangeListener,
+        )
+        contentFrame.layout(240, 0, 1680, 1016)
+        manager.syncSubtitleVideoBounds(playerView)
+    }
+
+    fun schedule(resizeMode: Int) {
+        playerView.resizeMode = resizeMode
+        manager.syncSubtitleVideoBounds(playerView)
+    }
+
+    fun transition(resizeMode: Int, frame: FrameBounds) {
+        schedule(resizeMode)
+        contentFrame.layout(frame.left, frame.top, frame.right, frame.bottom)
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+    }
+
+    fun detachAndDrain(frame: FrameBounds) {
+        activity.setContentView(FrameLayout(activity))
+        contentFrame.layout(frame.left, frame.top, frame.right, frame.bottom)
+        drainScheduledWork()
+    }
+
+    fun subtitleRect(): SubtitleVideoRect {
+        val params = subtitleView.layoutParams as FrameLayout.LayoutParams
+        return SubtitleVideoRect(
+            left = params.leftMargin,
+            top = params.topMargin,
+            width = params.width,
+            height = params.height,
+        )
+    }
+
+    fun setSubtitleRect(rect: SubtitleVideoRect) {
+        val params = subtitleView.layoutParams as FrameLayout.LayoutParams
+        params.leftMargin = rect.left
+        params.topMargin = rect.top
+        params.width = rect.width
+        params.height = rect.height
+        subtitleView.layoutParams = params
+    }
+
+    private fun drainScheduledWork() {
+        if (playerView.viewTreeObserver.isAlive) {
+            playerView.viewTreeObserver.dispatchOnPreDraw()
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+    }
 }

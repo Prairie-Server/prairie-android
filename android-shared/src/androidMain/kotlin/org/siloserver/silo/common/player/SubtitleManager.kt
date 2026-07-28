@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -500,7 +501,10 @@ internal fun selectSubtitleCanvasRect(
 ): SubtitleVideoRect = when (resizeMode) {
     AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
     AspectRatioFrameLayout.RESIZE_MODE_FILL,
-    -> displayedVideoRect
+    -> contentFrameRect?.takeIf {
+        it.width == displayedVideoRect.width &&
+            it.height == displayedVideoRect.height
+    } ?: displayedVideoRect
     else -> contentFrameRect ?: displayedVideoRect
 }
 
@@ -601,10 +605,11 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     var isDisposed: Boolean = false
         private set
 
-    private var postLayoutPending = false
-    private val postLayoutUpdate = Runnable {
-        postLayoutPending = false
+    private var pendingPreDrawObserver: ViewTreeObserver? = null
+    private val postLayoutUpdate = ViewTreeObserver.OnPreDrawListener {
+        clearPendingPostLayoutUpdate()
         if (!isDisposed) update()
+        true
     }
 
     init {
@@ -637,9 +642,15 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     fun updateAndReconcileAfterLayout() {
         update()
         val playerView = playerViewRef.get() ?: return
-        if (isDisposed || postLayoutPending) return
-        postLayoutPending = true
-        playerView.postOnAnimation(postLayoutUpdate)
+        if (isDisposed) return
+        pendingPreDrawObserver?.let { observer ->
+            if (observer.isAlive) return
+            pendingPreDrawObserver = null
+        }
+        val observer = playerView.viewTreeObserver
+        if (!observer.isAlive) return
+        pendingPreDrawObserver = observer
+        observer.addOnPreDrawListener(postLayoutUpdate)
     }
 
     override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -725,14 +736,22 @@ private class SubtitleVideoRectSync(playerView: PlayerView) :
     private fun dispose(view: View?) {
         if (isDisposed) return
         val playerView = (view as? PlayerView) ?: playerViewRef.get()
-        playerView?.removeCallbacks(postLayoutUpdate)
-        postLayoutPending = false
+        clearPendingPostLayoutUpdate()
         observedPlayer?.removeListener(this)
         observedPlayer = null
         playerView?.removeOnLayoutChangeListener(this)
         playerView?.removeOnAttachStateChangeListener(this)
         contentFrameRef.get()?.removeOnLayoutChangeListener(this)
         isDisposed = true
+    }
+
+    private fun clearPendingPostLayoutUpdate() {
+        pendingPreDrawObserver?.let { observer ->
+            if (observer.isAlive) {
+                observer.removeOnPreDrawListener(postLayoutUpdate)
+            }
+        }
+        pendingPreDrawObserver = null
     }
 }
 
