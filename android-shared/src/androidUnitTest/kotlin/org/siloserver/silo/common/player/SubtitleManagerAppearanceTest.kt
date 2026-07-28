@@ -449,6 +449,45 @@ class SubtitleManagerAppearanceTest {
     }
 
     @Test
+    fun mountedCanvasCorrectsFillToFitWhenFirstPreDrawSeesCroppedFrame() {
+        val canvas = MountedSubtitleCanvas()
+        canvas.transition(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            frame = FrameBounds(-120, -64, 2040, 1080),
+        )
+
+        canvas.transitionAfterEarlyPreDraw(
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            finalFrame = FrameBounds(240, 0, 1680, 1016),
+        )
+
+        assertEquals(SubtitleVideoRect(0, 0, 1440, 1016), canvas.subtitleRect())
+    }
+
+    @Test
+    fun rapidEarlyTransitionsApplyOnlyLatestMode() {
+        val canvas = MountedSubtitleCanvas()
+        canvas.schedule(AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+        canvas.schedule(AspectRatioFrameLayout.RESIZE_MODE_FILL)
+        canvas.schedule(AspectRatioFrameLayout.RESIZE_MODE_FIT)
+        canvas.dispatchEarlyPreDrawThenMount(FrameBounds(240, 0, 1680, 1016))
+
+        assertEquals(SubtitleVideoRect(0, 0, 1440, 1016), canvas.subtitleRect())
+        assertEquals(2, canvas.reconciliationCount)
+    }
+
+    @Test
+    fun detachCancelsPostedSnapshotVerification() {
+        val canvas = MountedSubtitleCanvas()
+        canvas.schedule(AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+        canvas.dispatchPreDraw()
+        canvas.detach()
+        canvas.mountFrameAndDrain(FrameBounds(-120, -64, 2040, 1080))
+
+        assertEquals(1, canvas.reconciliationCount)
+    }
+
+    @Test
     fun detachedPendingReconciliationLeavesSubtitleLayoutSentinelUnchanged() {
         val canvas = MountedSubtitleCanvas()
 
@@ -517,6 +556,8 @@ private class MountedSubtitleCanvas {
     )
     private val subtitleView = requireNotNull(playerView.subtitleView)
     private val manager = SubtitleManager()
+    var reconciliationCount = 0
+        private set
 
     init {
         activity.setContentView(playerView)
@@ -527,14 +568,16 @@ private class MountedSubtitleCanvas {
         drainScheduledWork()
 
         // Isolate the explicit post-layout reconciliation from the permanent
-        // frame listener: production has both, but this harness proves the
+        // layout listeners: production has both, but this harness proves the
         // bounded fallback still works when an early callback runs before the
         // content-frame traversal that supplies the final geometry.
-        contentFrame.removeOnLayoutChangeListener(
-            manager.subtitleRectSyncForTest(playerView) as View.OnLayoutChangeListener,
-        )
+        val syncListener =
+            manager.subtitleRectSyncForTest(playerView) as View.OnLayoutChangeListener
+        playerView.removeOnLayoutChangeListener(syncListener)
+        contentFrame.removeOnLayoutChangeListener(syncListener)
         contentFrame.layout(240, 0, 1680, 1016)
         manager.syncSubtitleVideoBounds(playerView)
+        manager.postLayoutReconciliationObserver = { reconciliationCount++ }
     }
 
     fun schedule(resizeMode: Int) {
@@ -548,10 +591,67 @@ private class MountedSubtitleCanvas {
         playerView.viewTreeObserver.dispatchOnPreDraw()
     }
 
-    fun detachAndDrain(frame: FrameBounds) {
+    fun transitionAfterEarlyPreDraw(resizeMode: Int, finalFrame: FrameBounds) {
+        schedule(resizeMode)
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+        contentFrame.layout(
+            finalFrame.left,
+            finalFrame.top,
+            finalFrame.right,
+            finalFrame.bottom,
+        )
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        // Robolectric's parent traversal has no renderer-backed aspect ratio,
+        // so re-mount the observed Media3 frame before the corrective pre-draw.
+        contentFrame.layout(
+            finalFrame.left,
+            finalFrame.top,
+            finalFrame.right,
+            finalFrame.bottom,
+        )
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+    }
+
+    fun dispatchEarlyPreDrawThenMount(finalFrame: FrameBounds) {
+        contentFrame.layout(-120, -64, 2040, 1080)
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+        contentFrame.layout(
+            finalFrame.left,
+            finalFrame.top,
+            finalFrame.right,
+            finalFrame.bottom,
+        )
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        // Keep the synthetic final frame mounted after Robolectric drains the
+        // posted verifier and its unrelated full-width parent traversal.
+        contentFrame.layout(
+            finalFrame.left,
+            finalFrame.top,
+            finalFrame.right,
+            finalFrame.bottom,
+        )
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+    }
+
+    fun dispatchPreDraw() {
+        playerView.viewTreeObserver.dispatchOnPreDraw()
+    }
+
+    fun detach() {
         activity.setContentView(FrameLayout(activity))
+    }
+
+    fun mountFrameAndDrain(frame: FrameBounds) {
         contentFrame.layout(frame.left, frame.top, frame.right, frame.bottom)
-        drainScheduledWork()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        if (playerView.viewTreeObserver.isAlive) {
+            playerView.viewTreeObserver.dispatchOnPreDraw()
+        }
+    }
+
+    fun detachAndDrain(frame: FrameBounds) {
+        detach()
+        mountFrameAndDrain(frame)
     }
 
     fun subtitleRect(): SubtitleVideoRect {

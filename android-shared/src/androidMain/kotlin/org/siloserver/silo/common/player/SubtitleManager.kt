@@ -606,6 +606,16 @@ private class SubtitleVideoRectSync(
     View.OnAttachStateChangeListener,
     Player.Listener {
 
+    private data class LayoutSnapshot(
+        val resizeMode: Int,
+        val playerWidth: Int,
+        val playerHeight: Int,
+        val frameLeft: Int,
+        val frameTop: Int,
+        val frameWidth: Int,
+        val frameHeight: Int,
+    )
+
     private val playerViewRef = WeakReference(playerView)
     private val contentFrameRef = WeakReference(
         playerView.findViewById<AspectRatioFrameLayout>(
@@ -613,6 +623,9 @@ private class SubtitleVideoRectSync(
         )
     )
     private var observedPlayer: Player? = null
+    private var reconciliationGeneration = 0L
+    private var pendingVerification: Runnable? = null
+    private var appliedPasses = 0
 
     var letterbox: LetterboxInsets = LetterboxInsets.NONE
         set(value) {
@@ -632,11 +645,23 @@ private class SubtitleVideoRectSync(
         private set
 
     private var pendingPreDrawObserver: ViewTreeObserver? = null
+    private var pendingPreDrawGeneration = 0L
     private val postLayoutUpdate = ViewTreeObserver.OnPreDrawListener {
+        val generation = pendingPreDrawGeneration
         clearPendingPostLayoutUpdate()
-        if (!isDisposed) {
+        if (!isDisposed && generation == reconciliationGeneration) {
             update()
+            val currentPlayerView = playerViewRef.get()
+            val appliedSnapshot = currentPlayerView?.let(::currentSnapshot)
+            appliedPasses++
             onPostLayoutReconciled()
+            if (currentPlayerView != null && appliedSnapshot != null && appliedPasses < 2) {
+                postSnapshotVerification(
+                    playerView = currentPlayerView,
+                    generation = generation,
+                    appliedSnapshot = appliedSnapshot,
+                )
+            }
         }
         true
     }
@@ -672,14 +697,65 @@ private class SubtitleVideoRectSync(
         update()
         val playerView = playerViewRef.get() ?: return
         if (isDisposed) return
+        reconciliationGeneration++
+        appliedPasses = 0
+        clearPendingVerification(playerView)
+        schedulePreDrawFor(reconciliationGeneration)
+    }
+
+    private fun schedulePreDrawFor(generation: Long) {
+        val playerView = playerViewRef.get() ?: return dispose(null)
+        if (isDisposed || generation != reconciliationGeneration) return
         pendingPreDrawObserver?.let { observer ->
-            if (observer.isAlive) return
+            if (observer.isAlive) {
+                pendingPreDrawGeneration = generation
+                return
+            }
             pendingPreDrawObserver = null
         }
         val observer = playerView.viewTreeObserver
         if (!observer.isAlive) return
+        pendingPreDrawGeneration = generation
         pendingPreDrawObserver = observer
         observer.addOnPreDrawListener(postLayoutUpdate)
+    }
+
+    private fun postSnapshotVerification(
+        playerView: PlayerView,
+        generation: Long,
+        appliedSnapshot: LayoutSnapshot,
+    ) {
+        lateinit var verification: Runnable
+        verification = Runnable {
+            if (pendingVerification === verification) {
+                pendingVerification = null
+            }
+            val currentPlayerView = playerViewRef.get()
+            if (
+                !isDisposed &&
+                generation == reconciliationGeneration &&
+                appliedPasses < 2 &&
+                currentPlayerView != null &&
+                currentSnapshot(currentPlayerView) != appliedSnapshot
+            ) {
+                schedulePreDrawFor(generation)
+            }
+        }
+        pendingVerification = verification
+        playerView.post(verification)
+    }
+
+    private fun currentSnapshot(playerView: PlayerView): LayoutSnapshot {
+        val contentFrame = contentFrameRef.get()
+        return LayoutSnapshot(
+            resizeMode = playerView.resizeMode,
+            playerWidth = playerView.width,
+            playerHeight = playerView.height,
+            frameLeft = contentFrame?.left ?: 0,
+            frameTop = contentFrame?.top ?: 0,
+            frameWidth = contentFrame?.width ?: 0,
+            frameHeight = contentFrame?.height ?: 0,
+        )
     }
 
     override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -765,13 +841,15 @@ private class SubtitleVideoRectSync(
     private fun dispose(view: View?) {
         if (isDisposed) return
         val playerView = (view as? PlayerView) ?: playerViewRef.get()
+        isDisposed = true
+        reconciliationGeneration++
         clearPendingPostLayoutUpdate()
+        clearPendingVerification(playerView)
         observedPlayer?.removeListener(this)
         observedPlayer = null
         playerView?.removeOnLayoutChangeListener(this)
         playerView?.removeOnAttachStateChangeListener(this)
         contentFrameRef.get()?.removeOnLayoutChangeListener(this)
-        isDisposed = true
     }
 
     private fun clearPendingPostLayoutUpdate() {
@@ -781,6 +859,13 @@ private class SubtitleVideoRectSync(
             }
         }
         pendingPreDrawObserver = null
+    }
+
+    private fun clearPendingVerification(playerView: PlayerView?) {
+        pendingVerification?.let { verification ->
+            playerView?.removeCallbacks(verification)
+        }
+        pendingVerification = null
     }
 }
 
