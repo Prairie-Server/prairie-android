@@ -113,7 +113,7 @@ Physical device safety:
 
 TV smoke on final TV APK:
 
-- Installed `/androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk` on `Silo_TV`.
+- Installed `androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk` on `Silo_TV`.
 - Home: from content card, fresh Up focused the Home top pill. Pass.
 - Movies library: from first content card, first Up left focus on the content card; second Up focused the Movies pill. Not a clean pass.
 - For You: from content, fresh Up focused the For You control. Pass.
@@ -124,7 +124,7 @@ TV smoke on final TV APK:
 
 Phone smoke on final phone APK:
 
-- Installed `/androidApp/build/outputs/apk/release/androidApp-universal-release.apk` on `Silo_Phone`.
+- Installed `androidApp/build/outputs/apk/release/androidApp-universal-release.apk` on `Silo_Phone`.
 - Opened Libraries > Movies. The Movies library Recommended hero displayed editorial chips `2004`, `7.3`, `War`, `R`, with no generic `Movie` chip, and Play / More Info visible.
 - The selected movie did not show a runtime chip in the UIAutomator dump, so the requested movie smoke is partial rather than a full pass.
 - Episode carousel page smoke was not completed.
@@ -155,7 +155,7 @@ SHA-256:
 
 `apkanalyzer` status:
 
-- `/opt/homebrew/bin/apkanalyzer` failed with `IllegalStateException: Cannot locate latest build tools`, even with `ANDROID_HOME` and `ANDROID_SDK_ROOT` set.
+- `apkanalyzer` failed with `IllegalStateException: Cannot locate latest build tools`, even with `ANDROID_HOME` and `ANDROID_SDK_ROOT` set.
 - Used SDK `aapt` as fallback for package/version/ABI metadata.
 
 `aapt dump badging` metadata:
