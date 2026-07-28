@@ -62,7 +62,9 @@ import org.siloserver.silo.android.ui.screens.people.PersonDetailViewModel
 import org.siloserver.silo.android.ui.screens.auth.LoginViewModel
 import org.siloserver.silo.android.ui.screens.auth.ServerSetupViewModel
 import org.siloserver.silo.android.ui.screens.auth.SetupViewModel
+import org.siloserver.silo.android.ui.screens.auth.InviteClaimViewModel
 import org.siloserver.silo.android.ui.screens.auth.SignupViewModel
+import org.siloserver.silo.android.ui.screens.onboarding.OnboardingTourViewModel
 import org.siloserver.silo.android.ui.screens.MainHeaderViewModel
 import org.siloserver.silo.viewmodel.DevicePairingViewModel
 import org.siloserver.silo.android.ui.screens.profiles.CreateProfileViewModel
@@ -120,6 +122,7 @@ val androidModule = module {
     // when the redefining module is loaded after the original — sharedModules()
     // is registered first in SiloApplication, so this wins.
     single<TokenManager> { EncryptedTokenManagerImpl(get(), get(), get()) }
+    single { org.siloserver.silo.android.ui.screens.onboarding.OnboardingTourLocalCache(androidContext()) }
 
     // Offline-first Room store (Track B). Bound after sharedModules() so the
     // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
@@ -419,6 +422,8 @@ val androidModule = module {
     viewModel { LoginViewModel(get()) }
     viewModel { SetupViewModel(get()) }
     viewModel { SignupViewModel(get()) }
+    viewModel { InviteClaimViewModel(get(), get()) }
+    viewModel { OnboardingTourViewModel(get(), get(), get(), get(), get()) }
     viewModel { ProfileSelectionViewModel(get()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }

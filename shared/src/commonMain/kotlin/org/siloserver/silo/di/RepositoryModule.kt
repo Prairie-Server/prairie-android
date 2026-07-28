@@ -6,6 +6,7 @@ import org.siloserver.silo.domain.MediaActionsCoordinator
 import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.repository.AdminRepository
 import org.siloserver.silo.repository.AuthRepository
+import org.siloserver.silo.repository.OnboardingRepository
 import org.siloserver.silo.repository.CalendarRepository
 import org.siloserver.silo.repository.DeviceLoginRepository
 import org.siloserver.silo.repository.CatalogRepository
@@ -48,6 +49,7 @@ val repositoryModule = module {
     // (commonMain tests, hypothetical iOS reuse). Both repos no-op the
     // multi-server side effects when the registry is null.
     single { AuthRepository(get(), get(), getOrNull(), getOrNull()) }
+    single { OnboardingRepository(get()) }
     single { DeviceLoginRepository(get()) }
     single {
         CatalogRepository(
