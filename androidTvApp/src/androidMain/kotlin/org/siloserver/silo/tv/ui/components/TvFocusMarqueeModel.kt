@@ -27,10 +27,9 @@ data class TvMarqueeContent(
     val id: String,
     val title: String,
     val logoUrl: String?,
-    /** Codec/HDR + content-rating chips (`4K`, `DOLBY VISION`, `ATMOS`). */
+    /** Optional uppercase content-classification chip. */
     val badges: List<String>,
-    /** Dot-joined meta tokens after the badges: year · genre · runtime, or
-     *  `S2 E7 · episode title · 45 min · 23m left` for episodes. */
+    /** Dot-joined editorial metadata after the badge. */
     val metaParts: List<String>,
     val synopsis: String?,
     /** A quieter detail line: cast / air-date when carried by the payload. */
@@ -87,19 +86,19 @@ data class TvMarqueeContent(
                 episodeToken(item.seasonNumber, item.episodeNumber)?.let(meta::add)
                 if (item.title.isNotBlank()) meta.add(item.title)
                 lengthText(item.durationSeconds)?.let(meta::add)
-                timeLeftText(item.positionSeconds, item.durationSeconds)?.let(meta::add)
+                item.ratingImdb?.let { meta.add(formatRating(it)) }
             } else {
                 if (item.year > 0) meta.add(item.year.toString())
-                item.genres.firstOrNull { it.isNotBlank() }?.let(meta::add)
                 lengthText(item.durationSeconds)?.let(meta::add)
                 item.ratingImdb?.let { meta.add(formatRating(it)) }
+                item.genres.firstOrNull { it.isNotBlank() }?.let(meta::add)
             }
 
-            // Codec/HDR + content-rating chips (`4K · DOLBY VISION · ATMOS ·
-            // TV-MA`) derived from the section payload's overlay summary, then
-            // the content rating — mirrors tvOS `TVFocusMarquee.badges(from:)`.
-            val badges = qualityBadges(item.overlaySummary).toMutableList()
-            item.contentRating?.takeIf { it.isNotBlank() }?.let { badges.add(it.uppercase()) }
+            val badges = item.contentRating
+                ?.takeIf { it.isNotBlank() }
+                ?.uppercase(Locale.US)
+                ?.let(::listOf)
+                .orEmpty()
 
             val sectionBackdropUrl = item.backdropUrl?.takeIf { it.isNotBlank() }
             val sectionPosterUrl = item.posterUrl?.takeIf { it.isNotBlank() }
@@ -125,59 +124,6 @@ data class TvMarqueeContent(
                 isEpisode = isEpisode,
                 source = item,
             )
-        }
-
-        /**
-         * Headline quality trio — resolution, dynamic range, audio — uppercased
-         * to the Skyline badge style, from the section payload's overlay summary.
-         * Mirrors tvOS `TVFocusMarquee.badges(from:)`.
-         */
-        internal fun qualityBadges(summary: org.siloserver.silo.model.catalog.OverlaySummary?): List<String> {
-            if (summary == null) return emptyList()
-            val badges = mutableListOf<String>()
-            prettyResolution(summary.resolution)?.let(badges::add)
-            summary.hdr?.takeIf { it.isNotBlank() }?.let { hdr ->
-                badges.add(dynamicRangeBadge(hdr))
-            }
-            summary.audio?.takeIf { it.isNotBlank() }?.let { audio ->
-                badges.add(audioBadge(audio))
-            }
-            return badges.distinct()
-        }
-
-        private fun dynamicRangeBadge(value: String): String {
-            val normalized = value.trim().lowercase(Locale.US)
-            return when {
-                normalized.contains("dolby vision") ||
-                    normalized.contains("dovi") ||
-                    Regex("(^|[^a-z])dv([^a-z]|$)").containsMatchIn(normalized) -> "DOLBY VISION"
-                normalized.contains("hdr10+") || normalized.contains("hdr10 plus") -> "HDR10+"
-                normalized.contains("hdr10") -> "HDR10"
-                normalized.contains("hlg") -> "HLG"
-                else -> value.trim().uppercase(Locale.US)
-            }
-        }
-
-        private fun audioBadge(value: String): String {
-            val normalized = value.trim().lowercase(Locale.US)
-            return when {
-                normalized.contains("atmos") ||
-                    Regex("(^|[^a-z])joc([^a-z]|$)").containsMatchIn(normalized) -> "ATMOS"
-                normalized.contains("dts-hd") || normalized.contains("dts hd") -> "DTS-HD"
-                normalized.contains("truehd") || normalized.contains("true hd") -> "TRUEHD"
-                normalized.contains("e-ac-3") || normalized.contains("eac3") -> "EAC3"
-                normalized.contains("ac-3") || normalized == "ac3" -> "AC3"
-                else -> value.trim().uppercase(Locale.US)
-            }
-        }
-
-        private fun prettyResolution(value: String?): String? {
-            val v = value?.takeIf { it.isNotBlank() } ?: return null
-            return when (v.lowercase()) {
-                "2160p", "4k", "uhd" -> "4K"
-                "4320p", "8k" -> "8K"
-                else -> v.uppercase()
-            }
         }
 
         private fun episodeToken(season: Int?, episode: Int?): String? = when {
