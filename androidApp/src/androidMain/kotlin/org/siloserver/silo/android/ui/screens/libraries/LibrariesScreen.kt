@@ -66,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -73,7 +74,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -604,11 +604,6 @@ class LibrariesViewModel(
     }
 }
 
-// Chrome metrics: status bar + this constant ≈ visible chrome height (header
-// row + tab selector). Used to push tab content below the floating chrome and
-// to drive the carousel's [extraTopInset] on the Recommended tab.
-private val LibrariesChromeContentHeight: Dp = 110.dp
-
 // Distance the Recommended tab must scroll for the chrome scrim to fully
 // fade in. Mirrors `chromeScrimFadeDistance` on iOS.
 private const val ChromeFadeDistanceDp = 80f
@@ -688,84 +683,103 @@ fun LibrariesScreen(
             )
         }
 
-        when {
-            state.isLoadingLibraries && state.libraries.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-            state.librariesError != null && state.libraries.isEmpty() -> {
-                ErrorView(
-                    message = state.librariesError ?: "Failed to load libraries",
-                    onRetry = viewModel::refresh,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            selectedLibrary == null -> {
-                EmptyStateView(
-                    title = "No libraries available",
-                    subtitle = "Libraries visible to this profile will show up here",
-                    icon = Icons.Default.VideoLibrary,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            else -> {
-                when (state.selectedTab) {
-                    LibrariesSubtab.Recommended -> RecommendedTabContent(
-                        state = state,
-                        listState = recommendedListState,
-                        onItemClick = onItemClick,
-                        onPlayClick = onPlayClick,
-                        onRetry = viewModel::retryCurrentTab,
-                        onActiveBackdropChange = { url, thumbhash ->
-                            heroBackdropUrl = url
-                            heroBackdropThumbhash = thumbhash
-                        },
-                    )
-                    LibrariesSubtab.Browse -> BrowseTabContent(
-                        state = state,
-                        onItemClick = onItemClick,
-                        onRetry = viewModel::retryCurrentTab,
-                        onLoadMore = viewModel::loadMoreCatalog,
-                        onSortChanged = viewModel::selectBrowseSort,
-                        onNamePrefixChanged = viewModel::selectNamePrefix,
-                        onDensityChanged = viewModel::selectViewDensity,
-                        onApplyFilter = viewModel::applyFilterState,
-                        onSetPreserve = viewModel::setPreserveFilters,
-                    )
-                    LibrariesSubtab.Collections -> CollectionsTabContent(
-                        state = state,
-                        onCollectionClick = { collectionId ->
-                            state.selectedLibraryId?.let { libraryId ->
-                                onCollectionClick(collectionId, libraryId)
-                            }
-                        },
-                        onRetry = viewModel::retryCurrentTab,
-                    )
+        Column(modifier = Modifier.fillMaxSize()) {
+            LibrariesFloatingChrome(
+                scrimProgress = chromeScrimProgress,
+                selectedLibrary = selectedLibrary,
+                canSwitch = state.libraries.size > 1,
+                activeProfile = activeProfile,
+                selectedTab = state.selectedTab,
+                onLibrarySelectorClick = onLibrarySelectorClick,
+                onTabSelected = viewModel::selectTab,
+                onSearchClick = onSearchClick,
+                onRequestsClick = onRequestsClick,
+                onWatchTogetherClick = onWatchTogetherClick,
+                onSettingsClick = onSettingsClick,
+                onSwitchProfileClick = onSwitchProfileClick,
+                onSwitchServerClick = onSwitchServerClick,
+                onSignOutClick = onSignOutClick,
+            )
+
+            LibraryContentViewport(
+                modifier = Modifier.weight(1f).clipToBounds(),
+            ) {
+                when {
+                    state.isLoadingLibraries && state.libraries.isEmpty() -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    state.librariesError != null && state.libraries.isEmpty() -> {
+                        ErrorView(
+                            message = state.librariesError ?: "Failed to load libraries",
+                            onRetry = viewModel::refresh,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    selectedLibrary == null -> {
+                        EmptyStateView(
+                            title = "No libraries available",
+                            subtitle = "Libraries visible to this profile will show up here",
+                            icon = Icons.Default.VideoLibrary,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    state.selectedTab == LibrariesSubtab.Recommended -> {
+                        RecommendedTabContent(
+                            state = state,
+                            listState = recommendedListState,
+                            onItemClick = onItemClick,
+                            onPlayClick = onPlayClick,
+                            onRetry = viewModel::retryCurrentTab,
+                            onActiveBackdropChange = { url, thumbhash ->
+                                heroBackdropUrl = url
+                                heroBackdropThumbhash = thumbhash
+                            },
+                        )
+                    }
+                    state.selectedTab == LibrariesSubtab.Browse -> {
+                        BrowseTabContent(
+                            state = state,
+                            onItemClick = onItemClick,
+                            onRetry = viewModel::retryCurrentTab,
+                            onLoadMore = viewModel::loadMoreCatalog,
+                            onSortChanged = viewModel::selectBrowseSort,
+                            onNamePrefixChanged = viewModel::selectNamePrefix,
+                            onDensityChanged = viewModel::selectViewDensity,
+                            onApplyFilter = viewModel::applyFilterState,
+                            onSetPreserve = viewModel::setPreserveFilters,
+                        )
+                    }
+                    else -> {
+                        CollectionsTabContent(
+                            state = state,
+                            onCollectionClick = { collectionId ->
+                                state.selectedLibraryId?.let { libraryId ->
+                                    onCollectionClick(collectionId, libraryId)
+                                }
+                            },
+                            onRetry = viewModel::retryCurrentTab,
+                        )
+                    }
                 }
             }
         }
-
-        LibrariesFloatingChrome(
-            scrimProgress = chromeScrimProgress,
-            selectedLibrary = selectedLibrary,
-            canSwitch = state.libraries.size > 1,
-            activeProfile = activeProfile,
-            selectedTab = state.selectedTab,
-            onLibrarySelectorClick = onLibrarySelectorClick,
-            onTabSelected = viewModel::selectTab,
-            onSearchClick = onSearchClick,
-            onRequestsClick = onRequestsClick,
-            onWatchTogetherClick = onWatchTogetherClick,
-            onSettingsClick = onSettingsClick,
-            onSwitchProfileClick = onSwitchProfileClick,
-            onSwitchServerClick = onSwitchServerClick,
-            onSignOutClick = onSignOutClick,
-        )
     }
+}
+
+@Composable
+private fun LibraryContentViewport(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        content = content,
+    )
 }
 
 @Composable
@@ -780,20 +794,14 @@ private fun RecommendedTabContent(
     when {
         state.isLoadingSections && state.sections.isEmpty() -> {
             MediaRowsSkeleton(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = LibrariesChromeContentHeight)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         state.sectionsError != null && state.sections.isEmpty() -> {
             ErrorView(
                 message = state.sectionsError ?: "Failed to load recommendations",
                 onRetry = onRetry,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = LibrariesChromeContentHeight)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         state.sections.isEmpty() -> {
@@ -801,10 +809,7 @@ private fun RecommendedTabContent(
                 title = "No recommendations yet",
                 subtitle = "Try switching libraries or browsing the full catalog",
                 icon = libraryIcon(state.libraries.firstOrNull { it.id == state.selectedLibraryId }?.type.orEmpty()),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = LibrariesChromeContentHeight)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         else -> {
@@ -826,21 +831,11 @@ private fun RecommendedTabContent(
                             onPlayClick = onPlayClick,
                             onInfoClick = onItemClick,
                             onActiveBackdropChange = onActiveBackdropChange,
-                            // Push the deck below the taller Libraries chrome
-                            // (header + tab selector). Carousel already adds
-                            // `statusBar + 64dp`; this covers the tab row.
-                            extraTopInset = 50.dp,
                         )
                     }
                 } else {
-                    // No featured → reserve runway under the chrome so the
-                    // first row doesn't slide under the floating header.
                     item(key = "no-featured") {
-                        Spacer(
-                            modifier = Modifier
-                                .windowInsetsPadding(WindowInsets.statusBars)
-                                .height(LibrariesChromeContentHeight + 8.dp),
-                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
 
@@ -878,10 +873,7 @@ private fun BrowseTabContent(
 ) {
     var showFilterSheet by remember { mutableStateOf(false) }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = LibrariesChromeContentHeight),
+        modifier = Modifier.fillMaxSize(),
     ) {
         // Sort chips + a Filter button that opens the shared FilterSheet. Genre
         // is now a Categories facet inside the sheet (no inline genre rail, L3),
@@ -1051,24 +1043,18 @@ private fun CollectionsTabContent(
     onCollectionClick: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
-    val contentTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
-        LibrariesChromeContentHeight
     when {
         state.isLoadingCollections && state.collections.isEmpty() -> {
             PosterGridSkeleton(
                 progress = rememberShimmerProgress(),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = contentTopPadding),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         state.collectionsError != null && state.collections.isEmpty() -> {
             ErrorView(
                 message = state.collectionsError ?: "Failed to load collections",
                 onRetry = onRetry,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = contentTopPadding),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         state.collections.isEmpty() -> {
@@ -1076,9 +1062,7 @@ private fun CollectionsTabContent(
                 title = "No collections found",
                 subtitle = "This library does not have any collections yet",
                 icon = Icons.Default.VideoLibrary,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = contentTopPadding),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         else -> {
@@ -1092,7 +1076,7 @@ private fun CollectionsTabContent(
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
-                    top = contentTopPadding,
+                    top = 16.dp,
                     bottom = 24.dp + LocalBottomChromeInset.current,
                 ),
             ) {

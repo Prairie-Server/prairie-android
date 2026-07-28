@@ -14,14 +14,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
@@ -86,7 +83,7 @@ fun FeaturedCarousel(
     onInfoClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     onActiveBackdropChange: ((url: String?, thumbhash: String?) -> Unit)? = null,
-    extraTopInset: androidx.compose.ui.unit.Dp = 0.dp,
+    topInset: androidx.compose.ui.unit.Dp = 16.dp,
 ) {
     if (items.isEmpty()) return
 
@@ -100,12 +97,6 @@ fun FeaturedCarousel(
     val cardHeight = (screenWidthDp * 0.84f).coerceIn(300f, 390f).dp
     val sideInset = ((screenWidthDp - cardWidth.value) / 2f).coerceAtLeast(16f).dp
     val cardCornerRadius = 28.dp
-
-    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Push the deck below the floating chrome (status bar + ~52dp chrome + breathing room).
-    // Callers with taller chrome (e.g. Libraries with header + tab row) pass
-    // additional inset via [extraTopInset].
-    val deckTopInset = statusBarTop + 64.dp + extraTopInset
 
     LaunchedEffect(pagerState, items.size) {
         if (items.size > 1) {
@@ -132,7 +123,7 @@ fun FeaturedCarousel(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(modifier = Modifier.height(deckTopInset))
+        Spacer(modifier = Modifier.height(topInset))
 
         HorizontalPager(
             state = pagerState,
