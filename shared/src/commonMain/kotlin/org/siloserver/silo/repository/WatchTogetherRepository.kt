@@ -18,6 +18,7 @@ import org.siloserver.silo.network.RoomRealtimeEvent
 import org.siloserver.silo.network.WatchTogetherRealtimeClient
 import org.siloserver.silo.network.api.WatchTogetherApi
 import org.siloserver.silo.util.parseRfc3339ToEpochMillis
+import org.siloserver.silo.watchtogether.RoomDeliveryEcho
 import org.siloserver.silo.watchtogether.RoomDeliveryLatch
 import org.siloserver.silo.watchtogether.WatchTogetherEntryGateway
 import org.siloserver.silo.watchtogether.RoomSessionRepository
@@ -120,9 +121,11 @@ class WatchTogetherRepository(
     private var activeConnectionOwner: Long? = null
     private val _roomSnapshot = MutableStateFlow<RoomSnapshot?>(null)
     private val _suggestions = MutableStateFlow<List<Suggestion>>(emptyList())
+    private val _roomDeliveryEcho = MutableStateFlow<RoomDeliveryEcho?>(null)
 
     override val roomSnapshot: StateFlow<RoomSnapshot?> = _roomSnapshot.asStateFlow()
     val suggestions: StateFlow<List<Suggestion>> = _suggestions.asStateFlow()
+    val roomDeliveryEcho: StateFlow<RoomDeliveryEcho?> = _roomDeliveryEcho.asStateFlow()
     private val _connectionState = MutableStateFlow(WatchTogetherConnectionState())
     val connectionState: StateFlow<WatchTogetherConnectionState> = _connectionState.asStateFlow()
     @kotlin.concurrent.Volatile
@@ -257,6 +260,7 @@ class WatchTogetherRepository(
             _suggestions.value = emptyList()
             _roomClosedReason.value = null
             _roomSnapshot.value = data.room
+            _roomDeliveryEcho.value = null
             _connectionState.value = WatchTogetherConnectionState(generation = installed.generation)
             realtimeConnectionId = null
             refreshTransportAuthorizationLocked()
@@ -375,6 +379,7 @@ class WatchTogetherRepository(
         val published = stateMutex.withLock {
             if (!isCurrentLocked(lease)) return@withLock false
             _roomSnapshot.value = result.data.room
+            _roomDeliveryEcho.value = null
             refreshTransportAuthorizationLocked()
             true
         }
@@ -563,6 +568,7 @@ class WatchTogetherRepository(
                                 terminalGeneration = lease.generation
                                 _roomClosedReason.value = event.reason ?: "room_closed"
                                 _roomSnapshot.value = null
+                                _roomDeliveryEcho.value = null
                                 refreshTransportAuthorizationLocked()
                             }
                         }
@@ -621,6 +627,7 @@ class WatchTogetherRepository(
                         terminalGeneration = lease.generation
                         _roomClosedReason.value = "connection_lost"
                         _roomSnapshot.value = null
+                        _roomDeliveryEcho.value = null
                         refreshTransportAuthorizationLocked()
                     }
                 }
@@ -708,6 +715,16 @@ class WatchTogetherRepository(
                 is RoomRealtimeEvent.SnapshotEvent ->
                     if (event.room.roomId == lease.roomId) {
                         _roomSnapshot.value = event.room
+                        _roomDeliveryEcho.value = event.room.attachedSessionId
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { sessionId ->
+                                val connection = _connectionState.value
+                                RoomDeliveryEcho(
+                                    connectionGeneration = connection.generation,
+                                    connectionEpoch = connection.epoch,
+                                    playbackSessionId = sessionId,
+                                )
+                            }
                         refreshTransportAuthorizationLocked()
                     }
                 is RoomRealtimeEvent.SuggestionsEvent -> applySuggestions(event.suggestions, fromBroadcast = true)
@@ -743,6 +760,7 @@ class WatchTogetherRepository(
             binding = null
             terminalGeneration = null
             _roomSnapshot.value = null
+            _roomDeliveryEcho.value = null
             _suggestions.value = emptyList()
             _roomClosedReason.value = null
             votedIds.clear()

@@ -211,7 +211,7 @@ class TvRoomSyncController(
                 )
                 val serverAttached = deliveryLatch.isServerAttached(
                     deliveryKey,
-                    repository.roomSnapshot.value?.attachedSessionId,
+                    repository.roomDeliveryEcho.value,
                 )
                 val now = monotonicMs()
                 if (serverAttached &&
@@ -254,7 +254,7 @@ class TvRoomSyncController(
                     while (
                         !deliveryLatch.isServerAttached(
                             key,
-                            repository.roomSnapshot.value?.attachedSessionId,
+                            repository.roomDeliveryEcho.value,
                         )
                     ) {
                         delay(10)

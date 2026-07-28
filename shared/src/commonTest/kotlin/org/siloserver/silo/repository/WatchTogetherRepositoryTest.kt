@@ -1193,6 +1193,43 @@ class WatchTogetherRepositoryTest {
     }
 
     @Test
+    fun `attach echo retains its observed epoch until the reconnect receives a fresh snapshot`() = runTest {
+        val attachedSnapshot = snapshot().copy(attachedSessionId = "playback-1")
+        val realtime = FakeRealtime().apply {
+            connectBehavior = { attempt ->
+                if (attempt == 1) {
+                    flow {
+                        emit(RoomRealtimeEvent.Opened)
+                        emit(RoomRealtimeEvent.SnapshotEvent(attachedSnapshot))
+                        emit(RoomRealtimeEvent.TransportTerminated())
+                    }
+                } else {
+                    events.asSharedFlow()
+                }
+            }
+        }
+        val repository = repo(realtime = realtime)
+        repository.createRoom(CreateRoomRequest())
+        val job = launch { repository.connect("room-1") }
+        runCurrent()
+
+        assertEquals(1L, repository.roomDeliveryEcho.value?.connectionEpoch)
+        advanceTimeBy(500)
+        runCurrent()
+        realtime.events.emit(RoomRealtimeEvent.Opened)
+        runCurrent()
+
+        assertEquals(2L, repository.connectionState.value.epoch)
+        assertEquals(1L, repository.roomDeliveryEcho.value?.connectionEpoch)
+
+        realtime.events.emit(RoomRealtimeEvent.SnapshotEvent(attachedSnapshot))
+        runCurrent()
+
+        assertEquals(2L, repository.roomDeliveryEcho.value?.connectionEpoch)
+        job.cancel()
+    }
+
+    @Test
     fun `send fails before the active connection reports writable`() = runTest {
         val realtime = FakeRealtime()
         val r = repo(realtime = realtime)
