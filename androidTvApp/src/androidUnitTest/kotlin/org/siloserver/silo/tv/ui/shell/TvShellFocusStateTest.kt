@@ -114,6 +114,28 @@ class TvShellFocusStateTest {
     }
 
     @Test
+    fun contentUpOnSecondaryRoutesDoesNotFallbackToHomeFocus() {
+        val state = TvShellFocusState()
+        val before = state.menuFocusRequest
+
+        state.requestMenuFocusIfAvailable(target = null)
+
+        assertEquals(before, state.menuFocusRequest)
+        assertNull(state.menuFocusTarget)
+    }
+
+    @Test
+    fun contentUpOnSearchMayUseTheSearchOwnedNullTarget() {
+        val state = TvShellFocusState()
+        val before = state.menuFocusRequest
+
+        state.requestMenuFocusIfAvailable(target = null, allowNullTarget = true)
+
+        assertEquals(before + 1, state.menuFocusRequest)
+        assertNull(state.menuFocusTarget)
+    }
+
+    @Test
     fun backOnSecondaryScreensStillDelegatesToNav() {
         assertEquals(
             TvShellBackAction.DelegateToNav,

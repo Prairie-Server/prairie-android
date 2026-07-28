@@ -806,7 +806,10 @@ fun TvMainShell(
                             val contentHandledUp = contentUpFallback?.invoke(isRepeat)
                             if (contentHandledUp != null) {
                                 if (!contentHandledUp) {
-                                    focusState.requestMenuFocus(selectedMenuFocusTarget)
+                                    focusState.requestMenuFocusIfAvailable(
+                                        selectedMenuFocusTarget,
+                                        allowNullTarget = currentRoute == TvMainRoute.Search.route,
+                                    )
                                 }
                             } else {
                                 // Try to move focus up inside content; if that
@@ -814,7 +817,10 @@ fun TvMainShell(
                                 // focus to the menu bar.
                                 val moved = focusManager.moveFocus(FocusDirection.Up)
                                 if (!moved) {
-                                    focusState.requestMenuFocus(selectedMenuFocusTarget)
+                                    focusState.requestMenuFocusIfAvailable(
+                                        selectedMenuFocusTarget,
+                                        allowNullTarget = currentRoute == TvMainRoute.Search.route,
+                                    )
                                 }
                             }
                             // Always consume: we performed the move (or routed

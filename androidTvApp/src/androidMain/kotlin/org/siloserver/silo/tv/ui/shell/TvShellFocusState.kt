@@ -183,6 +183,16 @@ class TvShellFocusState {
     }
 
     /**
+     * Route content focus back to the bar only when the shell has a concrete root
+     * target, or when a route-specific owner intentionally handles a null target
+     * (currently Search). Other secondary routes must not fall through to Home.
+     */
+    fun requestMenuFocusIfAvailable(target: TvTopMenuPanel?, allowNullTarget: Boolean = false) {
+        if (target == null && !allowNullTarget) return
+        requestMenuFocus(target)
+    }
+
+    /**
      * Record whether a bar button holds focus. Focus on the bar means we are not
      * inside a panel, so clear any stale entered flag — otherwise a geometric
      * d-pad escape out of an entered panel leaves the preview frozen under the
