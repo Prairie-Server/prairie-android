@@ -10,15 +10,29 @@ internal fun isTopMenuFocusTargetAvailable(
     TvTopMenuPanel.Profile, null -> true
 }
 
+internal suspend fun handleTopMenuFocusRequestIfAvailable(
+    requestIdentity: Pair<Int, TvTopMenuPanel?>,
+    lastHandledRequest: Pair<Int, TvTopMenuPanel?>,
+    isFocusSuppressed: Boolean,
+    isTargetAvailable: Boolean,
+    requestFocus: suspend () -> Boolean,
+): Pair<Int, TvTopMenuPanel?> {
+    if (isFocusSuppressed || !isTargetAvailable || requestIdentity == lastHandledRequest) {
+        return lastHandledRequest
+    }
+    return if (requestFocus()) requestIdentity else lastHandledRequest
+}
+
 internal suspend fun requestTopMenuFocusUntilApplied(
     awaitFrame: suspend () -> Unit,
     isTargetCurrent: () -> Boolean = { true },
     requestFocus: () -> Boolean,
-) {
+): Boolean {
     repeat(TopMenuFocusMaxAttempts) {
-        if (!isTargetCurrent()) return
+        if (!isTargetCurrent()) return false
         awaitFrame()
-        if (!isTargetCurrent()) return
-        if (requestFocus()) return
+        if (!isTargetCurrent()) return false
+        if (requestFocus()) return true
     }
+    return false
 }

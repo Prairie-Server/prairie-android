@@ -234,23 +234,35 @@ fun TvTopMenuBar(
     val currentDestinations by rememberUpdatedState(destinations)
     var lastHandledFocusRequest by remember { mutableStateOf<Pair<Int, TvTopMenuPanel?>>(0 to null) }
     val focusRequestIdentity = focusRequest to focusRequestTarget
-    LaunchedEffect(focusRequest, focusRequestTarget, isFocusSuppressed) {
-        if (isFocusSuppressed) return@LaunchedEffect
-        if (focusRequestIdentity == lastHandledFocusRequest) return@LaunchedEffect
-        val explicitFocus = focusRequestTarget?.let(::focusForPanel)
-        dwellSuppressedButton = explicitFocus
-        val requester = explicitFocus?.let(::requesterForFocus) ?: selectedEntryRequester()
-        requestTopMenuFocusUntilApplied(
-            awaitFrame = { androidx.compose.runtime.withFrameNanos { } },
-            isTargetCurrent = {
-                currentFocusRequestTarget == focusRequestTarget &&
-                    isTopMenuFocusTargetAvailable(focusRequestTarget, currentDestinations)
-            },
+    val focusRequestTargetAvailable =
+        isTopMenuFocusTargetAvailable(focusRequestTarget, destinations)
+    LaunchedEffect(
+        focusRequest,
+        focusRequestTarget,
+        isFocusSuppressed,
+        focusRequestTargetAvailable,
+    ) {
+        lastHandledFocusRequest = handleTopMenuFocusRequestIfAvailable(
+            requestIdentity = focusRequestIdentity,
+            lastHandledRequest = lastHandledFocusRequest,
+            isFocusSuppressed = isFocusSuppressed,
+            isTargetAvailable = focusRequestTargetAvailable,
             requestFocus = {
-                runCatching { requester.requestFocus() }.getOrDefault(false)
+                val explicitFocus = focusRequestTarget?.let(::focusForPanel)
+                dwellSuppressedButton = explicitFocus
+                val requester = explicitFocus?.let(::requesterForFocus) ?: selectedEntryRequester()
+                requestTopMenuFocusUntilApplied(
+                    awaitFrame = { androidx.compose.runtime.withFrameNanos { } },
+                    isTargetCurrent = {
+                        currentFocusRequestTarget == focusRequestTarget &&
+                            isTopMenuFocusTargetAvailable(focusRequestTarget, currentDestinations)
+                    },
+                    requestFocus = {
+                        runCatching { requester.requestFocus() }.getOrDefault(false)
+                    },
+                )
             },
         )
-        lastHandledFocusRequest = focusRequestIdentity
     }
 
     LaunchedEffect(focusedButton) {

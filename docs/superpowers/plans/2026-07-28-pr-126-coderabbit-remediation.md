@@ -433,7 +433,7 @@ update focus pseudocode to use `requestMenuFocusIfAvailable` plus the
 - [ ] **Step 3: Verify documentation**
 
 ```bash
-rg -n '/Users/jimcole' \
+rg -n --pcre2 '/(Users|home)/[^/[:space:]]+' \
   .superpowers/sdd/2026-07-28-android-tv-active-header-focus-editorial-hero/task-4-report.md
 rg -n 'FeaturedCarousel\\.metadataChips|TV focused|requestMenuFocus\\(selectedMenuFocusTarget\\)' \
   docs/reviews/2026-07-27-android-tv-navigation-remediation-executive-summary.md \

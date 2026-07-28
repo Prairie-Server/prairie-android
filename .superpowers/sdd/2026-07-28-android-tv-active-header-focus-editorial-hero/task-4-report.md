@@ -107,13 +107,14 @@ Repeat review result:
 
 Physical device safety:
 
-- ADB showed physical Shield `192.168.1.128:5555`; I did not target it.
-- TV smoke used AVD `Silo_TV`, serial `emulator-5554`.
-- Phone smoke used AVD `Silo_Phone`, serial `emulator-5556`.
+- ADB showed an unapproved physical TV device; I did not target it.
+- TV smoke used the dedicated TV emulator.
+- Phone smoke used the dedicated phone emulator.
 
 TV smoke on final TV APK:
 
-- Installed `androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk` on `Silo_TV`.
+- Installed `androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk`
+  on the dedicated TV emulator.
 - Home: from content card, fresh Up focused the Home top pill. Pass.
 - Movies library: from first content card, first Up left focus on the content card; second Up focused the Movies pill. Not a clean pass.
 - For You: from content, fresh Up focused the For You control. Pass.
@@ -124,7 +125,8 @@ TV smoke on final TV APK:
 
 Phone smoke on final phone APK:
 
-- Installed `androidApp/build/outputs/apk/release/androidApp-universal-release.apk` on `Silo_Phone`.
+- Installed `androidApp/build/outputs/apk/release/androidApp-universal-release.apk`
+  on the dedicated phone emulator.
 - Opened Libraries > Movies. The Movies library Recommended hero displayed editorial chips `2004`, `7.3`, `War`, `R`, with no generic `Movie` chip, and Play / More Info visible.
 - The selected movie did not show a runtime chip in the UIAutomator dump, so the requested movie smoke is partial rather than a full pass.
 - Episode carousel page smoke was not completed.

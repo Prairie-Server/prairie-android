@@ -310,7 +310,8 @@ Expected: BUILD SUCCESSFUL; no unit-test failures; both universal release APKs e
 
 - [ ] **Step 3: Perform emulator-only visual validation when available**
 
-Use only `emulator-5556`. Install the debug build serial-specifically, launch the
+Use only a dedicated phone emulator selected explicitly through the local test
+harness. Install the debug build serial-specifically, launch the
 phone app, and verify Recommended, Browse, and Collections content stops at the
 fixed chrome boundary before and after scrolling. Open/close the profile menu
 and verify the list position does not change. If the dedicated emulator is not
@@ -331,9 +332,9 @@ androidApp/build/outputs/apk/release/androidApp-universal-release.apk
 androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk
 ```
 
-Copy them without overwriting existing files into
-`/Users/jimcole/Desktop/Silo Releases` using filenames containing `0.3.11`,
-`FocusHeroLibraryInset`, and the final short commit.
+Copy them without overwriting existing files into the tester-selected release
+artifact destination outside the repository, using filenames containing
+`0.3.11`, `FocusHeroLibraryInset`, and the final short commit.
 
 - [ ] **Step 6: Final hygiene and PR update**
 

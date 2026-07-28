@@ -81,4 +81,37 @@ class TvTopMenuFocusRequestTest {
             ),
         )
     }
+
+    @Test
+    fun focusRequestRemainsPendingUntilItsLibraryDestinationAppears() = runTest {
+        val movies = TvRootDestination.LibraryType(TvLibraryTabType.Movies)
+        val identity = 1 to TvTopMenuPanel.Root(movies)
+        val initialHandled = 0 to null
+        var focusAttempts = 0
+
+        val handledWhileAbsent = handleTopMenuFocusRequestIfAvailable(
+            requestIdentity = identity,
+            lastHandledRequest = initialHandled,
+            isFocusSuppressed = false,
+            isTargetAvailable = false,
+            requestFocus = {
+                focusAttempts += 1
+                true
+            },
+        )
+        val handledAfterAppearing = handleTopMenuFocusRequestIfAvailable(
+            requestIdentity = identity,
+            lastHandledRequest = handledWhileAbsent,
+            isFocusSuppressed = false,
+            isTargetAvailable = true,
+            requestFocus = {
+                focusAttempts += 1
+                true
+            },
+        )
+
+        assertEquals(initialHandled, handledWhileAbsent)
+        assertEquals(identity, handledAfterAppearing)
+        assertEquals(1, focusAttempts)
+    }
 }

@@ -857,7 +857,8 @@ git commit -m "fix(tv): unify for-you saved-list routes"
 - Modify only if verification exposes a feature regression: files already listed in Tasks 1-4.
 
 **Interfaces:**
-- Consumes: all prior task commits and the authenticated local Shield at `192.168.1.128:5555`.
+- Consumes: all prior task commits and an explicitly approved authenticated TV
+  test target.
 - Produces: a concise executive summary containing impact, causes, remedy, quantified before/after evidence, rollout risk, and rollback boundary.
 
 - [ ] **Step 1: Run supply-chain and complete relevant unit gates**
@@ -894,7 +895,8 @@ Expected: both tasks exit zero.
 Install only on the explicitly selected Shield if the candidate signer is compatible with the installed package; otherwise use the dedicated TV emulator. Preserve app data with:
 
 ```bash
-adb -s 192.168.1.128:5555 install -r \
+TV_TEST_SERIAL="<approved-tv-test-serial>"
+adb -s "$TV_TEST_SERIAL" install -r \
   androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk
 ```
 
