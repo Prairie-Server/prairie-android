@@ -165,7 +165,7 @@ state.preview(focusedItem, "Focused", rowIdentity = "focused-row")
 state.commit(state.candidate)
 state.seedInitialPreview(seedItem, "Replacement", rowIdentity = "replacement-row")
 assertEquals("focused-row#focused-item", state.content?.id)
-assertNull(state.candidate)
+assertEquals("focused-row#focused-item", state.candidate?.id)
 ```
 
 - [ ] **Step 2: Write phone/TV rating and mixed-field RED tests**
