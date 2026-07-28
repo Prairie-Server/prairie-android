@@ -912,9 +912,9 @@ artifacts:
 
 ```bash
 cp androidApp/build/outputs/apk/release/androidApp-universal-release.apk \
-  "/Users/jimcole/Desktop/Silo Releases/Silo-Phone-Universal-0.3.11-FocusHeroFix-$(git rev-parse --short HEAD).apk"
+  "Silo-Phone-Universal-0.3.11-FocusHeroFix-$(git rev-parse --short HEAD).apk"
 cp androidTvApp/build/outputs/apk/release/androidTvApp-universal-release.apk \
-  "/Users/jimcole/Desktop/Silo Releases/Silo-TV-Universal-0.3.11-TVFocusHeroFix-$(git rev-parse --short HEAD).apk"
+  "Silo-TV-Universal-0.3.11-TVFocusHeroFix-$(git rev-parse --short HEAD).apk"
 ```
 
 If a generated filename differs, select its universal artifact explicitly;
