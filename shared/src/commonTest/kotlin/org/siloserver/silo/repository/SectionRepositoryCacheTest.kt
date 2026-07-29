@@ -64,8 +64,8 @@ class SectionRepositoryCacheTest {
         val client = HttpClient(
             MockEngine {
                 onRequest()
-                requestEntered.complete(Unit)
                 val responseBody = body()
+                requestEntered.complete(Unit)
                 releaseResponse.await()
                 respond(
                     responseBody,
