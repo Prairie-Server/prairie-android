@@ -11,8 +11,7 @@ import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.isAudiobookItemType
-import org.siloserver.silo.model.catalog.initialSeasonForDisplay
-import org.siloserver.silo.model.catalog.sortedForDisplay
+import org.siloserver.silo.model.catalog.initialSeasonDisplayPlan
 import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.playback.audioTrackFingerprint
@@ -658,16 +657,17 @@ class TvItemDetailViewModel(
             _uiState.update { it.copy(seasonsLoading = true) }
             when (val r = catalogRepository.getSeasons(seriesContentId)) {
                 is ApiResult.Success -> {
-                    val seasons = r.data.seasons.sortedForDisplay()
-                    val selectedSeason = seasons.initialSeasonForDisplay(preferredSeasonNumber)
+                    val plan = r.data.seasons.initialSeasonDisplayPlan(preferredSeasonNumber)
                     _uiState.update {
                         it.copy(
                             seasonsLoading = false,
-                            seasons = seasons,
-                            selectedSeason = selectedSeason?.seasonNumber,
+                            seasons = plan.seasons,
+                            selectedSeason = plan.selectedSeasonNumber,
                         )
                     }
-                    if (selectedSeason != null) loadEpisodes(seriesContentId, selectedSeason.seasonNumber)
+                    plan.episodeRequestSeasonNumber?.let { seasonNumber ->
+                        loadEpisodes(seriesContentId, seasonNumber)
+                    }
                 }
                 else -> _uiState.update { it.copy(seasonsLoading = false) }
             }

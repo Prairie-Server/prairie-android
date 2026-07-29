@@ -9,7 +9,7 @@ import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
-import org.siloserver.silo.model.catalog.initialSeasonForDisplay
+import org.siloserver.silo.model.catalog.initialSeasonDisplayPlan
 import org.siloserver.silo.model.catalog.sortedForDisplay
 import org.siloserver.silo.model.download.DownloadCapability
 import org.siloserver.silo.model.download.DownloadRecord
@@ -465,22 +465,21 @@ class ItemDetailViewModel(
         viewModelScope.launch {
             when (val result = catalogRepository.getSeasons(seriesId)) {
                 is ApiResult.Success -> {
-                    val seasons = result.data.seasons.sortedForDisplay()
-                    val selectedSeason = seasons.initialSeasonForDisplay(initialSeasonNumber)
+                    val plan = result.data.seasons.initialSeasonDisplayPlan(initialSeasonNumber)
                     _uiState.update {
                         it.copy(
-                            seasons = seasons,
-                            selectedSeasonNumber = selectedSeason?.seasonNumber ?: 1,
+                            seasons = plan.seasons,
+                            selectedSeasonNumber = plan.selectedSeasonNumber ?: 1,
                         )
                     }
-                    if (selectedSeason != null) {
+                    plan.episodeRequestSeasonNumber?.let { seasonNumber ->
                         loadEpisodes(
                             seriesId = seriesId,
-                            seasonNumber = selectedSeason.seasonNumber,
-                            seasonsForDownloadRollup = seasons,
+                            seasonNumber = seasonNumber,
+                            seasonsForDownloadRollup = plan.seasons,
                         )
-                    } else {
-                        loadAllEpisodeFileIds(seriesId, seasons)
+                    } ?: run {
+                        loadAllEpisodeFileIds(seriesId, plan.seasons)
                     }
                 }
                 else -> { /* Season load failure is non-critical */ }

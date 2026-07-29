@@ -8,10 +8,12 @@ class SeasonDisplayOrderTest {
         number: Int,
         specials: Boolean = false,
         id: String = "season-$number-$specials",
+        title: String? = null,
     ) = Season(
         contentId = id,
         seasonNumber = number,
         isSpecials = specials,
+        title = title,
     )
 
     @Test
@@ -45,5 +47,53 @@ class SeasonDisplayOrderTest {
         val result = listOf(season(0))
             .initialSeasonForDisplay(preferredSeasonNumber = null)
         assertEquals(0, result?.seasonNumber)
+    }
+
+    @Test
+    fun `duplicate season numbers use title as deterministic tie breaker`() {
+        val result = listOf(
+            season(1, id = "z-id", title = "Zulu"),
+            season(1, id = "a-id", title = "Alpha"),
+        ).sortedForDisplay()
+
+        assertEquals(listOf("a-id", "z-id"), result.map(Season::contentId))
+    }
+
+    @Test
+    fun `duplicate season numbers and titles use content id as deterministic tie breaker`() {
+        val result = listOf(
+            season(1, id = "z-id", title = "Same"),
+            season(1, id = "a-id", title = "Same"),
+        ).sortedForDisplay()
+
+        assertEquals(listOf("a-id", "z-id"), result.map(Season::contentId))
+    }
+
+    @Test
+    fun `ordinary opening aligns selected state and episode request on first regular season`() {
+        val plan = listOf(season(2), season(0), season(1))
+            .initialSeasonDisplayPlan(preferredSeasonNumber = null)
+
+        assertEquals(listOf(0, 1, 2), plan.seasons.map(Season::seasonNumber))
+        assertEquals(1, plan.selectedSeasonNumber)
+        assertEquals(1, plan.episodeRequestSeasonNumber)
+    }
+
+    @Test
+    fun `explicit specials aligns selected state and episode request`() {
+        val plan = listOf(season(2), season(0), season(1))
+            .initialSeasonDisplayPlan(preferredSeasonNumber = 0)
+
+        assertEquals(0, plan.selectedSeasonNumber)
+        assertEquals(0, plan.episodeRequestSeasonNumber)
+    }
+
+    @Test
+    fun `specials-only opening aligns selected state and episode request`() {
+        val plan = listOf(season(0))
+            .initialSeasonDisplayPlan(preferredSeasonNumber = null)
+
+        assertEquals(0, plan.selectedSeasonNumber)
+        assertEquals(0, plan.episodeRequestSeasonNumber)
     }
 }
