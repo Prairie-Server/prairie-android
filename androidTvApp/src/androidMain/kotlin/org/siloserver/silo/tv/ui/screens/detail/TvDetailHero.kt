@@ -68,8 +68,7 @@ internal sealed class TvHeroFactToken {
  * Layout = a `ZStack(bottomLeading)`: a near-full-viewport backdrop, a
  * 4-stop horizontal darkening on the left, a soft vertical fade into the
  * rail body at the bottom, then the bottom-anchored editorial + action
- * column on the left. The "Starring …" credit floats upper-right as its own
- * trailing overlay (tvOS `starringOverlay`), NOT inside the editorial column.
+ * column on the left.
  *
  * Apple sizes the hero relative to the viewport (`heroHeight = 980` of a
  * 1080-pt canvas ≈ 0.907×), so we compute the height as a fraction of the
@@ -92,7 +91,6 @@ internal fun TvDetailHero(
     overview: String?,
     tagline: String?,
     factsLine: List<TvHeroFactToken>,
-    starringText: String?,
     directorText: String?,
     actions: @Composable () -> Unit,
     modifier: Modifier = Modifier,
@@ -157,36 +155,6 @@ internal fun TvDetailHero(
                     ),
                 ),
         )
-
-        // "Starring …" floats in the upper-right of the hero, right-aligned —
-        // tvOS `.overlay(alignment: .trailing)` + `.padding(.bottom, heroHeight
-        // * 0.45)` (the bottom padding on the vertically-centered overlay
-        // pushes the credit into the top-right region). 2-line limit; sized up
-        // from the raw tvOS ~2x mapping (24pt → 12sp) per design review, with
-        // maxWidth widened to match so casts don't ellipsize sooner.
-        starringText?.takeIf { it.isNotBlank() }?.let { line ->
-            Text(
-                text = line,
-                fontWeight = FontWeight.Normal,
-                fontSize = 16.sp,
-                lineHeight = 20.sp,
-                color = Color.White.copy(alpha = 0.8f),
-                textAlign = TextAlign.End,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        offset = Offset(0f, 2f),
-                        blurRadius = 6f,
-                    ),
-                ),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = Spacing.safeArea, bottom = heroHeight * 0.45f)
-                    .widthIn(max = 280.dp),
-            )
-        }
 
         // Reserve and pin the action cluster before measuring the editorial
         // column. The hero can therefore keep the fixed tvOS viewport framing
