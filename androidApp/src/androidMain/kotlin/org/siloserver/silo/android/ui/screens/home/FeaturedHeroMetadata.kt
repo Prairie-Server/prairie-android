@@ -27,7 +27,7 @@ internal fun featuredHeroMetadata(item: SectionItem): List<FeaturedHeroMetadataC
         result += FeaturedHeroMetadataChip(item.year.toString())
     }
 
-    formatFeaturedRuntime(item.durationSeconds)?.let {
+    formatFeaturedRuntime(item.runtime, item.durationSeconds)?.let {
         result += FeaturedHeroMetadataChip(it)
     }
     validImdbRating(item.ratingImdb)
@@ -64,11 +64,18 @@ private fun episodeToken(season: Int?, episode: Int?): String? = when {
     else -> null
 }
 
-private fun formatFeaturedRuntime(durationSeconds: Double?): String? {
+/** Episode/movie length: the metadata runtime when present, else derived
+ *  from the file duration the payload already carries. */
+private fun formatFeaturedRuntime(runtimeMinutes: Int?, durationSeconds: Double?): String? {
+    runtimeMinutes?.takeIf { it > 0 }?.let { return formatRuntimeMinutes(it) }
     val duration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
         ?: return null
     val minutes = (duration / 60.0).roundToInt().takeIf { it > 0 }
         ?: return null
+    return formatRuntimeMinutes(minutes)
+}
+
+private fun formatRuntimeMinutes(minutes: Int): String {
     if (minutes < 60) return "$minutes min"
     val hours = minutes / 60
     val remainder = minutes % 60

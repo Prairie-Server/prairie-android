@@ -85,11 +85,11 @@ data class TvMarqueeContent(
             if (isEpisode) {
                 episodeToken(item.seasonNumber, item.episodeNumber)?.let(meta::add)
                 if (item.title.isNotBlank()) meta.add(item.title)
-                lengthText(item.durationSeconds)?.let(meta::add)
+                lengthText(item.runtime, item.durationSeconds)?.let(meta::add)
                 ratingToken(item.ratingImdb)?.let(meta::add)
             } else {
                 if (item.year > 0) meta.add(item.year.toString())
-                lengthText(item.durationSeconds)?.let(meta::add)
+                lengthText(item.runtime, item.durationSeconds)?.let(meta::add)
                 ratingToken(item.ratingImdb)?.let(meta::add)
                 item.genres.firstOrNull { it.isNotBlank() }?.let(meta::add)
             }
@@ -140,11 +140,17 @@ data class TvMarqueeContent(
             return "${remaining}m left"
         }
 
-        private fun lengthText(durationSeconds: Double?): String? {
+        /** Episode/movie length: the metadata runtime when present, else
+         *  derived from the file duration the payload already carries. */
+        private fun lengthText(runtimeMinutes: Int?, durationSeconds: Double?): String? {
+            runtimeText(runtimeMinutes)?.let { return it }
             val duration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
                 ?: return null
-            val minutes = (duration / 60.0).roundToInt()
-            if (minutes <= 0) return null
+            return runtimeText((duration / 60.0).roundToInt())
+        }
+
+        private fun runtimeText(minutes: Int?): String? {
+            if (minutes == null || minutes <= 0) return null
             return if (minutes >= 60) {
                 val hours = minutes / 60
                 val rest = minutes % 60
