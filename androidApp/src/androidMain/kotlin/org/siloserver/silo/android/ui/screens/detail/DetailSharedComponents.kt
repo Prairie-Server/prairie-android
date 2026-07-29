@@ -149,7 +149,7 @@ fun DetailHero(
                     text = line,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = DetailTertiaryText,
+                    color = Color.White.copy(alpha = 0.62f),
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
