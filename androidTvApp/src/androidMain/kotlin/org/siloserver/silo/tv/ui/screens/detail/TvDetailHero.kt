@@ -62,8 +62,8 @@ internal sealed class TvHeroFactToken {
 }
 
 /**
- * Full-bleed cinematic hero for the Android TV detail screen. Mirrors the
- * tvOS `TVDetailHero` 1:1.
+ * Full-bleed cinematic hero for the Android TV detail screen. Structurally
+ * mirrors tvOS `TVDetailHero`.
  *
  * Layout = a `ZStack(bottomLeading)`: a near-full-viewport backdrop, a
  * 4-stop horizontal darkening on the left, a soft vertical fade into the
