@@ -445,6 +445,7 @@ private fun TvDetailContent(
                                 selectedFileId = heroSelectedFileId,
                             ),
                             starringText = TvDetailMetadata.starringText(detail),
+                            directorText = TvDetailMetadata.directorText(detail),
                             translation = translationSlot,
                             actions = {
                                 HeroActionRow(

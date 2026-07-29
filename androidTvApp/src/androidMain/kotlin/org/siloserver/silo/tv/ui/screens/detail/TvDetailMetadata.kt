@@ -77,6 +77,20 @@ internal object TvDetailMetadata {
         return tokens
     }
 
+    /** "Directed by A, B" hero credit — movies only. Episodes keep their
+     *  per-episode directors in the facts table; series have none. Exact job
+     *  match so "Director of Photography" never slips in. */
+    fun directorText(detail: ItemDetail): String? {
+        if (!detail.type.equals("movie", ignoreCase = true)) return null
+        val names = detail.crew
+            .filter { it.job?.trim().equals("Director", ignoreCase = true) }
+            .map { it.name.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        if (names.isEmpty()) return null
+        return "Directed by ${names.take(3).joinToString(", ")}"
+    }
+
     fun starringText(detail: ItemDetail): String? {
         val names = detail.cast.take(3).map { it.name.trim() }.filter { it.isNotEmpty() }
         if (names.isEmpty()) return null

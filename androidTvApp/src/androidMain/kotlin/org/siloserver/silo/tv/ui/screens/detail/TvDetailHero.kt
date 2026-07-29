@@ -93,6 +93,7 @@ internal fun TvDetailHero(
     tagline: String?,
     factsLine: List<TvHeroFactToken>,
     starringText: String?,
+    directorText: String?,
     actions: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     // Optional description-translation affordance (Apple tvOS parity),
@@ -204,6 +205,7 @@ internal fun TvDetailHero(
                     overview = overview,
                     tagline = tagline,
                     factsLine = factsLine,
+                    directorText = directorText,
                     contentMaxWidth = contentMaxWidth,
                     verticalSpacing = editorialSpacing,
                     collapsedSynopsisLines = collapsedSynopsisLines,
@@ -237,6 +239,7 @@ private fun EditorialColumn(
     overview: String?,
     tagline: String?,
     factsLine: List<TvHeroFactToken>,
+    directorText: String?,
     contentMaxWidth: androidx.compose.ui.unit.Dp,
     verticalSpacing: androidx.compose.ui.unit.Dp,
     collapsedSynopsisLines: Int,
@@ -268,6 +271,20 @@ private fun EditorialColumn(
             )
         }
         translation?.invoke()
+
+        // Quiet "Directed by …" credit between the synopsis and the facts row.
+        // 14sp = the ten-foot metadata floor; the 0.62 alpha keeps it reading
+        // as a credit rather than another synopsis line.
+        directorText?.takeIf { it.isNotBlank() }?.let { line ->
+            Text(
+                text = line,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.62f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
         if (factsLine.isNotEmpty()) {
             FactsRow(tokens = factsLine)
