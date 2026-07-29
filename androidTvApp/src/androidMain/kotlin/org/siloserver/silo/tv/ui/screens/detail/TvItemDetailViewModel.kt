@@ -346,7 +346,7 @@ class TvItemDetailViewModel(
                         -> detail.seriesId?.takeIf { it.isNotBlank() }?.let { seriesId ->
                             loadSeasons(
                                 seriesContentId = seriesId,
-                                preferredSeasonNumber = detail.seasonNumber?.takeIf { it > 0 },
+                                preferredSeasonNumber = detail.seasonNumber,
                             )
                         }
                     }
@@ -695,7 +695,7 @@ class TvItemDetailViewModel(
         // Cancel any in-flight episode load so a slower response for a
         // previously-selected season can't overwrite episodes/next-up for the
         // season the user is now on (rapid season switches / the initial
-        // initial selected-season load racing a route-driven season load).
+        // selected-season load racing a route-driven season load).
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
             if (!quiet) _uiState.update { it.copy(episodesLoading = true) }

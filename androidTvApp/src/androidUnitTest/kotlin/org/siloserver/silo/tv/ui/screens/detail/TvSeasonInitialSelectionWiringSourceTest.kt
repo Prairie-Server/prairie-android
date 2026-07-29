@@ -17,4 +17,15 @@ class TvSeasonInitialSelectionWiringSourceTest {
             ),
         )
     }
+
+    @Test
+    fun tvDetailDeepLinkPassesSpecialsSeasonNumberToInitialSelection() {
+        val source = File(
+            "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailViewModel.kt",
+        ).readText()
+
+        assertTrue(
+            source.contains("preferredSeasonNumber = detail.seasonNumber,"),
+        )
+    }
 }
