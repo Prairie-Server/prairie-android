@@ -15,12 +15,15 @@ class TvStarringOverlaySourceTest {
     private val metadata = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvDetailMetadata.kt",
     ).readText()
+    private val presentationSources = listOf(hero, screen, metadata)
 
     @Test
     fun tvDetailDoesNotDeriveOrRenderDuplicatedStarringOverlay() {
-        assertFalse(hero.contains("starringText"))
-        assertFalse(screen.contains("TvDetailMetadata.starringText(detail)"))
-        assertFalse(metadata.contains("fun starringText("))
+        assertFalse(
+            presentationSources.any { source ->
+                source.contains("starring", ignoreCase = true)
+            },
+        )
     }
 
     @Test
