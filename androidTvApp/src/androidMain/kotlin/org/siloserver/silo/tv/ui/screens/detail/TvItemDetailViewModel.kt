@@ -11,6 +11,7 @@ import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.isAudiobookItemType
+import org.siloserver.silo.model.catalog.initialSeasonForDisplay
 import org.siloserver.silo.model.catalog.sortedForDisplay
 import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
@@ -658,19 +659,15 @@ class TvItemDetailViewModel(
             when (val r = catalogRepository.getSeasons(seriesContentId)) {
                 is ApiResult.Success -> {
                     val seasons = r.data.seasons.sortedForDisplay()
-                    val selectedSeason = preferredSeasonNumber
-                        ?.let { seasonNumber -> seasons.firstOrNull { it.seasonNumber == seasonNumber } }
-                    val firstRegular = selectedSeason
-                        ?: seasons.firstOrNull { !it.isSpecials }
-                        ?: seasons.firstOrNull()
+                    val selectedSeason = seasons.initialSeasonForDisplay(preferredSeasonNumber)
                     _uiState.update {
                         it.copy(
                             seasonsLoading = false,
                             seasons = seasons,
-                            selectedSeason = firstRegular?.seasonNumber,
+                            selectedSeason = selectedSeason?.seasonNumber,
                         )
                     }
-                    if (firstRegular != null) loadEpisodes(seriesContentId, firstRegular.seasonNumber)
+                    if (selectedSeason != null) loadEpisodes(seriesContentId, selectedSeason.seasonNumber)
                 }
                 else -> _uiState.update { it.copy(seasonsLoading = false) }
             }
@@ -698,7 +695,7 @@ class TvItemDetailViewModel(
         // Cancel any in-flight episode load so a slower response for a
         // previously-selected season can't overwrite episodes/next-up for the
         // season the user is now on (rapid season switches / the initial
-        // firstRegular load racing a route-driven season load).
+        // initial selected-season load racing a route-driven season load).
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
             if (!quiet) _uiState.update { it.copy(episodesLoading = true) }
