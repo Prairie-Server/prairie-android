@@ -374,6 +374,8 @@ class OrphanedServerDataPurgerTest {
         val finishInitialPurge = CompletableDeferred<Unit>()
         val initialRowsPurged = CompletableDeferred<Unit>()
         val rowsPurged = CompletableDeferred<Unit>()
+        val secondPurgeStarted = CompletableDeferred<Unit>()
+        val allowSecondPurge = CompletableDeferred<Unit>()
         val purger = OrphanedServerDataPurger(
             registry = registry,
             purgeDao = db.serverPurgeDao(),
@@ -386,6 +388,10 @@ class OrphanedServerDataPurgerTest {
                 if (orphanId == "preexisting-orphan") {
                     initialPurgeStarted.complete(Unit)
                     finishInitialPurge.await()
+                }
+                if (orphanId == serverId) {
+                    secondPurgeStarted.complete(Unit)
+                    allowSecondPurge.await()
                 }
                 db.serverPurgeDao().deleteAllRowsForServer(orphanId)
                 if (orphanId == "preexisting-orphan") {
@@ -405,16 +411,19 @@ class OrphanedServerDataPurgerTest {
         assertTrue(registry.entries.value.none { it.id == serverId })
         finishInitialPurge.complete(Unit)
         initialRowsPurged.await()
+        secondPurgeStarted.await()
         assertTrue(observer.isActive, "purge observer stopped: $observerFailure")
         assertNull(db.downloadDao().get("preexisting-orphan", "p1", 11))
         assertTrue(
             db.downloadDao().get(serverId, "p1", 10) != null,
-            "removed server was unexpectedly part of the startup orphan snapshot",
+            "second-pass deletion must remain gated until the snapshot assertion completes",
         )
 
+        allowSecondPurge.complete(Unit)
         rowsPurged.await()
         assertNull(db.downloadDao().get(serverId, "p1", 10))
         observer.cancel()
+        observer.join()
     }
 }
 
