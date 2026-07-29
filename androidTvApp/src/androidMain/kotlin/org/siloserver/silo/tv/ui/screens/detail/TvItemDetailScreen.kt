@@ -445,7 +445,6 @@ private fun TvDetailContent(
                                 preferredQuality = state.preferredQuality,
                                 selectedFileId = heroSelectedFileId,
                             ),
-                            starringText = TvDetailMetadata.starringText(detail),
                             directorText = movieDirectorCredit(detail),
                             translation = translationSlot,
                             actions = {
