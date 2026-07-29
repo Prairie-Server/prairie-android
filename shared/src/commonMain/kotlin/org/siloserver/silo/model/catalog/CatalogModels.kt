@@ -372,13 +372,24 @@ data class SeasonsResponse(
     val seasons: List<Season> = emptyList()
 )
 
+fun Season.isSpecialsForDisplay(): Boolean =
+    isSpecials || seasonNumber == 0
+
 fun List<Season>.sortedForDisplay(): List<Season> =
     sortedWith(
-        compareBy<Season> { if (it.isSpecials) 1 else 0 }
+        compareByDescending<Season> { it.isSpecialsForDisplay() }
             .thenBy { it.seasonNumber }
             .thenBy { it.title.orEmpty() }
             .thenBy { it.contentId },
     )
+
+fun List<Season>.initialSeasonForDisplay(preferredSeasonNumber: Int?): Season? {
+    val ordered = sortedForDisplay()
+    return preferredSeasonNumber
+        ?.let { preferred -> ordered.firstOrNull { it.seasonNumber == preferred } }
+        ?: ordered.firstOrNull { !it.isSpecialsForDisplay() }
+        ?: ordered.firstOrNull()
+}
 
 @Serializable
 data class EpisodeListItem(
