@@ -7,12 +7,14 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -406,24 +408,31 @@ class OrphanedServerDataPurgerTest {
         val observer = purger.start()
         var observerFailure: Throwable? = null
         observer.invokeOnCompletion { observerFailure = it }
-        initialPurgeStarted.await()
-        registry.remove(serverId)
-        assertTrue(registry.entries.value.none { it.id == serverId })
-        finishInitialPurge.complete(Unit)
-        initialRowsPurged.await()
-        secondPurgeStarted.await()
-        assertTrue(observer.isActive, "purge observer stopped: $observerFailure")
-        assertNull(db.downloadDao().get("preexisting-orphan", "p1", 11))
-        assertTrue(
-            db.downloadDao().get(serverId, "p1", 10) != null,
-            "second-pass deletion must remain gated until the snapshot assertion completes",
-        )
+        try {
+            initialPurgeStarted.await()
+            registry.remove(serverId)
+            assertTrue(registry.entries.value.none { it.id == serverId })
+            finishInitialPurge.complete(Unit)
+            initialRowsPurged.await()
+            secondPurgeStarted.await()
+            assertTrue(observer.isActive, "purge observer stopped: $observerFailure")
+            assertNull(db.downloadDao().get("preexisting-orphan", "p1", 11))
+            assertTrue(
+                db.downloadDao().get(serverId, "p1", 10) != null,
+                "second-pass deletion must remain gated until the snapshot assertion completes",
+            )
 
-        allowSecondPurge.complete(Unit)
-        rowsPurged.await()
-        assertNull(db.downloadDao().get(serverId, "p1", 10))
-        observer.cancel()
-        observer.join()
+            allowSecondPurge.complete(Unit)
+            rowsPurged.await()
+            assertNull(db.downloadDao().get(serverId, "p1", 10))
+        } finally {
+            withContext(NonCancellable) {
+                finishInitialPurge.complete(Unit)
+                allowSecondPurge.complete(Unit)
+                observer.cancel()
+                observer.join()
+            }
+        }
     }
 }
 
