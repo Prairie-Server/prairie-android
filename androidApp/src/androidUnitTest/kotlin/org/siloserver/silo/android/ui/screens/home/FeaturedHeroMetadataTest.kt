@@ -117,4 +117,34 @@ class FeaturedHeroMetadataTest {
 
         assertEquals(listOf("8.4"), chips.map { it.label })
     }
+
+    @Test
+    fun catalogRuntimeWinsOverPlaybackDurationOnPhone() {
+        val chips = featuredHeroMetadata(
+            SectionItem(
+                contentId = "movie-runtime",
+                type = "movie",
+                title = "Movie",
+                runtime = 125,
+                durationSeconds = 60.0,
+            ),
+        )
+
+        assertEquals(listOf("2h 5m"), chips.map { it.label })
+    }
+
+    @Test
+    fun invalidCatalogRuntimeFallsBackToPlaybackDurationOnPhone() {
+        val chips = featuredHeroMetadata(
+            SectionItem(
+                contentId = "movie-runtime-fallback",
+                type = "movie",
+                title = "Movie",
+                runtime = 0,
+                durationSeconds = 6_960.0,
+            ),
+        )
+
+        assertEquals(listOf("1h 56m"), chips.map { it.label })
+    }
 }

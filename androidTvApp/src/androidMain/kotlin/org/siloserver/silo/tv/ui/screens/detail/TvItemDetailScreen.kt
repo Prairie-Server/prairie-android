@@ -91,6 +91,7 @@ import androidx.tv.material3.Text
 import org.siloserver.silo.audiobook.AudioPlaybackTrack
 import org.siloserver.silo.audiobook.AudiobookTimeline
 import org.siloserver.silo.audiobook.buildAudiobookTimeline
+import org.siloserver.silo.common.ui.movieDirectorCredit
 import org.siloserver.silo.model.audiobook.AudiobookNarration
 import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.FileVersion
@@ -445,6 +446,7 @@ private fun TvDetailContent(
                                 selectedFileId = heroSelectedFileId,
                             ),
                             starringText = TvDetailMetadata.starringText(detail),
+                            directorText = movieDirectorCredit(detail),
                             translation = translationSlot,
                             actions = {
                                 HeroActionRow(
