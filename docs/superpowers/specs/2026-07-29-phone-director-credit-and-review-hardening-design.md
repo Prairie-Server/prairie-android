@@ -1,7 +1,7 @@
 # Phone Director Credit and Review Hardening Design
 
-**Date:** 2026-07-29  
-**Target:** PR #129 (`feat/tv-detail-director-credit`)  
+**Date:** 2026-07-29
+**Target:** PR #129 (`feat/tv-detail-director-credit`)
 **Base behavior:** PR #128 is already on `main`; PR #129 adds the TV movie-director credit.
 
 ## Goal
