@@ -139,4 +139,36 @@ class TvFocusMarqueeModelTest {
 
         assertEquals(listOf("8.4"), content.metaParts)
     }
+
+    @Test
+    fun catalogRuntimeWinsOverPlaybackDurationOnTv() {
+        val content = TvMarqueeContent.from(
+            item = SectionItem(
+                contentId = "movie-runtime",
+                type = "movie",
+                title = "Movie",
+                runtime = 125,
+                durationSeconds = 60.0,
+            ),
+            rowTitle = "Row",
+        )
+
+        assertEquals(listOf("2h 5m"), content.metaParts)
+    }
+
+    @Test
+    fun invalidCatalogRuntimeFallsBackToPlaybackDurationOnTv() {
+        val content = TvMarqueeContent.from(
+            item = SectionItem(
+                contentId = "movie-runtime-fallback",
+                type = "movie",
+                title = "Movie",
+                runtime = 0,
+                durationSeconds = 6_960.0,
+            ),
+            rowTitle = "Row",
+        )
+
+        assertEquals(listOf("1h 56m"), content.metaParts)
+    }
 }
