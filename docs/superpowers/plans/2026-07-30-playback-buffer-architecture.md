@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **The invariant is the point of this work:** `maxBufferMs == minBufferMs + MAX_LOAD_IDLE_MS`, always, for every reachable policy including after the memory budget reduces depth. `MAX_LOAD_IDLE_MS = 15_000` — a 30s wall-clock budget divided by the slowest selectable playback rate (0.5x, offered for audiobooks, which share this load control and which `DefaultLoadControl` does not scale for).
+- **The invariant is the point of this work:** `maxBufferMs == minBufferMs + MAX_LOAD_IDLE_MS`, always, for every reachable policy including after the memory budget reduces depth. `MAX_LOAD_IDLE_MS = 15_000` — a 30s wall-clock budget scaled *down* by the slowest selectable playback rate: `30_000 * 0.5`. (0.5x is offered for audiobooks, which share this load control and which `DefaultLoadControl` does not scale for. Media time converts back to wall clock by dividing: `15_000 / 0.5 = 30_000`.)
 - **Depth bounds:** requested floor `20_000` ms, ceiling `180_000` ms. The floor is where depth starts, not a guarantee: a known bitrate whose budget funds less than 20s yields the smaller number rather than a claimed depth memory cannot hold.
 - **Startup:** `bufferForPlaybackMs = 2_000`, `bufferForPlaybackAfterRebufferMs = 5_000`.
 - **No user setting, no server-driven wire value.** `PlaybackBufferMode` and its `fromWire` are deleted, not repurposed.
@@ -152,7 +152,8 @@ data class PlaybackBufferPolicy(
 
         /**
          * The timeout MAX_LOAD_IDLE_MS is chosen to stay clear of. The window is
-         * this budgeted down to 30s and then divided by SLOWEST_PLAYBACK_SPEED,
+         * this budgeted down to 30s of wall clock and then multiplied by
+         * SLOWEST_PLAYBACK_SPEED to express it in media time,
          * because the invariant is in media time and a proxy measures wall clock.
          */
         const val ASSUMED_PROXY_SEND_TIMEOUT_MS = 60_000
@@ -264,9 +265,13 @@ Append to `SiloLoadControlTest`:
 
 ```kotlin
     @Test
-    fun `depth shrinks to what the memory budget can fund`() {
-        // 60 Mbps against a 48 MiB budget: 48 MiB * 8 / 60 Mbps ~= 6.7s, so the
-        // requested 180s cannot be held and the depth must come down to fit.
+    fun `depth follows the budget honestly, even below the floor`() {
+        // 60 Mbps against a 48 MiB budget: accounting for the same 15%
+        // overhead margin calculateBitrateTargetBufferBytes applies when it
+        // turns this depth back into bytes, the budget only really affords
+        // ~5.8s. The requested 180s cannot be held, and neither can the 20s
+        // floor — the budget wins over the floor because a false, rounded-up
+        // report would be worse than an honest shortfall.
         val depth =
             affordableDepthMs(
                 desiredDepthMs = 180_000,
@@ -275,8 +280,8 @@ Append to `SiloLoadControlTest`:
                 minimumDepthMs = 20_000,
             )
 
-        assertTrue(depth < 180_000, "expected reduction, got $depth")
-        assertEquals(20_000, depth, "should clamp to the floor, not below it")
+        assertTrue(depth < 20_000, "expected reduction below the floor, got $depth")
+        assertEquals(5_835, depth, "should report the honest budget-derived value")
     }
 
     @Test
@@ -353,11 +358,19 @@ internal fun affordableDepthMs(
     budgetBytes: Int,
     minimumDepthMs: Int,
 ): Int {
-    val bitrate = selectedBitrateBps?.takeIf { it > 0L } ?: return desiredDepthMs
-    val affordableMs = budgetBytes.toLong() * 8L * 1_000L / bitrate
-    return affordableMs
-        .coerceIn(minimumDepthMs.toLong(), desiredDepthMs.toLong())
-        .toInt()
+    val bitrate = selectedBitrateBps?.takeIf { it > 0L }
+        ?: return desiredDepthMs.coerceAtLeast(minimumDepthMs)
+    // The 115/100 mirrors the overhead margin calculateBitrateTargetBufferBytes
+    // multiplies back in when it turns a depth into bytes. Without it, a
+    // budget-derived depth still produces a byte figure that overshoots the
+    // budget once that margin is applied and clamps back to the ceiling,
+    // erasing the depth's effect on the byte target entirely.
+    val affordableMs = budgetBytes.toLong() * 8L * 1_000L * 100L / (bitrate * 115L)
+    // Deliberately NOT coerced up to minimumDepthMs: with a known bitrate the
+    // honest budget-derived depth wins over the floor, since claiming a depth
+    // the loader cannot hold is the exact silent overrun this task removes.
+    // minimumDepthMs bounds only the unknown-bitrate branch above.
+    return affordableMs.coerceAtMost(desiredDepthMs.toLong()).toInt()
 }
 ```
 

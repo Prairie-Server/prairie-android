@@ -52,8 +52,8 @@ Taken in conversation with Jim:
 maxBufferMs = minBufferMs + MAX_LOAD_IDLE_MS
 ```
 
-`MAX_LOAD_IDLE_MS = 15_000`, which is a 30s wall-clock budget divided by the
-slowest selectable playback rate. The 30s budget sits well under the assumed
+`MAX_LOAD_IDLE_MS = 15_000`, which is a 30s wall-clock budget scaled *down* by
+the slowest selectable playback rate (`30_000 * 0.5`). The 30s budget sits well under the assumed
 60s upstream proxy `send_timeout`, but the invariant is expressed in *media*
 time while a proxy measures *wall clock*, and `DefaultLoadControl` scales
 `minBufferUs` only for speeds above 1.0. Audiobooks offer 0.5x and share this
