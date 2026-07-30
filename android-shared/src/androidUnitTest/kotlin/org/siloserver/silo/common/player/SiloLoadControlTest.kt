@@ -95,9 +95,13 @@ class SiloLoadControlTest {
     }
 
     @Test
-    fun `depth shrinks to what the memory budget can fund`() {
-        // 60 Mbps against a 48 MiB budget: 48 MiB * 8 / 60 Mbps ~= 6.7s, so the
-        // requested 180s cannot be held and the depth must come down to fit.
+    fun `depth follows the budget honestly, even below the floor`() {
+        // 60 Mbps against a 48 MiB budget: accounting for the same 15%
+        // overhead margin calculateBitrateTargetBufferBytes applies when it
+        // turns this depth back into bytes, the budget only really affords
+        // ~5.8s. The requested 180s cannot be held, and neither can the 20s
+        // floor — the budget wins over the floor because a false, rounded-up
+        // report would be worse than an honest shortfall.
         val depth =
             affordableDepthMs(
                 desiredDepthMs = 180_000,
@@ -106,8 +110,8 @@ class SiloLoadControlTest {
                 minimumDepthMs = 20_000,
             )
 
-        assertTrue("expected reduction, got $depth", depth < 180_000)
-        assertEquals("should clamp to the floor, not below it", 20_000, depth)
+        assertTrue("expected reduction below the floor, got $depth", depth < 20_000)
+        assertEquals("should report the honest budget-derived value", 5_835, depth)
     }
 
     @Test
@@ -154,14 +158,15 @@ class SiloLoadControlTest {
     }
 
     @Test
-    fun `composed sizing clamps depth to the floor and bytes to the budget ceiling`() {
+    fun `composed sizing derives depth from the budget and sizes bytes just under the ceiling`() {
         // A 40 Mbps stream on a 48 MiB budget cannot hold the 180s the policy
-        // asks for, nor even the 20s floor (affordable is ~10s), so depth
-        // clamps to the floor. The resulting byte target is then sized from
-        // that clamped depth and clamps to the budget, not the (distinct)
-        // fallback — this exercises the exact composition
-        // calculateTargetBufferBytes wires together, unlike the free-standing
-        // affordableDepthMs/calculateBitrateTargetBufferBytes tests above.
+        // asks for; the budget-derived depth (~8.75s, once the overhead
+        // margin is accounted for) is neither the request nor the 20s floor.
+        // The resulting byte target is sized from that depth and lands at or
+        // just under the budget — not the (distinct) fallback — which is
+        // exactly what proves the depth actually determines the bytes,
+        // rather than both overshooting and clamping to the same ceiling
+        // regardless of which depth was used.
         val budgetBytes = 48 * 1024 * 1024
         val fallbackBytes = 30 * 1024 * 1024 // distinct from budgetBytes: catches a maximumBytes mix-up
         val result =
@@ -174,8 +179,37 @@ class SiloLoadControlTest {
                 unknownBitrateFallbackBytes = fallbackBytes,
             )
 
-        assertEquals("depth should clamp to the floor", PlaybackBufferPolicy.MIN_DEPTH_MS, result.depthMs)
-        assertEquals("byte target should clamp to the budget ceiling, not the fallback", budgetBytes, result.targetBytes)
+        assertEquals("depth should be the honest budget-derived value", 8_753, result.depth.ms)
+        assertTrue(
+            "byte target ${result.target.bytes} should not exceed the budget $budgetBytes",
+            result.target.bytes <= budgetBytes,
+        )
+        assertTrue(
+            "byte target ${result.target.bytes} should land just under the budget, not clamp to it",
+            result.target.bytes > budgetBytes - (budgetBytes / 50),
+        )
+    }
+
+    @Test
+    fun `composed sizing reports the true budget-limited depth, not just a clamped byte target`() {
+        // Both a correctly-routed depth and an un-routed, un-reduced one can
+        // produce the same clamped byte target once the byte clamp is hit —
+        // that erasure is exactly how a wiring bug that never routes the
+        // affordable depth into the byte calculation went undetected. This
+        // asserts the depth itself, which is the only place such a bug is
+        // visible: 60 Mbps against a 48 MiB budget affords ~5.8s once the
+        // overhead margin is accounted for.
+        val result =
+            computeBufferSizing(
+                selectedBitrateBps = 60_000_000L,
+                desiredDepthMs = PlaybackBufferPolicy.MAX_DEPTH_MS,
+                minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
+                budgetBytes = 48 * 1024 * 1024,
+                minimumBytes = SiloLoadControl.MIN_TARGET_BUFFER_BYTES,
+                unknownBitrateFallbackBytes = 48 * 1024 * 1024,
+            )
+
+        assertEquals("depth should be the true budget-limited value", 5_835, result.depth.ms)
     }
 
     @Test
@@ -194,8 +228,8 @@ class SiloLoadControlTest {
                 unknownBitrateFallbackBytes = fallbackBytes,
             )
 
-        assertEquals("depth should pass through unchanged", 120_000, result.depthMs)
-        assertEquals("byte target should route the fallback", fallbackBytes, result.targetBytes)
+        assertEquals("depth should pass through unchanged", 120_000, result.depth.ms)
+        assertEquals("byte target should route the fallback", fallbackBytes, result.target.bytes)
     }
 
     @Test
@@ -214,8 +248,8 @@ class SiloLoadControlTest {
             )
 
         assertTrue(
-            "depth ${result.depthMs} exceeded requested $desiredDepthMs",
-            result.depthMs <= desiredDepthMs,
+            "depth ${result.depth.ms} exceeded requested $desiredDepthMs",
+            result.depth.ms <= desiredDepthMs,
         )
     }
 }
