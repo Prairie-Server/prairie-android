@@ -177,16 +177,18 @@ internal fun computeBufferSizing(
         calculateBitrateTargetBufferBytes(
             selectedBitrateBps = selectedBitrateBps,
             desiredForwardBufferMs = depthMs,
-            minimumBytes = minimumBytes,
             // calculateBitrateTargetBufferBytes requires maximumBytes >=
             // minimumBytes. That holds today only because
             // MIN_MEMORY_BUDGET_BYTES and MIN_TARGET_BUFFER_BYTES are both
             // exactly 16 MiB — a coincidence a future change to either
             // constant could break, throwing IllegalArgumentException on the
-            // playback thread during track selection. Coercing here means
-            // this call can never violate the relation regardless of how
-            // budgetBytes and minimumBytes drift relative to each other.
-            maximumBytes = budgetBytes.coerceAtLeast(minimumBytes),
+            // playback thread during track selection. The relation is
+            // restored by lowering the floor rather than raising the ceiling,
+            // so the memory budget stays the binding limit: a device whose
+            // budget is under the nominal floor gets a smaller buffer, never
+            // one that overruns the heap it was allowed.
+            minimumBytes = minimumBytes.coerceIn(1, budgetBytes.coerceAtLeast(1)),
+            maximumBytes = budgetBytes.coerceAtLeast(1),
             unknownBitrateFallbackBytes = unknownBitrateFallbackBytes,
         )
     return BufferSizingResult(depth = BufferDepthMs(depthMs), target = BufferTargetBytes(targetBytes))

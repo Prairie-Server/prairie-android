@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- **The invariant is the point of this work:** `maxBufferMs == minBufferMs + MAX_LOAD_IDLE_MS`, always, for every reachable policy including after the memory budget reduces depth. `MAX_LOAD_IDLE_MS = 30_000`.
-- **Depth bounds:** floor `20_000` ms, ceiling `180_000` ms.
+- **The invariant is the point of this work:** `maxBufferMs == minBufferMs + MAX_LOAD_IDLE_MS`, always, for every reachable policy including after the memory budget reduces depth. `MAX_LOAD_IDLE_MS = 15_000` — a 30s wall-clock budget divided by the slowest selectable playback rate (0.5x, offered for audiobooks, which share this load control and which `DefaultLoadControl` does not scale for).
+- **Depth bounds:** requested floor `20_000` ms, ceiling `180_000` ms. The floor is where depth starts, not a guarantee: a known bitrate whose budget funds less than 20s yields the smaller number rather than a claimed depth memory cannot hold.
 - **Startup:** `bufferForPlaybackMs = 2_000`, `bufferForPlaybackAfterRebufferMs = 5_000`.
 - **No user setting, no server-driven wire value.** `PlaybackBufferMode` and its `fromWire` are deleted, not repurposed.
 - **No transcode/HLS special case.** One policy; throughput governs. The server's `TranscodeThrottler` owns the transcode-ahead ceiling.
@@ -34,7 +34,7 @@ This task alone fixes the reported dropped connections.
 - Test: `android-shared/src/androidUnitTest/kotlin/org/siloserver/silo/common/player/PlaybackBufferPolicyTest.kt`
 
 **Interfaces:**
-- Produces: `PlaybackBufferPolicy.forConditions(deviceProfile: PlaybackBufferDeviceProfile): PlaybackBufferPolicy`, plus companion constants `MAX_LOAD_IDLE_MS = 30_000`, `MIN_DEPTH_MS = 20_000`, `MAX_DEPTH_MS = 180_000`, `ASSUMED_PROXY_SEND_TIMEOUT_MS = 60_000`. The `PlaybackBufferPolicy` data class keeps its existing six fields unchanged.
+- Produces: `PlaybackBufferPolicy.forConditions(deviceProfile: PlaybackBufferDeviceProfile): PlaybackBufferPolicy`, plus companion constants `MAX_LOAD_IDLE_MS = 15_000`, `MIN_DEPTH_MS = 20_000`, `MAX_DEPTH_MS = 180_000`, `ASSUMED_PROXY_SEND_TIMEOUT_MS = 60_000`. The `PlaybackBufferPolicy` data class keeps its existing six fields unchanged.
 - Removes: `PlaybackBufferMode` (whole enum, including `fromWire`) and `PlaybackBufferPolicy.forMode(...)`. `PlaybackBufferDeviceProfile` stays exactly as it is.
 
 - [ ] **Step 1: Write the failing tests**
@@ -148,12 +148,16 @@ data class PlaybackBufferPolicy(
          * maxBufferMs is therefore never written by hand; it is always
          * minBufferMs + this. Depth can grow without ever widening the window.
          */
-        const val MAX_LOAD_IDLE_MS = 30_000
+        const val MAX_LOAD_IDLE_MS = 15_000
 
-        /** The timeout MAX_LOAD_IDLE_MS is chosen to stay clear of. */
+        /**
+         * The timeout MAX_LOAD_IDLE_MS is chosen to stay clear of. The window is
+         * this budgeted down to 30s and then divided by SLOWEST_PLAYBACK_SPEED,
+         * because the invariant is in media time and a proxy measures wall clock.
+         */
         const val ASSUMED_PROXY_SEND_TIMEOUT_MS = 60_000
 
-        /** Never buffer less than this, however constrained the device. */
+        /** The depth the policy asks for before the memory budget has its say. */
         const val MIN_DEPTH_MS = 20_000
 
         /**
@@ -250,7 +254,7 @@ git commit -m "fix(playback): bound the load-idle window so proxies stop droppin
 
 **Interfaces:**
 - Consumes: `PlaybackBufferPolicy.MIN_DEPTH_MS`, `PlaybackBufferPolicy.MAX_LOAD_IDLE_MS` (Task 1); the existing internal helpers `selectBufferSizingBitrateBps(...)` and `calculateBitrateTargetBufferBytes(...)`, both unchanged.
-- Produces: `internal fun affordableDepthMs(desiredDepthMs: Int, selectedBitrateBps: Long?, budgetBytes: Int, minimumDepthMs: Int): Int` — the depth the budget can actually fund, never below `minimumDepthMs`, never above `desiredDepthMs`.
+- Produces: `internal fun affordableDepthMs(desiredDepthMs: Int, selectedBitrateBps: Long?, budgetBytes: Int, minimumDepthMs: Int): Int` — the depth the budget can actually fund, never above `desiredDepthMs`. `minimumDepthMs` is the floor only on the unknown-bitrate path, where there is nothing to size from; with a known bitrate the helper returns the true affordable depth even when that is below `minimumDepthMs`, since claiming the floor would reinstate exactly the silent overrun this task removes.
 
 **Context an implementer needs:** today `calculateTargetBufferBytes` clamps bytes to the budget and stops there, so on a 60 Mbps remux the loader quietly stops at whatever the cap affords (about 5s on a low-RAM device) while the policy still claims a much larger depth. The fix is not to raise the cap — memory is genuinely finite — but to make the reduction explicit, so the resulting depth is a number the code chose rather than an accident.
 

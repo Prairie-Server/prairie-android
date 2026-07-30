@@ -48,14 +48,19 @@ Taken in conversation with Jim:
 
 `maxBufferMs` stops being a free parameter:
 
-```
+```text
 maxBufferMs = minBufferMs + MAX_LOAD_IDLE_MS
 ```
 
-`MAX_LOAD_IDLE_MS = 30_000`, chosen to sit well under the assumed 60s upstream
-proxy `send_timeout`. The assumed timeout is a named constant with its
-reasoning beside it, so a deployment behind a 30s proxy has an obvious dial
-rather than a mystery.
+`MAX_LOAD_IDLE_MS = 15_000`, which is a 30s wall-clock budget divided by the
+slowest selectable playback rate. The 30s budget sits well under the assumed
+60s upstream proxy `send_timeout`, but the invariant is expressed in *media*
+time while a proxy measures *wall clock*, and `DefaultLoadControl` scales
+`minBufferUs` only for speeds above 1.0. Audiobooks offer 0.5x and share this
+load control, so a 30s media window would stretch to 60s of wall clock —
+exactly the timeout. The assumed timeout and the slowest rate are both named
+constants with their reasoning beside them, so a deployment behind a 30s proxy
+has an obvious dial rather than a mystery.
 
 This makes the failure structurally unrepresentable: no matter how deep the
 buffer grows, the socket cannot idle long enough to be dropped. Depth is
@@ -67,9 +72,13 @@ Depth grows toward a ceiling, bounded by:
 
 - **Memory budget** — bytes needed = target seconds × observed bitrate,
   clamped to a fraction of the app heap. When the budget cannot fund the target
-  seconds, the *target seconds are reduced explicitly* to what fits, never
-  below a **20s floor**. `maxBufferMs` follows `min` down, so the idle window
-  only ever shrinks.
+  seconds, the *target seconds are reduced explicitly* to what fits.
+  **20s is the policy's requested floor, not a guarantee:** it is where depth
+  starts when nothing constrains it, but a known bitrate high enough that the
+  budget funds less than 20s yields the smaller, honest number. Raising it back
+  to 20s would only mean claiming a depth the memory cannot hold — which is the
+  silent overrun this work exists to remove. `maxBufferMs` follows `min` down,
+  so the idle window only ever shrinks.
 - **Delivery throughput** — the bandwidth meter already reports delivery rate.
   Delivery ≫ media bitrate means the source can outrun playback (direct file,
   or a fast/GPU transcode) and depth may extend. Delivery ≈ bitrate means the
@@ -105,7 +114,7 @@ progressive direct play — which is exactly where the reported drops occur.
 
 | | Start | After stall | Depth (min) | Idle window |
 |---|---|---|---|---|
-| All delivery | 2s | 5s | 20s floor → 180s ceiling, memory/throughput governed | 30s |
+| All delivery | 2s | 5s | 20s requested floor → 180s ceiling, memory/throughput governed | 15s media (30s wall clock at 0.5x) |
 
 Start drops 3s → 2s. Stall recovery drops 10s → 5s: after a stall the user is
 watching a spinner, and ten seconds is a long time to withhold the picture for
@@ -131,10 +140,11 @@ high-risk behaviour only:
 
 - The idle-window invariant holds for every reachable policy — including after
   the memory budget has forced depth down.
-- Seconds-fit-to-budget reduction, and the 20s floor holding on a low-RAM device
-  with a 60 Mbps stream.
+- Seconds-fit-to-budget reduction on a low-RAM device with a 60 Mbps stream:
+  the reported depth is the honest sub-floor number the budget funds, not the
+  20s the policy asked for.
 - The 180s ceiling holding when memory would allow more.
-- A regression pinning `max − min ≤ 30s`, since that is the property that
+- A regression pinning `max − min == MAX_LOAD_IDLE_MS`, since that is the property that
   prevents the dropped connections.
 
 ## Out of scope

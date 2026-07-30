@@ -236,4 +236,34 @@ class SiloLoadControlTest {
             result.depth.ms <= desiredDepthMs,
         )
     }
+
+    @Test
+    fun `composed sizing keeps the budget authoritative when it is below the nominal byte floor`() {
+        // MIN_TARGET_BUFFER_BYTES and the policy's memory floor are both
+        // 16 MiB today, so nothing on shipping hardware reaches this case.
+        // A future change to either constant could separate them, and the
+        // relation must then be restored by lowering the floor, not raising
+        // the ceiling: a device allowed 8 MiB must get 8 MiB, not the 16 MiB
+        // floor its heap cannot hold. Both a known and an unknown bitrate are
+        // exercised, since the unknown path routes a caller-supplied fallback
+        // that is itself larger than the budget here.
+        val budgetBytes = 8 * 1024 * 1024
+
+        for (bitrate in listOf(6_000_000L, null)) {
+            val result =
+                computeBufferSizing(
+                    selectedBitrateBps = bitrate,
+                    desiredDepthMs = PlaybackBufferPolicy.MAX_DEPTH_MS,
+                    minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
+                    budgetBytes = budgetBytes,
+                    minimumBytes = SiloLoadControl.MIN_TARGET_BUFFER_BYTES,
+                    unknownBitrateFallbackBytes = 40 * 1024 * 1024,
+                )
+
+            assertTrue(
+                "byte target ${result.target.bytes} exceeded the budget $budgetBytes at bitrate $bitrate",
+                result.target.bytes <= budgetBytes,
+            )
+        }
+    }
 }
