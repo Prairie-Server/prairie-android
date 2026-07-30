@@ -154,29 +154,68 @@ class SiloLoadControlTest {
     }
 
     @Test
-    fun `byte target follows the affordable depth rather than the requested one`() {
-        // A 40 Mbps stream on a 48 MiB budget can hold ~10s, not the 180s the
-        // policy asks for. The byte target must reflect the affordable depth,
-        // and must never exceed the budget.
+    fun `composed sizing clamps depth to the floor and bytes to the budget ceiling`() {
+        // A 40 Mbps stream on a 48 MiB budget cannot hold the 180s the policy
+        // asks for, nor even the 20s floor (affordable is ~10s), so depth
+        // clamps to the floor. The resulting byte target is then sized from
+        // that clamped depth and clamps to the budget, not the (distinct)
+        // fallback — this exercises the exact composition
+        // calculateTargetBufferBytes wires together, unlike the free-standing
+        // affordableDepthMs/calculateBitrateTargetBufferBytes tests above.
         val budgetBytes = 48 * 1024 * 1024
-        val depth =
-            affordableDepthMs(
+        val fallbackBytes = 30 * 1024 * 1024 // distinct from budgetBytes: catches a maximumBytes mix-up
+        val result =
+            computeBufferSizing(
+                selectedBitrateBps = 40_000_000L,
                 desiredDepthMs = PlaybackBufferPolicy.MAX_DEPTH_MS,
-                selectedBitrateBps = 40_000_000L,
-                budgetBytes = budgetBytes,
                 minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
-            )
-
-        val bytes =
-            calculateBitrateTargetBufferBytes(
-                selectedBitrateBps = 40_000_000L,
-                desiredForwardBufferMs = depth,
+                budgetBytes = budgetBytes,
                 minimumBytes = SiloLoadControl.MIN_TARGET_BUFFER_BYTES,
-                maximumBytes = budgetBytes,
-                unknownBitrateFallbackBytes = budgetBytes,
+                unknownBitrateFallbackBytes = fallbackBytes,
             )
 
-        assertTrue("byte target $bytes exceeded budget $budgetBytes", bytes <= budgetBytes)
-        assertTrue("byte target below floor", bytes >= SiloLoadControl.MIN_TARGET_BUFFER_BYTES)
+        assertEquals("depth should clamp to the floor", PlaybackBufferPolicy.MIN_DEPTH_MS, result.depthMs)
+        assertEquals("byte target should clamp to the budget ceiling, not the fallback", budgetBytes, result.targetBytes)
+    }
+
+    @Test
+    fun `composed sizing routes the fallback bytes when the bitrate is unknown`() {
+        // With no bitrate to size from, the requested depth passes through
+        // untouched and the byte target must come from the caller-supplied
+        // fallback (what the superclass computed) rather than the budget.
+        val fallbackBytes = 40 * 1024 * 1024
+        val result =
+            computeBufferSizing(
+                selectedBitrateBps = null,
+                desiredDepthMs = 120_000,
+                minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
+                budgetBytes = 160 * 1024 * 1024,
+                minimumBytes = SiloLoadControl.MIN_TARGET_BUFFER_BYTES,
+                unknownBitrateFallbackBytes = fallbackBytes,
+            )
+
+        assertEquals("depth should pass through unchanged", 120_000, result.depthMs)
+        assertEquals("byte target should route the fallback", fallbackBytes, result.targetBytes)
+    }
+
+    @Test
+    fun `composed sizing never asks for a deeper buffer than the policy requested`() {
+        // A reduction must only ever shrink the depth, never grow it —
+        // growing it would widen the fixed idle window between min and max.
+        val desiredDepthMs = PlaybackBufferPolicy.MAX_DEPTH_MS
+        val result =
+            computeBufferSizing(
+                selectedBitrateBps = 80_000_000L,
+                desiredDepthMs = desiredDepthMs,
+                minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
+                budgetBytes = 48 * 1024 * 1024,
+                minimumBytes = SiloLoadControl.MIN_TARGET_BUFFER_BYTES,
+                unknownBitrateFallbackBytes = 48 * 1024 * 1024,
+            )
+
+        assertTrue(
+            "depth ${result.depthMs} exceeded requested $desiredDepthMs",
+            result.depthMs <= desiredDepthMs,
+        )
     }
 }

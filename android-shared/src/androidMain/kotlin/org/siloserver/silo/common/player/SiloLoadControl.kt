@@ -56,21 +56,17 @@ class SiloLoadControl(
                 },
             )
         val fallback = super.calculateTargetBufferBytes(parameters, trackSelections)
-        val affordableMs =
-            affordableDepthMs(
-                desiredDepthMs = policy.minBufferMs,
+        val result =
+            computeBufferSizing(
                 selectedBitrateBps = selectedBitrateBps,
-                budgetBytes = policy.targetBufferBytes,
+                desiredDepthMs = policy.minBufferMs,
                 minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
+                budgetBytes = policy.targetBufferBytes,
+                minimumBytes = MIN_TARGET_BUFFER_BYTES,
+                unknownBitrateFallbackBytes = fallback,
             )
-        depthMs = affordableMs
-        return calculateBitrateTargetBufferBytes(
-            selectedBitrateBps = selectedBitrateBps,
-            desiredForwardBufferMs = affordableMs,
-            minimumBytes = MIN_TARGET_BUFFER_BYTES,
-            maximumBytes = policy.targetBufferBytes,
-            unknownBitrateFallbackBytes = fallback,
-        )
+        depthMs = result.depthMs
+        return result.targetBytes
     }
 
     companion object {
@@ -125,6 +121,43 @@ internal fun affordableDepthMs(
     return affordableMs
         .coerceIn(minimumDepthMs.toLong(), desiredDepthMs.toLong())
         .toInt()
+}
+
+/** The composed result of sizing the buffer: the depth chosen and the bytes it maps to. */
+internal data class BufferSizingResult(val depthMs: Int, val targetBytes: Int)
+
+/**
+ * Composes [affordableDepthMs] and [calculateBitrateTargetBufferBytes] into the
+ * single decision `calculateTargetBufferBytes` needs: how deep a buffer the
+ * budget affords, and how many bytes that depth costs at this bitrate.
+ *
+ * Kept separate from the Media3 override so it can be tested directly without
+ * constructing track selections — the override is a thin adapter over this.
+ */
+internal fun computeBufferSizing(
+    selectedBitrateBps: Long?,
+    desiredDepthMs: Int,
+    minimumDepthMs: Int,
+    budgetBytes: Int,
+    minimumBytes: Int,
+    unknownBitrateFallbackBytes: Int,
+): BufferSizingResult {
+    val depthMs =
+        affordableDepthMs(
+            desiredDepthMs = desiredDepthMs,
+            selectedBitrateBps = selectedBitrateBps,
+            budgetBytes = budgetBytes,
+            minimumDepthMs = minimumDepthMs,
+        )
+    val targetBytes =
+        calculateBitrateTargetBufferBytes(
+            selectedBitrateBps = selectedBitrateBps,
+            desiredForwardBufferMs = depthMs,
+            minimumBytes = minimumBytes,
+            maximumBytes = budgetBytes,
+            unknownBitrateFallbackBytes = unknownBitrateFallbackBytes,
+        )
+    return BufferSizingResult(depthMs = depthMs, targetBytes = targetBytes)
 }
 
 internal fun calculateBitrateTargetBufferBytes(
