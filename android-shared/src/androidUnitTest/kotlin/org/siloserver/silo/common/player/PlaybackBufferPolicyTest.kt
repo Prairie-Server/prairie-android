@@ -2,154 +2,64 @@ package org.siloserver.silo.common.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackBufferPolicyTest {
 
-    @Test
-    fun profilesExposeExpectedStartupAndRebufferTargets() {
-        val quick = PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart)
-        val balanced = PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced)
-        val smooth = PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback)
+    private val roomy = PlaybackBufferDeviceProfile(memoryClassMb = 512, isLowRamDevice = false)
+    private val lowRam = PlaybackBufferDeviceProfile(memoryClassMb = 96, isLowRamDevice = true)
 
-        assertEquals(2_000, quick.bufferForPlaybackMs)
-        assertEquals(6_000, quick.bufferForPlaybackAfterRebufferMs)
-        assertEquals(3_000, balanced.bufferForPlaybackMs)
-        assertEquals(10_000, balanced.bufferForPlaybackAfterRebufferMs)
-        assertEquals(5_000, smooth.bufferForPlaybackMs)
-        assertEquals(15_000, smooth.bufferForPlaybackAfterRebufferMs)
-    }
-
+    // The load control stops reading the socket once the buffer reaches
+    // maxBufferMs and does not resume until it drains below minBufferMs, so
+    // this gap IS how long the connection sits idle. An upstream proxy with a
+    // 60s send timeout drops it if the gap approaches that. This is the
+    // property the whole design exists to guarantee.
     @Test
-    fun profilesKeepBufferDurationsInValidOrder() {
-        PlaybackBufferMode.entries.forEach { mode ->
-            val policy = PlaybackBufferPolicy.forMode(mode)
-            assertTrue(policy.bufferForPlaybackMs <= policy.minBufferMs, mode.name)
-            assertTrue(policy.bufferForPlaybackAfterRebufferMs <= policy.minBufferMs, mode.name)
-            assertTrue(policy.minBufferMs <= policy.maxBufferMs, mode.name)
+    fun `idle window is bounded for every device profile`() {
+        listOf(roomy, lowRam, PlaybackBufferDeviceProfile.Unknown).forEach { profile ->
+            val policy = PlaybackBufferPolicy.forConditions(profile)
+            assertEquals(
+                PlaybackBufferPolicy.MAX_LOAD_IDLE_MS,
+                policy.maxBufferMs - policy.minBufferMs,
+                "idle window for $profile",
+            )
         }
     }
 
     @Test
-    fun quickStartUsesHeapBoundedByteCapForHighBitrate4kDirectPlay() {
-        val policy = PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart, roomyDevice)
-
-        assertEquals(128 * 1024 * 1024, policy.targetBufferBytes)
-        assertFalse(policy.prioritizeTimeOverSizeThresholds)
-        assertTrue(policy.maxBufferMs <= 60_000)
-    }
-
-    @Test
-    fun smoothPlaybackUsesHeapBoundedByteCapForHighBitrateRemuxes() {
-        val policy = PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback, roomyDevice)
-
-        assertEquals(192 * 1024 * 1024, policy.targetBufferBytes)
-        assertFalse(policy.prioritizeTimeOverSizeThresholds)
-        assertTrue(policy.maxBufferMs <= 180_000)
-    }
-
-    @Test
-    fun smoothPlaybackPrioritizesDeepForwardBufferingOverQuickStartup() {
-        val policy = PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback)
-
-        assertTrue(policy.bufferForPlaybackMs >= PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced).bufferForPlaybackMs)
-        assertTrue(policy.bufferForPlaybackAfterRebufferMs >= policy.bufferForPlaybackMs * 3)
-        assertTrue(policy.minBufferMs >= policy.bufferForPlaybackAfterRebufferMs * 3)
-        assertTrue(policy.maxBufferMs >= policy.minBufferMs * 2)
-    }
-
-    @Test
-    fun allProfilesHaveFiniteTargetByteCaps() {
-        assertEquals(128 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart, roomyDevice).targetBufferBytes)
-        assertEquals(160 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced, roomyDevice).targetBufferBytes)
-        assertEquals(192 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback, roomyDevice).targetBufferBytes)
-    }
-
-    @Test
-    fun lowMemoryDevicesUseSmallerByteCaps() {
-        val lowMemory = PlaybackBufferDeviceProfile(memoryClassMb = 128, isLowRamDevice = true)
-
-        assertEquals(32 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart, lowMemory).targetBufferBytes)
-        assertEquals(48 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced, lowMemory).targetBufferBytes)
-        assertEquals(64 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback, lowMemory).targetBufferBytes)
-    }
-
-    @Test
-    fun unknownDevicesUseConstrainedByteCapsUntilMemoryClassIsKnown() {
-        assertEquals(
-            32 * 1024 * 1024,
-            PlaybackBufferPolicy.forMode(
-                PlaybackBufferMode.QuickStart,
-                PlaybackBufferDeviceProfile.Unknown,
-            ).targetBufferBytes,
-        )
-        assertEquals(
-            48 * 1024 * 1024,
-            PlaybackBufferPolicy.forMode(
-                PlaybackBufferMode.Balanced,
-                PlaybackBufferDeviceProfile.Unknown,
-            ).targetBufferBytes,
-        )
-        assertEquals(
-            64 * 1024 * 1024,
-            PlaybackBufferPolicy.forMode(
-                PlaybackBufferMode.SmoothPlayback,
-                PlaybackBufferDeviceProfile.Unknown,
-            ).targetBufferBytes,
+    fun `idle window stays well under the proxy send timeout it guards against`() {
+        assertTrue(
+            PlaybackBufferPolicy.MAX_LOAD_IDLE_MS * 2 <=
+                PlaybackBufferPolicy.ASSUMED_PROXY_SEND_TIMEOUT_MS,
+            "idle window should keep a wide margin below the assumed timeout",
         )
     }
 
     @Test
-    fun roomyDevicesKeepLargeByteCaps() {
-        assertEquals(128 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.QuickStart, roomyDevice).targetBufferBytes)
-        assertEquals(160 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced, roomyDevice).targetBufferBytes)
-        assertEquals(192 * 1024 * 1024, PlaybackBufferPolicy.forMode(PlaybackBufferMode.SmoothPlayback, roomyDevice).targetBufferBytes)
+    fun `playback starts on a small cushion and recovers quickly after a stall`() {
+        val policy = PlaybackBufferPolicy.forConditions(roomy)
+        assertEquals(2_000, policy.bufferForPlaybackMs)
+        assertEquals(5_000, policy.bufferForPlaybackAfterRebufferMs)
     }
 
     @Test
-    fun bitrateAwareTargetScalesLowBitrateStreamsBelowDeviceCap() {
-        assertEquals(
-            35_937_500,
-            calculateBitrateTargetBufferBytes(
-                selectedBitrateBps = 5_000_000,
-                desiredForwardBufferMs = 50_000,
-                minimumBytes = 16 * 1024 * 1024,
-                maximumBytes = 160 * 1024 * 1024,
-                unknownBitrateFallbackBytes = 96 * 1024 * 1024,
-            ),
-        )
+    fun `depth stays within the declared floor and ceiling`() {
+        listOf(roomy, lowRam, PlaybackBufferDeviceProfile.Unknown).forEach { profile ->
+            val policy = PlaybackBufferPolicy.forConditions(profile)
+            assertTrue(policy.minBufferMs >= PlaybackBufferPolicy.MIN_DEPTH_MS, "floor for $profile")
+            assertTrue(policy.minBufferMs <= PlaybackBufferPolicy.MAX_DEPTH_MS, "ceiling for $profile")
+        }
     }
 
     @Test
-    fun bitrateAwareTargetClampsHighBitrateRemuxesToDeviceCap() {
-        assertEquals(
-            160 * 1024 * 1024,
-            calculateBitrateTargetBufferBytes(
-                selectedBitrateBps = 100_000_000,
-                desiredForwardBufferMs = 50_000,
-                minimumBytes = 16 * 1024 * 1024,
-                maximumBytes = 160 * 1024 * 1024,
-                unknownBitrateFallbackBytes = 96 * 1024 * 1024,
-            ),
-        )
-    }
-
-    @Test
-    fun bitrateAwareTargetClampsOverflowingBitrateEstimateToDeviceCap() {
-        assertEquals(
-            160 * 1024 * 1024,
-            calculateBitrateTargetBufferBytes(
-                selectedBitrateBps = Long.MAX_VALUE,
-                desiredForwardBufferMs = 50_000,
-                minimumBytes = 16 * 1024 * 1024,
-                maximumBytes = 160 * 1024 * 1024,
-                unknownBitrateFallbackBytes = 96 * 1024 * 1024,
-            ),
-        )
-    }
-
-    private companion object {
-        val roomyDevice = PlaybackBufferDeviceProfile(memoryClassMb = 384, isLowRamDevice = false)
+    fun `startup thresholds never exceed the depth the policy asks for`() {
+        listOf(roomy, lowRam, PlaybackBufferDeviceProfile.Unknown).forEach { profile ->
+            val policy = PlaybackBufferPolicy.forConditions(profile)
+            assertTrue(policy.bufferForPlaybackMs <= policy.minBufferMs, "start for $profile")
+            assertTrue(
+                policy.bufferForPlaybackAfterRebufferMs <= policy.minBufferMs,
+                "rebuffer for $profile",
+            )
+        }
     }
 }
