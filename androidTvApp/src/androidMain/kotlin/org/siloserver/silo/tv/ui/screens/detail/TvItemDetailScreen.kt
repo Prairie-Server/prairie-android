@@ -96,6 +96,7 @@ import org.siloserver.silo.model.audiobook.AudiobookNarration
 import org.siloserver.silo.model.catalog.EpisodeListItem
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.ItemDetail
+import org.siloserver.silo.model.catalog.isSpecialsForDisplay
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.catalog.isAudiobookItemType
 import org.siloserver.silo.model.ebook.MediaRelatedItem
@@ -1285,10 +1286,15 @@ private fun currentEpisodeRailContentId(detail: ItemDetail, state: TvItemDetailU
         else -> null
     }
 
-private fun episodeEyebrowLabel(detail: ItemDetail, state: TvItemDetailUiState): String {
-    state.selectedSeason?.takeIf { it > 0 }?.let { return "Season $it" }
+internal fun episodeEyebrowLabel(detail: ItemDetail, state: TvItemDetailUiState): String {
+    state.seasons
+        .firstOrNull { it.seasonNumber == state.selectedSeason }
+        ?.let { season ->
+            return if (season.isSpecialsForDisplay()) "Specials" else "Season ${season.seasonNumber}"
+        }
+    state.selectedSeason?.let { return if (it == 0) "Specials" else "Season $it" }
     if (detail.type == "episode") {
-        detail.seasonNumber?.takeIf { it > 0 }?.let { return "Season $it" }
+        detail.seasonNumber?.let { return if (it == 0) "Specials" else "Season $it" }
     }
     return "This Season"
 }

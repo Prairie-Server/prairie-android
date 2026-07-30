@@ -12,7 +12,7 @@ import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.LeafItemUserData
 import org.siloserver.silo.model.catalog.Season
 import org.siloserver.silo.model.catalog.isAudiobookItemType
-import org.siloserver.silo.model.catalog.sortedForDisplay
+import org.siloserver.silo.model.catalog.initialSeasonDisplayPlan
 import org.siloserver.silo.model.playback.combinedSubtitleSelectionIndexes
 import org.siloserver.silo.playback.SUBTITLE_OFF_FINGERPRINT
 import org.siloserver.silo.playback.audioTrackFingerprint
@@ -370,7 +370,7 @@ class TvItemDetailViewModel(
                         -> detail.seriesId?.takeIf { it.isNotBlank() }?.let { seriesId ->
                             loadSeasons(
                                 seriesContentId = seriesId,
-                                preferredSeasonNumber = detail.seasonNumber?.takeIf { it > 0 },
+                                preferredSeasonNumber = detail.seasonNumber,
                             )
                         }
                     }
@@ -682,20 +682,17 @@ class TvItemDetailViewModel(
             _uiState.update { it.copy(seasonsLoading = true) }
             when (val r = catalogRepository.getSeasons(seriesContentId)) {
                 is ApiResult.Success -> {
-                    val seasons = r.data.seasons.sortedForDisplay()
-                    val selectedSeason = preferredSeasonNumber
-                        ?.let { seasonNumber -> seasons.firstOrNull { it.seasonNumber == seasonNumber } }
-                    val firstRegular = selectedSeason
-                        ?: seasons.firstOrNull { !it.isSpecials }
-                        ?: seasons.firstOrNull()
+                    val plan = r.data.seasons.initialSeasonDisplayPlan(preferredSeasonNumber)
                     _uiState.update {
                         it.copy(
                             seasonsLoading = false,
-                            seasons = seasons,
-                            selectedSeason = firstRegular?.seasonNumber,
+                            seasons = plan.seasons,
+                            selectedSeason = plan.selectedSeasonNumber,
                         )
                     }
-                    if (firstRegular != null) loadEpisodes(seriesContentId, firstRegular.seasonNumber)
+                    plan.episodeRequestSeasonNumber?.let { seasonNumber ->
+                        loadEpisodes(seriesContentId, seasonNumber)
+                    }
                 }
                 else -> _uiState.update { it.copy(seasonsLoading = false) }
             }
@@ -723,7 +720,7 @@ class TvItemDetailViewModel(
         // Cancel any in-flight episode load so a slower response for a
         // previously-selected season can't overwrite episodes/next-up for the
         // season the user is now on (rapid season switches / the initial
-        // firstRegular load racing a route-driven season load).
+        // selected-season load racing a route-driven season load).
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
             if (!quiet) _uiState.update { it.copy(episodesLoading = true) }

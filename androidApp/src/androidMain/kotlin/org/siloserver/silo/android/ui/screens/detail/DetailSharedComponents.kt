@@ -69,6 +69,7 @@ import org.siloserver.silo.android.ui.theme.PillShape
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.model.catalog.ItemDetail
 import org.siloserver.silo.model.catalog.Season
+import org.siloserver.silo.model.catalog.isSpecialsForDisplay
 
 // ── Tokens ────────────────────────────────────────────────────
 
@@ -822,7 +823,7 @@ fun SeasonChips(
             contentType = { "season-chip" },
         ) { season ->
             val isSelected = season.seasonNumber == selectedSeasonNumber
-            val label = if (season.isSpecials) "Specials" else "Season ${season.seasonNumber}"
+            val label = phoneSeasonLabel(season)
             // iOS PhoneSeasonChips: 14pt (semibold selected / medium
             // unselected), hpad 16, height 36, unselected fill white-0.06.
             Surface(
@@ -867,8 +868,8 @@ object HeroMetadata {
         val s = detail.seasonNumber
         val e = detail.episodeNumber
         return when {
-            s != null && e != null -> "Season $s · Episode $e"
-            s != null -> "Season $s"
+            s != null && e != null -> "${phoneSeasonNumberLabel(s)} · Episode $e"
+            s != null -> phoneSeasonNumberLabel(s)
             else -> null
         }
     }
@@ -912,6 +913,12 @@ object HeroMetadata {
         }
     }
 }
+
+internal fun phoneSeasonLabel(season: Season): String =
+    if (season.isSpecialsForDisplay()) "Specials" else phoneSeasonNumberLabel(season.seasonNumber)
+
+private fun phoneSeasonNumberLabel(seasonNumber: Int): String =
+    if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
 
 // ── Play label helper ─────────────────────────────────────────
 
