@@ -34,6 +34,11 @@ class SiloLoadControl(
     0,
     false,
 ) {
+    @Volatile private var depthMs: Int = policy.minBufferMs
+
+    /** The forward buffer the memory budget currently affords, in ms. */
+    internal fun currentDepthMs(): Int = depthMs
+
     override fun calculateTargetBufferBytes(
         parameters: LoadControl.Parameters,
         trackSelections: Array<out ExoTrackSelection?>,
@@ -51,9 +56,17 @@ class SiloLoadControl(
                 },
             )
         val fallback = super.calculateTargetBufferBytes(parameters, trackSelections)
+        val affordableMs =
+            affordableDepthMs(
+                desiredDepthMs = policy.minBufferMs,
+                selectedBitrateBps = selectedBitrateBps,
+                budgetBytes = policy.targetBufferBytes,
+                minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
+            )
+        depthMs = affordableMs
         return calculateBitrateTargetBufferBytes(
             selectedBitrateBps = selectedBitrateBps,
-            desiredForwardBufferMs = policy.minBufferMs,
+            desiredForwardBufferMs = affordableMs,
             minimumBytes = MIN_TARGET_BUFFER_BYTES,
             maximumBytes = policy.targetBufferBytes,
             unknownBitrateFallbackBytes = fallback,
