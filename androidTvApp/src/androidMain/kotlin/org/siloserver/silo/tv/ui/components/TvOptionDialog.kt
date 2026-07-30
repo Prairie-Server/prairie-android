@@ -36,10 +36,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -73,6 +78,7 @@ fun TvOptionDialog(
         ?: options.firstOrNull { it.enabled }?.key
     val focusedIndex = options.indexOfFirst { it.key == focusedKey }
     val listState: LazyListState = rememberLazyListState()
+    val popupPositionProvider = remember { TvOptionDialogWindowPositionProvider() }
 
     // Re-target focus when the dialog is reused for a new menu (title) or the
     // selected option changes; the shared helper below covers the initial grab.
@@ -86,13 +92,13 @@ fun TvOptionDialog(
     }
 
     Popup(
-        alignment = Alignment.Center,
+        popupPositionProvider = popupPositionProvider,
         onDismissRequest = onDismiss,
         properties = PopupProperties(
             focusable = true,
             dismissOnBackPress = true,
             dismissOnClickOutside = true,
-            clippingEnabled = false,
+            clippingEnabled = true,
         ),
     ) {
         Box(
@@ -155,6 +161,18 @@ fun TvOptionDialog(
             }
         }
     }
+}
+
+internal class TvOptionDialogWindowPositionProvider : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset = IntOffset(
+        x = ((windowSize.width - popupContentSize.width) / 2).coerceAtLeast(0),
+        y = ((windowSize.height - popupContentSize.height) / 2).coerceAtLeast(0),
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
