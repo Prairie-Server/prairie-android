@@ -44,13 +44,20 @@ class PlaybackBufferPolicyTest {
     // media-time second of idle window takes two wall-clock seconds. This
     // asserts the window still fits inside the assumed proxy timeout once
     // stretched by that slowest rate, not just at 1.0x.
+    //
+    // The comparison is strict on purpose. Equality is not "fits" — a socket
+    // that goes quiet for exactly the timeout is a race the proxy wins about
+    // as often as we do. It also matters for what this test is FOR: with a
+    // non-strict comparison, reverting MAX_LOAD_IDLE_MS to the pre-fix 30_000
+    // gives 60_000 <= 60_000 and the guard passes, silently readmitting the
+    // exact bug this work removed.
     @Test
     fun `idle window still fits the proxy timeout once stretched by the slowest playback speed`() {
         val stretchedWallClockMs =
             PlaybackBufferPolicy.MAX_LOAD_IDLE_MS / PlaybackBufferPolicy.SLOWEST_PLAYBACK_SPEED
 
         assertTrue(
-            stretchedWallClockMs <= PlaybackBufferPolicy.ASSUMED_PROXY_SEND_TIMEOUT_MS,
+            stretchedWallClockMs < PlaybackBufferPolicy.ASSUMED_PROXY_SEND_TIMEOUT_MS,
             "idle window ($stretchedWallClockMs ms wall clock at " +
                 "${PlaybackBufferPolicy.SLOWEST_PLAYBACK_SPEED}x) should still fit inside the " +
                 "assumed proxy timeout (${PlaybackBufferPolicy.ASSUMED_PROXY_SEND_TIMEOUT_MS} ms)",
