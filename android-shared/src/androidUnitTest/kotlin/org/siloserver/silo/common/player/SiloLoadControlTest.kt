@@ -152,4 +152,31 @@ class SiloLoadControlTest {
 
         assertEquals(PlaybackBufferPolicy.MAX_LOAD_IDLE_MS, max - depth)
     }
+
+    @Test
+    fun `byte target follows the affordable depth rather than the requested one`() {
+        // A 40 Mbps stream on a 48 MiB budget can hold ~10s, not the 180s the
+        // policy asks for. The byte target must reflect the affordable depth,
+        // and must never exceed the budget.
+        val budgetBytes = 48 * 1024 * 1024
+        val depth =
+            affordableDepthMs(
+                desiredDepthMs = PlaybackBufferPolicy.MAX_DEPTH_MS,
+                selectedBitrateBps = 40_000_000L,
+                budgetBytes = budgetBytes,
+                minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
+            )
+
+        val bytes =
+            calculateBitrateTargetBufferBytes(
+                selectedBitrateBps = 40_000_000L,
+                desiredForwardBufferMs = depth,
+                minimumBytes = SiloLoadControl.MIN_TARGET_BUFFER_BYTES,
+                maximumBytes = budgetBytes,
+                unknownBitrateFallbackBytes = budgetBytes,
+            )
+
+        assertTrue("byte target $bytes exceeded budget $budgetBytes", bytes <= budgetBytes)
+        assertTrue("byte target below floor", bytes >= SiloLoadControl.MIN_TARGET_BUFFER_BYTES)
+    }
 }
