@@ -311,11 +311,15 @@ class SiloPlayerFactory(
             loadErrorHandlingPolicy = mediaLoadErrorHandlingPolicy,
         )
 
-        // Start on a small cushion and keep filling in the background. Depth is
-        // bounded by the device's memory budget in SiloLoadControl; the gap
-        // between min and max is fixed so the connection is never idle long
-        // enough for an upstream proxy to close it.
-        val bufferPolicy = PlaybackBufferPolicy.forConditions(playbackBufferDeviceProfile())
+        // Staged buffer: start once a modest cushion is ready, wait longer
+        // after an actual stall, and let playback grow a deeper forward
+        // buffer in the background. A finite byte cap lets low-bitrate
+        // streams grow toward the time limit while preventing high-bitrate
+        // remuxes from filling the app heap on memory-constrained TVs.
+        val bufferPolicy = PlaybackBufferPolicy.forMode(
+            PlaybackBufferMode.Balanced,
+            playbackBufferDeviceProfile(),
+        )
         val loadControl = SiloLoadControl(bufferPolicy)
 
         val builder = ExoPlayer.Builder(context, renderersFactory)
