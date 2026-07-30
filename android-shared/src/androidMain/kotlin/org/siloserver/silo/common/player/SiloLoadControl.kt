@@ -89,6 +89,31 @@ internal fun selectBufferSizingBitrateBps(
         ?.takeIf { it > 0L }
 }
 
+/**
+ * The forward buffer this device can actually hold at this bitrate.
+ *
+ * Memory is finite, so a high-bitrate stream genuinely cannot be buffered as
+ * deeply as a low-bitrate one. Computing that reduction here — rather than
+ * letting the byte clamp truncate the buffer wherever it happens to land —
+ * means the resulting depth is a number the code chose and can be reasoned
+ * about, and it keeps maxBufferMs one idle window above a depth that is real.
+ *
+ * An unknown bitrate leaves the request untouched; the byte clamp still
+ * applies downstream.
+ */
+internal fun affordableDepthMs(
+    desiredDepthMs: Int,
+    selectedBitrateBps: Long?,
+    budgetBytes: Int,
+    minimumDepthMs: Int,
+): Int {
+    val bitrate = selectedBitrateBps?.takeIf { it > 0L } ?: return desiredDepthMs
+    val affordableMs = budgetBytes.toLong() * 8L * 1_000L / bitrate
+    return affordableMs
+        .coerceIn(minimumDepthMs.toLong(), desiredDepthMs.toLong())
+        .toInt()
+}
+
 internal fun calculateBitrateTargetBufferBytes(
     selectedBitrateBps: Long?,
     desiredForwardBufferMs: Int,
