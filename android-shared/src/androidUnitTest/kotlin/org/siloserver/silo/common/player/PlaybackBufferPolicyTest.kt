@@ -2,6 +2,7 @@ package org.siloserver.silo.common.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class PlaybackBufferPolicyTest {
@@ -35,6 +36,27 @@ class PlaybackBufferPolicyTest {
         )
     }
 
+    // The idle window is expressed in MEDIA time, but a proxy's send_timeout
+    // measures WALL CLOCK time, and DefaultLoadControl only scales
+    // minBufferUs for speeds ABOVE 1.0 — not below it. Audiobooks share this
+    // load control and the UI offers rates down to
+    // PlaybackBufferPolicy.SLOWEST_PLAYBACK_SPEED (0.5x), where one
+    // media-time second of idle window takes two wall-clock seconds. This
+    // asserts the window still fits inside the assumed proxy timeout once
+    // stretched by that slowest rate, not just at 1.0x.
+    @Test
+    fun `idle window still fits the proxy timeout once stretched by the slowest playback speed`() {
+        val stretchedWallClockMs =
+            PlaybackBufferPolicy.MAX_LOAD_IDLE_MS / PlaybackBufferPolicy.SLOWEST_PLAYBACK_SPEED
+
+        assertTrue(
+            stretchedWallClockMs <= PlaybackBufferPolicy.ASSUMED_PROXY_SEND_TIMEOUT_MS,
+            "idle window ($stretchedWallClockMs ms wall clock at " +
+                "${PlaybackBufferPolicy.SLOWEST_PLAYBACK_SPEED}x) should still fit inside the " +
+                "assumed proxy timeout (${PlaybackBufferPolicy.ASSUMED_PROXY_SEND_TIMEOUT_MS} ms)",
+        )
+    }
+
     @Test
     fun `playback starts on a small cushion and recovers quickly after a stall`() {
         val policy = PlaybackBufferPolicy.forConditions(roomy)
@@ -64,18 +86,34 @@ class PlaybackBufferPolicyTest {
     }
 
     @Test
-    fun `a small heap gets well under half its heap as a buffer budget`() {
-        // A fixed tier this small would starve the device (48 MiB was half of
-        // a 96 MB heap before this became proportional). 1/4 of the heap must
-        // land far short of half of it.
+    fun `a small heap gets exactly half its heap as a buffer budget`() {
+        // Product ruling: half the heap, not a quarter. A quarter-heap rule
+        // gives a 96 MB heap only 24 MiB — the exact fixed floor this policy
+        // replaced, not an improvement on it.
         val smallHeap = PlaybackBufferDeviceProfile(memoryClassMb = 96, isLowRamDevice = false)
         val budgetBytes = PlaybackBufferPolicy.memoryBudgetBytes(smallHeap)
         val halfHeapBytes = (smallHeap.memoryClassMb * 1024 * 1024) / 2
 
-        assertTrue(
-            budgetBytes <= halfHeapBytes / 2,
-            "budget $budgetBytes should be well under half the heap ($halfHeapBytes)",
-        )
+        assertEquals(halfHeapBytes, budgetBytes)
+    }
+
+    @Test
+    fun `NVIDIA Shield measured memoryClass gets half its heap, not a quarter`() {
+        // Measured via adb: the Shield reports memoryClass=192MB and is not
+        // flagged low-RAM. Under a quarter-heap rule it would get 48 MiB —
+        // LESS than the 96 MiB it shipped with before this policy existed.
+        val shield = PlaybackBufferDeviceProfile(memoryClassMb = 192, isLowRamDevice = false)
+
+        assertEquals(96 * 1024 * 1024, PlaybackBufferPolicy.memoryBudgetBytes(shield))
+    }
+
+    @Test
+    fun `Google TV Streamer measured memoryClass hits the ceiling at half its heap`() {
+        // Measured via adb: the Streamer reports memoryClass=384MB and is
+        // not flagged low-RAM. Half of that is exactly the 192 MiB ceiling.
+        val streamer = PlaybackBufferDeviceProfile(memoryClassMb = 384, isLowRamDevice = false)
+
+        assertEquals(192 * 1024 * 1024, PlaybackBufferPolicy.memoryBudgetBytes(streamer))
     }
 
     @Test
@@ -96,9 +134,59 @@ class PlaybackBufferPolicyTest {
     }
 
     @Test
-    fun `a low-RAM device gets the conservative fixed fallback, not a proportional share`() {
-        val budgetBytes = PlaybackBufferPolicy.memoryBudgetBytes(lowRam)
+    fun `a low-RAM device with an unknown heap gets the conservative fixed fallback`() {
+        val unknownHeapLowRam = PlaybackBufferDeviceProfile(memoryClassMb = 0, isLowRamDevice = true)
 
-        assertEquals(24 * 1024 * 1024, budgetBytes)
+        assertEquals(24 * 1024 * 1024, PlaybackBufferPolicy.memoryBudgetBytes(unknownHeapLowRam))
+    }
+
+    @Test
+    fun `a low-RAM device with a small known heap gets the smaller of the flat fallback and its proportional share`() {
+        // A low-RAM stick reporting a small but genuinely known memoryClass
+        // must not have that number thrown away in favor of the flat 24 MiB
+        // fallback — that would be the exact flaw (a fixed value ignoring
+        // what the device actually reports) the proportional rule exists to
+        // remove. 48MB is a real memoryClass a low-RAM device could report;
+        // half of it (24 MiB) ties the flat fallback, so use a heap small
+        // enough that the proportional share is strictly smaller.
+        val smallKnownHeapLowRam =
+            PlaybackBufferDeviceProfile(memoryClassMb = 32, isLowRamDevice = true)
+        val proportionalBytes = (32 * 1024 * 1024) / 2
+
+        assertTrue(proportionalBytes < 24 * 1024 * 1024, "test heap must undercut the flat fallback")
+        assertEquals(
+            proportionalBytes,
+            PlaybackBufferPolicy.memoryBudgetBytes(smallKnownHeapLowRam),
+        )
+    }
+
+    @Test
+    fun `a low-RAM device with a larger known heap is still capped at the flat fallback`() {
+        // The flat 24 MiB fallback must still act as a ceiling on the
+        // low-RAM path: a low-RAM device reporting a heap large enough that
+        // half of it exceeds 24 MiB must not get more than the conservative
+        // fallback just because isLowRamDevice happened to be paired with a
+        // roomier-looking memoryClass.
+        val largerKnownHeapLowRam =
+            PlaybackBufferDeviceProfile(memoryClassMb = 96, isLowRamDevice = true)
+
+        assertEquals(
+            24 * 1024 * 1024,
+            PlaybackBufferPolicy.memoryBudgetBytes(largerKnownHeapLowRam),
+        )
+    }
+
+    @Test
+    fun `constructing a policy with a wider idle window than MAX_LOAD_IDLE_MS throws`() {
+        assertFailsWith<IllegalArgumentException> {
+            PlaybackBufferPolicy(
+                minBufferMs = 50_000,
+                maxBufferMs = 120_000,
+                bufferForPlaybackMs = 2_000,
+                bufferForPlaybackAfterRebufferMs = 5_000,
+                targetBufferBytes = 16 * 1024 * 1024,
+                prioritizeTimeOverSizeThresholds = false,
+            )
+        }
     }
 }

@@ -142,22 +142,6 @@ class SiloLoadControlTest {
     }
 
     @Test
-    fun `reducing depth never widens the idle window`() {
-        // The invariant has to survive the reduction: whatever depth the budget
-        // affords, max is still exactly one idle window above it.
-        val depth =
-            affordableDepthMs(
-                desiredDepthMs = 180_000,
-                selectedBitrateBps = 80_000_000L,
-                budgetBytes = 48 * 1024 * 1024,
-                minimumDepthMs = PlaybackBufferPolicy.MIN_DEPTH_MS,
-            )
-        val max = depth + PlaybackBufferPolicy.MAX_LOAD_IDLE_MS
-
-        assertEquals(PlaybackBufferPolicy.MAX_LOAD_IDLE_MS, max - depth)
-    }
-
-    @Test
     fun `composed sizing derives depth from the budget and sizes bytes just under the ceiling`() {
         // A 40 Mbps stream on a 48 MiB budget cannot hold the 180s the policy
         // asks for; the budget-derived depth (~8.75s, once the overhead
