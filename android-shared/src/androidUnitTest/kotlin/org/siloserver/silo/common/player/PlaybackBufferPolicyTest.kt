@@ -62,4 +62,43 @@ class PlaybackBufferPolicyTest {
             )
         }
     }
+
+    @Test
+    fun `a small heap gets well under half its heap as a buffer budget`() {
+        // A fixed tier this small would starve the device (48 MiB was half of
+        // a 96 MB heap before this became proportional). 1/4 of the heap must
+        // land far short of half of it.
+        val smallHeap = PlaybackBufferDeviceProfile(memoryClassMb = 96, isLowRamDevice = false)
+        val budgetBytes = PlaybackBufferPolicy.memoryBudgetBytes(smallHeap)
+        val halfHeapBytes = (smallHeap.memoryClassMb * 1024 * 1024) / 2
+
+        assertTrue(
+            budgetBytes <= halfHeapBytes / 2,
+            "budget $budgetBytes should be well under half the heap ($halfHeapBytes)",
+        )
+    }
+
+    @Test
+    fun `a bigger heap gets a bigger budget than a smaller one`() {
+        // Proportional scaling means the ceiling grows with the device
+        // instead of two devices past the old 384 MB tier boundary sharing
+        // the same flat 160 MiB cap.
+        val midHeap = PlaybackBufferDeviceProfile(memoryClassMb = 256, isLowRamDevice = false)
+        val bigHeap = PlaybackBufferDeviceProfile(memoryClassMb = 512, isLowRamDevice = false)
+
+        val midBudget = PlaybackBufferPolicy.memoryBudgetBytes(midHeap)
+        val bigBudget = PlaybackBufferPolicy.memoryBudgetBytes(bigHeap)
+
+        assertTrue(
+            bigBudget > midBudget,
+            "a 512 MB heap ($bigBudget) should get more budget than a 256 MB heap ($midBudget)",
+        )
+    }
+
+    @Test
+    fun `a low-RAM device gets the conservative fixed fallback, not a proportional share`() {
+        val budgetBytes = PlaybackBufferPolicy.memoryBudgetBytes(lowRam)
+
+        assertEquals(24 * 1024 * 1024, budgetBytes)
+    }
 }

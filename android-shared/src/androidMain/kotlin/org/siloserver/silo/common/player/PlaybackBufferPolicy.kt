@@ -67,16 +67,44 @@ data class PlaybackBufferPolicy(
         /**
          * The byte ceiling this device can afford. SiloLoadControl sizes the
          * real target from the stream's bitrate and clamps it to this.
+         *
+         * This is a fraction of the app's own heap rather than a pick from
+         * fixed tiers. A fixed tier either starves a small-heap device (a
+         * flat 48 MiB floor is half of a 96 MB heap — a real OOM risk) or
+         * leaves a large-heap device's headroom unused (a flat 160 MiB
+         * ceiling caps a 1 GB heap the same as a 384 MB one). Scaling with
+         * memoryClassMb keeps the budget proportionate at both ends without
+         * hand-picking where the tier boundaries should sit.
          */
-        internal fun memoryBudgetBytes(deviceProfile: PlaybackBufferDeviceProfile): Int = when {
-            deviceProfile.isLowRamDevice -> 48 * MIB
-            deviceProfile.memoryClassMb <= 0 -> 48 * MIB
-            deviceProfile.memoryClassMb < 192 -> 48 * MIB
-            deviceProfile.memoryClassMb < 384 -> 96 * MIB
-            else -> 160 * MIB
+        internal fun memoryBudgetBytes(deviceProfile: PlaybackBufferDeviceProfile): Int {
+            if (deviceProfile.isLowRamDevice || deviceProfile.memoryClassMb <= 0) {
+                return LOW_RAM_MEMORY_BUDGET_BYTES
+            }
+            val proportionalBytes =
+                deviceProfile.memoryClassMb.toLong() * MIB / MEMORY_BUDGET_HEAP_DIVISOR
+            return proportionalBytes
+                .coerceIn(MIN_MEMORY_BUDGET_BYTES.toLong(), MAX_MEMORY_BUDGET_BYTES.toLong())
+                .toInt()
         }
 
         private const val MIB = 1024 * 1024
+
+        /** The budget is this fraction (1/4) of the app heap — see [memoryBudgetBytes]. */
+        private const val MEMORY_BUDGET_HEAP_DIVISOR = 4L
+
+        /** Never budget less than this, however small the heap. */
+        private const val MIN_MEMORY_BUDGET_BYTES = 16 * MIB
+
+        /** Never budget more than this even on a very large heap. */
+        private const val MAX_MEMORY_BUDGET_BYTES = 192 * MIB
+
+        /**
+         * Fixed fallback for devices that report no usable heap size, or that
+         * flag themselves as low-RAM outright — conservative rather than
+         * proportional, since a quarter of an unknown or explicitly
+         * constrained heap is not a number worth trusting.
+         */
+        private const val LOW_RAM_MEMORY_BUDGET_BYTES = 24 * MIB
     }
 }
 

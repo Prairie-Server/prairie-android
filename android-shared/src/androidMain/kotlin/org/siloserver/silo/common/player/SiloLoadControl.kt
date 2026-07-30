@@ -65,8 +65,8 @@ class SiloLoadControl(
                 minimumBytes = MIN_TARGET_BUFFER_BYTES,
                 unknownBitrateFallbackBytes = fallback,
             )
-        depthMs = result.depthMs
-        return result.targetBytes
+        depthMs = result.depth.ms
+        return result.target.bytes
     }
 
     companion object {
@@ -107,8 +107,19 @@ internal fun selectBufferSizingBitrateBps(
  * means the resulting depth is a number the code chose and can be reasoned
  * about, and it keeps maxBufferMs one idle window above a depth that is real.
  *
- * An unknown bitrate leaves the request untouched; the byte clamp still
- * applies downstream.
+ * The budget is authoritative: when it affords less than [minimumDepthMs],
+ * that shortfall is reported honestly rather than padded up to a floor the
+ * loader cannot actually hold — a false-but-round number is worse than an
+ * honest one `currentDepthMs()` can be trusted to reflect. [minimumDepthMs]
+ * only bounds the *unknown-bitrate* branch below, where there is no bitrate
+ * to derive a number from at all.
+ *
+ * The division by 115/100 mirrors the same overhead margin
+ * [calculateBitrateTargetBufferBytes] multiplies back in when it turns a
+ * depth into bytes. Without it, a budget-derived depth still produces a byte
+ * figure that overshoots the budget once that margin is applied, silently
+ * clamps back down to the ceiling, and erases the depth's effect on the byte
+ * target — the two must agree, or reducing the depth changes nothing.
  */
 internal fun affordableDepthMs(
     desiredDepthMs: Int,
@@ -116,15 +127,28 @@ internal fun affordableDepthMs(
     budgetBytes: Int,
     minimumDepthMs: Int,
 ): Int {
-    val bitrate = selectedBitrateBps?.takeIf { it > 0L } ?: return desiredDepthMs
-    val affordableMs = budgetBytes.toLong() * 8L * 1_000L / bitrate
-    return affordableMs
-        .coerceIn(minimumDepthMs.toLong(), desiredDepthMs.toLong())
-        .toInt()
+    val bitrate = selectedBitrateBps?.takeIf { it > 0L }
+        ?: return desiredDepthMs.coerceAtLeast(minimumDepthMs)
+    val affordableMs = budgetBytes.toLong() * 8L * 1_000L * 100L / (bitrate * 115L)
+    return affordableMs.coerceAtMost(desiredDepthMs.toLong()).toInt()
 }
 
-/** The composed result of sizing the buffer: the depth chosen and the bytes it maps to. */
-internal data class BufferSizingResult(val depthMs: Int, val targetBytes: Int)
+/** A forward-buffer depth, in milliseconds. Wrapped so it cannot be confused with [BufferTargetBytes]. */
+@JvmInline
+internal value class BufferDepthMs(val ms: Int)
+
+/** A load-control byte target. Wrapped so it cannot be confused with [BufferDepthMs]. */
+@JvmInline
+internal value class BufferTargetBytes(val bytes: Int)
+
+/**
+ * The composed result of sizing the buffer: the depth chosen and the bytes it
+ * maps to. Both are wrapped value classes rather than bare `Int`s so that
+ * assigning the wrong one to the wrong destination — e.g. storing the byte
+ * target where the depth belongs — is a compile error, not a bug only a test
+ * exercising the Media3 override could catch.
+ */
+internal data class BufferSizingResult(val depth: BufferDepthMs, val target: BufferTargetBytes)
 
 /**
  * Composes [affordableDepthMs] and [calculateBitrateTargetBufferBytes] into the
@@ -157,7 +181,7 @@ internal fun computeBufferSizing(
             maximumBytes = budgetBytes,
             unknownBitrateFallbackBytes = unknownBitrateFallbackBytes,
         )
-    return BufferSizingResult(depthMs = depthMs, targetBytes = targetBytes)
+    return BufferSizingResult(depth = BufferDepthMs(depthMs), target = BufferTargetBytes(targetBytes))
 }
 
 internal fun calculateBitrateTargetBufferBytes(
