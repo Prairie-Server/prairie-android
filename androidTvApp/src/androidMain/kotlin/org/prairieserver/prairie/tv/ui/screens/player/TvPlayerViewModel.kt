@@ -1472,7 +1472,9 @@ class TvPlayerViewModel(
                         audioTrackIndex = initialAudioTrackIndex,
                         subtitleTrackIndex = pendingInitialSubtitleIndex,
                         preferredQualityOverride = preferredQuality,
-                        playbackQualityIntent = qualityOverride,
+                        playbackQualityIntent = org.prairieserver.prairie.playback.toV3QualityPreference(
+                            qualityOverride ?: preferredQuality ?: "auto",
+                        ),
                         suppressResumeRewind = suppressResumeRewind,
                         force = force,
                     )
