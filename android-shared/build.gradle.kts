@@ -130,7 +130,8 @@ kotlin {
 android {
     namespace = "org.prairieserver.prairie.common"
     compileSdk = 36
-    sourceSets.getByName("debug").assets.srcDir("$projectDir/schemas")
+    // Room migration schemas are local-test fixtures shared by both build variants.
+    sourceSets.getByName("test").assets.srcDir("$projectDir/schemas")
     defaultConfig {
         minSdk = 24
         // Gate for preferring FFmpeg audio decoders over platform decoders.

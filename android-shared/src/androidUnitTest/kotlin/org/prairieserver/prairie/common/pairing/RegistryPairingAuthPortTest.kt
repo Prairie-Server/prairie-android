@@ -29,7 +29,7 @@ class RegistryPairingAuthPortTest {
 
         assertFailsWith<CleartextOriginNotApprovedException> {
             RegistryPairingAuthPort(tokens, registry, consent).persistApprovedSession(
-                serverUrl = "http://silo.lan",
+                serverUrl = "http://prairie.lan",
                 serverName = "Unsafe",
                 accessToken = "access",
                 refreshToken = "refresh",

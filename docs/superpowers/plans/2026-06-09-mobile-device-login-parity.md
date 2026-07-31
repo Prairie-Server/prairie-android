@@ -21,8 +21,8 @@
 Assert these inputs resolve to `Route.PairDevice(...).route`:
 - `prairie://device?token=t1`
 - `continuum://device?code=ABCD-1234`
-- `https://silo.example/device?token=t1`
-- `https://silo.example/auth/device?code=ABCD`
+- `https://prairie.example/device?token=t1`
+- `https://prairie.example/auth/device?code=ABCD`
 
 Assert unrelated URLs return null.
 

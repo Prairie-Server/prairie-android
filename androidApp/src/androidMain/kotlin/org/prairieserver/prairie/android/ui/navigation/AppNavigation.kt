@@ -30,17 +30,20 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
+import kotlinx.coroutines.flow.map
 import org.prairieserver.prairie.android.cast.GoogleCastMiniBar
-import org.prairieserver.prairie.android.cast.PrairieCastController
-import org.prairieserver.prairie.android.cast.PrairieCastSessionManager
-import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastMiniBar
-import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastRemoteScreen
+import org.prairieserver.prairie.android.cast.SiloCastController
+import org.prairieserver.prairie.android.cast.SiloCastSessionManager
+import org.prairieserver.prairie.android.ui.screens.cast.SiloCastMiniBar
+import org.prairieserver.prairie.android.ui.screens.cast.SiloCastRemoteScreen
 import org.prairieserver.prairie.android.ui.screens.MainScreen
 import org.prairieserver.prairie.android.ui.screens.auth.LoginScreen
 import org.prairieserver.prairie.android.ui.screens.auth.DevicePairingScreen
 import org.prairieserver.prairie.android.ui.screens.auth.ServerSetupScreen
 import org.prairieserver.prairie.android.ui.screens.auth.SetupScreen
+import org.prairieserver.prairie.android.ui.screens.auth.InviteClaimScreen
 import org.prairieserver.prairie.android.ui.screens.auth.SignupScreen
+import org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourScreen
 import org.prairieserver.prairie.android.ui.screens.browse.BrowseScreen
 import org.prairieserver.prairie.android.ui.screens.browse.BrowseViewModel
 import org.prairieserver.prairie.android.ui.screens.calendar.CalendarScreen
@@ -58,14 +61,14 @@ import org.prairieserver.prairie.android.ui.screens.personal.FavoritesScreen
 import org.prairieserver.prairie.android.ui.screens.personal.HistoryScreen
 import org.prairieserver.prairie.android.ui.screens.personal.PersonalListsScreen
 import org.prairieserver.prairie.android.ui.screens.personal.WatchlistScreen
+import org.prairieserver.prairie.android.ui.screens.player.MobilePlayerRouteTarget
 import org.prairieserver.prairie.android.ui.screens.player.PlayerScreen
+import org.prairieserver.prairie.android.ui.screens.player.PlayerViewModel
 import org.prairieserver.prairie.android.ui.screens.profiles.CreateProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.EditProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionScreen
 import org.prairieserver.prairie.android.ui.screens.requests.MyRequestsScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDetailScreen
-import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvPlayerScreen
-import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestsScreen
 import org.prairieserver.prairie.android.ui.screens.search.MobileSearchMediaType
 import org.prairieserver.prairie.android.ui.screens.search.SearchScreen
@@ -79,7 +82,7 @@ import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsReportScreen
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsSettingsScreen
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
-import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
+import org.prairieserver.prairie.cast.SiloCastPlaybackRequest
 import org.prairieserver.prairie.common.overlays.ProvideCardOverlays
 import org.prairieserver.prairie.common.player.video.VideoPlayerRouteArgs
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
@@ -90,23 +93,41 @@ import org.koin.compose.viewmodel.koinViewModel
 /** Page-to-page cross-fade duration (ms). Snappier than Compose Nav's 700ms default. */
 private const val PageFadeDurationMs = 200
 
+internal class PlayerTargetProviderRegistration(
+    val backStackEntryId: String,
+    val target: () -> MobilePlayerRouteTarget?,
+)
+
+internal fun currentPlayerTargetOrNull(
+    currentBackStackEntryId: String?,
+    registration: PlayerTargetProviderRegistration?,
+): MobilePlayerRouteTarget? {
+    if (currentBackStackEntryId == null || registration?.backStackEntryId != currentBackStackEntryId) {
+        return null
+    }
+    return registration.target()
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
     startDestination: String = Route.Login.route,
-    pendingExternalRoute: String? = null,
-    onExternalRouteConsumed: () -> Unit = {},
+    pendingExternalRoute: ExternalRouteRequest? = null,
+    onExternalRouteConsumed: (ExternalRouteRequest) -> Unit = {},
 ) {
     val tokenManager: TokenManager = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
-    val prairieCastController: PrairieCastController = koinInject()
+    val siloCastController: SiloCastController = koinInject()
     val diagnosticsViewModel = koinViewModel<DiagnosticsViewModel>()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
+    var activePlayerTargetProvider by remember {
+        mutableStateOf<PlayerTargetProviderRegistration?>(null)
+    }
 
-    DisposableEffect(prairieCastController) {
-        prairieCastController.startBrowsing()
-        onDispose { prairieCastController.stopBrowsing() }
+    DisposableEffect(siloCastController) {
+        siloCastController.startBrowsing()
+        onDispose { siloCastController.stopBrowsing() }
     }
 
     // Graceful handling of server-side session invalidation (refresh 401'd).
@@ -122,37 +143,38 @@ fun AppNavigation(
         }
     }
 
-    // Keyed on the route so a notification arriving later restarts the
-    // collection; currentBackStackEntryFlow emits the current entry
-    // immediately on collect, so both "route arrives while on Main" and
-    // "Main arrives with route queued" are covered.
-    LaunchedEffect(pendingExternalRoute) {
-        // Consume only while the main (authenticated) graph is showing —
-        // a notification tapped pre-sign-in stays queued until auth lands,
-        // instead of pushing its target over Login. The back-stack flow makes
-        // this re-fire when Main arrives with the route still pending.
-        navController.currentBackStackEntryFlow.collect { entry ->
-            val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@collect
-            // Every pre-auth / onboarding destination — a notification tapped
-            // on any of these stays queued until the authenticated graph
-            // shows, instead of pushing a content route that would 401.
-            val authRoutes = setOf(
-                Route.Login.route,
-                Route.ServerSetup.route,
-                Route.ServerList.ROUTE,
-                Route.Setup.route,
-                Route.Signup.route,
-                Route.ProfileSelection.route,
-                Route.CreateProfile.route,
-                Route.EditProfile.ROUTE,
-                Route.PairDevice.ROUTE,
-            )
-            if (entry.destination.route in authRoutes) return@collect
-            navController.navigate(route) {
-                launchSingleTop = true
-            }
-            onExternalRouteConsumed()
-        }
+    // Keyed on request identity, not route text, so delivering the same deep
+    // link again after Back still restarts the wait. The back-stack flow emits
+    // the current entry immediately, covering both "request arrives on Main"
+    // and "Main arrives with a request queued". Delivery itself is one-shot.
+    LaunchedEffect(pendingExternalRoute?.generation) {
+        consumeExternalRouteOnce(
+            pendingExternalRoute = pendingExternalRoute,
+            currentDestinationRoutes = navController.currentBackStackEntryFlow
+                .map { entry -> entry.destination.route },
+            isAlreadyAtRoute = { route ->
+                navController.isDisplayingExactPlayerRoute(
+                    route = route,
+                    currentPlayerTarget = currentPlayerTargetOrNull(
+                        currentBackStackEntryId = navController.currentBackStackEntry?.id,
+                        registration = activePlayerTargetProvider,
+                    ),
+                )
+            },
+            navigate = { route ->
+                val replaceCurrentPlayer = shouldReplaceCurrentPlayer(
+                    currentDestinationRoute = navController.currentBackStackEntry?.destination?.route,
+                    targetRoute = route,
+                )
+                navController.navigate(route) {
+                    if (replaceCurrentPlayer) {
+                        popUpTo(Route.Player.ROUTE) { inclusive = true }
+                    }
+                    launchSingleTop = true
+                }
+            },
+            onConsumed = onExternalRouteConsumed,
+        )
     }
 
     // Re-read the authenticated profile id whenever the current destination
@@ -226,9 +248,8 @@ fun AppNavigation(
                     }
                 },
                 onChangeServer = {
-                    navController.navigate(Route.ServerList.autoScanRoute(autoScan = true)) {
+                    navController.navigate(Route.ServerSetup.route) {
                         popUpTo(Route.Login.route) { inclusive = true }
-                        launchSingleTop = true
                     }
                 },
             )
@@ -254,6 +275,44 @@ fun AppNavigation(
                 },
             )
         }
+        composable(
+            route = Route.InviteClaim.ROUTE,
+            arguments = listOf(
+                navArgument("server") { type = NavType.StringType },
+                navArgument("token") { type = NavType.StringType },
+            ),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "prairie://invite?server={server}&token={token}" },
+            ),
+        ) { backStackEntry ->
+            val server = backStackEntry.arguments?.getString("server").orEmpty()
+            val claimToken = backStackEntry.arguments?.getString("token").orEmpty()
+            InviteClaimScreen(
+                serverUrl = server,
+                token = claimToken,
+                onNavigateToLogin = {
+                    navController.navigate(Route.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onClaimComplete = {
+                    navController.navigate(Route.ProfileSelection.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(Route.OnboardingTour.route) {
+            OnboardingTourScreen(
+                onDone = {
+                    navController.navigate(Route.Home.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
+        }
+
         composable(
             route = Route.PairDevice.ROUTE,
             arguments = listOf(
@@ -291,22 +350,9 @@ fun AppNavigation(
             )
         }
 
-        // ---- Server list (first-run connect + multi-server management) ----
-        composable(
-            route = Route.ServerList.ROUTE,
-            arguments = listOf(
-                navArgument(Route.ServerList.ARG_AUTO_SCAN) {
-                    type = NavType.BoolType
-                    defaultValue = false
-                },
-            ),
-        ) { backStackEntry ->
-            val autoScan = backStackEntry.arguments
-                ?.getBoolean(Route.ServerList.ARG_AUTO_SCAN)
-                ?: false
-            val canGoBack = navController.previousBackStackEntry != null
+        // ---- Server list (multi-server management) ----
+        composable(Route.ServerList.route) {
             ServerListScreen(
-                autoScan = autoScan,
                 onAddServer = {
                     navController.navigate(Route.ServerSetup.route)
                 },
@@ -314,23 +360,21 @@ fun AppNavigation(
                     // Route to whichever screen the new server's stored
                     // credentials can support — Home if a token+profile
                     // already exist (so the user stays signed in), else
-                    // ProfileSelection, Login, or Setup as appropriate.
+                    // ProfileSelection or Login as appropriate.
                     val target = when (destination) {
-                        ServerSwitchDestination.Home -> Route.Home.route
+                        // Through the tour gate, not straight to Home — the
+                        // switched-to server's profile may not have seen the
+                        // tour; the gate short-circuits when it has.
+                        ServerSwitchDestination.Home -> Route.OnboardingTour.route
                         ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
                         ServerSwitchDestination.Login -> Route.Login.route
-                        ServerSwitchDestination.Setup -> Route.Setup.route
                     }
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
                         launchSingleTop = true
                     }
                 },
-                onBack = if (canGoBack) {
-                    { navController.popBackStack() }
-                } else {
-                    null
-                },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -338,7 +382,10 @@ fun AppNavigation(
         composable(Route.ProfileSelection.route) {
             ProfileSelectionScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Home.route) {
+                    // Route through the tour gate: OnboardingTourScreen checks
+                    // server-side state and immediately hands off to Home when
+                    // the profile has already completed or skipped the tour.
+                    navController.navigate(Route.OnboardingTour.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
@@ -418,7 +465,7 @@ fun AppNavigation(
         composable(Route.Settings.route) {
             SettingsScreen(
                 onNavigateToServers = {
-                    navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
+                    navController.navigate(Route.ServerList.route)
                 },
                 onPairDevice = {
                     navController.navigate(Route.PairDevice().route)
@@ -469,8 +516,8 @@ fun AppNavigation(
                 onBackClick = { navController.popBackStack() },
             )
         }
-        composable(Route.PrairieCastRemote.route) {
-            PrairieCastRemoteScreen(onBack = { navController.popBackStack() })
+        composable(Route.SiloCastRemote.route) {
+            SiloCastRemoteScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = Route.Search.ROUTE,
@@ -522,40 +569,6 @@ fun AppNavigation(
                         navController.navigate(Route.ItemDetail(contentId).route)
                     } ?: navController.navigate(Route.RequestDetail(request.mediaType, request.tmdbId).route)
                 },
-            )
-        }
-
-        // ---- Live TV ----
-        composable(Route.LiveTv.route) {
-            LiveTvScreen(
-                onBackClick = { navController.popBackStack() },
-                onChannelClick = { channel ->
-                    navController.navigate(
-                        Route.LiveTvPlayer(channel.id, channel.displayName).route,
-                    )
-                },
-                onPlayLibraryItem = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
-                },
-            )
-        }
-        composable(
-            route = Route.LiveTvPlayer.ROUTE,
-            arguments = listOf(
-                navArgument(Route.LiveTvPlayer.ARG_CHANNEL_ID) { type = NavType.StringType },
-                navArgument(Route.LiveTvPlayer.ARG_NAME) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = ""
-                },
-            ),
-        ) { backStackEntry ->
-            val channelId = backStackEntry.arguments?.getString(Route.LiveTvPlayer.ARG_CHANNEL_ID).orEmpty()
-            val channelName = backStackEntry.arguments?.getString(Route.LiveTvPlayer.ARG_NAME).orEmpty()
-            LiveTvPlayerScreen(
-                channelId = channelId,
-                channelName = channelName,
-                onBackClick = { navController.popBackStack() },
             )
         }
         composable(
@@ -641,8 +654,8 @@ fun AppNavigation(
             ItemDetailScreen(
                 onBackClick = { navController.popBackStack() },
                 onPlayClick = { contentId, fileId, audioTrackIndex, subtitleTrackIndex, resumePositionSeconds ->
-                    val launchedRemotely = prairieCastController.launchOnConnectedTarget(
-                        PrairieCastPlaybackRequest(
+                    val launchedRemotely = siloCastController.launchOnConnectedTarget(
+                        SiloCastPlaybackRequest(
                             contentId = contentId,
                             fileId = fileId,
                             audioTrackIndex = audioTrackIndex,
@@ -652,7 +665,7 @@ fun AppNavigation(
                         ),
                     )
                     if (launchedRemotely) {
-                        navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
+                        navController.navigate(Route.SiloCastRemote.route) { launchSingleTop = true }
                     } else {
                         navController.navigate(
                             Route.Player(
@@ -689,7 +702,7 @@ fun AppNavigation(
                 },
                 onWatchTogether = { contentId, fileId -> wtTarget = contentId to fileId },
                 onOpenCastRemote = {
-                    navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
+                    navController.navigate(Route.SiloCastRemote.route) { launchSingleTop = true }
                 },
                 viewModel = detailViewModel,
             )
@@ -821,6 +834,19 @@ fun AppNavigation(
                 },
             ),
         ) { backStackEntry ->
+            val playerViewModel = koinViewModel<PlayerViewModel>()
+            DisposableEffect(backStackEntry.id, playerViewModel) {
+                val registration = PlayerTargetProviderRegistration(
+                    backStackEntryId = backStackEntry.id,
+                    target = playerViewModel::currentExternalRouteTarget,
+                )
+                activePlayerTargetProvider = registration
+                onDispose {
+                    if (activePlayerTargetProvider === registration) {
+                        activePlayerTargetProvider = null
+                    }
+                }
+            }
             PlayerScreen(
                 contentId = backStackEntry.arguments?.getString("contentId") ?: "",
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
@@ -834,6 +860,7 @@ fun AppNavigation(
                 ),
                 roomId = backStackEntry.arguments?.getString("roomId"),
                 navController = navController,
+                viewModel = playerViewModel,
             )
         }
 
@@ -932,13 +959,13 @@ fun AppNavigation(
             Route.Recommendations.route,
             Route.Downloads.route,
             Route.Calendar.route,
-            Route.PrairieCastRemote.route,
+            Route.SiloCastRemote.route,
             Route.Player.ROUTE,
         )
         if (currentRoute !in castBarInlineRoutes) {
-            PrairieCastMiniBar(
-                controller = prairieCastController,
-                onOpenRemote = { navController.navigate(Route.PrairieCastRemote.route) },
+            SiloCastMiniBar(
+                controller = siloCastController,
+                onOpenRemote = { navController.navigate(Route.SiloCastRemote.route) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding(),
@@ -948,7 +975,7 @@ fun AppNavigation(
         // Google Cast (Chromecast) mini controller — app-wide except the player,
         // which shows the full cast takeover overlay instead. On tab routes it
         // stacks above MainScreen's bottom nav menu.
-        val googleCastManager: PrairieCastSessionManager = koinInject()
+        val googleCastManager: SiloCastSessionManager = koinInject()
         val googleCastState by googleCastManager.castState.collectAsState()
         if (googleCastState.isConnected && currentRoute != Route.Player.ROUTE) {
             val tabRoutes = setOf(
@@ -975,4 +1002,24 @@ fun AppNavigation(
     }
     }
     }
+}
+
+/**
+ * Exact player redelivery is idempotent. Navigating the same concrete route
+ * with launchSingleTop replaces the top entry and tears down active playback;
+ * a different content/file/quality/track route must still navigate normally.
+ */
+private fun NavHostController.isDisplayingExactPlayerRoute(
+    route: String,
+    currentPlayerTarget: MobilePlayerRouteTarget?,
+): Boolean {
+    val entry = currentBackStackEntry ?: return false
+    if (entry.destination.route != Route.Player.ROUTE) return false
+    val arguments = entry.arguments ?: return false
+    // A normal prairie://play link is a solo-playback request. Never swallow it
+    // merely because a Watch Together room currently happens to play the same
+    // content/file.
+    if (!arguments.getString("roomId").isNullOrBlank()) return false
+    val requestedTarget = playerRouteIntentOrNull(route) ?: return false
+    return currentPlayerTarget?.let(requestedTarget::matches) == true
 }

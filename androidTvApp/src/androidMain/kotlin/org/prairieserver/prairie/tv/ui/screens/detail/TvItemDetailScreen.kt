@@ -91,17 +91,18 @@ import androidx.tv.material3.Text
 import org.prairieserver.prairie.audiobook.AudioPlaybackTrack
 import org.prairieserver.prairie.audiobook.AudiobookTimeline
 import org.prairieserver.prairie.audiobook.buildAudiobookTimeline
+import org.prairieserver.prairie.common.ui.movieDirectorCredit
 import org.prairieserver.prairie.model.audiobook.AudiobookNarration
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
 import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.model.ebook.MediaRelatedItem
 import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
-import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
 import org.prairieserver.prairie.tv.ui.components.TvDialogOption
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvHeroActionPill
@@ -445,7 +446,7 @@ private fun TvDetailContent(
                                 preferredQuality = state.preferredQuality,
                                 selectedFileId = heroSelectedFileId,
                             ),
-                            starringText = TvDetailMetadata.starringText(detail),
+                            directorText = movieDirectorCredit(detail),
                             translation = translationSlot,
                             actions = {
                                 HeroActionRow(
@@ -794,7 +795,8 @@ private fun HeroActionRow(
     val hasWatchTogether =
         CLIENT_WATCH_TOGETHER_SURFACE_ENABLED && !isAudiobookItemType(detail.type)
     val hasSuggestionTarget = detail.type in setOf("movie", "episode") || nextUp != null
-    val canSuggestToRoom = activeRoom != null && hasSuggestionTarget
+    val canSuggestToRoom =
+        CLIENT_WATCH_TOGETHER_SURFACE_ENABLED && activeRoom != null && hasSuggestionTarget
     val hasOverflowMenu = hasOverflowNavigation || hasWatchTogether || canSuggestToRoom
 
     // Version set + selection state driving the selector row / Play file id.
@@ -1086,13 +1088,7 @@ private fun HeroActionRow(
                 isBusy = watchTogetherState.isBusy,
                 error = watchTogetherState.error,
                 onHost = { watchTogetherViewModel.createRoom(playContentId, playFileId) },
-                onHostVote = {
-                    watchTogetherViewModel.createRoom(
-                        playContentId,
-                        playFileId,
-                        RoomSelectionMode.Vote,
-                    )
-                },
+                onHostVote = watchTogetherViewModel::createEmptyVoteRoom,
                 onJoin = {
                     watchTogetherViewModel.clearError()
                     joinCodeOpen = true
@@ -1290,10 +1286,15 @@ private fun currentEpisodeRailContentId(detail: ItemDetail, state: TvItemDetailU
         else -> null
     }
 
-private fun episodeEyebrowLabel(detail: ItemDetail, state: TvItemDetailUiState): String {
-    state.selectedSeason?.takeIf { it > 0 }?.let { return "Season $it" }
+internal fun episodeEyebrowLabel(detail: ItemDetail, state: TvItemDetailUiState): String {
+    state.seasons
+        .firstOrNull { it.seasonNumber == state.selectedSeason }
+        ?.let { season ->
+            return if (season.isSpecialsForDisplay()) "Specials" else "Season ${season.seasonNumber}"
+        }
+    state.selectedSeason?.let { return if (it == 0) "Specials" else "Season $it" }
     if (detail.type == "episode") {
-        detail.seasonNumber?.takeIf { it > 0 }?.let { return "Season $it" }
+        detail.seasonNumber?.let { return if (it == 0) "Specials" else "Season $it" }
     }
     return "This Season"
 }

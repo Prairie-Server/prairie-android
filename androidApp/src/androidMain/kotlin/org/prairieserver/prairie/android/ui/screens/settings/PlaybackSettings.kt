@@ -15,9 +15,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.prairieserver.prairie.model.settings.LanguageOptions
+import org.prairieserver.prairie.model.settings.QualityPresets
+import org.prairieserver.prairie.model.settings.SettingKeys
 
-private val qualityOptions = listOf("Auto", "Original", "4K", "1080p", "720p", "480p")
-private val languageOptions = listOf("Default", "English", "Spanish", "French", "German", "Japanese", "Korean", "Chinese", "Portuguese", "Italian", "Russian")
+// Quality is two settings behind one picker: playback.preferred_quality (a
+// resolution cap) and playback.max_bitrate_kbps (a bandwidth cap, null =
+// uncapped). The preset table is shared with the TV app and mirrors the web
+// client's, so the same choice reads back with the same label everywhere.
 
 // Discrete choices for the two behavior settings (0 = off). Dropdown idiom
 // matches the rest of this section; the label↔value maps below convert.
@@ -40,8 +45,10 @@ private fun nextUpPromptLabel(seconds: Int): String = when {
  */
 @Composable
 fun PlaybackSettings(
-    defaultQuality: String,
+    qualityResolution: String,
+    maxBitrateKbps: Int?,
     audioLanguage: String,
+    audioLanguageSuggestions: List<String> = emptyList(),
     autoSkipIntro: Boolean,
     autoSkipCredits: Boolean,
     pictureInPictureEnabled: Boolean,
@@ -51,7 +58,8 @@ fun PlaybackSettings(
     nextUpPromptSeconds: Int,
     resumeRewindSeconds: Int,
     passOutThreshold: Int,
-    onQualityChanged: (String) -> Unit,
+    /** Receives a [QualityPresets] preset id. */
+    onQualityPresetSelected: (String) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
@@ -65,21 +73,36 @@ fun PlaybackSettings(
     onResetPlaybackOverrides: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val audioLanguageOptions = remember(audioLanguage, audioLanguageSuggestions) {
+        LanguageOptions.options(
+            key = SettingKeys.PLAYBACK_AUDIO_LANGUAGE,
+            currentValue = audioLanguage,
+            runtimeValues = audioLanguageSuggestions,
+        )
+    }
     SettingsSectionCard(modifier = modifier) {
         SettingsSectionHeader("Playback")
 
+        // A pair no preset covers (set through the API, or left by a legacy
+        // compound value) still gets a truthful label rather than a picker
+        // silently showing the wrong entry.
         SettingsDropdownRow(
             label = "Default Quality",
-            value = defaultQuality,
-            options = qualityOptions,
-            onOptionSelected = onQualityChanged,
+            value = QualityPresets.describe(qualityResolution, maxBitrateKbps),
+            options = QualityPresets.ALL.map { it.label },
+            onOptionSelected = { label ->
+                QualityPresets.ALL.firstOrNull { it.label == label }
+                    ?.let { onQualityPresetSelected(it.id) }
+            },
         )
 
         SettingsDropdownRow(
             label = "Audio Language",
-            value = audioLanguage,
-            options = languageOptions,
-            onOptionSelected = onAudioLanguageChanged,
+            value = LanguageOptions.label(audioLanguage, SettingKeys.PLAYBACK_AUDIO_LANGUAGE),
+            options = audioLanguageOptions.map { it.second },
+            onOptionSelected = { label ->
+                onAudioLanguageChanged(LanguageOptions.wireValue(label, audioLanguageOptions))
+            },
         )
 
         SettingsSwitchRow(

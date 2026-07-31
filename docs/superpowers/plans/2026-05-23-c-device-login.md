@@ -441,8 +441,8 @@ class DeviceLoginRepositoryTest {
         deviceCode = deviceCode,
         userCode = "ABCD-1234",
         matchCode = "M1",
-        verificationUri = "https://silo.example/device",
-        verificationUriComplete = "https://silo.example/device?token=t1",
+        verificationUri = "https://prairie.example/device",
+        verificationUriComplete = "https://prairie.example/device?token=t1",
         expiresAt = "2099-01-01T00:00:00Z",
         expiresIn = 600,
         interval = 1,  // small for tests

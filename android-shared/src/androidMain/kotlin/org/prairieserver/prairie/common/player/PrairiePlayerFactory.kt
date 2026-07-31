@@ -45,7 +45,7 @@ import org.prairieserver.prairie.common.player.audio.PassthroughSuppressingAudio
 import org.prairieserver.prairie.common.player.subtitle.OffsetSubtitleParserFactory
 import org.prairieserver.prairie.common.player.subtitle.PgsSupExtractor
 import org.prairieserver.prairie.common.player.subtitle.SubtitleOffsetHolder
-import org.prairieserver.prairie.common.player.video.PrairieMediaCodecVideoRenderer
+import org.prairieserver.prairie.common.player.video.SiloMediaCodecVideoRenderer
 import org.prairieserver.prairie.common.player.video.PlaybackRuntimeCorrectionState
 import org.prairieserver.prairie.libass.LibassBridge
 import org.prairieserver.prairie.model.playback.AudioPassthroughCapabilities
@@ -70,7 +70,7 @@ import java.util.ArrayList
  * Bluetooth pair, profile language change) without rebuilding the player.
  */
 @UnstableApi
-class PrairiePlayerFactory(
+class SiloPlayerFactory(
     private val context: Context,
     private val tokenManager: TokenManager,
     private val subtitleManager: SubtitleManager,
@@ -187,7 +187,7 @@ class PrairiePlayerFactory(
         // Build a single-processor chain that hosts the per-profile audio
         // delay processor. The chain is owned by the factory and shared
         // across players because Koin gives us a single DelayAudioProcessor
-        // instance; in practice PrairiePlaybackService creates exactly
+        // instance; in practice SiloPlaybackService creates exactly
         // one ExoPlayer per process so there's no contention.
         val audioSink: AudioSink = PassthroughSuppressingAudioSink(DefaultAudioSink.Builder(context)
             .setAudioProcessorChain(
@@ -226,7 +226,7 @@ class PrairiePlayerFactory(
                 val platformRenderer = (firstNewRenderer until out.size)
                     .firstOrNull { out[it] is MediaCodecVideoRenderer }
                     ?: return
-                out[platformRenderer] = PrairieMediaCodecVideoRenderer(
+                out[platformRenderer] = SiloMediaCodecVideoRenderer(
                     context = context,
                     codecAdapterFactory = codecAdapterFactory,
                     mediaCodecSelector = mediaCodecSelector,
@@ -277,7 +277,7 @@ class PrairiePlayerFactory(
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
-        val mediaLoadErrorHandlingPolicy = PrairieMediaLoadErrorHandlingPolicy(
+        val mediaLoadErrorHandlingPolicy = SiloMediaLoadErrorHandlingPolicy(
             isResumableProgressiveDirectPlay = ::isResumableDirectPlayUri,
         )
         fun correctedMediaSourceFactory(
@@ -301,7 +301,7 @@ class PrairiePlayerFactory(
             .setExtractorFactory(hlsExtractorFactory)
             .setSubtitleParserFactory(embeddedSubtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
-        val mediaSourceFactory = PrairieMediaSourceFactory(
+        val mediaSourceFactory = SiloMediaSourceFactory(
             defaultFactory = correctedMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
             correctedFactory = ::correctedMediaSourceFactory,
             hlsFactory = hlsMediaSourceFactory,
@@ -311,15 +311,11 @@ class PrairiePlayerFactory(
             loadErrorHandlingPolicy = mediaLoadErrorHandlingPolicy,
         )
 
-        // Staged buffer: start once a modest cushion is ready, wait longer
-        // after an actual stall, and let playback grow a deeper forward
-        // buffer in the background. A finite byte cap lets low-bitrate
-        // streams grow toward the time limit while preventing high-bitrate
-        // remuxes from filling the app heap on memory-constrained TVs.
-        val bufferPolicy = PlaybackBufferPolicy.forMode(
-            PlaybackBufferMode.Balanced,
-            playbackBufferDeviceProfile(),
-        )
+        // Start on a small cushion and keep filling in the background. Depth is
+        // bounded by the device's memory budget in PrairieLoadControl; the gap
+        // between min and max is fixed so the connection is never idle long
+        // enough for an upstream proxy to close it.
+        val bufferPolicy = PlaybackBufferPolicy.forConditions(playbackBufferDeviceProfile())
         val loadControl = PrairieLoadControl(bufferPolicy)
 
         val builder = ExoPlayer.Builder(context, renderersFactory)
@@ -460,7 +456,7 @@ class PrairiePlayerFactory(
             .apply { contentId?.takeIf(String::isNotBlank)?.let(::setMediaId) }
             .setSubtitleConfigurations(subtitleConfigurations)
             .setTag(
-                PrairieMediaTransformTag(
+                SiloMediaTransformTag(
                     dolbyVisionMode = when {
                         org.prairieserver.prairie.model.playback.CLIENT_DV7_TO_DV81 in transformations ->
                             DolbyVisionTransformMode.PROFILE7_TO_PROFILE81
@@ -526,7 +522,7 @@ class PrairiePlayerFactory(
     private fun buildAbsoluteUrl(serverUrl: String, streamUrl: String): String =
         resolvePlaybackStreamUrl(serverUrl, streamUrl)
 
-    private class PrairieMediaSourceFactory(
+    private class SiloMediaSourceFactory(
         private val defaultFactory: MediaSource.Factory,
         private val correctedFactory: (
             DolbyVisionTransformMode,
@@ -579,7 +575,7 @@ class PrairiePlayerFactory(
             val contentSource = if (contentType == C.CONTENT_TYPE_HLS) {
                 hlsFactory.createMediaSource(contentItem)
             } else {
-                val tag = localConfiguration.tag as? PrairieMediaTransformTag
+                val tag = localConfiguration.tag as? SiloMediaTransformTag
                 mediaSourceFactory(tag).createMediaSource(contentItem)
             }
             if (subtitleConfigurations.isEmpty()) return contentSource
@@ -592,7 +588,7 @@ class PrairiePlayerFactory(
             return MergingMediaSource(*sources.toTypedArray())
         }
 
-        private fun mediaSourceFactory(tag: PrairieMediaTransformTag?): MediaSource.Factory =
+        private fun mediaSourceFactory(tag: SiloMediaTransformTag?): MediaSource.Factory =
             correctedFactory(
                 tag?.dolbyVisionMode ?: DolbyVisionTransformMode.DISABLED,
                 tag?.expectedDynamicRange,
@@ -663,7 +659,7 @@ class PrairiePlayerFactory(
  * prefixed with the server base URL; stream-relative paths are prefixed with
  * the server base URL and the `/api/v1` mount.
  *
- * Shared by [PrairiePlayerFactory] (video) and the audiobook player so both
+ * Shared by [SiloPlayerFactory] (video) and the audiobook player so both
  * resolve identically. Players that hand a relative URI straight to Media3 hit
  * OkHttp's "Malformed URL" because [RoutedDataSource] only prefixes the base
  * when the factory's serverUrl is set — which the audiobook path never did.

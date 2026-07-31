@@ -24,6 +24,7 @@ import org.prairieserver.prairie.model.playback.buildPlaybackSubtitleChoices
 import org.prairieserver.prairie.model.playback.applyResumeRewind
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartRequestPosition
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.playback.orNullIfBlank
 import org.prairieserver.prairie.playback.selectPlaybackVersion
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.ProfileRepository
@@ -41,6 +42,8 @@ internal data class MobileVideoSessionAllocation(
     val subtitleTrackIndex: Int?,
     val qualityPreference: String?,
     val startPosition: Double?,
+    /** `playback.max_bitrate_kbps`; null is uncapped. */
+    val maxBitrateKbps: Int? = null,
 )
 
 internal fun interface MobileVideoSessionAllocator {
@@ -100,6 +103,12 @@ internal class MobileVideoPlaybackStarter(
             val preferredQuality = request.preferredQualityOverride
                 ?: playerSettingsStore.preferredQualityFlow.first()
             val playbackQualityIntent = request.playbackQualityIntent ?: preferredQuality
+            // The bandwidth half of the quality choice. Quality is two axes and
+            // the server applies the cap only from what the request carries —
+            // nothing on the playback path reads the stored setting — so
+            // sending the resolution alone lets a capped preset ("1080p Low")
+            // stream at the bandwidth the user explicitly declined.
+            val maxBitrateKbps = playerSettingsStore.maxBitrateKbpsFlow.first()
             val preferredAudioLanguage = playerSettingsStore.audioLanguageFlow
                 .first().ifBlank { null }
             val version = request.preferredFileId
@@ -164,6 +173,7 @@ internal class MobileVideoPlaybackStarter(
                         subtitleTrackIndex = request.subtitleTrackIndex,
                         qualityPreference = playbackQualityIntent,
                         startPosition = startRequestPosition,
+                        maxBitrateKbps = maxBitrateKbps,
                     ),
                 ) ?: playbackSessionManager.startVideoSessionV3(
                     fileId = version.fileId,
@@ -174,6 +184,7 @@ internal class MobileVideoPlaybackStarter(
                     subtitleTrackIndex = request.subtitleTrackIndex,
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
+                    maxBitrateKbps = maxBitrateKbps,
                 )
             ) {
                 is ApiResult.Success -> r.data
@@ -293,7 +304,30 @@ internal class MobileVideoPlaybackStarter(
                     plannedTracks = resolved.subtitleUrls.orEmpty(),
                 ),
                 preferredAudioLanguage = preferredAudioLanguage ?: activeProfile?.language,
-                preferredTextLanguage = activeProfile?.subtitleLanguage,
+                // Server-resolved first, exactly as TvVideoPlaybackStarter does.
+                // The settings screens write these three canonically now
+                // (`PUT /settings/values/{key}?scope=profile`) and nothing
+                // mirrors a canonical write back into `user_profiles`, so the
+                // profile columns go stale the moment the user changes a
+                // subtitle preference. `effective_*` is what the server would
+                // resolve for this item; the columns stay only as the fallback
+                // for a server too old to send them.
+                //
+                // Blank is normalized to null on every rung, matching the audio
+                // language above. A canonical row holding JSON null (the
+                // contract's spelling of "no preference") unmarshals to "" on
+                // the server and arrives here as a present-but-empty string, and
+                // `resolveMobileAutoSubtitleSelection` reads a non-null blank
+                // language as an explicit "subtitles off" — so passing it
+                // through would turn auto-selection off for a user who never
+                // chose a language.
+                preferredTextLanguage = watchDetail.effectiveSubtitleLanguage.orNullIfBlank()
+                    ?: activeProfile?.subtitleLanguage.orNullIfBlank(),
+                preferredSubtitleMode = watchDetail.effectiveSubtitleMode.orNullIfBlank()
+                    ?: activeProfile?.subtitleMode.orNullIfBlank(),
+                showForcedSubtitles = watchDetail.effectiveShowForcedSubtitles
+                    ?: activeProfile?.showForcedSubtitles
+                    ?: true,
                 intro = watchDetail.intro,
                 credits = watchDetail.credits,
                 chapters = effectiveVersion?.chapters.orEmpty(),

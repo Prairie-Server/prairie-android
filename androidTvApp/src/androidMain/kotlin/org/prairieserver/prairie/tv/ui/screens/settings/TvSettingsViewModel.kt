@@ -9,7 +9,8 @@ import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.model.admin.shouldShowClientAdminSurface
 import org.prairieserver.prairie.model.auth.User
 import org.prairieserver.prairie.model.auth.isActingAdmin
-import org.prairieserver.prairie.model.profile.UpdateProfileRequest
+import org.prairieserver.prairie.domain.settings.ProfileSettingsController
+import org.prairieserver.prairie.model.settings.QualityPresets
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.settings.SubtitleBackgroundStylePreset
 import org.prairieserver.prairie.model.settings.SubtitleFontSizePreset
@@ -20,11 +21,8 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
-import org.prairieserver.prairie.tv.data.preferences.PlaybackQuality
 import org.prairieserver.prairie.tv.data.preferences.SubtitleMode
 import org.prairieserver.prairie.tv.data.preferences.SubtitleSize
-import org.prairieserver.prairie.update.AppUpdateChecker
-import org.prairieserver.prairie.update.AppUpdateStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,9 +35,12 @@ import kotlinx.coroutines.launch
 /**
  * ViewModel for the TV settings screen. Server-managed device settings
  * flow exclusively through [PlayerSettingsStore] (mirror of iOS
- * `PlayerSettings.shared`); profile-level subtitle prefs still go via
- * [profileRepository]. [LegacyTvPrefsMigration] runs the one-time legacy
- * `tv_prefs` → server import on first boot (sentinel-gated no-op after).
+ * `PlayerSettings.shared`); profile-level preferences go through
+ * [ProfileSettingsController], which writes them as canonical settings at
+ * `scope=profile` rather than as columns on the profile endpoint — the same
+ * path the phone uses, so the two screens cannot drift.
+ * [LegacyTvPrefsMigration] runs the one-time legacy `tv_prefs` → server
+ * import on first boot (sentinel-gated no-op after).
  *
  * Sign-out and switch-profile operations emit a one-shot [NavAction]
  * signal that the screen collects and forwards to the top-level NavHost.
@@ -53,9 +54,8 @@ class TvSettingsViewModel(
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
     private val overlayPrefsStore: OverlayPrefsStore,
     private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
+    private val profileSettings: ProfileSettingsController,
     private val tvLibraryScopeStore: org.prairieserver.prairie.tv.data.preferences.TvLibraryScopeStore? = null,
-    private val appUpdateChecker: AppUpdateChecker,
-    private val appVersionName: String,
 ) : ViewModel() {
 
     enum class NavAction { SIGNED_OUT, SWITCH_PROFILE }
@@ -69,12 +69,25 @@ class TvSettingsViewModel(
         val profileAvatar: String? = null,
         val serverUrl: String = "",
         val serverName: String = "",
-        val playbackQuality: PlaybackQuality = PlaybackQuality.Auto,
+        // Whether this server serves the canonical settings API at all. When
+        // it reports SERVER_UPGRADE_REQUIRED the pane explains that instead of
+        // showing rows whose edits go nowhere; playback is unaffected.
+        val settingsAvailability: ProfileSettingsController.Availability =
+            ProfileSettingsController.Availability.UNKNOWN,
+        // Quality is two orthogonal values behind one picker:
+        // playback.preferred_quality (resolution) and
+        // playback.max_bitrate_kbps (bandwidth; null = uncapped). The preset
+        // table is shared with the phone, so the two cannot drift.
+        val qualityResolution: String = QualityPresets.RESOLUTION_AUTO,
+        val maxBitrateKbps: Int? = null,
         val subtitleMode: SubtitleMode = SubtitleMode.Auto,
         val subtitleLanguage: String = "",
+        val subtitleLanguageSuggestions: List<String> = emptyList(),
         // Metadata AI: preferred description/metadata language ("" = server default).
         val metadataLanguage: String = "",
+        val metadataLanguageSuggestions: List<String> = emptyList(),
         val audioLanguage: String = "",
+        val audioLanguageSuggestions: List<String> = emptyList(),
         val subtitleSize: SubtitleSize = SubtitleSize.Medium,
         val showForcedSubtitles: Boolean = true,
         // Full subtitle appearance + whether the device-scoped override is on.
@@ -100,31 +113,15 @@ class TvSettingsViewModel(
         // Client admin is hidden for now even when the server would accept acting-admin.
         val adminVisible: Boolean = false,
         val navAction: NavAction? = null,
-        val appVersionName: String = "",
-        val appUpdateStatus: AppUpdateStatus = AppUpdateStatus.Checking,
     )
 
-    private val _uiState = MutableStateFlow(UiState(appVersionName = appVersionName))
+    private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     init {
         loadUser()
         loadSettings()
         observePlayerSettings()
-        checkForAppUpdate()
-    }
-
-    private fun checkForAppUpdate() {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    appVersionName = appVersionName,
-                    appUpdateStatus = AppUpdateStatus.Checking,
-                )
-            }
-            val status = appUpdateChecker.check(appVersionName)
-            _uiState.update { it.copy(appUpdateStatus = status) }
-        }
     }
 
     /**
@@ -199,32 +196,89 @@ class TvSettingsViewModel(
             // mirrors them into _uiState.
             playerSettingsStore.refreshFromServer()
 
-            when (val profileResult = profileRepository.getActiveProfileResult()) {
-                is ApiResult.Success -> {
-                    val profile = profileResult.data
-                    _uiState.update {
-                        it.copy(
-                            subtitleMode = SubtitleMode.fromWire(profile.subtitleMode),
-                            subtitleLanguage = profile.subtitleLanguage.orEmpty(),
-                            metadataLanguage = profile.preferredMetadataLanguage.orEmpty(),
-                            showForcedSubtitles = profile.showForcedSubtitles ?: true,
-                        )
-                    }
-                }
-                is ApiResult.Error, is ApiResult.NetworkError -> Unit
+            loadProfileSettings()
+        }
+    }
+
+    /**
+     * Resolves the profile-scoped preferences through the canonical settings
+     * API, and records whether this server speaks it at all.
+     *
+     * On [ProfileSettingsController.Availability.SERVER_UPGRADE_REQUIRED] the
+     * values are left alone and the Subtitles pane explains why — rendering
+     * rows whose edits silently go nowhere is the failure this replaces.
+     * Playback keeps running from the device-scoped store.
+     */
+    fun loadProfileSettings() {
+        viewModelScope.launch {
+            val result = profileSettings.load()
+            _uiState.update { state ->
+                val snapshot = result.snapshot ?: return@update state.copy(
+                    settingsAvailability = result.availability,
+                )
+                state.copy(
+                    settingsAvailability = result.availability,
+                    subtitleMode = SubtitleMode.fromWire(snapshot.subtitleMode),
+                    subtitleLanguage = snapshot.subtitleLanguage,
+                    metadataLanguage = snapshot.metadataLanguage,
+                    showForcedSubtitles = snapshot.showForcedSubtitles,
+                    audioLanguageSuggestions = snapshot.audioLanguageSuggestions,
+                    subtitleLanguageSuggestions = snapshot.subtitleLanguageSuggestions,
+                    metadataLanguageSuggestions = snapshot.metadataLanguageSuggestions,
+                )
             }
+        }
+    }
+
+    /**
+     * Replaces the optimistic values with what the server actually resolves.
+     *
+     * A successful PUT stores the authored value; it does not make it
+     * effective. Policy can narrow it, and a device-scoped row for the same key
+     * outranks the profile row these setters write — so the screen would
+     * otherwise show a preference playback is not using. Skipped when a newer
+     * edit for the *same* field landed while the round trip was in flight,
+     * which the optimistic rollbacks guard the same way.
+     */
+    private fun applyResolved(
+        snapshot: ProfileSettingsController.Snapshot?,
+        edited: String,
+        fieldOf: (ProfileSettingsController.Snapshot) -> String,
+    ) {
+        if (snapshot == null) return
+        if (fieldOf(snapshot) == edited) {
+            _uiState.update {
+                it.copy(
+                    audioLanguageSuggestions = snapshot.audioLanguageSuggestions,
+                    subtitleLanguageSuggestions = snapshot.subtitleLanguageSuggestions,
+                    metadataLanguageSuggestions = snapshot.metadataLanguageSuggestions,
+                )
+            }
+            return
+        }
+        _uiState.update { state ->
+            state.copy(
+                subtitleMode = SubtitleMode.fromWire(snapshot.subtitleMode),
+                subtitleLanguage = snapshot.subtitleLanguage,
+                metadataLanguage = snapshot.metadataLanguage,
+                showForcedSubtitles = snapshot.showForcedSubtitles,
+                audioLanguageSuggestions = snapshot.audioLanguageSuggestions,
+                subtitleLanguageSuggestions = snapshot.subtitleLanguageSuggestions,
+                metadataLanguageSuggestions = snapshot.metadataLanguageSuggestions,
+            )
         }
     }
 
     /**
      * Mirror device-scoped flows into UI state. The store is the single
      * source of truth — this just projects to the TV-specific UI types
-     * (PlaybackQuality, SubtitleSize).
+     * (the two quality axes, SubtitleSize).
      */
     private fun observePlayerSettings() {
         viewModelScope.launch {
             combine(
                 playerSettingsStore.preferredQualityFlow,
+                playerSettingsStore.maxBitrateKbpsFlow,
                 playerSettingsStore.autoPlayNextFlow,
                 playerSettingsStore.autoSkipIntroFlow,
                 playerSettingsStore.autoSkipCreditsFlow,
@@ -235,23 +289,28 @@ class TvSettingsViewModel(
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val quality = values[0] as String
+                val bitrate = values[1] as Int?
                 @Suppress("UNCHECKED_CAST")
-                val autoPlay = values[1] as Boolean
+                val autoPlay = values[2] as Boolean
                 @Suppress("UNCHECKED_CAST")
-                val skipIntro = values[2] as Boolean
+                val skipIntro = values[3] as Boolean
                 @Suppress("UNCHECKED_CAST")
-                val skipCredits = values[3] as Boolean
+                val skipCredits = values[4] as Boolean
                 @Suppress("UNCHECKED_CAST")
-                val appearance = values[4] as SubtitleAppearance
+                val appearance = values[5] as SubtitleAppearance
                 @Suppress("UNCHECKED_CAST")
-                val audioLang = values[5] as String
-                val rewind = values[6] as Int
-                val threshold = values[7] as Int
-                Snapshot(quality, autoPlay, skipIntro, skipCredits, appearance, audioLang, rewind, threshold)
+                val audioLang = values[6] as String
+                val rewind = values[7] as Int
+                val threshold = values[8] as Int
+                Snapshot(
+                    quality, bitrate, autoPlay, skipIntro, skipCredits,
+                    appearance, audioLang, rewind, threshold,
+                )
             }.collect { snap ->
                 _uiState.update {
                     it.copy(
-                        playbackQuality = PlaybackQuality.fromWire(snap.quality),
+                        qualityResolution = snap.quality,
+                        maxBitrateKbps = snap.maxBitrateKbps,
                         autoPlayNext = snap.autoPlay,
                         autoSkipIntro = snap.skipIntro,
                         autoSkipCredits = snap.skipCredits,
@@ -324,39 +383,66 @@ class TvSettingsViewModel(
             .ifBlank { url }
     }
 
-    fun onPlaybackQualityChanged(value: PlaybackQuality) {
-        viewModelScope.launch { playerSettingsStore.setPreferredQuality(value.wireValue) }
+    /**
+     * Applies one quality preset — the two axes it decomposes into. The
+     * compound legacy spellings ("1080p-high") are never written.
+     */
+    fun onQualityPresetSelected(presetId: String) {
+        val preset = QualityPresets.byId(presetId) ?: return
+        viewModelScope.launch {
+            playerSettingsStore.setQuality(preset.resolution, preset.bitrateKbps)
+        }
     }
 
+    // The four profile preferences below are canonical settings written at
+    // scope=profile, one key per edit. They used to be named columns sent
+    // together on PUT /profiles/{id}, where one failed write reverted all
+    // three. Each applies optimistically and rolls back only if state still
+    // holds the value it wrote — a newer edit mid-request wins.
+
     fun onSubtitleModeChanged(value: SubtitleMode) {
-        val previousState = _uiState.value
+        val previous = _uiState.value.subtitleMode
         _uiState.update { it.copy(subtitleMode = value) }
-        persistProfileSubtitleSettings(previousState)
+        viewModelScope.launch {
+            val result = profileSettings.setSubtitleMode(value.wireValue)
+            if (!result.succeeded) {
+                _uiState.update {
+                    if (it.subtitleMode == value) it.copy(subtitleMode = previous) else it
+                }
+            } else {
+                applyResolved(result.snapshot, edited = value.wireValue) { it.subtitleMode }
+            }
+        }
     }
 
     fun onMetadataLanguageChanged(value: String) {
         val previous = _uiState.value.metadataLanguage
         _uiState.update { it.copy(metadataLanguage = value) }
         viewModelScope.launch {
-            when (
-                profileRepository.updateActiveProfile(
-                    UpdateProfileRequest(preferredMetadataLanguage = value.ifBlank { null })
-                )
-            ) {
-                is ApiResult.Success -> Unit
-                is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update { current ->
-                        if (current.metadataLanguage == value) current.copy(metadataLanguage = previous) else current
-                    }
+            val result = profileSettings.setMetadataLanguage(value)
+            if (!result.succeeded) {
+                _uiState.update { current ->
+                    if (current.metadataLanguage == value) current.copy(metadataLanguage = previous) else current
                 }
+            } else {
+                applyResolved(result.snapshot, edited = value) { it.metadataLanguage }
             }
         }
     }
 
     fun onSubtitleLanguageChanged(value: String) {
-        val previousState = _uiState.value
+        val previous = _uiState.value.subtitleLanguage
         _uiState.update { it.copy(subtitleLanguage = value) }
-        persistProfileSubtitleSettings(previousState)
+        viewModelScope.launch {
+            val result = profileSettings.setSubtitleLanguage(value)
+            if (!result.succeeded) {
+                _uiState.update {
+                    if (it.subtitleLanguage == value) it.copy(subtitleLanguage = previous) else it
+                }
+            } else {
+                applyResolved(result.snapshot, edited = value) { it.subtitleLanguage }
+            }
+        }
     }
 
     /**
@@ -369,18 +455,24 @@ class TvSettingsViewModel(
     }
 
     fun onShowForcedSubtitlesChanged(enabled: Boolean) {
-        val previousState = _uiState.value
+        val previous = _uiState.value.showForcedSubtitles
         _uiState.update { it.copy(showForcedSubtitles = enabled) }
-        persistProfileSubtitleSettings(previousState)
-    }
-
-    fun onSubtitleSizeChanged(value: SubtitleSize) {
         viewModelScope.launch {
-            val current = playerSettingsStore.subtitleAppearanceFlow.first()
-            val updated = current.copy(fontSize = value.toFontSizePreset())
-            playerSettingsStore.setSubtitleAppearance(updated)
+            val result = profileSettings.setShowForcedSubtitles(enabled)
+            if (!result.succeeded) {
+                _uiState.update {
+                    if (it.showForcedSubtitles == enabled) it.copy(showForcedSubtitles = previous) else it
+                }
+            } else {
+                applyResolved(result.snapshot, edited = enabled.toString()) {
+                    it.showForcedSubtitles.toString()
+                }
+            }
         }
     }
+
+    fun onSubtitleSizeChanged(value: SubtitleSize) =
+        editAppearance { it.copy(fontSize = value.toFontSizePreset()) }
 
     /**
      * Commit a full subtitle-appearance value (device-scoped). The Appearance
@@ -403,6 +495,10 @@ class TvSettingsViewModel(
         viewModelScope.launch {
             val current = playerSettingsStore.subtitleAppearanceFlow.first()
             playerSettingsStore.setSubtitleAppearance(transform(current))
+            // The granular subtitle.* fields are client-local — the contract
+            // carries appearance as one object — so a per-field edit only
+            // reaches the server once it is projected into the composite.
+            playerSettingsStore.flushProjectedSubtitleAppearance()
         }
     }
 
@@ -523,40 +619,6 @@ class TvSettingsViewModel(
         _uiState.update { it.copy(navAction = null) }
     }
 
-    private fun persistProfileSubtitleSettings(previousState: UiState) {
-        val state = _uiState.value
-        viewModelScope.launch {
-            when (
-                profileRepository.updateActiveProfile(
-                    UpdateProfileRequest(
-                        subtitleLanguage = state.subtitleLanguage.ifBlank { null },
-                        subtitleMode = state.subtitleMode.wireValue,
-                        showForcedSubtitles = state.showForcedSubtitles,
-                    )
-                )
-            ) {
-                is ApiResult.Success -> Unit
-                is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update { current ->
-                        if (
-                            current.subtitleLanguage == state.subtitleLanguage &&
-                            current.subtitleMode == state.subtitleMode &&
-                            current.showForcedSubtitles == state.showForcedSubtitles
-                        ) {
-                            current.copy(
-                                subtitleLanguage = previousState.subtitleLanguage,
-                                subtitleMode = previousState.subtitleMode,
-                                showForcedSubtitles = previousState.showForcedSubtitles,
-                            )
-                        } else {
-                            current
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     private fun SubtitleSize.toFontSizePreset(): SubtitleFontSizePreset = when (this) {
         SubtitleSize.Small -> SubtitleFontSizePreset.Small
         SubtitleSize.Medium -> SubtitleFontSizePreset.Medium
@@ -575,6 +637,7 @@ class TvSettingsViewModel(
 
     private data class Snapshot(
         val quality: String,
+        val maxBitrateKbps: Int?,
         val autoPlay: Boolean,
         val skipIntro: Boolean,
         val skipCredits: Boolean,

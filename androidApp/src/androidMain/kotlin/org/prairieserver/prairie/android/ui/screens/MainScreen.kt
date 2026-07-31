@@ -37,7 +37,7 @@ import androidx.navigation.NavHostController
 import org.prairieserver.prairie.android.ui.components.MainAppHeaderBodyHeight
 import org.prairieserver.prairie.android.ui.components.MainAppTopBar
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
-import org.prairieserver.prairie.android.ui.navigation.PrairieBottomNavBar
+import org.prairieserver.prairie.android.ui.navigation.SiloBottomNavBar
 import org.prairieserver.prairie.android.ui.navigation.Route
 import org.prairieserver.prairie.android.ui.navigation.Tab
 import org.prairieserver.prairie.android.ui.navigation.fallbackMobileTab
@@ -46,18 +46,19 @@ import org.prairieserver.prairie.android.ui.navigation.shouldShowDownloadsTab
 import org.prairieserver.prairie.android.ui.navigation.visibleMobileTabs
 import org.prairieserver.prairie.android.ui.screens.calendar.CalendarScreen
 import org.prairieserver.prairie.android.ui.screens.home.HomeScreen
-import org.prairieserver.prairie.android.cast.PrairieCastController
-import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastMiniBar
-import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastTargetPickerSheet
+import org.prairieserver.prairie.android.cast.SiloCastController
+import org.prairieserver.prairie.android.ui.screens.cast.SiloCastMiniBar
+import org.prairieserver.prairie.android.ui.screens.cast.SiloCastTargetPickerSheet
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesScreen
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesSelectorSheet
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.android.ui.screens.recommendations.RecommendationsScreen
-import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
+import org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherMenuEntrySheet
+import org.prairieserver.prairie.cast.SiloCastPlaybackRequest
+import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.MediaModeCapabilities
 import org.prairieserver.prairie.model.navigation.mobileMediaModeCapabilities
-import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
@@ -83,13 +84,14 @@ fun MainScreen(
 ) {
     val headerViewModel = koinViewModel<MainHeaderViewModel>()
     val headerState by headerViewModel.uiState.collectAsState()
-    val prairieCastController: PrairieCastController = koinInject()
-    val prairieCastState by prairieCastController.state.collectAsState()
-    var showPrairieCastTargetPicker by rememberSaveable { mutableStateOf(false) }
+    val siloCastController: SiloCastController = koinInject()
+    val siloCastState by siloCastController.state.collectAsState()
+    var showSiloCastTargetPicker by rememberSaveable { mutableStateOf(false) }
+    var showWatchTogetherEntry by rememberSaveable { mutableStateOf(false) }
 
     fun playVideo(contentId: String, fileId: Int? = null, resumePositionSeconds: Double? = null) {
-        val launchedRemotely = prairieCastController.launchOnConnectedTarget(
-            PrairieCastPlaybackRequest(
+        val launchedRemotely = siloCastController.launchOnConnectedTarget(
+            SiloCastPlaybackRequest(
                 contentId = contentId,
                 fileId = fileId,
                 startFromBeginning = resumePositionSeconds == null,
@@ -97,7 +99,7 @@ fun MainScreen(
             ),
         )
         if (launchedRemotely) {
-            navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
+            navController.navigate(Route.SiloCastRemote.route) { launchSingleTop = true }
         } else {
             navController.navigate(
                 Route.Player(
@@ -135,11 +137,9 @@ fun MainScreen(
     val authRepository: AuthRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
-    val liveTvFeatureStore: LiveTvFeatureStore = koinInject()
     val metadataAiFeatureStore: MetadataAiFeatureStore = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
-    val liveTvEnabled by liveTvFeatureStore.isEnabled.collectAsState()
     val reachabilityScope = rememberCoroutineScope()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
     val mediaCapabilities by produceState(
@@ -204,8 +204,6 @@ fun MainScreen(
     LaunchedEffect(activeEntry?.id, activeEntry?.profileId, headerState.activeProfile?.id) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
-        liveTvFeatureStore.reset()
-        liveTvFeatureStore.refresh()
         metadataAiFeatureStore.reset()
         metadataAiFeatureStore.refresh()
     }
@@ -214,7 +212,6 @@ fun MainScreen(
         reachabilityScope.launch {
             authRepository.logout()
             requestsFeatureStore.reset()
-            liveTvFeatureStore.reset()
             metadataAiFeatureStore.reset()
             navController.navigate(Route.Login.route) {
                 popUpTo(0) { inclusive = true }
@@ -227,24 +224,25 @@ fun MainScreen(
     } else {
         null
     }
-    val liveTvMenuAction: (() -> Unit)? = if (liveTvEnabled) {
-        { navController.navigate(Route.LiveTv.route) }
-    } else {
-        null
-    }
+    val watchTogetherMenuAction: (() -> Unit)? =
+        if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
+            { showWatchTogetherEntry = true }
+        } else {
+            null
+        }
 
     Scaffold(
         bottomBar = {
             // The cast bar rests above the nav menu (iOS tabViewBottomAccessory
             // placement); the Scaffold then pads tab content past both.
             Column {
-                PrairieCastMiniBar(
-                    controller = prairieCastController,
+                SiloCastMiniBar(
+                    controller = siloCastController,
                     onOpenRemote = {
-                        navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
+                        navController.navigate(Route.SiloCastRemote.route) { launchSingleTop = true }
                     },
                 )
-                PrairieBottomNavBar(
+                SiloBottomNavBar(
                     currentTab = currentTab,
                     onTabSelected = { tab ->
                         if (tab == Tab.Home && currentTab == Tab.Home) {
@@ -293,23 +291,23 @@ fun MainScreen(
                             activeProfile = headerState.activeProfile,
                             onSearchClick = { navController.navigate(Route.Search().route) },
                             onRemoteControlClick = {
-                                if (prairieCastState.hasActiveSession) {
-                                    navController.navigate(Route.PrairieCastRemote.route)
+                                if (siloCastState.hasActiveSession) {
+                                    navController.navigate(Route.SiloCastRemote.route)
                                 } else {
-                                    showPrairieCastTargetPicker = true
+                                    showSiloCastTargetPicker = true
                                 }
                             },
-                            onRemoteChooseTvClick = { showPrairieCastTargetPicker = true },
-                            onRemoteDisconnectClick = { prairieCastController.disconnect() },
-                            isRemoteControlActive = prairieCastState.hasActiveSession,
+                            onRemoteChooseTvClick = { showSiloCastTargetPicker = true },
+                            onRemoteDisconnectClick = { siloCastController.disconnect() },
+                            isRemoteControlActive = siloCastState.hasActiveSession,
                             onRequestsClick = requestsMenuAction,
-                            onLiveTvClick = liveTvMenuAction,
+                            onWatchTogetherClick = watchTogetherMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = {
                                 navController.navigate(Route.ProfileSelection.route)
                             },
                             onSwitchServerClick = {
-                                navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
+                                navController.navigate(Route.ServerList.route)
                             },
                             onSignOutClick = ::signOutFromProfileMenu,
                         )
@@ -330,13 +328,13 @@ fun MainScreen(
                             onLibrarySelectorClick = { showLibrarySelector = true },
                             onSearchClick = { navController.navigate(Route.Search().route) },
                             onRequestsClick = requestsMenuAction,
-                            onLiveTvClick = liveTvMenuAction,
+                            onWatchTogetherClick = watchTogetherMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = {
                                 navController.navigate(Route.ProfileSelection.route)
                             },
                             onSwitchServerClick = {
-                                navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
+                                navController.navigate(Route.ServerList.route)
                             },
                             onSignOutClick = ::signOutFromProfileMenu,
                         )
@@ -406,13 +404,13 @@ fun MainScreen(
                     isProfileLoading = headerState.isLoading,
                     onSearchClick = { navController.navigate(Route.Search().route) },
                     onRequestsClick = requestsMenuAction,
-                    onLiveTvClick = liveTvMenuAction,
+                    onWatchTogetherClick = watchTogetherMenuAction,
                     onSettingsClick = { navController.navigate(Route.Settings.route) },
                     onSwitchProfileClick = {
                         navController.navigate(Route.ProfileSelection.route)
                     },
                     onSwitchServerClick = {
-                        navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
+                        navController.navigate(Route.ServerList.route)
                     },
                     onSignOutClick = ::signOutFromProfileMenu,
                     leadingContent = {
@@ -424,7 +422,7 @@ fun MainScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                         } else {
-                            org.prairieserver.prairie.android.ui.components.PrairieWordmark()
+                            org.prairieserver.prairie.android.ui.components.SiloWordmark()
                         }
                     },
                 )
@@ -455,10 +453,21 @@ fun MainScreen(
                 )
             }
 
-            if (showPrairieCastTargetPicker) {
-                PrairieCastTargetPickerSheet(
-                    onDismiss = { showPrairieCastTargetPicker = false },
-                    controller = prairieCastController,
+            if (showSiloCastTargetPicker) {
+                SiloCastTargetPickerSheet(
+                    onDismiss = { showSiloCastTargetPicker = false },
+                    controller = siloCastController,
+                )
+            }
+
+            if (showWatchTogetherEntry) {
+                WatchTogetherMenuEntrySheet(
+                    onNavigate = { route ->
+                        navController.navigate(route) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onDismiss = { showWatchTogetherEntry = false },
                 )
             }
         }

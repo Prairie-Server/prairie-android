@@ -707,7 +707,7 @@ Claude proposed a narrower re-scope after the Explore map showed the plan's draf
 
 **Projection key (Codex won):** add a **separate `content_item_state` table** PK `(serverId, profileId, contentId)` for watched/rating/favorite — these mutations carry no fileId and can fire before any file row exists. `UserItemStateEntity` stays file-level (position/track/CFI); drop watched/ratingValue/favorite from it. Matches the outbox's `targetFileId: Int?` (null for content ops). **Coalesce key now serverId-scoped**: `serverId|profileId|contentId|kind`.
 
-**Schema:** amend v1 in place (no migration) — the DB is committed but unreleased and not yet wired into DI, so no device has `silo.db`.
+**Schema:** amend v1 in place (no migration) — the DB is committed but unreleased and not yet wired into DI, so no device has `prairie.db`.
 
 **DI:** commonMain `single { PersonalDataRepository(get(), getOrNull() ?: NoOpUserItemStatePort) }`; `androidModule`+`androidTvModule` bind `PrairieDatabase` and `single<UserItemStatePort> { RoomUserItemStateRepository(...) }` after `sharedModules()` (mirrors TokenManager override at `AndroidModule.kt:94`).
 

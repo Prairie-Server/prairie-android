@@ -28,7 +28,7 @@ three planned subsystem specs:
 - Pure, reusable logic lives in `shared`/`android-shared` so `androidTvApp` can adopt
   it later and so it is unit-testable without Android dependencies.
 - UI (prompts, overlays) stays per-app.
-- Match silo's existing patterns (`RoomSyncController`, `WatchTogetherRealtimeClient`,
+- Match prairie's existing patterns (`RoomSyncController`, `WatchTogetherRealtimeClient`,
   `PlayerViewModel`) rather than copying continuum verbatim.
 - Reuse methods `PlayerViewModel` already exposes; do not duplicate playback control.
 

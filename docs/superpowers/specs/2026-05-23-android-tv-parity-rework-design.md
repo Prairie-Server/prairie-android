@@ -353,7 +353,7 @@ On `init`, kicks off `deviceLoginRepository.initiate()` + starts polling. Either
 
 ### C.6 — Server-setup screen
 
-Apple's `TVServerSetupView` also exposes a setup QR. This sub-project adds the equivalent affordance to `TvServerSetupScreen` (QR encoding `silo-setup://server` or whatever Apple emits — verify against `TVServerSetupView`). User scans, phone confirms, server URL flows back via the same device-grant pattern.
+Apple's `TVServerSetupView` also exposes a setup QR. This sub-project adds the equivalent affordance to `TvServerSetupScreen` (QR encoding `prairie-setup://server` or whatever Apple emits — verify against `TVServerSetupView`). User scans, phone confirms, server URL flows back via the same device-grant pattern.
 
 If verifying this turns out to require server changes beyond what's in scope, **split out** as a follow-up. The credential-entry path on `TvServerSetupScreen` remains as the always-available fallback.
 

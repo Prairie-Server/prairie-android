@@ -45,6 +45,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.model.catalog.Season
+import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
 import org.prairieserver.prairie.tv.ui.theme.TvControlCorner
 
 /**
@@ -182,7 +183,7 @@ private fun TvSeasonChip(
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = season.displayLabel(),
+            text = tvSeasonPickerLabel(season),
             style = MaterialTheme.typography.titleLarge.copy(
                 fontSize = 16.sp,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
@@ -192,7 +193,7 @@ private fun TvSeasonChip(
     }
 }
 
-private fun Season.displayLabel(): String {
-    if (isSpecials) return "Specials"
-    return title?.takeIf { it.isNotBlank() } ?: "Season $seasonNumber"
+internal fun tvSeasonPickerLabel(season: Season): String {
+    if (season.isSpecialsForDisplay()) return "Specials"
+    return season.title?.takeIf { it.isNotBlank() } ?: "Season ${season.seasonNumber}"
 }
