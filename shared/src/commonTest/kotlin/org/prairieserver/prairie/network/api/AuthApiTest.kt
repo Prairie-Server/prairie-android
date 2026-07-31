@@ -8,14 +8,18 @@ import org.prairieserver.prairie.network.PrairieJson
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class AuthApiTest {
     private val loginJson = """
@@ -23,9 +27,24 @@ class AuthApiTest {
          "user":{"id":1,"username":"u","email":"e","role":"user"}}
     """.trimIndent()
 
-    private fun api(body: String = loginJson, status: HttpStatusCode = HttpStatusCode.OK): AuthApi {
+    private class Captured {
+        var method: HttpMethod? = null
+        var url: String = ""
+        var body: String = ""
+    }
+
+    private fun api(
+        body: String = loginJson,
+        status: HttpStatusCode = HttpStatusCode.OK,
+        captured: Captured? = null,
+    ): AuthApi {
         val client = HttpClient(
-            MockEngine { respond(body, status, headersOf(HttpHeaders.ContentType, "application/json")) },
+            MockEngine { request ->
+                captured?.method = request.method
+                captured?.url = request.url.toString()
+                captured?.body = request.body.toByteArray().decodeToString()
+                respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
+            },
         ) { install(ContentNegotiation) { json(PrairieJson) } }
         return AuthApi(client)
     }
@@ -52,5 +71,42 @@ class AuthApiTest {
         assertIs<ApiResult.Success<*>>(api("""{"sessions":[]}""").getSessions())
         assertIs<ApiResult.Success<*>>(api(status = HttpStatusCode.NoContent, body = "").revokeSession("s1"))
         assertIs<ApiResult.Success<*>>(api(status = HttpStatusCode.NoContent, body = "").deleteSession("s1"))
+    }
+
+    @Test
+    fun lookupInvitationPathEncodesTokenAndParsesClaimPreview() = runTest {
+        val captured = Captured()
+        val result = api(
+            body = """
+                {"email":"invitee@example.com","inviter_name":"Host",
+                 "server_name":"Prairie","expires_at":"2026-08-01T00:00:00Z"}
+            """.trimIndent(),
+            captured = captured,
+        ).lookupInvitation("https://srv.example/", "tok/en?raw")
+
+        assertEquals(HttpMethod.Get, captured.method)
+        assertTrue(captured.url.contains("/api/v1/invitations/"))
+        assertTrue(captured.url.contains("tok"), "token should remain in the path")
+        assertIs<ApiResult.Success<*>>(result)
+        val lookup = (result as ApiResult.Success).data
+        assertEquals("invitee@example.com", lookup.email)
+        assertEquals("Host", lookup.inviterName)
+        assertEquals("Prairie", lookup.serverName)
+        assertEquals("2026-08-01T00:00:00Z", lookup.expiresAt)
+    }
+
+    @Test
+    fun acceptInvitationPostsPasswordAndReturnsLogin() = runTest {
+        val captured = Captured()
+        val result = api(captured = captured).acceptInvitation(
+            serverUrl = "https://srv.example",
+            token = "claim-token",
+            password = "secret-pass",
+        )
+
+        assertEquals(HttpMethod.Post, captured.method)
+        assertTrue(captured.url.endsWith("/api/v1/invitations/claim-token/accept"))
+        assertTrue(captured.body.contains("\"password\":\"secret-pass\""))
+        assertIs<ApiResult.Success<*>>(result)
     }
 }
