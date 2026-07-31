@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -26,10 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.model.catalog.FileVersion
+import org.prairieserver.prairie.playback.QualityMenuOption
 
 /**
- * Bottom sheet for selecting a file version (quality/resolution).
- * Shows resolution, codec, HDR badge, and file size for each version.
+ * Bottom sheet for selecting encode quality (Auto / Original / ladder rungs)
+ * and optionally a file version when multiple encodes exist.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,6 +41,9 @@ fun QualitySelector(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
+    qualityOptions: List<QualityMenuOption> = emptyList(),
+    selectedQualityId: String = "auto",
+    onSelectQuality: (String) -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -49,53 +55,88 @@ fun QualitySelector(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // Cap below the top edge + keep content flings from
-                // dismissing the sheet — see PlayerSheetSupport.
                 .heightIn(max = playerSheetMaxHeight())
                 .nestedScroll(PlayerSheetFlingGuard)
                 .padding(bottom = 32.dp),
         ) {
-            Text(
-                text = "Quality",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyColumn {
-                itemsIndexed(
-                    versions,
-                    contentType = { _, _ -> "quality-version" },
-                ) { index, version ->
-                    val label = buildString {
-                        version.resolution?.let { append(it) } ?: append("Unknown")
-                        if (version.hdr) append(" HDR")
+            if (qualityOptions.isNotEmpty()) {
+                Text(
+                    text = "Quality",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                LazyColumn {
+                    items(qualityOptions, key = { it.id }) { option ->
+                        QualityOptionRow(
+                            label = option.label,
+                            detail = option.sublabel.ifBlank { null },
+                            isSelected = option.id.equals(selectedQualityId, ignoreCase = true),
+                            onClick = {
+                                onSelectQuality(option.id)
+                                onDismiss()
+                            },
+                        )
                     }
-
-                    val detail = buildString {
-                        version.codecVideo?.uppercase()?.let { append(it) }
-                        version.codecAudio?.uppercase()?.let {
-                            if (isNotEmpty()) append(" + ")
-                            append(it)
-                        }
-                        if (version.fileSize > 0) {
-                            if (isNotEmpty()) append(" - ")
-                            append(formatBytes(version.fileSize))
-                        }
-                    }.ifEmpty { null }
-
-                    QualityOptionRow(
-                        label = label,
-                        detail = detail,
-                        isSelected = selectedIndex == index,
-                        onClick = {
-                            onSelect(index)
-                            onDismiss()
-                        },
-                    )
                 }
+            }
+
+            if (versions.size > 1) {
+                if (qualityOptions.isNotEmpty()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                }
+                Text(
+                    text = if (qualityOptions.isEmpty()) "Quality" else "Version",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyColumn {
+                    itemsIndexed(
+                        versions,
+                        contentType = { _, _ -> "quality-version" },
+                    ) { index, version ->
+                        val label = buildString {
+                            version.resolution?.let { append(it) } ?: append("Unknown")
+                            if (version.hdr) append(" HDR")
+                        }
+                        val detail = buildString {
+                            version.codecVideo?.uppercase()?.let { append(it) }
+                            version.codecAudio?.uppercase()?.let {
+                                if (isNotEmpty()) append(" + ")
+                                append(it)
+                            }
+                            if (version.fileSize > 0) {
+                                if (isNotEmpty()) append(" - ")
+                                append(formatBytes(version.fileSize))
+                            }
+                        }.ifEmpty { null }
+                        QualityOptionRow(
+                            label = label,
+                            detail = detail,
+                            isSelected = selectedIndex == index,
+                            onClick = {
+                                onSelect(index)
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
+            } else if (qualityOptions.isEmpty()) {
+                Text(
+                    text = "Quality",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+                Text(
+                    text = "No alternate qualities available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
             }
         }
     }

@@ -10,7 +10,6 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import org.prairieserver.prairie.tv.data.preferences.PlaybackQuality
 import org.prairieserver.prairie.common.player.PlaybackAnalyticsListener
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
@@ -505,6 +504,7 @@ class TvPlayerViewModel(
     private val catalogRepository: org.prairieserver.prairie.repository.CatalogRepository,
     // Pre-play reachability gate (issue #33): drives Retry's fresh probe.
     private val serverReachabilityMonitor: ServerReachabilityMonitor,
+    private val qualityLadderClient: org.prairieserver.prairie.playback.QualityLadderClient,
     private val launchArgs: TvPlayerLaunchArgs,
 ) : ViewModel() {
 
@@ -570,9 +570,12 @@ class TvPlayerViewModel(
     private val preferredQuality: String? = launchArgs.preferredQuality
     // Explicit session-level video-quality intent chosen in the player's
     // Quality menu. Null uses [preferredQuality] as the default output ceiling.
-    // Wire values match
-    // [PlaybackQuality]: "auto"/"original"/"2160p"/"1080p"/"720p"/"480p".
+    // Menu ids may be full ladder rung ids (`1080p-high`); V3 replan uses
+    // [org.prairieserver.prairie.playback.toV3QualityPreference].
     private var qualityOverride: String? = null
+    /** Live server ladder (or fallback) used to build the Quality picker. */
+    private var qualityLadder: List<org.prairieserver.prairie.playback.QualityLadderRung> =
+        org.prairieserver.prairie.playback.FALLBACK_QUALITY_LADDER
     private val roomId: String? = launchArgs.roomId
     private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
 
@@ -699,6 +702,8 @@ class TvPlayerViewModel(
         /** All server file versions for this item (in-player version switching). */
         val fileVersions: List<org.prairieserver.prairie.model.catalog.FileVersion> = emptyList(),
         val selectedFileResolution: String? = null,
+        /** Trickplay sprite metadata for scrub previews (null when absent). */
+        val trickplay: org.prairieserver.prairie.playback.TrickplayInfo? = null,
         val startPosition: Double = 0.0,
         val position: Double = 0.0,
         val duration: Double = 0.0,
@@ -876,8 +881,18 @@ class TvPlayerViewModel(
             }
             val committedQuality = snapshot.transition.committed.qualityPreference
             if (!snapshot.subtitleApplying && committedQuality != null) {
-                qualityOverride = committedQuality
+                val currentMenu = qualityOverride
+                if (currentMenu == null) {
+                    qualityOverride = committedQuality
+                } else if (
+                    org.prairieserver.prairie.playback.toV3QualityPreference(currentMenu) !=
+                    committedQuality
+                ) {
+                    // External replan (advice / track change) moved the preference.
+                    qualityOverride = committedQuality
+                }
             }
+            val selectedMenuId = qualityOverride ?: committedQuality ?: "auto"
             _uiState.update { state ->
                 state.copy(
                     committedSubtitleIdentity = snapshot.committedIdentity,
@@ -892,7 +907,11 @@ class TvPlayerViewModel(
                         .coerceAtMost(Int.MAX_VALUE.toLong())
                         .toInt(),
                     videoQualities = if (!snapshot.subtitleApplying && committedQuality != null) {
-                        transcodeQualityLadder(state.selectedFileResolution, committedQuality)
+                        transcodeQualityLadder(
+                            state.selectedFileResolution,
+                            selectedMenuId,
+                            playMethod = state.playMethod?.name?.lowercase(),
+                        )
                     } else {
                         state.videoQualities
                     },
@@ -1050,6 +1069,21 @@ class TvPlayerViewModel(
     private val subtitleSnapshotSettlement = TvSubtitleSnapshotSettlementTracker()
 
     init {
+        // Prefetch the server quality ladder so the HUD Quality picker shows
+        // full bitrate rungs (with fallback until the response lands).
+        viewModelScope.launch {
+            qualityLadder = qualityLadderClient.fetch()
+            val selected = qualityOverride ?: preferredQuality ?: "auto"
+            _uiState.update { state ->
+                state.copy(
+                    videoQualities = transcodeQualityLadder(
+                        state.selectedFileResolution,
+                        selected,
+                        playMethod = state.playMethod?.name?.lowercase(),
+                    ),
+                )
+            }
+        }
         // Keep the process-wide active-file marker in sync (phone parity), so
         // Reclaim Watched never deletes bytes under a live player.
         viewModelScope.launch {
@@ -1206,9 +1240,9 @@ class TvPlayerViewModel(
             sessionId = state.sessionId,
             positionSeconds = state.position,
             audioTrackIndex = selectedAudio,
-            qualityPreference = qualityOverride
-                ?: preferredQuality
-                ?: PlaybackQuality.Auto.wireValue,
+            qualityPreference = org.prairieserver.prairie.playback.toV3QualityPreference(
+                qualityOverride ?: preferredQuality ?: "auto",
+            ),
             subtitleTracks = state.subtitleUrls,
             audioTracks = version?.audioTracks.orEmpty(),
             outputRouteGeneration = capabilityDetector.outputRouteGeneration.value,
@@ -1406,7 +1440,9 @@ class TvPlayerViewModel(
         val loadOwner = playbackMutationFence.beginLoad(
             contentId = contentId,
             preferredFileId = preferredFileIdOverride ?: preferredFileId,
-            preferredQuality = qualityOverride ?: preferredQuality,
+            preferredQuality = org.prairieserver.prairie.playback.toV3QualityPreference(
+                qualityOverride ?: preferredQuality ?: "auto",
+            ),
         )
         hasRenderedFirstFrame = false
         resetSeekRecoveryForContentChange()
@@ -1594,11 +1630,16 @@ class TvPlayerViewModel(
                                 selectedFileId = result.fileId,
                                 fileVersions = result.versions,
                                 selectedFileResolution = result.fileResolution,
+                                trickplay = result.versions
+                                    .firstOrNull { it.fileId == result.fileId }
+                                    ?.trickplay
+                                    ?: result.versions.firstOrNull()?.trickplay,
                                 // Server-transcode quality ladder for this source
                                 // (tvOS parity) — replaces adaptive-variant options.
                                 videoQualities = transcodeQualityLadder(
                                     result.fileResolution,
-                                    qualityOverride ?: preferredQuality ?: PlaybackQuality.Auto.wireValue,
+                                    qualityOverride ?: preferredQuality ?: "auto",
+                                    playMethod = result.playMethod?.name?.lowercase(),
                                 ),
                                 mediaFileId = result.mediaFileId,
                                 startPosition = result.startPositionSeconds,
@@ -3251,52 +3292,76 @@ class TvPlayerViewModel(
     }
 
     /**
-     * Switch the in-player video quality (tvOS ApplePlaybackQuality parity): pin
-     * a session-level [qualityOverride] and request a protocol-v3 replan at the
-     * current position so the server transcodes to the chosen rung (or returns to
-     * Auto/Original). [wireValue] is a [PlaybackQuality] wire value.
+     * Switch the in-player video quality (tvOS / web ladder parity): pin a
+     * session-level [qualityOverride] (full menu id, including high variants)
+     * and request a protocol-v3 replan at the current position. Ladder rung
+     * ids that V3 does not understand are mapped via [toV3QualityPreference]
+     * for the replan while the menu keeps the selected rung highlighted.
      */
     fun switchQuality(wireValue: String) {
-        val current = qualityOverride ?: preferredQuality ?: PlaybackQuality.Auto.wireValue
+        val current = qualityOverride ?: preferredQuality ?: "auto"
         if (wireValue == current) return
+        qualityOverride = wireValue
+        val v3Preference = org.prairieserver.prairie.playback.toV3QualityPreference(wireValue)
+        viewModelScope.launch {
+            // Persist settings-compatible preferences so the next start
+            // reuses PlayerSettingsStore preferred quality.
+            runCatching { playerSettingsStore.setPreferredQuality(v3Preference) }
+        }
+        _uiState.update {
+            it.copy(
+                videoQualities = transcodeQualityLadder(
+                    it.selectedFileResolution,
+                    wireValue,
+                    playMethod = it.playMethod?.name?.lowercase(),
+                ),
+            )
+        }
         val state = _uiState.value
         playbackMutationFence.beginReplan()
         subtitleTransactions.updatePlaybackContext(subtitlePlaybackContext(state))
-        subtitleTransactions.selectQuality(wireValue)
+        subtitleTransactions.selectQuality(v3Preference)
     }
 
     /**
      * The server-transcode quality ladder for the current source: Auto + Original
      * always, plus each downscale rung whose height is below the source (never
-     * offer an upscale). Wire values / labels come from [PlaybackQuality].
+     * offer an upscale). Built from [QualityLadderClient] (fallback until fetched).
      */
     private fun transcodeQualityLadder(
         sourceResolution: String?,
         selectedWire: String,
+        playMethod: String? = null,
+        sourceBitrateKbps: Int = 0,
     ): List<VideoQualityOption> {
-        val sourceHeight = sourceResolution?.filter { it.isDigit() }?.toIntOrNull() ?: Int.MAX_VALUE
-        val rungs = listOf(
-            PlaybackQuality.P4K,
-            PlaybackQuality.P1080,
-            PlaybackQuality.P720,
-            PlaybackQuality.P480,
-        ).filter { tierHeight(it) < sourceHeight }
-        return (listOf(PlaybackQuality.Auto, PlaybackQuality.Original) + rungs).map {
+        val nativeHeight = org.prairieserver.prairie.playback.sourceHeightForFile(
+            ladder = qualityLadder,
+            resolution = sourceResolution,
+        )
+        val capped = org.prairieserver.prairie.playback.qualityLadderForSourceHeight(
+            qualityLadder,
+            nativeHeight,
+        )
+        val options = org.prairieserver.prairie.playback.buildQualityOptions(
+            ladder = capped,
+            nativeHeight = nativeHeight,
+            playMethod = playMethod,
+            sourceResolutionLabel = sourceResolution,
+            sourceBitrateKbps = sourceBitrateKbps,
+        )
+        val selected = selectedWire.ifBlank { "auto" }
+        return options.map { option ->
             VideoQualityOption(
-                id = it.wireValue,
-                label = it.label,
-                isSelected = it.wireValue == selectedWire,
-                resolution = it.wireValue,
+                id = option.id,
+                label = if (option.sublabel.isNotBlank()) {
+                    "${option.label} · ${option.sublabel}"
+                } else {
+                    option.label
+                },
+                isSelected = option.id.equals(selected, ignoreCase = true),
+                resolution = option.resolution.ifBlank { null },
             )
         }
-    }
-
-    private fun tierHeight(q: PlaybackQuality): Int = when (q) {
-        PlaybackQuality.P4K -> 2160
-        PlaybackQuality.P1080 -> 1080
-        PlaybackQuality.P720 -> 720
-        PlaybackQuality.P480 -> 480
-        else -> Int.MAX_VALUE
     }
 
     /**

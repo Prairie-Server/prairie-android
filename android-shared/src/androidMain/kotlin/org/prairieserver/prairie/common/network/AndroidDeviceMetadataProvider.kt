@@ -35,7 +35,7 @@ class AndroidDeviceMetadataProvider(
 
     private fun clientNameFor(platform: String): String =
         when (platform) {
-            "android-tv" -> "Prairie Android TV"
+            "androidtv", "android-tv" -> "Prairie Android TV"
             "android" -> "Prairie Android"
             else -> "Prairie Android"
         }

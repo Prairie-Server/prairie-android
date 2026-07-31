@@ -138,7 +138,7 @@ val androidTvModule = module {
 
     single<AndroidServerSettingsCache> { AndroidServerSettingsCache(androidContext()) }
     single<org.prairieserver.prairie.network.DeviceMetadataProvider> {
-        AndroidDeviceMetadataProvider(androidContext(), platform = "android-tv")
+        AndroidDeviceMetadataProvider(androidContext(), platform = "androidtv")
     }
     // Player infrastructure (duplicate-for-now; extract to :android-player later).
     single { SubtitleManager(get()) }
@@ -460,6 +460,7 @@ val androidTvModule = module {
             finalPlaybackPositionWriter = get(),
             catalogRepository = get(),
             serverReachabilityMonitor = get(),
+            qualityLadderClient = get(),
             launchArgs = params.get<TvPlayerLaunchArgs>(),
         )
     }

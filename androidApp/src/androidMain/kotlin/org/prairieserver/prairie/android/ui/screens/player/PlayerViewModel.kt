@@ -228,6 +228,7 @@ class PlayerViewModel(
     // Google Cast (Chromecast) Tier-2 session preparer. Optional so existing
     // unit tests that construct the VM directly stay source-compatible.
     private val castPlaybackPreparer: org.prairieserver.prairie.common.player.cast.CastPlaybackPreparer? = null,
+    private val qualityLadderClient: org.prairieserver.prairie.playback.QualityLadderClient? = null,
 ) : ViewModel() {
 
     // Last load request, replayed by the "Can't reach server" Retry / Try Anyway.
@@ -365,6 +366,11 @@ class PlayerViewModel(
         val isBuffering: Boolean = false,
         val versions: List<FileVersion> = emptyList(),
         val selectedVersionIndex: Int = 0,
+        /** In-player encode quality ladder (Auto / Original / rungs). */
+        val qualityOptions: List<org.prairieserver.prairie.playback.QualityMenuOption> = emptyList(),
+        val selectedQualityId: String = "auto",
+        /** Trickplay sprite metadata for the active file version (scrub previews). */
+        val trickplay: org.prairieserver.prairie.playback.TrickplayInfo? = null,
         val contentId: String = "",
         val seriesId: String? = null,
         val seasonNumber: Int? = null,
@@ -684,6 +690,12 @@ class PlayerViewModel(
     private var loadJob: Job? = null
 
     init {
+        // Prefetch quality ladder so the in-player Quality sheet has rungs ready.
+        viewModelScope.launch {
+            val client = qualityLadderClient ?: return@launch
+            val ladder = client.fetch()
+            refreshQualityOptions(ladder = ladder)
+        }
         // Reclaim-Watched must never delete the file the player is using
         // (reachable via PiP -> Downloads). Mirror the currently-playing file
         // id — from EVERY load path, incl. offline — into the process-wide
@@ -1187,6 +1199,13 @@ class PlayerViewModel(
                 chapters = playbackState.chapters.ifEmpty { version?.chapters.orEmpty() },
                 versions = versions,
                 selectedVersionIndex = versionIndex,
+                trickplay = version?.trickplay,
+                qualityOptions = buildQualityMenuFor(
+                    version = version,
+                    playMethod = playbackState.playMethod?.name?.lowercase(),
+                ),
+                selectedQualityId = lastLoadArgs?.preferredQuality
+                    ?: _uiState.value.selectedQualityId.ifBlank { "auto" },
                 seriesId = watchDetail?.seriesId,
                 seasonNumber = watchDetail?.seasonNumber,
                 episodeNumber = watchDetail?.episodeNumber,
@@ -3359,6 +3378,72 @@ class PlayerViewModel(
      * Stops the current session and starts a new one with the selected version.
      */
     fun onSelectVersion(index: Int) = startVersionPlayback(index)
+
+    /**
+     * Switch in-player encode quality (Auto / Original / ladder rung). Restarts
+     * the session at the current position with the mapped V3 quality preference
+     * and persists settings-compatible values via [PlayerSettingsStore].
+     */
+    fun switchQuality(qualityId: String) {
+        val state = _uiState.value
+        if (qualityId.equals(state.selectedQualityId, ignoreCase = true)) return
+        val v3Preference = org.prairieserver.prairie.playback.toV3QualityPreference(qualityId)
+        _uiState.update { it.copy(selectedQualityId = qualityId) }
+        viewModelScope.launch {
+            runCatching { playerSettingsStore.setPreferredQuality(v3Preference) }
+            sessionLifecycle.stop()
+            loadContent(
+                contentId = state.contentId,
+                preferredFileId = state.mediaFileId,
+                preferredQuality = v3Preference,
+                initialAudioTrackIndex = state.selectedAudioIndex,
+                initialSubtitleTrackIndex = state.selectedSubtitleIndex,
+                resumePositionOverride = state.position,
+                suppressResumeRewind = true,
+            )
+            // Restore the full menu id after load (loadContent may only know V3).
+            _uiState.update { it.copy(selectedQualityId = qualityId) }
+        }
+    }
+
+    private fun buildQualityMenuFor(
+        version: FileVersion?,
+        playMethod: String?,
+        ladder: List<org.prairieserver.prairie.playback.QualityLadderRung>? = null,
+    ): List<org.prairieserver.prairie.playback.QualityMenuOption> {
+        val live = ladder
+            ?: qualityLadderClient?.cachedOrFallback()
+            ?: org.prairieserver.prairie.playback.FALLBACK_QUALITY_LADDER
+        val probed = version?.videoTracks?.firstOrNull()?.height
+        val nativeHeight = org.prairieserver.prairie.playback.sourceHeightForFile(
+            ladder = live,
+            resolution = version?.resolution,
+            probedHeight = probed,
+        )
+        val capped = org.prairieserver.prairie.playback.qualityLadderForSourceHeight(live, nativeHeight)
+        return org.prairieserver.prairie.playback.buildQualityOptions(
+            ladder = capped,
+            nativeHeight = nativeHeight,
+            playMethod = playMethod,
+            sourceResolutionLabel = version?.resolution,
+            sourceBitrateKbps = version?.bitrate ?: 0,
+        )
+    }
+
+    private fun refreshQualityOptions(
+        ladder: List<org.prairieserver.prairie.playback.QualityLadderRung>,
+    ) {
+        _uiState.update { state ->
+            val version = state.versions.getOrNull(state.selectedVersionIndex)
+            state.copy(
+                qualityOptions = buildQualityMenuFor(
+                    version = version,
+                    playMethod = state.playMethod?.name?.lowercase(),
+                    ladder = ladder,
+                ),
+            )
+        }
+    }
 
     /**
      * Starts playback of [versions][index]. [isRecovery] marks a re-start of the
