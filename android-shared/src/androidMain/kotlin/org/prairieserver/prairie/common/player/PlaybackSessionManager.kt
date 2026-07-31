@@ -2206,8 +2206,15 @@ open class PlaybackSessionManager(
         mode: TranscodeMode,
         audioTrackIndex: Int? = null,
         subtitleTrackIndex: Int? = null,
+        targetBitrateKbps: Int? = null,
+        copyVideo: Boolean = false,
     ): ApiResult<PlaybackSessionResponse> {
-        val isRemux = mode == TranscodeMode.REMUX
+        val isRemux = mode == TranscodeMode.REMUX || copyVideo
+        val bitrate = when {
+            isRemux -> 0
+            targetBitrateKbps != null && targetBitrateKbps > 0 -> targetBitrateKbps
+            else -> 8000
+        }
         val request = TranscodeStartRequest(
             sessionId = session.sessionId,
             seekSeconds = seekSeconds,
@@ -2217,7 +2224,7 @@ open class PlaybackSessionManager(
             // (EAC3/TrueHD/DTS). Forcing AAC clobbers the play-method
             // decision.
             targetCodecAudio = if (isRemux) "copy" else "aac",
-            targetBitrateKbps = if (isRemux) 0 else 8000,
+            targetBitrateKbps = bitrate,
             segmentDuration = 2,
             audioTrackIndex = audioTrackIndex,
             subtitleTrackIndex = subtitleTrackIndex,
@@ -2304,6 +2311,8 @@ open class PlaybackSessionManager(
         mode: TranscodeMode,
         audioTrackIndex: Int? = null,
         subtitleTrackIndex: Int? = null,
+        targetBitrateKbps: Int? = null,
+        copyVideo: Boolean = false,
         renewSession: suspend () -> ApiResult<PlaybackSessionResponse>,
     ): ApiResult<PlaybackSessionResponse> {
         val first = startTranscodeFallback(
@@ -2313,6 +2322,8 @@ open class PlaybackSessionManager(
             mode = mode,
             audioTrackIndex = audioTrackIndex,
             subtitleTrackIndex = subtitleTrackIndex,
+            targetBitrateKbps = targetBitrateKbps,
+            copyVideo = copyVideo,
         )
         if (!first.isPlaybackSessionMissingError()) return first
 
@@ -2326,6 +2337,8 @@ open class PlaybackSessionManager(
                     mode = mode,
                     audioTrackIndex = audioTrackIndex,
                     subtitleTrackIndex = subtitleTrackIndex,
+                    targetBitrateKbps = targetBitrateKbps,
+                    copyVideo = copyVideo,
                 )
                 if (retry !is ApiResult.Success) {
                     stopSession(renewed.data.sessionId)

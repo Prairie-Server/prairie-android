@@ -39,20 +39,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.util.formatClockTime
+import org.prairieserver.prairie.common.player.TrickplayTileImage
 import org.prairieserver.prairie.model.catalog.TimeRange
 import org.prairieserver.prairie.model.catalog.VersionChapter
+import org.prairieserver.prairie.playback.TrickplayInfo
+import org.prairieserver.prairie.playback.resolveTrickplayTile
 
 /**
  * Seek bar with current/total time and a buffered-ahead track, mirroring
- * iOS `MobilePlayerControls.progressSlider`:
- *
- * - three track regions — played, buffered (safe to seek into), base;
- * - the intro range tinted cyan (credits is deliberately NOT drawn — iOS
- *   only tints the intro);
- * - a 2dp chapter tick per chapter, drawn under the played fill;
- * - while scrubbing, a preview bubble above the thumb with the target time
- *   and the chapter title at that point (text only — iOS has no thumbnail
- *   trickplay either).
+ * iOS `MobilePlayerControls.progressSlider` plus web trickplay scrub previews.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +60,7 @@ fun PlayerProgressBar(
     enabled: Boolean = true,
     chapters: List<VersionChapter> = emptyList(),
     intro: TimeRange? = null,
+    trickplay: TrickplayInfo? = null,
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableFloatStateOf(0f) }
@@ -75,14 +71,16 @@ fun PlayerProgressBar(
     val playedFraction = displayPosition / maxDuration
     val bufferedFraction = (bufferedPosition.toFloat().coerceIn(0f, maxDuration) / maxDuration)
         .coerceIn(playedFraction, 1f)
+    val trickplayTile = if (isSeeking) {
+        resolveTrickplayTile(trickplay, seekPosition.toDouble())
+    } else {
+        null
+    }
 
-    // iOS bottom bar is VStack(spacing: 8): progress slider, then the time row.
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Scrub preview bubble — pinned above the bar at the drag position,
-        // clamped so it never runs off-screen (iOS clamps to [80, width-80]pt).
         Box(modifier = Modifier.fillMaxWidth()) {
             if (isSeeking) {
                 val density = LocalDensity.current
@@ -100,6 +98,13 @@ fun PlayerProgressBar(
                         .background(Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
+                    if (trickplayTile != null) {
+                        TrickplayTileImage(
+                            tile = trickplayTile,
+                            previewWidth = 176.dp,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                    }
                     Text(
                         text = formatClockTime(seekPosition.toDouble()),
                         fontSize = 19.sp,
@@ -139,9 +144,6 @@ fun PlayerProgressBar(
                 activeTrackColor = MaterialTheme.colorScheme.primary,
                 inactiveTrackColor = Color.White.copy(alpha = 0.3f),
             ),
-            // iOS-style dot instead of Material's chunky pill: a small circle
-            // that grows slightly while scrubbing (the target time shows in the
-            // floating preview bubble above). Ignores the SliderState param.
             thumb = {
                 Box(
                     modifier = Modifier
@@ -158,14 +160,12 @@ fun PlayerProgressBar(
                         .background(Color.White.copy(alpha = 0.24f))
                         .onSizeChanged { barWidthPx = it.width.toFloat() },
                 ) {
-                    // Buffered-ahead: downloaded and safe to seek into.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(bufferedFraction)
                             .fillMaxHeight()
                             .background(Color.White.copy(alpha = 0.45f)),
                     )
-                    // Intro tint — iOS draws the intro range cyan at 0.4.
                     intro?.let { range ->
                         val startFraction = (range.start / maxDuration).toFloat().coerceIn(0f, 1f)
                         val endFraction = (range.end / maxDuration).toFloat().coerceIn(startFraction, 1f)
@@ -181,8 +181,6 @@ fun PlayerProgressBar(
                             )
                         }
                     }
-                    // Chapter ticks, under the played fill (iOS: the fill
-                    // covers ticks in played territory).
                     if (chapters.isNotEmpty()) {
                         val density = LocalDensity.current
                         val barWidthDp = with(density) { barWidthPx.toDp() }
@@ -199,7 +197,6 @@ fun PlayerProgressBar(
                             }
                         }
                     }
-                    // Played.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(playedFraction)
@@ -211,8 +208,6 @@ fun PlayerProgressBar(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // iOS time row: current time left, duration right, `.caption` (~12sp) at
-        // 0.8 white opacity, monospaced digits.
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

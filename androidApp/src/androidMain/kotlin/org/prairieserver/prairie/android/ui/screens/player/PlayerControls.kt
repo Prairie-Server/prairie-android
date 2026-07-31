@@ -73,6 +73,7 @@ fun PlayerControls(
     hasMultipleVersions: Boolean,
     chapters: List<org.prairieserver.prairie.model.catalog.VersionChapter> = emptyList(),
     intro: org.prairieserver.prairie.model.catalog.TimeRange? = null,
+    trickplay: org.prairieserver.prairie.playback.TrickplayInfo? = null,
     isOrientationLocked: Boolean,
     // Watch Together guest gate: when false the scrubber + skip buttons are
     // inert and dimmed (seek is host-only, so disabled for all guests).
@@ -238,6 +239,7 @@ fun PlayerControls(
                 enabled = seekEnabled,
                 chapters = chapters,
                 intro = intro,
+                trickplay = trickplay,
             )
         }
     }

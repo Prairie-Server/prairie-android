@@ -227,7 +227,7 @@ fun PlayerSettingsSheet(
                 )
 
                 TapRow(
-                    label = "Playback Stats",
+                    label = "Stats for nerds",
                     subtitle = stats.summaryLabel(),
                     onClick = {
                         scope.launch { sheetState.hide() }

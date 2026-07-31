@@ -1215,6 +1215,7 @@ fun PlayerScreen(
                         onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
                         onSelectAudio = { viewModel.onSelectAudio(it) },
                         onSelectVersion = { viewModel.onSelectVersion(it) },
+                        onSelectQuality = { viewModel.switchQuality(it) },
                     )
                 }
             }

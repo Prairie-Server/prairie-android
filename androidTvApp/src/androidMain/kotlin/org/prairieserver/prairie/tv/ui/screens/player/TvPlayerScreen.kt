@@ -1822,6 +1822,7 @@ fun TvPlayerScreen(
                         bufferedAheadSec = bufferedAheadSec,
                         chapters = state.chapters,
                         introRange = state.intro,
+                        trickplay = state.trickplay,
                         isBuffering = state.isBuffering,
                         sleepTimerState = sleepTimerState,
                         // In a room, skip/scrub/seek are routed through the
@@ -1931,6 +1932,8 @@ fun TvPlayerScreen(
                             subtitlePresentation = subtitlePresentation,
                             stats = state.stats,
                             playbackPlan = state.playbackPlan,
+                            sessionId = state.sessionId,
+                            playMethodLabel = state.playMethod?.name,
                             videoFillMode = state.videoFillMode,
                             onSelectAudio = viewModel::selectAudioOption,
                             onSelectVideoQuality = { id ->
@@ -2255,6 +2258,7 @@ private fun TvPlayerIdleOverlay(
     bufferedAheadSec: Double,
     chapters: List<org.prairieserver.prairie.model.catalog.VersionChapter>,
     introRange: org.prairieserver.prairie.model.catalog.TimeRange?,
+    trickplay: org.prairieserver.prairie.playback.TrickplayInfo? = null,
     isBuffering: Boolean,
     sleepTimerState: SleepTimerState,
     onPlayPause: () -> Unit,
@@ -2346,7 +2350,20 @@ private fun TvPlayerIdleOverlay(
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 80.dp, vertical = 40.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (isScrubbing) {
+                val tile = org.prairieserver.prairie.playback.resolveTrickplayTile(
+                    trickplay,
+                    scrubPreviewSec,
+                )
+                if (tile != null) {
+                    org.prairieserver.prairie.common.player.TrickplayTileImage(
+                        tile = tile,
+                        previewWidth = 240.dp,
+                    )
+                }
+            }
             // Interactive scrubber — capsule track with chapter ticks, ±10s
             // skip, hold-to-auto-seek, and Select to commit. tvOS spec §4.1.
             TvPlayerScrubber(

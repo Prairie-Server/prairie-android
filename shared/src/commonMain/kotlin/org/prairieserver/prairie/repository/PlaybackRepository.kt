@@ -14,6 +14,7 @@ import org.prairieserver.prairie.model.playback.TranscodeStartRequest
 import org.prairieserver.prairie.model.playback.TranscodeStartResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.PlaybackApi
+import org.prairieserver.prairie.playback.QualityLadderResponse
 
 class PlaybackRepository(
     private val playbackApi: PlaybackApi,
@@ -91,6 +92,10 @@ class PlaybackRepository(
     /** Explicitly requests a transcode session (e.g. for quality changes). */
     suspend fun startTranscode(request: TranscodeStartRequest): ApiResult<TranscodeStartResponse> =
         playbackApi.startTranscode(request)
+
+    /** Server's transcode quality ladder for the in-player quality menu. */
+    suspend fun getQualityLadder(sourceHeight: Int? = null): ApiResult<QualityLadderResponse> =
+        playbackApi.getQualityLadder(sourceHeight)
 
 }
 
