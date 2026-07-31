@@ -19,17 +19,18 @@ import org.prairieserver.prairie.network.createSecureSharedPrefs
 import org.prairieserver.prairie.tv.ui.screens.servers.TvServerListViewModel
 import org.prairieserver.prairie.common.player.AudioCapabilityManager
 import org.prairieserver.prairie.common.player.AudioTrackManager
+import org.prairieserver.prairie.common.player.AndroidSubtitlePresentation
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendFactory
 import org.prairieserver.prairie.tv.ui.screens.settings.TvSettingsViewModel
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
-import org.prairieserver.prairie.common.player.PrairiePlayerFactory
+import org.prairieserver.prairie.common.player.SiloPlayerFactory
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.SubtitleManager
-import org.prairieserver.prairie.common.cast.PrairieCastNsdAdvertiser
+import org.prairieserver.prairie.common.cast.SiloCastNsdAdvertiser
 import org.prairieserver.prairie.common.player.video.VideoPlaybackSessionCoordinator
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
-import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
+import org.prairieserver.prairie.tv.cast.TvSiloCastReceiver
 import org.prairieserver.prairie.tv.cast.RemotePlaybackIdentityManager
 import org.prairieserver.prairie.tv.ui.screens.player.TvPlayerLaunchArgs
 import org.prairieserver.prairie.tv.ui.screens.auth.TvLoginViewModel
@@ -40,6 +41,8 @@ import org.prairieserver.prairie.viewmodel.CalendarViewModel
 import org.prairieserver.prairie.viewmodel.CollectionsViewModel
 import org.prairieserver.prairie.tv.ui.screens.detail.TvItemDetailViewModel
 import org.prairieserver.prairie.viewmodel.HomeViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
@@ -63,16 +66,14 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvViewModel
 
 /**
  * TV-specific Koin module.
  *
  * Provides the TV flavor of player infrastructure (currently a duplicate of the
- * phone module — see the TODO on [PrairiePlayerFactory]) and the TV ViewModels.
+ * phone module — see the TODO on [SiloPlayerFactory]) and the TV ViewModels.
  * The shared [org.prairieserver.prairie.di.sharedModules] is added alongside this one in
- * [org.prairieserver.prairie.tv.PrairieTvApplication].
+ * [org.prairieserver.prairie.tv.SiloTvApplication].
  */
 val androidTvModule = module {
     single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
@@ -88,13 +89,13 @@ val androidTvModule = module {
     // Persistent (EncryptedSharedPreferences-backed) replacement for the
     // commonMain in-memory TokenManager. Koin 3.1+ replaces same-key bindings
     // when the redefining module is loaded after the original — sharedModules()
-    // is registered first in PrairieTvApplication, so this wins.
+    // is registered first in SiloTvApplication, so this wins.
     single<TokenManager> { EncryptedTokenManagerImpl(get(), get(), get()) }
 
     // Offline-first Room store (Track B). Bound after sharedModules() so the
     // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
     // up the Room-backed port and writes optimistic projection + outbox rows.
-    single { org.prairieserver.prairie.common.data.db.PrairieDatabase.build(androidContext()) }
+    single { org.prairieserver.prairie.common.data.db.SiloDatabase.build(androidContext()) }
     single<org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler> {
         val appContext = androidContext().applicationContext
         org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler {
@@ -114,6 +115,7 @@ val androidTvModule = module {
         org.prairieserver.prairie.common.data.repository.RoomHomeCacheRepository(
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
+            identityTransitions = get(),
         )
     }
     single<org.prairieserver.prairie.repository.port.CatalogCachePort> {
@@ -121,6 +123,7 @@ val androidTvModule = module {
         org.prairieserver.prairie.common.data.repository.RoomCatalogCacheRepository(
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
+            identityTransitions = get(),
         )
     }
     single<org.prairieserver.prairie.repository.port.DownloadDeletionPort> {
@@ -141,7 +144,12 @@ val androidTvModule = module {
         AndroidDeviceMetadataProvider(androidContext(), platform = "android-tv")
     }
     // Player infrastructure (duplicate-for-now; extract to :android-player later).
-    single { SubtitleManager(get()) }
+    single {
+        SubtitleManager(
+            libassBridge = get(),
+            presentation = AndroidSubtitlePresentation.Television,
+        )
+    }
     single { AudioTrackManager() }
     single {
         VideoPlaybackBackendFactory(
@@ -153,7 +161,7 @@ val androidTvModule = module {
     single { AudioCapabilityManager(androidContext()) }
     single { PlaybackCapabilityDetector(androidContext(), get(), get()) }
     single {
-        PrairiePlayerFactory(
+        SiloPlayerFactory(
             context = androidContext(),
             tokenManager = get(),
             subtitleManager = get(),
@@ -207,6 +215,7 @@ val androidTvModule = module {
         org.prairieserver.prairie.common.player.AudiobookPlayerViewModel(
             catalogRepository = get(),
             playbackSessionManager = get(),
+            playbackSessionLifecycle = get(),
             capabilityDetector = get(),
             bookmarksStore = get(),
             userItemStatePort = get(),
@@ -252,7 +261,7 @@ val androidTvModule = module {
     // Watch Next launcher integration (TV-only). Repository wraps the
     // TvProvider ContentResolver; the worker is constructed by
     // TvWorkerFactory, installed via WorkManager.initialize in
-    // PrairieTvApplication (Koin's worker DSL is not used — see
+    // SiloTvApplication (Koin's worker DSL is not used — see
     // TvWorkerFactory for why).
     single { WatchNextRepository(androidContext()) }
     single { WatchNextSeeder(androidContext(), get()) }
@@ -304,7 +313,7 @@ val androidTvModule = module {
             receiverStateProvider = { org.prairieserver.prairie.pairing.PairingReceiverState.Setup },
         )
     }
-    single { PrairieCastNsdAdvertiser(androidContext()) }
+    single { SiloCastNsdAdvertiser(androidContext()) }
     single {
         RemotePlaybackIdentityManager(
             deviceLoginApi = get(),
@@ -313,7 +322,7 @@ val androidTvModule = module {
         )
     }
     single {
-        TvPrairieCastReceiver(
+        TvSiloCastReceiver(
             advertiser = get(),
             serverRegistry = get(),
             identityManager = get(),
@@ -360,7 +369,7 @@ val androidTvModule = module {
     }
 
     // Content ViewModels
-    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { RequestsViewModel(get()) }
@@ -419,6 +428,7 @@ val androidTvModule = module {
             personalDataRepository = get(),
             playerSettingsStore = get(),
             profileRepository = get(),
+            profileSettings = get(),
             metadataAiRepository = get(),
             contentId = params.get(),
             userItemState = getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>()
@@ -490,6 +500,7 @@ val androidTvModule = module {
             libraryPlaybackPrefsStore = get(),
             overlayPrefsStore = get(),
             legacyTvPrefsMigration = get(),
+            profileSettings = get(),
             tvLibraryScopeStore = getOrNull(),
         )
     }

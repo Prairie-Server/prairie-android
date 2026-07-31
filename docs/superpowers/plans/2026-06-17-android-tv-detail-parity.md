@@ -11,7 +11,7 @@
 **Per-task loop (every task):** implement → `./gradlew :androidTvApp:compileDebugKotlinAndroid` clean → run any unit tests → **Codex review of the diff** → commit (author `rxwatcher`, `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`, no push). Visual parity is verified on the **Android-TV emulator** against the reference frames (the physical Shield `screencap` returns black).
 
 **Conventions:**
-- Apple repo lives at `/Users/jimcole/projects/silo/prairie-apple` (branch `feature/playback-ux-redesign`; `cd iosApp && xcodegen generate` before building `PrairieTV`). Read the cited Swift file for exact pt/opacity/scale values; translate per SPEC "Architecture" (unitless 1:1; radii face value; sizes → existing Android TV token scale, tuned on emulator).
+- Apple repo lives at `/Users/jimcole/projects/prairie/prairie-apple` (branch `feature/playback-ux-redesign`; `cd iosApp && xcodegen generate` before building `PrairieTV`). Read the cited Swift file for exact pt/opacity/scale values; translate per SPEC "Architecture" (unitless 1:1; radii face value; sizes → existing Android TV token scale, tuned on emulator).
 - Add a dedicated control radius token `TvControlCorner = 8.dp` (do NOT reuse `small = 12.dp`).
 - Commit author: every commit uses `git -c user.name=rxwatcher commit …`.
 

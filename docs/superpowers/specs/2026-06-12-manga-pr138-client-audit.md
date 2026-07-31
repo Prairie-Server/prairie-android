@@ -15,7 +15,7 @@
 - Extended: `GET /catalog/items/{id}` for a manga series carries `manga: { chapters: MangaChapter[] }` — `{content_id, title, chapter_index?: float, volume?: string, read: bool, progress?: 0..1, poster_url?}`, ordered `chapter_index NULLS LAST, sort_title`, read state derived from existing ebook progress.
 - Chapter item detail now populates `series_id`/`series_title` with the owning manga series (back-navigation + continue-reading collapse).
 - **Progress is the existing ebook API unchanged** (`GET/PUT /ebooks/{content_id}/progress`, fraction 0..1, per chapter). `read = progress >= finished-threshold`. Mark read/unread reuses the watched-state mutation with `type:"ebook"` per chapter (series-level with `type:"manga"`).
-- Status badge is **publication status, not user reading status**: reuses `show_status` with values `Ongoing|Completed|Hiatus|Cancelled|Upcoming` (sourced via the external `silo-plugin-manga-metadata` plugin; requires plugin-sdk v0.7.0 — treat as optional).
+- Status badge is **publication status, not user reading status**: reuses `show_status` with values `Ongoing|Completed|Hiatus|Cancelled|Upcoming` (sourced via the external `prairie-plugin-manga-metadata` plugin; requires plugin-sdk v0.7.0 — treat as optional).
 
 ## Web reference UX
 

@@ -14,7 +14,7 @@
 
 ## 0. Apple source map (the contract)
 
-Branch `feature/playback-ux-redesign` at `/Users/jimcole/projects/silo/prairie-apple`, all under `iosApp/iosApp/tvOS/Screens/Detail/`:
+Branch `feature/playback-ux-redesign` at `/Users/jimcole/projects/prairie/prairie-apple`, all under `iosApp/iosApp/tvOS/Screens/Detail/`:
 - `TVMovieDetailView.swift` — movie/episode page composition (action row, More menu, body order, focus).
 - `TVSeriesDetailView.swift`, `TVSeasonDetailView.swift` — series/season page composition (read these for season-chip + episode-rail placement and the next-up-driven selector).
 - `TVDetailHero.swift` — hero (heroHeight 980, scrim stops, editorial column, title treatments, eyebrow, source row, facts row, starring overlay, `TVHeroMetadata`).

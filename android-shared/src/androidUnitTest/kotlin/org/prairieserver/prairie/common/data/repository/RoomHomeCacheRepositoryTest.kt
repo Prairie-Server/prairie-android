@@ -2,10 +2,15 @@ package org.prairieserver.prairie.common.data.repository
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import org.prairieserver.prairie.common.data.db.PrairieDatabase
+import org.prairieserver.prairie.common.data.db.SiloDatabase
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
+import org.prairieserver.prairie.network.IdentityTransitionKind
+import org.prairieserver.prairie.repository.port.HomeCacheWriteLease
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,7 +24,7 @@ class RoomHomeCacheRepositoryTest {
 
     private val db = Room.inMemoryDatabaseBuilder(
         ApplicationProvider.getApplicationContext(),
-        PrairieDatabase::class.java,
+        SiloDatabase::class.java,
     ).allowMainThreadQueries().build()
 
     private var scope: AuthScopeSnapshot? = AuthScopeSnapshot("s1", "p1", "https://s1.example", null)
@@ -85,5 +90,57 @@ class RoomHomeCacheRepositoryTest {
         // No scope → no-op read.
         scope = null
         assertNull(repo.getCachedHome())
+    }
+
+    @Test
+    fun writeRequestedByOldProfileButInvokedAfterSwitchIsNotAttributedToNewProfile() = runTest {
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val oldProfileGeneration = identityTransitions.generation.value
+        val guardedRepo = RoomHomeCacheRepository(
+            db = db,
+            snapshotProvider = { scope },
+            identityTransitions = identityTransitions,
+            now = { 1000L },
+        )
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            scope = AuthScopeSnapshot("s1", "p2", "https://s1.example", null)
+        }
+
+        guardedRepo.cacheHome(
+            listOf(section("old", "c1")),
+            HomeCacheWriteLease(oldProfileGeneration),
+        )
+
+        assertEquals(0L, oldProfileGeneration)
+        assertNull(guardedRepo.getCachedHome())
+    }
+
+    @Test
+    fun profileSwitchDuringHomeScopeResolutionDoesNotAttributeOldWriteToNewProfile() = runTest {
+        val snapshotRequested = CompletableDeferred<Unit>()
+        val releaseSnapshot = CompletableDeferred<Unit>()
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val guardedRepo = RoomHomeCacheRepository(
+            db = db,
+            snapshotProvider = {
+                snapshotRequested.complete(Unit)
+                releaseSnapshot.await()
+                scope
+            },
+            identityTransitions = identityTransitions,
+            now = { 1000L },
+        )
+
+        val oldProfileWrite = async {
+            guardedRepo.cacheHome(listOf(section("old", "c1")))
+        }
+        snapshotRequested.await()
+        identityTransitions.changing(IdentityTransitionKind.PROFILE_SWITCH) {
+            scope = AuthScopeSnapshot("s1", "p2", "https://s1.example", null)
+        }
+        releaseSnapshot.complete(Unit)
+        oldProfileWrite.await()
+
+        assertNull(guardedRepo.getCachedHome())
     }
 }

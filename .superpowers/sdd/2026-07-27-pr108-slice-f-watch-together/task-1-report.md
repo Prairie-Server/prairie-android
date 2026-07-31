@@ -45,7 +45,7 @@ owner-driven cancellation remains silent.
 ### Credential boundary
 
 The access token is still required to attempt the room socket but is no longer
-placed in the request target. The existing same-origin Silo auth plugin adds
+placed in the request target. The existing same-origin Prairie auth plugin adds
 `Authorization`, `X-Profile-Id`, and `X-Profile-Token` headers. The server
 currently still requires `room_token`, `profile_id`, and `profile_token` query
 parameters; the client KDoc records that residual request-target exposure.
@@ -213,9 +213,9 @@ The exact-scope validation at connect start is not the final token read: the
 auth plugin reads the scoped token again while building the request so it can
 honor rotation. A credential scope can disappear between those reads. The
 Watch Together connector now marks its pinned request with the internal,
-opt-in `requireSiloAuth()` attribute. When that marked request's exact scoped
-token is null or blank, `PrairieAuthPlugin` removes Silo headers and throws before
-the engine runs. Unmarked public requests and `skipSiloAuth()` paths retain
+opt-in `requirePrairieAuth()` attribute. When that marked request's exact scoped
+token is null or blank, `PrairieAuthPlugin` removes Prairie headers and throws before
+the engine runs. Unmarked public requests and `skipPrairieAuth()` paths retain
 their existing behavior.
 
 ### Correction 2 TDD evidence

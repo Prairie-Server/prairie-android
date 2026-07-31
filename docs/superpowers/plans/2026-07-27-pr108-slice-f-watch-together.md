@@ -196,7 +196,7 @@ OkHttp/MockWebServer, Koin, Android Compose, Gradle, ADB/emulator tooling.
 **Environment:**
 - Use two concurrent dedicated AVDs, preferring `Silo_Phone` and `Silo_TV`.
 - Use distinct app data and user/profile identities.
-- Start an appropriate local/configured Silo test backend without modifying
+- Start an appropriate local/configured Prairie test backend without modifying
   production data.
 
 **Flow:**

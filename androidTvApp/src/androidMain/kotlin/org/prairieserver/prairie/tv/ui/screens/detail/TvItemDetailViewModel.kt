@@ -3,6 +3,7 @@ package org.prairieserver.prairie.tv.ui.screens.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.catalog.CastMember
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
@@ -11,7 +12,7 @@ import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.LeafItemUserData
 import org.prairieserver.prairie.model.catalog.Season
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
-import org.prairieserver.prairie.model.catalog.sortedForDisplay
+import org.prairieserver.prairie.model.catalog.initialSeasonDisplayPlan
 import org.prairieserver.prairie.model.playback.combinedSubtitleSelectionIndexes
 import org.prairieserver.prairie.playback.SUBTITLE_OFF_FINGERPRINT
 import org.prairieserver.prairie.playback.audioTrackFingerprint
@@ -90,10 +91,11 @@ data class TvItemDetailUiState(
     val preferredQuality: String = "auto",
     // Cascaded subtitle preferences that annotate the selector row's Auto
     // preview ("Auto - <track>" / "Auto - None") so it previews the SAME track
-    // the player would auto-select. ItemDetail (unlike WatchDetail) carries no
-    // per-item effective_* fields, so these are sourced from the active profile
-    // (matching the profile fallback in TvVideoPlaybackStarter); showForced
-    // defaults to true when unset, as the player state does.
+    // the player would auto-select. Resolved canonically — see
+    // [loadSubtitlePreferences]; the profile columns are only the fallback for
+    // a server that cannot resolve. `preferredSubtitleLanguage` null is "no
+    // preference" and "" is "no subtitles"; showForced defaults to true when
+    // unset, as the player state does.
     val preferredSubtitleLanguage: String? = null,
     val subtitleMode: String? = null,
     val showForcedSubtitles: Boolean = true,
@@ -199,6 +201,7 @@ class TvItemDetailViewModel(
     private val personalDataRepository: PersonalDataRepository,
     private val playerSettingsStore: PlayerSettingsStore,
     private val profileRepository: ProfileRepository,
+    private val profileSettings: ProfileSettingsController,
     metadataAiRepository: org.prairieserver.prairie.repository.MetadataAiRepository,
     private val contentId: String,
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
@@ -237,16 +240,38 @@ class TvItemDetailViewModel(
 
     /**
      * Loads the cascaded subtitle preferences that annotate the selector row's
-     * Auto preview. This screen loads an [ItemDetail], which carries no per-item
-     * `effective_*` subtitle fields (only [org.prairieserver.prairie.model.catalog.WatchDetail]
-     * does), so — unlike [TvVideoPlaybackStarter], which reads the WatchDetail
-     * effective fields first — these come purely from the active profile
-     * (`subtitle_language` / `subtitle_mode` / `show_forced_subtitles`), the
-     * same fallback the starter drops to. showForced defaults to true when unset,
-     * matching the player state and the starter's `?: true`.
+     * Auto preview.
+     *
+     * These resolve canonically, through the same [ProfileSettingsController]
+     * the settings screen writes with. The `user_profiles` columns
+     * `GET /profiles` serves are NOT equivalent: the settings screen writes
+     * `playback.subtitle_language` / `subtitle_mode` / `show_forced_subtitles`
+     * at `scope=profile` and the server does not mirror a canonical write back
+     * into those columns, so reading them here previewed the preference the
+     * user had *before* their last edit while
+     * [org.prairieserver.prairie.tv.ui.screens.player.TvVideoPlaybackStarter] — which
+     * reads WatchDetail's server-resolved `effective_*` fields — played the new
+     * one. The columns stay as the fallback for a server that cannot resolve
+     * canonically. showForced defaults to true when unset, matching the player
+     * state and the starter's `?: true`.
      */
     private fun loadSubtitlePreferences() {
         viewModelScope.launch {
+            val resolved = runCatching { profileSettings.load() }.getOrNull()?.snapshot
+            if (resolved != null) {
+                _uiState.update {
+                    it.copy(
+                        // The snapshot spells "no preference" as "", the Auto
+                        // preview spells it as null (it reads "" as "no subs",
+                        // matching the profile column, which the server omits
+                        // when empty). Translate rather than leak the wrong one.
+                        preferredSubtitleLanguage = resolved.subtitleLanguage.ifBlank { null },
+                        subtitleMode = resolved.subtitleMode,
+                        showForcedSubtitles = resolved.showForcedSubtitles,
+                    )
+                }
+                return@launch
+            }
             val profile = runCatching { profileRepository.getActiveProfile() }.getOrNull()
             _uiState.update {
                 it.copy(
@@ -345,7 +370,7 @@ class TvItemDetailViewModel(
                         -> detail.seriesId?.takeIf { it.isNotBlank() }?.let { seriesId ->
                             loadSeasons(
                                 seriesContentId = seriesId,
-                                preferredSeasonNumber = detail.seasonNumber?.takeIf { it > 0 },
+                                preferredSeasonNumber = detail.seasonNumber,
                             )
                         }
                     }
@@ -657,20 +682,17 @@ class TvItemDetailViewModel(
             _uiState.update { it.copy(seasonsLoading = true) }
             when (val r = catalogRepository.getSeasons(seriesContentId)) {
                 is ApiResult.Success -> {
-                    val seasons = r.data.seasons.sortedForDisplay()
-                    val selectedSeason = preferredSeasonNumber
-                        ?.let { seasonNumber -> seasons.firstOrNull { it.seasonNumber == seasonNumber } }
-                    val firstRegular = selectedSeason
-                        ?: seasons.firstOrNull { !it.isSpecials }
-                        ?: seasons.firstOrNull()
+                    val plan = r.data.seasons.initialSeasonDisplayPlan(preferredSeasonNumber)
                     _uiState.update {
                         it.copy(
                             seasonsLoading = false,
-                            seasons = seasons,
-                            selectedSeason = firstRegular?.seasonNumber,
+                            seasons = plan.seasons,
+                            selectedSeason = plan.selectedSeasonNumber,
                         )
                     }
-                    if (firstRegular != null) loadEpisodes(seriesContentId, firstRegular.seasonNumber)
+                    plan.episodeRequestSeasonNumber?.let { seasonNumber ->
+                        loadEpisodes(seriesContentId, seasonNumber)
+                    }
                 }
                 else -> _uiState.update { it.copy(seasonsLoading = false) }
             }
@@ -698,7 +720,7 @@ class TvItemDetailViewModel(
         // Cancel any in-flight episode load so a slower response for a
         // previously-selected season can't overwrite episodes/next-up for the
         // season the user is now on (rapid season switches / the initial
-        // firstRegular load racing a route-driven season load).
+        // selected-season load racing a route-driven season load).
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
             if (!quiet) _uiState.update { it.copy(episodesLoading = true) }

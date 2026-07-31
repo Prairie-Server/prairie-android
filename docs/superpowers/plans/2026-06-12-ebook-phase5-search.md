@@ -374,7 +374,7 @@ window.siloHighlightCfi = function (cfi) {
   window.siloLastHl = cfi;
   window.siloRendition.display(cfi).then(function () {
     window.siloRendition.annotations.highlight(cfi, {}, function () {},
-      "silo-search-hl", { "fill": "yellow", "fill-opacity": "0.4" });
+      "prairie-search-hl", { "fill": "yellow", "fill-opacity": "0.4" });
   });
 };
 

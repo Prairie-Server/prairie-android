@@ -40,8 +40,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.prairieserver.prairie.android.ui.theme.PrairieBackground
+import org.prairieserver.prairie.android.ui.theme.SiloBackground
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
+import org.prairieserver.prairie.common.ui.movieDirectorCredit
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.Season
@@ -105,7 +106,7 @@ fun MovieDetailContent(
     var showSubtitlePicker by remember { mutableStateOf(false) }
     var showRatingSheet by remember { mutableStateOf(false) }
 
-    val dominantColor by rememberDominantColor(detail.backdropUrl, fallback = PrairieBackground)
+    val dominantColor by rememberDominantColor(detail.backdropUrl, fallback = SiloBackground)
 
     val selectedVersion = detail.versions.getOrNull(selectedVersionIndex)
     val audioTracks = selectedVersion?.audioTracks.orEmpty()
@@ -128,7 +129,7 @@ fun MovieDetailContent(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(PrairieBackground)
+            .background(SiloBackground)
             .background(detailScreenBackgroundBrush(dominantColor)),
         verticalArrangement = Arrangement.spacedBy(36.dp),
     ) {
@@ -139,6 +140,7 @@ fun MovieDetailContent(
                 sourceTokens = sourceTokens,
                 factsLine = factsLine,
                 dominantColor = dominantColor,
+                directorText = movieDirectorCredit(detail),
                 translation = translation,
             ) {
                 HeroActionStack(

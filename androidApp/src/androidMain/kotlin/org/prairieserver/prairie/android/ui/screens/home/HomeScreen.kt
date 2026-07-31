@@ -49,7 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.prairieserver.prairie.android.ui.components.PrairieWordmark
+import org.prairieserver.prairie.android.ui.components.SiloWordmark
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.components.MediaRowSkeleton
@@ -93,7 +93,7 @@ fun HomeScreen(
     onRemoteDisconnectClick: () -> Unit,
     isRemoteControlActive: Boolean,
     onRequestsClick: (() -> Unit)?,
-    onLiveTvClick: (() -> Unit)?,
+    onWatchTogetherClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -176,7 +176,7 @@ fun HomeScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    // iOS `sectionSpacing` = PrairieTheme.largePadding (24).
+                    // iOS `sectionSpacing` = SiloTheme.largePadding (24).
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
                     // Reserve runway under the floating header so the first row
@@ -223,7 +223,7 @@ fun HomeScreen(
                         )
                     }
 
-                    // iOS bottom padding = PrairieTheme.largePadding (24), plus the
+                    // iOS bottom padding = SiloTheme.largePadding (24), plus the
                     // translucent bottom chrome the content scrolls beneath.
                     item(key = "bottomPad") {
                         Spacer(modifier = Modifier.height(24.dp + LocalBottomChromeInset.current))
@@ -242,7 +242,7 @@ fun HomeScreen(
             onRemoteDisconnectClick = onRemoteDisconnectClick,
             isRemoteControlActive = isRemoteControlActive,
             onRequestsClick = onRequestsClick,
-            onLiveTvClick = onLiveTvClick,
+            onWatchTogetherClick = onWatchTogetherClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
@@ -300,7 +300,7 @@ private fun HomeFloatingChrome(
     onRemoteDisconnectClick: () -> Unit,
     isRemoteControlActive: Boolean,
     onRequestsClick: (() -> Unit)?,
-    onLiveTvClick: (() -> Unit)?,
+    onWatchTogetherClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -309,8 +309,8 @@ private fun HomeFloatingChrome(
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
     // iOS chrome: translucent glass fill plus a bottom hairline that strengthens
     // as it fades in (white 0.06 → 0.10, 0.75pt). headerTopReclaim(16) pulls the
-    // row up beside the status-bar glyphs; horizontal = PrairieTheme.padding(16),
-    // bottom = PrairieTheme.smallPadding(8).
+    // row up beside the status-bar glyphs; horizontal = SiloTheme.padding(16),
+    // bottom = SiloTheme.smallPadding(8).
     val hairlineAlpha = 0.06f + 0.04f * scrollProgress
     Box(
         modifier = Modifier
@@ -325,8 +325,8 @@ private fun HomeFloatingChrome(
                 .padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
                 .fillMaxWidth(),
         ) {
-            // Leading: Prairie wordmark (iOS PrairieWordmarkView width: 72).
-            PrairieWordmark(
+            // Leading: Prairie wordmark (iOS SiloWordmarkView width: 72).
+            SiloWordmark(
                 modifier = Modifier
                     .align(Alignment.CenterStart),
                 width = 72.dp,
@@ -338,7 +338,7 @@ private fun HomeFloatingChrome(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Mirrors Apple's PrairieControlModeButton: chrome-free at rest,
+                // Mirrors Apple's SiloControlModeButton: chrome-free at rest,
                 // filled disc while controlling a TV; the active state opens a
                 // menu instead of jumping straight to the remote.
                 Box {
@@ -402,7 +402,7 @@ private fun HomeFloatingChrome(
                 HomeProfileMenu(
                     activeProfile = activeProfile,
                     onRequestsClick = onRequestsClick,
-                    onLiveTvClick = onLiveTvClick,
+                    onWatchTogetherClick = onWatchTogetherClick,
                     onSettingsClick = onSettingsClick,
                     onSwitchProfileClick = onSwitchProfileClick,
                     onSwitchServerClick = onSwitchServerClick,
@@ -449,7 +449,7 @@ private fun HomeChromeButton(
 private fun HomeProfileMenu(
     activeProfile: Profile?,
     onRequestsClick: (() -> Unit)?,
-    onLiveTvClick: (() -> Unit)?,
+    onWatchTogetherClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -494,18 +494,16 @@ private fun HomeProfileMenu(
                     },
                 )
             }
-            if (onLiveTvClick != null) {
+            if (onWatchTogetherClick != null) {
                 DropdownMenuItem(
-                    text = { Text("Live TV") },
+                    text = { Text("Watch Together") },
                     onClick = {
                         menuExpanded = false
-                        onLiveTvClick()
+                        onWatchTogetherClick()
                     },
                 )
             }
-            if (onRequestsClick != null || onLiveTvClick != null) {
-                HorizontalDivider()
-            }
+            HorizontalDivider()
             DropdownMenuItem(
                 text = { Text("Settings") },
                 onClick = {

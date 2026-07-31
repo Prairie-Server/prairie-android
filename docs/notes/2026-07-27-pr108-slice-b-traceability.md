@@ -19,7 +19,7 @@ state needed by that slice.
 | `65c4b316` | Credential-generation scope prerequisite | Relevant token/scope net state is carried by `aeead9d9` |
 | `1fecf9b1` | Central HTTP origin model | Folded with its follow-up into `38fbf837` |
 | `cbf398fa` | Reject ambiguous authorities and normalize safe HTTP origins | Folded with `1fecf9b1` into `38fbf837` |
-| `5d5f0562` | Never attach or refresh Silo credentials off-origin | Ported as `aeead9d9` |
+| `5d5f0562` | Never attach or refresh Prairie credentials off-origin | Ported as `aeead9d9` |
 | `e18d092e` | Reject stale persistent credential generations | Ported in `aeead9d9`, with startup-snapshot correction in `15278f95` |
 | `c07d9f9f` | Require explicit cleartext-origin consent | Ported as `dd1e0992`, with client/media/startup/pairing enforcement in `15278f95` |
 | `85890c6d` | Parsed EPUB allowlist sanitizer | Cherry-picked with `-x` as `60d20931` |

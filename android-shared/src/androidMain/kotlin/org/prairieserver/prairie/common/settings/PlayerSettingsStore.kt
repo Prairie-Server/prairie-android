@@ -27,21 +27,21 @@ interface PlayerSettingsStore {
 
     // Ints
     val audioSyncMsFlow: Flow<Int>
+    /** Canonical device-scoped subtitle offset (`player.subtitle_sync_ms`). */
     val subtitleSyncMsFlow: Flow<Int>
-
-    /**
-     * Subtitle sync for one catalog item: its own override when it has one,
-     * otherwise the profile-wide value. A badly timed release is a property of
-     * that release, so correcting it must not silently shift every other title
-     * — which is what a single global value did.
-     */
-    fun subtitleSyncMsFor(contentId: String?): Flow<Int>
     val nextUpPromptSecondsFlow: Flow<Int>
     val sleepTimerDefaultMinutesFlow: Flow<Int>
     /** Seconds to skip back on resume (F1). Default 7; 0 = off. Local-only. */
     val resumeRewindSecondsFlow: Flow<Int>
     /** Consecutive auto-advances before the "Still watching?" prompt (F2). Default 3; 0 = off. Local-only. */
     val passOutThresholdFlow: Flow<Int>
+
+    /**
+     * The bandwidth half of the quality choice, orthogonal to
+     * [preferredQualityFlow]. null is uncapped, which is the absence of a
+     * stored value rather than a sentinel.
+     */
+    val maxBitrateKbpsFlow: Flow<Int?>
 
     // Strings
     val preferredQualityFlow: Flow<String>
@@ -86,13 +86,6 @@ interface PlayerSettingsStore {
 
     suspend fun setAudioSyncMs(value: Int)
     suspend fun setSubtitleSyncMs(value: Int)
-
-    /**
-     * Record sync for one item. Passing the profile-wide value clears the
-     * override instead of storing a redundant copy, so an item only carries an
-     * entry while it genuinely differs.
-     */
-    suspend fun setSubtitleSyncMsFor(contentId: String, value: Int)
     suspend fun setNextUpPromptSeconds(value: Int)
     suspend fun setSleepTimerDefaultMinutes(value: Int)
     /** Set resume skip-back seconds (clamped 0..30; 0 = off). */
@@ -101,11 +94,32 @@ interface PlayerSettingsStore {
     suspend fun setPassOutThreshold(value: Int)
 
     suspend fun setPreferredQuality(value: String)
+
+    /**
+     * Set both quality axes at once — the two values one picker preset
+     * decomposes into. Writing them together is what keeps the pair
+     * consistent: a resolution stored without its bitrate is a combination no
+     * preset covers, which the picker then has to render as "custom".
+     * [bitrateKbps] null is uncapped.
+     */
+    suspend fun setQuality(resolution: String, bitrateKbps: Int?)
     suspend fun setAudioLanguage(value: String)
     suspend fun setVideoGravity(value: String)
     suspend fun setOrientationMode(value: String)
 
     suspend fun setSubtitleAppearance(value: SubtitleAppearance)
+
+    /**
+     * Project the granular, client-local `subtitle.*` fields into the
+     * composite `playback.subtitle_appearance` and enqueue it.
+     *
+     * The contract carries subtitle appearance as one object and has no
+     * definitions for the individual fields, so a per-field edit is
+     * device-local until it is folded into the composite. Call this after
+     * editing fields individually (the player HUD, a per-field picker); a
+     * no-op when the projection already matches what is stored.
+     */
+    suspend fun flushProjectedSubtitleAppearance()
 
     /**
      * Pull every device-scoped setting from `/api/v1/settings/effective`

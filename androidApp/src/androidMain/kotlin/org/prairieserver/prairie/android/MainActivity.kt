@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,16 +33,21 @@ import org.prairieserver.prairie.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMIS
 import org.prairieserver.prairie.android.downloads.hasLegacyPublicDownloadPermission
 import org.prairieserver.prairie.android.push.PushNotificationPresenter
 import org.prairieserver.prairie.android.ui.navigation.AppNavigation
+import org.prairieserver.prairie.android.ui.navigation.ExternalRouteRequest
+import org.prairieserver.prairie.android.ui.navigation.ExternalRouteRequestFactory
 import org.prairieserver.prairie.android.ui.navigation.Route
+import org.prairieserver.prairie.android.ui.navigation.clearConsumedExternalRouteRequest
 import org.prairieserver.prairie.android.ui.navigation.contentDeepLinkRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.hasLocalDownloadsForScope
+import org.prairieserver.prairie.android.ui.navigation.inviteClaimRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.notificationNavigationRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.shouldStartOnDownloads
-import org.prairieserver.prairie.android.ui.theme.PrairieTheme
+import org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourLocalCache
+import org.prairieserver.prairie.android.ui.theme.SiloTheme
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
-import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
-import org.prairieserver.prairie.common.pip.PrairiePictureInPictureSurface
+import org.prairieserver.prairie.common.pip.SiloPictureInPictureCoordinator
+import org.prairieserver.prairie.common.pip.SiloPictureInPictureSurface
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.ServerDrivenConfigRefresher
 import org.prairieserver.prairie.common.startup.StartupArtworkPlan
@@ -57,7 +63,8 @@ import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.java.KoinJavaComponent.get
 
@@ -72,7 +79,11 @@ class MainActivity : ComponentActivity() {
         private var hasShownColdSplash = false
     }
 
-    private val incomingExternalRoutes = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    private val externalRouteRequestFactory = ExternalRouteRequestFactory()
+    // Retain the latest request even while Compose is between collectors (for
+    // example while an existing top Activity is being resumed by onNewIntent).
+    // A replay-free SharedFlow can silently drop exactly that warm delivery.
+    private val pendingExternalRouteRequests = MutableStateFlow<ExternalRouteRequest?>(null)
 
     // POST_NOTIFICATIONS is required on Android 13+ for any notification —
     // download progress / completion notifications silently never appear
@@ -90,7 +101,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var startRoute by remember { mutableStateOf<String?>(null) }
-            var pendingExternalRoute by remember { mutableStateOf<String?>(null) }
+            val pendingExternalRoute by pendingExternalRouteRequests.collectAsState()
             var splashPlaybackComplete by remember { mutableStateOf(hasShownColdSplash) }
 
             LaunchedEffect(Unit) {
@@ -102,16 +113,13 @@ class MainActivity : ComponentActivity() {
                 // The pending route is only consumed once the main graph is
                 // showing, so pre-auth starts just hold it.
                 (notificationRouteOrNull(intent) ?: contentDeepLinkRouteOrNull(intent?.dataString))
-                    ?.let { pendingExternalRoute = it }
+                    ?.let { route ->
+                        pendingExternalRouteRequests.value = externalRouteRequestFactory.create(route)
+                    }
                 launchAuthenticatedStartupWarmup(route)
             }
-            LaunchedEffect(Unit) {
-                incomingExternalRoutes.collect { route ->
-                    pendingExternalRoute = route
-                }
-            }
 
-            PrairieTheme {
+            SiloTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val resolvedRoute = startRoute
                     if (resolvedRoute == null || !splashPlaybackComplete) {
@@ -143,7 +151,14 @@ class MainActivity : ComponentActivity() {
                         AppNavigation(
                             startDestination = resolvedRoute,
                             pendingExternalRoute = pendingExternalRoute,
-                            onExternalRouteConsumed = { pendingExternalRoute = null },
+                            onExternalRouteConsumed = { consumedRequest ->
+                                pendingExternalRouteRequests.update { pendingRequest ->
+                                    clearConsumedExternalRouteRequest(
+                                        pendingRequest = pendingRequest,
+                                        consumedRequest = consumedRequest,
+                                    )
+                                }
+                            },
                         )
                     }
                 }
@@ -164,9 +179,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val route = deviceLoginPairRouteOrNull(intent.dataString)
+            ?: inviteClaimRouteOrNull(intent.dataString)
             ?: notificationRouteOrNull(intent)
             ?: contentDeepLinkRouteOrNull(intent.dataString)
-        route?.let { incomingExternalRoutes.tryEmit(it) }
+        route?.let { pendingExternalRouteRequests.value = externalRouteRequestFactory.create(it) }
     }
 
     /**
@@ -187,8 +203,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        get<PrairiePictureInPictureCoordinator>(PrairiePictureInPictureCoordinator::class.java)
-            .enterPictureInPictureIfEligible(this, PrairiePictureInPictureSurface.Mobile)
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
+            .enterPictureInPictureIfEligible(this, SiloPictureInPictureSurface.Mobile)
     }
 
     override fun onPictureInPictureModeChanged(
@@ -196,7 +212,7 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        get<PrairiePictureInPictureCoordinator>(PrairiePictureInPictureCoordinator::class.java)
+        get<SiloPictureInPictureCoordinator>(SiloPictureInPictureCoordinator::class.java)
             .setInPictureInPictureMode(isInPictureInPictureMode)
     }
 
@@ -285,6 +301,16 @@ class MainActivity : ComponentActivity() {
             return Route.Downloads.route
         }
 
+        // A warm start would otherwise bypass the tour gate entirely (e.g.
+        // process death mid-tour). Once completion is confirmed the local
+        // cache short-circuits inside the gate, so this costs nothing on
+        // launches after the first; the gate itself fails open to Home on
+        // any error, so it can't strand an offline start.
+        val tourCache = get<OnboardingTourLocalCache>(OnboardingTourLocalCache::class.java)
+        if (!tourCache.isDone(activeEntry.id, profileId)) {
+            return Route.OnboardingTour.route
+        }
+
         return Route.Home.route
     }
 
@@ -311,6 +337,9 @@ class MainActivity : ComponentActivity() {
                 personalDataRepository = get(PersonalDataRepository::class.java),
                 sectionRepository = get(SectionRepository::class.java),
                 homeCache = get(HomeCachePort::class.java),
+                identityTransitions = get<org.prairieserver.prairie.network.IdentityTransitionBarrier>(
+                    org.prairieserver.prairie.network.IdentityTransitionBarrier::class.java,
+                ),
                 serverUrl = get<ServerRegistry>(ServerRegistry::class.java).activeEntry.value?.url,
                 artworkPlan = StartupArtworkPlan.phone(),
             )

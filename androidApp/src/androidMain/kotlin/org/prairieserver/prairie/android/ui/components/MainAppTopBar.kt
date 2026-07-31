@@ -54,13 +54,13 @@ fun MainAppTopBar(
     isProfileLoading: Boolean,
     onSearchClick: () -> Unit,
     onRequestsClick: (() -> Unit)? = null,
-    onLiveTvClick: (() -> Unit)? = null,
+    onWatchTogetherClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
     onSignOutClick: () -> Unit,
     leadingContent: @Composable () -> Unit = {
-        PrairieWordmark()
+        SiloWordmark()
     },
 ) {
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -149,18 +149,16 @@ fun MainAppTopBar(
                                 },
                             )
                         }
-                        if (onLiveTvClick != null) {
+                        if (onWatchTogetherClick != null) {
                             DropdownMenuItem(
-                                text = { Text("Live TV") },
+                                text = { Text("Watch Together") },
                                 onClick = {
                                     menuExpanded = false
-                                    onLiveTvClick()
+                                    onWatchTogetherClick()
                                 },
                             )
                         }
-                        if (onRequestsClick != null || onLiveTvClick != null) {
-                            HorizontalDivider()
-                        }
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Settings") },
                             onClick = {
@@ -230,12 +228,12 @@ private fun HeaderActionButton(
 }
 
 @Composable
-fun PrairieWordmark(
+fun SiloWordmark(
     modifier: Modifier = Modifier,
     width: Dp = 72.dp,
 ) {
     androidx.compose.foundation.Image(
-        painter = painterResource(id = R.drawable.prairie_wordmark),
+        painter = painterResource(id = R.drawable.silo_wordmark),
         contentDescription = "Prairie",
         contentScale = ContentScale.Fit,
         modifier = modifier

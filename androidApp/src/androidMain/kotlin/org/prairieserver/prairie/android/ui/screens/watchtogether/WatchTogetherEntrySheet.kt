@@ -30,16 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
 import org.prairieserver.prairie.watchtogether.canDismissRoomEntry
 import org.koin.compose.viewmodel.koinViewModel
-import androidx.compose.material.icons.Icons
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 /**
  * Watch Together entry sheet, opened from the item-detail overflow.
@@ -101,20 +93,10 @@ fun WatchTogetherEntrySheet(
                     onClick = { viewModel.host(contentId, fileId) },
                     enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (state.busy) "Creating…" else "Host a room")
-                }
+                ) { Text(if (state.busy) "Creating…" else "Host a room") }
 
                 OutlinedButton(
-                    onClick = {
-                        viewModel.host(contentId, fileId, RoomSelectionMode.Vote)
-                    },
+                    onClick = { viewModel.hostEmptyVoteRoom() },
                     enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Host a vote room") }
@@ -123,15 +105,7 @@ fun WatchTogetherEntrySheet(
                     onClick = { viewModel.clearError(); showJoin = true },
                     enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Link,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Join by code")
-                }
+                ) { Text("Join by code") }
             } else {
                 OutlinedTextField(
                     value = code,
@@ -146,31 +120,14 @@ fun WatchTogetherEntrySheet(
                     enabled = !state.busy && code.length >= 4,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    if (state.busy) {
-                        CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Link,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Join")
-                    }
+                    if (state.busy) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                    else Text("Join")
                 }
                 OutlinedButton(
                     onClick = { viewModel.clearError(); showJoin = false },
                     enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Back")
-                }
+                ) { Text("Back") }
             }
         }
         Spacer(Modifier.height(24.dp))

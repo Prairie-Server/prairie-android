@@ -187,7 +187,7 @@ fun SeriesDetailContent(
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     SectionHeader(
-                        label = selectedSeason?.let { "Season ${it.seasonNumber}" } ?: "Episodes",
+                        label = seriesSeasonSectionLabel(selectedSeason),
                         title = "Episodes",
                         trailingText = episodeCountSubtitle,
                         modifier = Modifier.weight(1f),
@@ -212,7 +212,10 @@ fun SeriesDetailContent(
                             when {
                                 allDownloaded -> Icon(
                                     imageVector = Icons.Filled.DownloadDone,
-                                    contentDescription = "Season $seasonNumberForDownload downloaded",
+                                    contentDescription = seasonDownloadContentDescription(
+                                        selectedSeason,
+                                        isDownloaded = true,
+                                    ),
                                     tint = DetailPrimaryText,
                                     modifier = Modifier.size(24.dp),
                                 )
@@ -223,7 +226,10 @@ fun SeriesDetailContent(
                                 )
                                 else -> Icon(
                                     imageVector = Icons.Outlined.FileDownload,
-                                    contentDescription = "Download season $seasonNumberForDownload",
+                                    contentDescription = seasonDownloadContentDescription(
+                                        selectedSeason,
+                                        isDownloaded = false,
+                                    ),
                                     tint = DetailPrimaryText,
                                     modifier = Modifier.size(24.dp),
                                 )
@@ -313,5 +319,20 @@ fun SeriesDetailContent(
             },
             onDismiss = { showRatingSheet = false },
         )
+    }
+}
+
+internal fun seriesSeasonSectionLabel(season: Season?): String =
+    season?.let(::phoneSeasonLabel) ?: "Episodes"
+
+internal fun seasonDownloadContentDescription(
+    season: Season,
+    isDownloaded: Boolean,
+): String {
+    val label = phoneSeasonLabel(season)
+    return if (isDownloaded) {
+        "$label downloaded"
+    } else {
+        "Download ${label.replaceFirstChar(Char::lowercase)}"
     }
 }

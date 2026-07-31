@@ -81,13 +81,13 @@ class SubtitleTrackMergeTest {
             existing = listOf(track(0, source = "embedded")),
             downloaded = listOf(downloaded(id = 312), downloaded(id = 313)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
         val reordered = mergeDownloadedSubtitles(
             existing = listOf(track(0, source = "embedded")),
             downloaded = listOf(downloaded(id = 313), downloaded(id = 312)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(1, first.single { it.downloadId == 312 }.index)
@@ -101,13 +101,13 @@ class SubtitleTrackMergeTest {
             existing = listOf(track(0, source = "embedded")),
             downloaded = listOf(downloaded(id = 312), downloaded(id = 313)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
         val afterDeletion = mergeDownloadedSubtitles(
             existing = listOf(track(0, source = "embedded")),
             downloaded = listOf(downloaded(id = 313)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(2, beforeDeletion.single { it.downloadId == 313 }.index)
@@ -121,13 +121,13 @@ class SubtitleTrackMergeTest {
             existing = listOf(track(0, source = "embedded")),
             downloaded = listOf(downloaded(id = 312)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
         val expandedCatalog = mergeDownloadedSubtitles(
             existing = listOf(track(0, source = "embedded"), track(7, source = "external")),
             downloaded = listOf(downloaded(id = 312)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(1, shortCatalog.single { it.source == "downloaded" }.index)

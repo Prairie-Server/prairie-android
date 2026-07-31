@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
@@ -54,6 +53,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
@@ -101,7 +101,7 @@ import androidx.tv.material3.Text
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.common.ui.components.isImageAvatar
-import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.tv.ui.theme.SiloOnSurface
 import org.prairieserver.prairie.tv.ui.theme.DarkBackground
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.network.ServerReachabilityStatus
@@ -111,9 +111,10 @@ import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.admin.shouldShowClientAdminSurface
 import org.prairieserver.prairie.model.auth.isActingAdmin
-import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
+import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.model.personal.UserLibrary
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.repository.AuthRepository
@@ -145,17 +146,21 @@ import org.prairieserver.prairie.tv.ui.screens.personal.TvFavoritesScreen
 import org.prairieserver.prairie.tv.ui.screens.personal.TvHistoryScreen
 import org.prairieserver.prairie.tv.ui.screens.personal.TvWatchlistScreen
 import org.prairieserver.prairie.tv.ui.screens.recommendations.TvRecommendationsScreen
+import org.prairieserver.prairie.tv.ui.screens.recommendations.SavedListSelection
+import org.prairieserver.prairie.tv.ui.screens.recommendations.TvForYouEntryRequest
 import org.prairieserver.prairie.tv.ui.screens.requests.TvMyRequestsScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestDetailScreen
-import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvPlayerScreen
-import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsScreen
 import org.prairieserver.prairie.tv.ui.screens.search.TvSearchScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.TvManageSessionsScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.TvSettingsScreen
+import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvJoinCodeDialog
+import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherMenuEntryDialog
+import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
 import org.prairieserver.prairie.tv.ui.theme.TvSkyline
 import org.prairieserver.prairie.tv.ui.util.visibleOnTv
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * Main authenticated TV shell. Mirrors `TVMainTabView` on tvOS: a content
@@ -180,6 +185,7 @@ fun TvMainShell(
     onSwitchServer: () -> Unit,
     onPairDevice: () -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit,
+    onOpenWatchTogether: (RoomSnapshot) -> Unit,
     onOpenPersonDetail: (personId: Long) -> Unit,
 ) {
     val nestedNav = rememberNavController()
@@ -191,15 +197,26 @@ fun TvMainShell(
     val profileRepository: ProfileRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
-    val liveTvFeatureStore: LiveTvFeatureStore = koinInject()
     val metadataAiFeatureStore: org.prairieserver.prairie.model.feature.MetadataAiFeatureStore = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
-    val liveTvEnabled by liveTvFeatureStore.isEnabled.collectAsState()
     val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     val serverUrl = rememberProfileServerUrl()
+    val watchTogetherViewModel = koinViewModel<TvWatchTogetherViewModel>()
+    val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
+    val currentWatchTogetherRoom by watchTogetherViewModel.currentRoom.collectAsState()
+    var watchTogetherEntryOpen by rememberSaveable { mutableStateOf(false) }
+    var watchTogetherJoinOpen by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(watchTogetherState.result) {
+        val room = watchTogetherState.result ?: return@LaunchedEffect
+        watchTogetherViewModel.consumeResult()
+        watchTogetherEntryOpen = false
+        watchTogetherJoinOpen = false
+        onOpenWatchTogether(room)
+    }
 
     // The raw list of libraries visible to this profile on TV, sorted by the
     // server's sort order (ebook-like libraries filtered out by visibleOnTv).
@@ -287,8 +304,6 @@ fun TvMainShell(
     LaunchedEffect(activeServerEntry?.id, activeServerEntry?.profileId) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
-        liveTvFeatureStore.reset()
-        liveTvFeatureStore.refresh()
         metadataAiFeatureStore.reset()
         metadataAiFeatureStore.refresh()
     }
@@ -303,6 +318,15 @@ fun TvMainShell(
     // Opening an outer item-detail route pauses/removes this shell. Remember the
     // pending hand-back in the Main back-stack entry so it survives either form,
     // then re-enter the existing content focusRestorer when Main resumes.
+    // Two flags, deliberately. `restoreContentAfterDetail` says a detail return
+    // is pending for ANY root, and gates the resume claim below so focus lands
+    // back inside content instead of Compose's default search picking the top
+    // bar. `restoreHomeContentAfterDetail` additionally says it was the Home
+    // feed, which is the only root that attaches
+    // homeDetailReturnCardFocusRequester to its launch card — using that
+    // requester as the restorer fallback for a root that never attached it
+    // would point the restorer at a detached node.
+    var restoreContentAfterDetail by rememberSaveable { mutableStateOf(false) }
     var restoreHomeContentAfterDetail by rememberSaveable { mutableStateOf(false) }
     var suppressHomeRefreshAfterDetail by rememberSaveable { mutableStateOf(false) }
     var homeDetailReturnFocusRequest by remember { mutableIntStateOf(0) }
@@ -321,7 +345,7 @@ fun TvMainShell(
     // yanks focus to a different card for a frame.
     var contentHasFocus by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
-        if (restoreHomeContentAfterDetail) {
+        if (restoreContentAfterDetail) {
             // Claim the content group synchronously during ON_RESUME, before
             // Compose's default search can briefly settle on the Home tab —
             // but only when the feed hasn't already claimed it. Claim BEFORE
@@ -332,6 +356,7 @@ fun TvMainShell(
             } else {
                 runCatching { !contentFocusRequester.requestFocus() }.getOrDefault(true)
             }
+            restoreContentAfterDetail = false
             restoreHomeContentAfterDetail = false
             homeDetailReturnFocusRequest++
         }
@@ -350,16 +375,26 @@ fun TvMainShell(
         suppressHomeRefreshAfterDetail = false
     }
     val openHomeItemDetail: (String) -> Unit = { contentId ->
+        restoreContentAfterDetail = true
         restoreHomeContentAfterDetail = true
         suppressHomeRefreshAfterDetail = true
         onOpenItemDetail(contentId)
     }
-    var contentUpFallback by remember { mutableStateOf<(() -> Boolean)?>(null) }
+    // Same hand-back for roots that render inside the shell but do not attach a
+    // launch-card requester (For You). Without this the shell never claims
+    // content focus on the return resume, so focus settles wherever Compose's
+    // default search lands — in practice the top bar — and the D-pad no longer
+    // drives the rows the viewer was just in.
+    val openContentItemDetail: (String) -> Unit = { contentId ->
+        restoreContentAfterDetail = true
+        onOpenItemDetail(contentId)
+    }
+    var contentUpFallback by remember { mutableStateOf<((Boolean) -> Boolean)?>(null) }
     // Feeds that registered the up-fallback slot, were superseded by a newer
     // feed, and are still awaiting their (now-stale) onDispose. Tracking them
     // lets us ignore that late dispose instead of nulling the entering feed's
     // registration.
-    val supersededContentUpFallbacks = remember { mutableSetOf<() -> Boolean>() }
+    val supersededContentUpFallbacks = remember { mutableSetOf<(Boolean) -> Boolean>() }
     // Register/relinquish the single D-pad-Up fallback slot BY IDENTITY. A
     // NavHost composes the ENTERING feed (which registers its own lambda) before
     // it disposes the EXITING one, so a blind null-on-dispose would drop the new
@@ -368,7 +403,7 @@ fun TvMainShell(
     // lambda on both register and dispose; we only relinquish the slot for the
     // feed that still owns it, ignore a superseded feed's stale dispose, and let
     // a newly-entering feed take the slot (retiring the previous owner).
-    val onContentUpFallback: ((() -> Boolean)?) -> Unit = remember {
+    val onContentUpFallback: (((Boolean) -> Boolean)?) -> Unit = remember {
         { incoming ->
             if (incoming != null) {
                 when {
@@ -399,6 +434,7 @@ fun TvMainShell(
     // top), while ordinary content re-entry keeps the focusRestorer()'s
     // last-focused card.
     var contentFocusRequest by remember { mutableIntStateOf(0) }
+    var forYouEntryRequest by remember { mutableStateOf(TvForYouEntryRequest()) }
 
     // --- Skyline cascade panel host (Stage 4) ----------------------------------
     // Mirrors tvOS `TVMainTabView.persistentPanels`. The cascade overlays are
@@ -451,6 +487,7 @@ fun TvMainShell(
     val selectedRoot by remember(currentRoute) {
         derivedStateOf { mapRouteToRoot(currentRoute) }
     }
+    val selectedMenuFocusTarget = selectedRoot?.let(TvTopMenuPanel::Root)
 
     // Which libraries actually HAVE collections — gates the cascade's
     // Collections pill so an empty library doesn't offer a dead-end section
@@ -522,9 +559,18 @@ fun TvMainShell(
             runCatching { contentFocusRequester.requestFocus() }
         }
     }
+    val openForYou: (SavedListSelection?) -> Unit = { selection ->
+        forYouEntryRequest = forYouEntryRequest.next(selection)
+        focusState.closePanel(false)
+        navigateToSecondary(TvMainRoute.ForYou.route)
+        moveFocusToContent(TvMainRoute.ForYou.route)
+    }
 
     val onSelectRoot: (TvRootDestination) -> Unit = { dest ->
         val route = dest.toRoute()
+        if (dest == TvRootDestination.ForYou) {
+            forYouEntryRequest = forYouEntryRequest.nextForTopLevelForYou()
+        }
         if (dest == TvRootDestination.Home) {
             // Detail return deliberately preserves the card that opened the
             // detail page, but that protection must end when the user
@@ -695,7 +741,10 @@ fun TvMainShell(
                     // half (close panel / dropdown); we run only the side effect
                     // each action needs. Keeping it here — not in the selector or
                     // the bar — means Back can never be double-handled.
-                    when (focusState.onBack(onTabRoot = selectedRoot != null)) {
+                    when (focusState.onBack(
+                        onTabRoot = selectedRoot != null,
+                        menuFocusTarget = selectedMenuFocusTarget,
+                    )) {
                         // Panel/dropdown already closed by onBack(): just consume.
                         TvShellBackAction.ClosePanel,
                         TvShellBackAction.CloseProfileMenu -> true
@@ -777,18 +826,25 @@ fun TvMainShell(
                 .onPreviewKeyEvent { ev ->
                     when {
                         ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp -> {
-                            val contentHandledUp = contentUpFallback?.invoke()
+                            val isRepeat = ev.nativeKeyEvent.repeatCount > 0
+                            val contentHandledUp = contentUpFallback?.invoke(isRepeat)
                             if (contentHandledUp != null) {
-                                if (!contentHandledUp) {
-                                    focusState.requestMenuFocus()
+                                if (shouldRequestMenuAfterContentUp(contentHandledUp, isRepeat)) {
+                                    focusState.requestMenuFocusIfAvailable(
+                                        selectedMenuFocusTarget,
+                                        allowNullTarget = currentRoute == TvMainRoute.Search.route,
+                                    )
                                 }
                             } else {
                                 // Try to move focus up inside content; if that
                                 // fails (we're already on the top row), hand
                                 // focus to the menu bar.
                                 val moved = focusManager.moveFocus(FocusDirection.Up)
-                                if (!moved) {
-                                    focusState.requestMenuFocus()
+                                if (shouldRequestMenuAfterContentUp(moved, isRepeat)) {
+                                    focusState.requestMenuFocusIfAvailable(
+                                        selectedMenuFocusTarget,
+                                        allowNullTarget = currentRoute == TvMainRoute.Search.route,
+                                    )
                                 }
                             }
                             // Always consume: we performed the move (or routed
@@ -826,8 +882,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
                         onOpenForYou = {
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -848,8 +903,7 @@ fun TvMainShell(
                             moveFocusToContent(TvMainRoute.Browse.route)
                         },
                         onOpenForYou = {
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -958,9 +1012,10 @@ fun TvMainShell(
                 }
                 composable(TvMainRoute.ForYou.route) {
                     TvRecommendationsScreen(
-                        onItemClick = onOpenItemDetail,
+                        onItemClick = openContentItemDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
+                        entryRequest = forYouEntryRequest,
                     )
                 }
                 composable(TvMainRoute.Requests.route) {
@@ -980,33 +1035,6 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.RequestDetail(mt, id).route)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
-                    )
-                }
-                composable(TvMainRoute.LiveTv.route) {
-                    TvLiveTvScreen(
-                        onChannelClick = { channel ->
-                            navigateToSecondary(
-                                TvMainRoute.LiveTvPlayer(channel.id, channel.displayName).route,
-                            )
-                        },
-                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
-                    )
-                }
-                composable(
-                    route = TvMainRoute.LiveTvPlayer.ROUTE,
-                    arguments = listOf(
-                        navArgument(TvMainRoute.LiveTvPlayer.ARG_CHANNEL_ID) { type = NavType.StringType },
-                        navArgument(TvMainRoute.LiveTvPlayer.ARG_NAME) {
-                            type = NavType.StringType
-                            nullable = true
-                            defaultValue = ""
-                        },
-                    ),
-                ) { entry ->
-                    TvLiveTvPlayerScreen(
-                        channelId = entry.arguments?.getString(TvMainRoute.LiveTvPlayer.ARG_CHANNEL_ID).orEmpty(),
-                        channelName = entry.arguments?.getString(TvMainRoute.LiveTvPlayer.ARG_NAME).orEmpty(),
-                        onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
                     )
                 }
                 composable(
@@ -1077,7 +1105,13 @@ fun TvMainShell(
                             focusState.closeProfileMenuForContent()
                             calendarFocusHandoffPending = false
                         },
+                        onMoveUpToMenu = {
+                            focusState.requestMenuFocus(
+                                TvTopMenuPanel.Root(TvRootDestination.Calendar),
+                            )
+                        },
                         focusRequest = contentFocusRequest,
+                        onContentUpFallbackChanged = onContentUpFallback,
                     )
                 }
                 composable(TvMainRoute.Browse.route) {
@@ -1135,6 +1169,31 @@ fun TvMainShell(
                     TvAdminLogsScreen(onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() })
                 }
             }
+        }
+
+        // The scrim TvTopMenuBar documents but the shell had stopped drawing.
+        // The bar deliberately has no background band of its own ("the SHELL
+        // draws a fixed top scrim behind the bar", QA 2026-07-08); without it
+        // the labels sat directly on whatever scrolled underneath, which on
+        // For You is a poster row and is unreadable. A gradient rather than a
+        // solid band keeps the tvOS look this shell asks for — content stays
+        // visible behind the bar, just no longer competing with the labels.
+        if (currentRoute != TvMainRoute.Settings.route) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(TvTopMenuLayout.contentTopInset)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
+                                MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
+                                MaterialTheme.colorScheme.background.copy(alpha = 0f),
+                            ),
+                        ),
+                    ),
+            )
         }
 
         // Menu overlay — content remains visible behind the transparent bar,
@@ -1240,19 +1299,13 @@ fun TvMainShell(
                         entersPanel = active && focusState.panelEntersFocus,
                         focusEntryToken = focusState.panelFocusEntryToken,
                         onWatchlist = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.Watchlist.route)
-                            moveFocusToContent(TvMainRoute.Watchlist.route)
+                            openForYou(SavedListSelection.Watchlist)
                         },
                         onFavorites = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.Favorites.route)
-                            moveFocusToContent(TvMainRoute.Favorites.route)
+                            openForYou(SavedListSelection.Favorites)
                         },
                         onRecommendations = {
-                            focusState.closePanel(false)
-                            navigateToSecondary(TvMainRoute.ForYou.route)
-                            moveFocusToContent(TvMainRoute.ForYou.route)
+                            openForYou(null)
                         },
                     )
                 }
@@ -1325,10 +1378,11 @@ fun TvMainShell(
                     navigateToSecondary(TvMainRoute.Requests.route)
                     moveFocusToContent(TvMainRoute.Requests.route)
                 },
-                showLiveTv = liveTvEnabled,
-                onLiveTv = closeMenuAnd {
-                    navigateToSecondary(TvMainRoute.LiveTv.route)
-                    moveFocusToContent(TvMainRoute.LiveTv.route)
+                showWatchTogether = CLIENT_WATCH_TOGETHER_SURFACE_ENABLED,
+                onWatchTogether = {
+                    focusState.closeProfileMenuForContent()
+                    watchTogetherViewModel.clearError()
+                    watchTogetherEntryOpen = true
                 },
                 onSettings = {
                     // Keep focus on the dropdown row through the route fade.
@@ -1350,6 +1404,38 @@ fun TvMainShell(
                     )
                     .zIndex(2f),
             )
+        }
+
+        if (watchTogetherEntryOpen) {
+            if (watchTogetherJoinOpen) {
+                TvJoinCodeDialog(
+                    isBusy = watchTogetherState.isBusy,
+                    error = watchTogetherState.error,
+                    onJoin = watchTogetherViewModel::joinRoom,
+                    onDismiss = {
+                        watchTogetherViewModel.clearError()
+                        watchTogetherJoinOpen = false
+                    },
+                )
+            } else {
+                TvWatchTogetherMenuEntryDialog(
+                    canResume = currentWatchTogetherRoom != null,
+                    isBusy = watchTogetherState.isBusy,
+                    error = watchTogetherState.error,
+                    onResume = { watchTogetherViewModel.resumeCurrentRoom() },
+                    onHost = { watchTogetherViewModel.createEmptyVoteRoom() },
+                    onJoin = {
+                        watchTogetherViewModel.clearError()
+                        watchTogetherJoinOpen = true
+                    },
+                    onDismiss = {
+                        watchTogetherViewModel.clearError()
+                        watchTogetherEntryOpen = false
+                        watchTogetherJoinOpen = false
+                        focusState.dismissProfileMenu()
+                    },
+                )
+            }
         }
     }
 }
@@ -1373,7 +1459,7 @@ private fun TvLibraryTypeContent(
     onLibraryCollectionClick: (libraryId: Int, collectionId: String, title: String) -> Unit,
     onUserCollectionClick: (collectionId: String, title: String) -> Unit,
     onInitialContentFocus: () -> Unit,
-    onContentUpFallbackChanged: (((() -> Boolean)?) -> Unit)? = null,
+    onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
 ) {
     if (library == null) {
         // Only assert "no libraries" once loading has settled AND this type
@@ -1522,8 +1608,8 @@ private fun cascadePanelOffset(
  * returns focus to the avatar via [onDismiss].
  *
  * Row set + order mirrors tvOS: Switch Profile · Watchlist · Favorites ·
- * History · Requests (feature-gated) · Settings · Switch Server · Sign Out.
- * Calendar is a top-level tab.
+ * History · Requests (server-gated) · Watch Together (client-policy-gated) ·
+ * Settings · Switch Server · Sign Out. Calendar is a top-level tab.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -1537,8 +1623,8 @@ private fun TvProfileDropdown(
     onHistory: () -> Unit,
     showRequests: Boolean,
     onRequests: () -> Unit,
-    showLiveTv: Boolean,
-    onLiveTv: () -> Unit,
+    showWatchTogether: Boolean,
+    onWatchTogether: () -> Unit,
     onSettings: () -> Unit,
     onSwitchServer: () -> Unit,
     onSignOut: () -> Unit,
@@ -1591,11 +1677,11 @@ private fun TvProfileDropdown(
                 onClick = onRequests,
             )
         }
-        if (showLiveTv) {
+        if (showWatchTogether) {
             ProfileDropdownRow(
-                label = "Live TV",
-                icon = Icons.Filled.LiveTv,
-                onClick = onLiveTv,
+                label = "Watch Together",
+                icon = Icons.Filled.People,
+                onClick = onWatchTogether,
             )
         }
 
@@ -1646,7 +1732,7 @@ private fun ProfileDropdownHeader(accountState: TvAccountState) {
             } else {
                 Text(
                     text = avatarText,
-                    color = PrairieOnSurface,
+                    color = SiloOnSurface,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -1654,7 +1740,7 @@ private fun ProfileDropdownHeader(accountState: TvAccountState) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = accountState.displayName,
-                color = PrairieOnSurface,
+                color = SiloOnSurface,
                 fontWeight = FontWeight.SemiBold,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontSize = TvSkyline.profileMenuHeaderTitleSize,
@@ -1669,7 +1755,7 @@ private fun ProfileDropdownHeader(accountState: TvAccountState) {
             if (subtitle.isNotEmpty()) {
                 Text(
                     text = subtitle.uppercase(),
-                    color = PrairieOnSurface.copy(alpha = 0.38f),
+                    color = SiloOnSurface.copy(alpha = 0.38f),
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = TvSkyline.profileMenuHeaderSubtitleSize,
                         lineHeight = TvSkyline.profileMenuHeaderSubtitleLineHeight,
@@ -1710,14 +1796,14 @@ private fun TvServerOfflinePill(
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF3A1F22).copy(alpha = 0.94f),
             contentColor = Color.White,
-            focusedContainerColor = PrairieOnSurface,
+            focusedContainerColor = SiloOnSurface,
             focusedContentColor = DarkBackground,
-            pressedContainerColor = PrairieOnSurface,
+            pressedContainerColor = SiloOnSurface,
             pressedContentColor = DarkBackground,
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)), shape = pillShape),
-            focusedBorder = Border(border = BorderStroke(1.dp, PrairieOnSurface), shape = pillShape),
+            focusedBorder = Border(border = BorderStroke(1.dp, SiloOnSurface), shape = pillShape),
         ),
     ) {
         Text(
@@ -1733,7 +1819,7 @@ private fun TvServerOfflinePill(
 
 /**
  * Inverted-capsule dropdown row (tvOS §5.8 / cascade grammar): a leading icon
- * and label that invert to a solid [PrairieOnSurface] fill with
+ * and label that invert to a solid [SiloOnSurface] fill with
  * [DarkBackground] content on focus, bare at rest.
  */
 @Composable
@@ -1745,7 +1831,7 @@ private fun ProfileDropdownRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val contentColor = if (isFocused) DarkBackground else PrairieOnSurface.copy(alpha = 0.9f)
+    val contentColor = if (isFocused) DarkBackground else SiloOnSurface.copy(alpha = 0.9f)
     val rowShape = RoundedCornerShape(TvSkyline.profileMenuRowCornerRadius)
 
     Surface(
@@ -1759,10 +1845,10 @@ private fun ProfileDropdownRow(
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
-            contentColor = PrairieOnSurface,
-            focusedContainerColor = PrairieOnSurface,
+            contentColor = SiloOnSurface,
+            focusedContainerColor = SiloOnSurface,
             focusedContentColor = DarkBackground,
-            pressedContainerColor = PrairieOnSurface,
+            pressedContainerColor = SiloOnSurface,
             pressedContentColor = DarkBackground,
         ),
         border = ClickableSurfaceDefaults.border(
