@@ -1,8 +1,12 @@
 package org.prairieserver.prairie.playback
 
+import kotlinx.serialization.encodeToString
+import org.prairieserver.prairie.model.catalog.FileVersion
+import org.prairieserver.prairie.network.PrairieJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class TrickplayTest {
     private fun trickplay(
@@ -10,14 +14,16 @@ class TrickplayTest {
         columns: Int = 10,
         rows: Int = 10,
         count: Int = 100,
+        width: Int = 320,
+        height: Int = 180,
         sheets: List<TrickplaySheet> = listOf(
             TrickplaySheet(0, "https://cdn.example/sheet0.jpg"),
             TrickplaySheet(1, "https://cdn.example/sheet1.jpg"),
         ),
     ) = TrickplayInfo(
         intervalSeconds = interval,
-        width = 320,
-        height = 180,
+        width = width,
+        height = height,
         tileColumns = columns,
         tileRows = rows,
         thumbnailCount = count,
@@ -41,6 +47,8 @@ class TrickplayTest {
         assertEquals(0f, tile.backgroundPositionYPercent)
         assertEquals(10, tile.columns)
         assertEquals(10, tile.rows)
+        assertEquals(320, tile.width)
+        assertEquals(180, tile.height)
     }
 
     @Test
@@ -50,8 +58,8 @@ class TrickplayTest {
         assertEquals("https://cdn.example/sheet0.jpg", tile.url)
         assertEquals(5, tile.col)
         assertEquals(1, tile.row)
-        assertEquals((5f / 9f) * 100f, tile.backgroundPositionXPercent, 0.01f)
-        assertEquals((1f / 9f) * 100f, tile.backgroundPositionYPercent, 0.01f)
+        assertEquals((5f / 9f) * 100f, tile.backgroundPositionXPercent, absoluteTolerance = 0.01f)
+        assertEquals((1f / 9f) * 100f, tile.backgroundPositionYPercent, absoluteTolerance = 0.01f)
 
         // tile 100 would be sheet 1; clamp to thumbnail_count-1 = 99 → sheet 0
         // with count=100, tilesPerSheet=100, tile 99 is still sheet 0
@@ -69,6 +77,52 @@ class TrickplayTest {
     }
 
     @Test
+    fun `resolveTrickplayTile applies defaults for missing geometry`() {
+        val tile = resolveTrickplayTile(
+            trickplay(
+                interval = 0.0,
+                columns = 0,
+                rows = 0,
+                width = 0,
+                height = 0,
+                count = 20,
+                sheets = listOf(TrickplaySheet(0, "https://cdn.example/sheet0.jpg")),
+            ),
+            25.0, // floor(25/10)=2 with default interval
+        )!!
+        assertEquals(10, tile.columns)
+        assertEquals(10, tile.rows)
+        assertEquals(320, tile.width)
+        assertEquals(180, tile.height) // round(320 * 9/16)
+        assertEquals(2, tile.col)
+        assertEquals(0, tile.row)
+    }
+
+    @Test
+    fun `resolveTrickplayTile zeroes background percent for single column or row`() {
+        val tile = resolveTrickplayTile(
+            trickplay(
+                columns = 1,
+                rows = 1,
+                count = 1,
+                sheets = listOf(TrickplaySheet(0, "https://cdn.example/one.jpg")),
+            ),
+            0.0,
+        )!!
+        assertEquals(0f, tile.backgroundPositionXPercent)
+        assertEquals(0f, tile.backgroundPositionYPercent)
+        assertEquals(0, tile.col)
+        assertEquals(0, tile.row)
+    }
+
+    @Test
+    fun `resolveTrickplayTile clamps negative scrub time to first tile`() {
+        val tile = resolveTrickplayTile(trickplay(), -5.0)!!
+        assertEquals(0, tile.col)
+        assertEquals(0, tile.row)
+    }
+
+    @Test
     fun `resolveTrickplayTile returns null for missing sheet url`() {
         assertNull(
             resolveTrickplayTile(
@@ -82,5 +136,29 @@ class TrickplayTest {
                 0.0,
             ),
         )
+    }
+
+    @Test
+    fun `TrickplayInfo round-trips on FileVersion`() {
+        val info = TrickplayInfo(
+            intervalSeconds = 10.0,
+            width = 320,
+            height = 180,
+            tileColumns = 10,
+            tileRows = 10,
+            thumbnailCount = 50,
+            sheets = listOf(TrickplaySheet(0, "/api/v1/trickplay/sheet0.jpg")),
+        )
+        val encoded = PrairieJson.encodeToString(
+            FileVersion(fileId = 7, trickplay = info),
+        )
+        assertTrue("trickplay" in encoded)
+        assertTrue("interval_seconds" in encoded)
+        assertTrue("tile_columns" in encoded)
+        val decoded = PrairieJson.decodeFromString<FileVersion>(encoded)
+        assertEquals(info, decoded.trickplay)
+
+        val without = PrairieJson.decodeFromString<FileVersion>("""{"file_id":7}""")
+        assertNull(without.trickplay)
     }
 }
