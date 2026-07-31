@@ -153,7 +153,8 @@ class SharedModelsCoverageTest {
             Season(contentId = "s2", seasonNumber = 2, title = "Two", episodeCount = 8),
             Season(contentId = "s1", seasonNumber = 1, title = "One", episodeCount = 10, userData = SeasonUserData()),
         )
-        assertEquals(listOf("s1", "s2", "s0"), seasons.sortedForDisplay().map { it.contentId })
+        // Specials (season 0 / isSpecials) sort before regular seasons.
+        assertEquals(listOf("s0", "s1", "s2"), seasons.sortedForDisplay().map { it.contentId })
 
         val browse = BrowseResponse(items = emptyList(), total = 0)
         assertEquals(0, json.decodeFromString(BrowseResponse.serializer(), json.encodeToString(BrowseResponse.serializer(), browse)).total)
