@@ -13,7 +13,8 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -189,6 +190,7 @@ class TvNextUpSelectionHandoffTest {
     @Test
     fun staleRefreshCompletionCannotApplyHandoffToAnotherEpisode() = runDetailTest {
         val scenario = Scenario(suffix = "-stale")
+        scenario.episodeOneWatchGate = CompletableDeferred()
         val fixture = createFixture(scenario)
         awaitEpisode(fixture.viewModel, scenario.episodeOneId)
 
@@ -202,6 +204,7 @@ class TvNextUpSelectionHandoffTest {
         scenario.episodeOneResponses.addLast(
             DetailResponse(freshGate, itemDetailJson(scenario.episodeOneId, listOf(version(901, "2160p")))),
         )
+        scenario.episodeOneDefaultVersions = listOf(version(901, "2160p"))
 
         fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, false)
         awaitCondition { scenario.pendingEpisodeOneResponses == 1 }
@@ -217,6 +220,9 @@ class TvNextUpSelectionHandoffTest {
             fixture.viewModel.uiState.value.nextUpPlaybackDetail?.versions?.singleOrNull()?.fileId,
         )
         freshGate.complete(Unit)
+        awaitCondition {
+            fixture.viewModel.uiState.value.nextUpPlaybackDetail?.versions?.singleOrNull()?.fileId == 901
+        }
     }
 
     @Test
@@ -273,6 +279,148 @@ class TvNextUpSelectionHandoffTest {
         }
     }
 
+    @Test
+    fun explicitSelectorInputBeforePendingInstallWins() = runDetailTest {
+        val french = subtitle(index = 4, language = "fre", external = true)
+        val scenario = Scenario(
+            suffix = "-selector-before-install",
+            oldVersions = listOf(
+                version(101, "720p"),
+                version(102, "1080p", codec = "hevc", subtitles = listOf(french)),
+            ),
+            newVersions = listOf(
+                version(201, "720p"),
+                version(202, "1080p", codec = "hevc", subtitles = listOf(french.copy(index = 7))),
+            ),
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpVersionSelected(102)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(0)
+
+        val identityGate = CompletableDeferred<Unit>()
+        val previousSnapshotCalls = fixture.tokenManager.snapshotCalls
+        fixture.tokenManager.snapshotResponses.addLast(
+            SnapshotResponse(identityGate, fixture.tokenManager.currentScope()),
+        )
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+        awaitCondition { fixture.tokenManager.snapshotCalls > previousSnapshotCalls }
+
+        fixture.viewModel.onNextUpVersionSelected(201)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
+        identityGate.complete(Unit)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+
+        val state = fixture.viewModel.uiState.value
+        assertEquals(201, state.selectedNextUpFileId)
+        assertEquals(-1, state.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun explicitSelectorInputDuringDurableResolutionWins() = runDetailTest {
+        val french = subtitle(index = 4, language = "fre", external = true)
+        val scenario = Scenario(
+            suffix = "-selector-during-durable",
+            oldVersions = listOf(
+                version(101, "720p"),
+                version(102, "1080p", codec = "hevc", subtitles = listOf(french)),
+            ),
+            newVersions = listOf(
+                version(201, "720p"),
+                version(202, "1080p", codec = "hevc", subtitles = listOf(french.copy(index = 7))),
+            ),
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpVersionSelected(102)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(0)
+
+        val durableGate = CompletableDeferred<Unit>()
+        val targetKey = scenario.episodeTwoId to 202
+        fixture.userState.readGates[targetKey] = durableGate
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+        awaitCondition { targetKey in fixture.userState.startedReads }
+
+        fixture.viewModel.onNextUpVersionSelected(201)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
+        durableGate.complete(Unit)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+
+        val state = fixture.viewModel.uiState.value
+        assertEquals(201, state.selectedNextUpFileId)
+        assertEquals(-1, state.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun nullAuthScopeFailsClosedBeforeHandoffInstall() = runDetailTest {
+        val scenario = Scenario(suffix = "-null-scope")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
+        fixture.tokenManager.snapshotResponses.addLast(SnapshotResponse(gate = null, scope = null))
+
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+        awaitCondition {
+            val state = fixture.viewModel.uiState.value
+            state.nextUpEpisode?.contentId == scenario.episodeTwoId &&
+                state.didLoadNextUpPlaybackDetail &&
+                !state.isLoadingNextUpPlaybackDetail
+        }
+
+        assertEquals(0, scenario.episodeTwoRequests)
+        assertNull(fixture.viewModel.uiState.value.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun nullProfileSnapshotIsNotFilledFromSeparateTokenRead() = runDetailTest {
+        val scenario = Scenario(suffix = "-null-profile")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
+        fixture.tokenManager.snapshotResponses.addLast(
+            SnapshotResponse(gate = null, scope = fixture.tokenManager.currentScope(profileId = null)),
+        )
+
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+        awaitCondition {
+            val state = fixture.viewModel.uiState.value
+            state.nextUpEpisode?.contentId == scenario.episodeTwoId &&
+                state.didLoadNextUpPlaybackDetail &&
+                !state.isLoadingNextUpPlaybackDetail
+        }
+
+        val state = fixture.viewModel.uiState.value
+        assertNull(state.nextUpPlaybackDetail)
+        assertNull(state.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun lateDurableSeedForPriorEpisodeCannotRememberCarriedTarget() = runDetailTest {
+        val scenario = Scenario(
+            suffix = "-late-seed",
+            oldVersions = listOf(version(101, "1080p")),
+            newVersions = listOf(version(201, "1080p")),
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        val oldKey = scenario.episodeOneId to 101
+        fixture.userState.saved[oldKey] = LocalTrackSelection(
+            audioFingerprint = null,
+            subtitleFingerprint = null,
+        )
+        val seedGate = CompletableDeferred<Unit>()
+        fixture.userState.readGates[oldKey] = seedGate
+
+        fixture.viewModel.onNextUpVersionSelected(101)
+        awaitCondition { oldKey in fixture.userState.startedReads }
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+        seedGate.complete(Unit)
+        delay(20)
+
+        assertNull(TvDetailTrackSelectionSession.recall(scenario.episodeTwoId))
+    }
+
     // ------------------------------------------------------------------
 
     private val createdViewModels = mutableListOf<ViewModel>()
@@ -282,7 +430,9 @@ class TvNextUpSelectionHandoffTest {
         try {
             block()
         } finally {
-            createdViewModels.forEach { it.viewModelScope.cancel() }
+            createdViewModels.forEach { viewModel ->
+                viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
+            }
             createdViewModels.clear()
             Dispatchers.resetMain()
         }
@@ -362,8 +512,10 @@ class TvNextUpSelectionHandoffTest {
         var episodeOneWatched = false
         var episodeTwoWatched = false
         var episodeTwoGate: CompletableDeferred<Unit>? = null
+        var episodeOneWatchGate: CompletableDeferred<Unit>? = null
         var episodeTwoRequests = 0
         var pendingEpisodeOneResponses = 0
+        var episodeOneDefaultVersions = oldVersions
         val episodeOneResponses = ArrayDeque<DetailResponse>()
 
         fun client(): HttpClient = HttpClient(
@@ -384,7 +536,7 @@ class TvNextUpSelectionHandoffTest {
                     "/api/v1/catalog/items/$episodeOneId" -> {
                         val queued = episodeOneResponses.removeFirstOrNull()
                         if (queued == null) {
-                            json(itemDetailJson(episodeOneId, oldVersions))
+                            json(itemDetailJson(episodeOneId, episodeOneDefaultVersions))
                         } else {
                             pendingEpisodeOneResponses = episodeOneResponses.size
                             queued.gate?.await()
@@ -397,6 +549,7 @@ class TvNextUpSelectionHandoffTest {
                         json(itemDetailJson(episodeTwoId, newVersions))
                     }
                     "/api/v1/watched/$episodeOneId" -> {
+                        episodeOneWatchGate?.await()
                         episodeOneWatched = request.method.value != "DELETE"
                         respond("", HttpStatusCode.NoContent)
                     }
@@ -430,6 +583,8 @@ class TvNextUpSelectionHandoffTest {
 
         val saved = mutableMapOf<Pair<String, Int>, LocalTrackSelection>()
         val writes = mutableListOf<Write>()
+        val readGates = mutableMapOf<Pair<String, Int>, CompletableDeferred<Unit>>()
+        val startedReads = mutableSetOf<Pair<String, Int>>()
 
         override suspend fun recordWatched(contentId: String, watched: Boolean) = OutboxHandle.NONE
         override suspend fun recordFavorite(contentId: String, favorite: Boolean) = OutboxHandle.NONE
@@ -452,8 +607,12 @@ class TvNextUpSelectionHandoffTest {
             writes += Write(contentId, fileId, "subtitle", subtitleFingerprint)
         }
 
-        override suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? =
-            saved[contentId to fileId]
+        override suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? {
+            val key = contentId to fileId
+            startedReads += key
+            readGates[key]?.await()
+            return saved[key]
+        }
     }
 
     private class FakeTokenManager(
@@ -461,6 +620,8 @@ class TvNextUpSelectionHandoffTest {
     ) : TokenManager {
         var serverId = "server-1"
         var profileId = "profile-1"
+        var snapshotCalls = 0
+        val snapshotResponses = ArrayDeque<SnapshotResponse>()
 
         override val sessionExpired: SharedFlow<Unit> = MutableSharedFlow()
         override suspend fun getAccessToken(): String = "token"
@@ -481,13 +642,20 @@ class TvNextUpSelectionHandoffTest {
             this.serverId = serverId.orEmpty()
         }
         override suspend fun signOutCurrentServer() = Unit
-        override suspend fun snapshotCurrentScope() = AuthScopeSnapshot(
+        fun currentScope(profileId: String? = this.profileId) = AuthScopeSnapshot(
             serverId = serverId,
             profileId = profileId,
-            serverUrl = getServerUrl(),
+            serverUrl = "https://tv.example",
             profileToken = null,
             identityGeneration = identityTransitions.generation.value,
         )
+
+        override suspend fun snapshotCurrentScope(): AuthScopeSnapshot? {
+            snapshotCalls += 1
+            val queued = snapshotResponses.removeFirstOrNull()
+            queued?.gate?.await()
+            return if (queued != null) queued.scope else currentScope()
+        }
     }
 
     private class UnavailableSettingsApi : SettingsApi(HttpClient()) {
@@ -496,6 +664,10 @@ class TvNextUpSelectionHandoffTest {
     }
 
     private data class DetailResponse(val gate: CompletableDeferred<Unit>?, val json: String)
+    private data class SnapshotResponse(
+        val gate: CompletableDeferred<Unit>?,
+        val scope: AuthScopeSnapshot?,
+    )
 
     private data class VersionFixture(
         val fileId: Int,
