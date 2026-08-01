@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -83,6 +86,7 @@ import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
+import kotlinx.coroutines.launch
 
 private val HudMaxWidth = 680.dp
 private val HudMinHeight = 290.dp
@@ -2100,7 +2104,7 @@ internal fun HudPickerDialog(
                 ),
             )
             // Fully compose this small modal list so every D-pad destination is
-            // present in the focus graph. LazyColumn made below-fold rows look
+            // present in the focus graph. A lazy list made below-fold rows look
             // like the end of the modal and either trapped or leaked focus.
             Column(
                 modifier = Modifier
@@ -2136,6 +2140,8 @@ private fun HudPickerOptionRow(
     onSelect: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     val bg = when {
@@ -2155,7 +2161,13 @@ private fun HudPickerOptionRow(
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .onFocusChanged { if (it.isFocused) onFocused() }
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    onFocused()
+                    scope.launch { bringIntoViewRequester.bringIntoView() }
+                }
+            }
             .clickable(interactionSource = interactionSource, indication = null) { onSelect() }
             .semantics { this.selected = isSelected }
             .padding(horizontal = 10.dp, vertical = 8.dp),
