@@ -138,8 +138,14 @@ internal fun OverlayBadge(
                 renderedIcon = true
             }
         }
+        // A brand token (HDR10, ATMOS, …) already spells its text as the
+        // mark itself; when the label says the same thing, showing both
+        // reads "HDR10 HDR10". Mirrors web's `labelRedundantWithIcon`.
+        val labelRedundantWithIcon = renderedIcon &&
+            iconId != null &&
+            overlayBrandToken(iconId)?.equals(state.label.trim(), ignoreCase = true) == true
         // Apple: render text unless icon-only AND an icon was shown.
-        if (!state.iconOnly || !renderedIcon) {
+        if ((!state.iconOnly || !renderedIcon) && !labelRedundantWithIcon) {
             BadgeText(text = state.label, preset = preset, color = foreground)
         }
     }
