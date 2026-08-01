@@ -1,7 +1,7 @@
 # Fire TV Playback Selection UX Design
 
-**Date:** 2026-07-31  
-**Status:** Approved for implementation planning  
+**Date:** 2026-07-31
+**Status:** Approved for implementation planning
 **Baseline:** `Silo-Server/silo-android` `main` at `3b2044c8`
 
 ## Problem
