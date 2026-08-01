@@ -53,6 +53,27 @@ class EpisodeSelectionHandoffTest {
     }
 
     @Test
+    fun sourceUsesCodecBeforeDynamicRangeAndContainerWhenCriteriaConflict() {
+        val source = version(
+            fileId = 101,
+            resolution = "2160p",
+            codec = "hevc",
+            hdr = true,
+            container = "mkv",
+            hdrFormat = "Dolby Vision",
+        )
+        val targets = listOf(
+            version(201, "2160p", "h264", hdr = true, container = "mkv", hdrFormat = "Dolby Vision"),
+            version(202, "2160p", "hevc", hdr = false, container = "mp4"),
+        )
+
+        assertEquals(
+            202,
+            resolveEpisodeSourceIntent(captureEpisodeSourceIntent(source), targets),
+        )
+    }
+
+    @Test
     fun ambiguousBestSourceFallsBackToAutomaticSelection() {
         val source = version(101, "2160p", "hevc", hdr = true, container = "mkv")
         val targets = listOf(

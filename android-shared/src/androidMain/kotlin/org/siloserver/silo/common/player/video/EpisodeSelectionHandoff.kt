@@ -99,11 +99,14 @@ fun resolveEpisodeSourceIntent(
     }
     if (candidates.isEmpty()) return null
 
-    val highestScore = candidates.maxOf { candidate ->
-        candidate.episodeSourceScore(intent)
-    }
+    val priority = compareBy<FileVersion>(
+        { it.matchesEpisodeVideoCodec(intent) },
+        { it.matchesEpisodeDynamicRange(intent) },
+        { it.matchesEpisodeContainer(intent) },
+    )
+    val best = candidates.maxWithOrNull(priority) ?: return null
     return candidates
-        .filter { it.episodeSourceScore(intent) == highestScore }
+        .filter { priority.compare(it, best) == 0 }
         .singleOrNull()
         ?.fileId
 }
@@ -154,18 +157,15 @@ fun decodeEpisodeSelectionHandoff(value: String?): EpisodeSelectionHandoff? =
             .getOrNull()
     }
 
-private fun FileVersion.episodeSourceScore(intent: EpisodeSourceIntent): Int {
-    var score = 0
-    if (
-        intent.videoCodec != null &&
+private fun FileVersion.matchesEpisodeVideoCodec(intent: EpisodeSourceIntent): Boolean =
+    intent.videoCodec != null &&
         normalizedEpisodeToken(codecVideo ?: videoTracks?.firstOrNull()?.codec) == intent.videoCodec
-    ) {
-        score++
-    }
-    if (intent.dynamicRange != null && episodeDynamicRange() == intent.dynamicRange) score++
-    if (intent.container != null && normalizedEpisodeToken(container) == intent.container) score++
-    return score
-}
+
+private fun FileVersion.matchesEpisodeDynamicRange(intent: EpisodeSourceIntent): Boolean =
+    intent.dynamicRange != null && episodeDynamicRange() == intent.dynamicRange
+
+private fun FileVersion.matchesEpisodeContainer(intent: EpisodeSourceIntent): Boolean =
+    intent.container != null && normalizedEpisodeToken(container) == intent.container
 
 private fun FileVersion.episodeDynamicRange(): EpisodeDynamicRange {
     val tracks = videoTracks.orEmpty()
