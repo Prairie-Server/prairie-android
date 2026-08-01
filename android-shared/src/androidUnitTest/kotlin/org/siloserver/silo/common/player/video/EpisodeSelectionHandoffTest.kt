@@ -161,6 +161,100 @@ class EpisodeSelectionHandoffTest {
     }
 
     @Test
+    fun explicitSubtitleKeepsLanguageAndAccessibilityWhenFormatAndSourceChange() {
+        val intent = captureEpisodeSubtitleIntent(
+            selectedTrackIndex = 7,
+            subtitles = listOf(
+                subtitle(7, "en", "srt", "English SDH", "external", forced = false),
+            ),
+        )
+
+        val resolved = resolveEpisodeSubtitleIntent(
+            intent,
+            targetSubtitles = listOf(
+                subtitle(12, "eng", "webvtt", "English SDH", "embedded", forced = false),
+            ),
+        )
+
+        assertEquals(12, resolved.trackIndex)
+        assertTrue(resolved.intentSpecified)
+    }
+
+    @Test
+    fun subtitleLanguageOutranksFormatAndSourceKind() {
+        val intent = captureEpisodeSubtitleIntent(
+            selectedTrackIndex = 7,
+            subtitles = listOf(
+                subtitle(7, "en", "srt", "English", "external", forced = false),
+            ),
+        )
+
+        val resolved = resolveEpisodeSubtitleIntent(
+            intent,
+            targetSubtitles = listOf(
+                subtitle(2, "fr", "srt", "French", "external", forced = false),
+                subtitle(9, "eng", "webvtt", "English", "embedded", forced = false),
+            ),
+        )
+
+        assertEquals(9, resolved.trackIndex)
+    }
+
+    @Test
+    fun subtitleAccessibilityOutranksFormatAndSourceKind() {
+        val intent = captureEpisodeSubtitleIntent(
+            selectedTrackIndex = 7,
+            subtitles = listOf(
+                subtitle(7, "en", "srt", "English", "external", forced = false),
+            ),
+        )
+
+        val resolved = resolveEpisodeSubtitleIntent(
+            intent,
+            targetSubtitles = listOf(
+                subtitle(2, "en", "srt", "English SDH", "external", forced = false),
+                subtitle(9, "eng", "webvtt", "English", "embedded", forced = false),
+            ),
+        )
+
+        assertEquals(9, resolved.trackIndex)
+    }
+
+    @Test
+    fun ambiguousBestSubtitleUsesProfileAuto() {
+        val intent = captureEpisodeSubtitleIntent(
+            selectedTrackIndex = 7,
+            subtitles = listOf(
+                subtitle(7, "en", "srt", "English", "external", forced = false),
+            ),
+        )
+
+        val resolved = resolveEpisodeSubtitleIntent(
+            intent,
+            targetSubtitles = listOf(
+                subtitle(2, "eng", "srt", "English", "external", forced = false),
+                subtitle(9, "en", "srt", "English", "external", forced = false),
+            ),
+        )
+
+        assertNull(resolved.trackIndex)
+        assertTrue(resolved.intentSpecified)
+    }
+
+    @Test
+    fun underSpecifiedTrackIntentUsesProfileAuto() {
+        val resolved = resolveEpisodeSubtitleIntent(
+            EpisodeSubtitleIntent(mode = EpisodeSubtitleMode.TRACK),
+            targetSubtitles = listOf(
+                subtitle(2, "en", "srt", "English", "external", forced = false),
+            ),
+        )
+
+        assertNull(resolved.trackIndex)
+        assertTrue(resolved.intentSpecified)
+    }
+
+    @Test
     fun explicitNonSdhSubtitleDoesNotResolveToAnSdhTarget() {
         val intent = captureEpisodeSubtitleIntent(
             selectedTrackIndex = 7,

@@ -157,12 +157,10 @@ fun TvAnchoredSelectorMenu(
             }
         }
 
-        // Known limitation: this is the phone Material3 DropdownMenu rather
-        // than a TV-native popup. Its items are focusable clickables, so d-pad
-        // up/down + OK work inside the popup, but it lacks the TV focus
-        // grammar (scale/border) of the rest of the module. A TV-styled
-        // anchored popup would need a bespoke Popup — deliberate deferral,
-        // audit 2026-07-20.
+        // Known limitation: this still uses the phone Material3 DropdownMenu
+        // rather than a TV-native popup. Rows provide explicit TV focus colors
+        // and borders below, while a fully TV-native anchored popup (including
+        // scale behavior) would require a bespoke Popup.
         DropdownMenu(
             expanded = interactive && expanded,
             onDismissRequest = {

@@ -1065,6 +1065,7 @@ class TvItemDetailViewModel(
                         episodeContentId = episodeContentId,
                         detail = playbackDetail,
                         handoff = pending?.handoff,
+                        preferredQuality = _uiState.value.preferredQuality,
                     )
                     if (
                         !ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration) ||
@@ -1143,7 +1144,12 @@ class TvItemDetailViewModel(
         val detail = state.nextUpPlaybackDetail ?: return null
         val selectedVersion = state.selectedNextUpFileId
             ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
-        val activeVersion = selectedVersion ?: detail.versions.firstOrNull()
+        val activeVersion = selectTvDetailDisplayVersion(
+            versions = detail.versions,
+            selectedFileId = state.selectedNextUpFileId,
+            lastFileId = detail.userData?.lastFileId,
+            preferredQuality = state.preferredQuality,
+        )
         val subtitleChoices = buildPlaybackSubtitleChoices(
             catalogTracks = activeVersion?.subtitleTracks.orEmpty(),
             plannedTracks = emptyList(),
@@ -1161,18 +1167,27 @@ class TvItemDetailViewModel(
         episodeContentId: String,
         detail: ItemDetail,
         handoff: EpisodeSelectionHandoff?,
+        preferredQuality: String,
     ): ResolvedNextUpTrackSelection {
         val session = TvDetailTrackSelectionSession.recall(episodeContentId)
         val sourceSpecified = handoff?.source != null
         val carriedFileId = resolveEpisodeSourceIntent(handoff?.source, detail.versions)
         val sessionFileId = session?.fileId?.takeIf { fileId -> detail.versions.any { it.fileId == fileId } }
         val selectedFileId = if (sourceSpecified) carriedFileId else sessionFileId
-        val selectedVersion = selectedFileId
-            ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
-            ?: detail.versions.firstOrNull()
+        val selectedVersion = selectTvDetailDisplayVersion(
+            versions = detail.versions,
+            selectedFileId = selectedFileId,
+            lastFileId = detail.userData?.lastFileId,
+            preferredQuality = preferredQuality,
+        )
             ?: return ResolvedNextUpTrackSelection(selectedFileId, null, null)
 
-        val sessionVersionId = sessionFileId ?: detail.versions.firstOrNull()?.fileId
+        val sessionVersionId = selectTvDetailDisplayVersion(
+            versions = detail.versions,
+            selectedFileId = sessionFileId,
+            lastFileId = detail.userData?.lastFileId,
+            preferredQuality = preferredQuality,
+        )?.fileId
         val sessionMatchesSelectedVersion = session != null && sessionVersionId == selectedVersion.fileId
         val targetSubtitleChoices = buildPlaybackSubtitleChoices(
             catalogTracks = selectedVersion.subtitleTracks.orEmpty(),

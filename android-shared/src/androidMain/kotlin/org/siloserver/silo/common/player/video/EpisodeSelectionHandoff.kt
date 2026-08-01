@@ -125,9 +125,16 @@ fun resolveEpisodeSubtitleIntent(
     )
     EpisodeSubtitleMode.TRACK -> ResolvedEpisodeSubtitle(
         trackIndex = targetSubtitles
-            .filter { it.matchesEpisodeSubtitleIntent(intent) }
-            .singleOrNull()
-            ?.index,
+            .map { track -> EpisodeSubtitleMatch(track, track.episodeSubtitleMatchScore(intent)) }
+            .filter { it.score.isMeaningfulFor(intent) }
+            .let { matches ->
+                val best = matches.maxWithOrNull(episodeSubtitleMatchComparator) ?: return@let null
+                matches
+                    .filter { episodeSubtitleMatchComparator.compare(it, best) == 0 }
+                    .singleOrNull()
+                    ?.track
+                    ?.index
+            },
         intentSpecified = true,
     )
 }
@@ -192,12 +199,44 @@ private fun PlayerSubtitleInfo.toEpisodeSubtitleIntent(): EpisodeSubtitleIntent 
     external = episodeSubtitleExternal(),
 )
 
-private fun PlayerSubtitleInfo.matchesEpisodeSubtitleIntent(intent: EpisodeSubtitleIntent): Boolean =
-    (intent.language == null || canonicalSubtitleLanguage(language) == intent.language) &&
-        (intent.codecFamily == null || normalizedSubtitleCodecFamily(codec) == intent.codecFamily) &&
-        (intent.forced == null || forced == intent.forced) &&
-        (intent.hearingImpaired == null || episodeSubtitleHearingImpaired() == intent.hearingImpaired) &&
-        (intent.external == null || episodeSubtitleExternal() == intent.external)
+private data class EpisodeSubtitleMatch(
+    val track: PlayerSubtitleInfo,
+    val score: EpisodeSubtitleMatchScore,
+)
+
+private data class EpisodeSubtitleMatchScore(
+    val language: Boolean,
+    val forced: Boolean,
+    val hearingImpaired: Boolean,
+    val external: Boolean,
+    val codecFamily: Boolean,
+) {
+    fun isMeaningfulFor(intent: EpisodeSubtitleIntent): Boolean = when {
+        intent.language != null -> language
+        intent.forced == true -> forced
+        intent.hearingImpaired == true -> hearingImpaired
+        else -> external || codecFamily
+    }
+}
+
+private val episodeSubtitleMatchComparator = compareBy<EpisodeSubtitleMatch>(
+    { it.score.language },
+    { it.score.forced },
+    { it.score.hearingImpaired },
+    { it.score.external },
+    { it.score.codecFamily },
+)
+
+private fun PlayerSubtitleInfo.episodeSubtitleMatchScore(
+    intent: EpisodeSubtitleIntent,
+): EpisodeSubtitleMatchScore = EpisodeSubtitleMatchScore(
+    language = intent.language != null && canonicalSubtitleLanguage(language) == intent.language,
+    forced = intent.forced != null && forced == intent.forced,
+    hearingImpaired = intent.hearingImpaired != null &&
+        episodeSubtitleHearingImpaired() == intent.hearingImpaired,
+    external = intent.external != null && episodeSubtitleExternal() == intent.external,
+    codecFamily = intent.codecFamily != null && normalizedSubtitleCodecFamily(codec) == intent.codecFamily,
+)
 
 private fun PlayerSubtitleInfo.episodeSubtitleHearingImpaired(): Boolean =
     subtitleLabelIndicatesHearingImpaired(catalogLabel ?: label)

@@ -121,6 +121,69 @@ class TvNextUpSelectionHandoffTest {
     }
 
     @Test
+    fun lastPlayedAutoSourceCapturesAndResolvesSubtitleAgainstTheDisplayedVersions() = runDetailTest {
+        val scenario = Scenario(
+            suffix = "-auto-source-subtitle",
+            oldVersions = listOf(
+                version(101, "1080p", subtitles = listOf(subtitle(1, "eng"))),
+                version(102, "720p", subtitles = listOf(subtitle(2, "fre", external = true))),
+            ),
+            newVersions = listOf(
+                version(201, "1080p", subtitles = listOf(subtitle(3, "eng"))),
+                version(
+                    202,
+                    "720p",
+                    subtitles = listOf(
+                        subtitle(4, "spa", external = true),
+                        subtitle(5, "fre", external = true),
+                    ),
+                ),
+            ),
+            oldLastFileId = 102,
+            newLastFileId = 202,
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(0)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        assertNull(fixture.viewModel.uiState.value.selectedNextUpFileId)
+        assertEquals(1, fixture.viewModel.uiState.value.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun preferredQualityAutoSourceCapturesAndResolvesSubtitleAgainstTheDisplayedVersions() = runDetailTest {
+        val scenario = Scenario(
+            suffix = "-preferred-quality-subtitle",
+            oldVersions = listOf(
+                version(101, "1080p", subtitles = listOf(subtitle(1, "eng"))),
+                version(102, "720p", subtitles = listOf(subtitle(2, "fre", external = true))),
+            ),
+            newVersions = listOf(
+                version(201, "1080p", subtitles = listOf(subtitle(3, "eng"))),
+                version(
+                    202,
+                    "720p",
+                    subtitles = listOf(
+                        subtitle(4, "spa", external = true),
+                        subtitle(5, "fre", external = true),
+                    ),
+                ),
+            ),
+            preferredQuality = "720p",
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(0)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        assertNull(fixture.viewModel.uiState.value.selectedNextUpFileId)
+        assertEquals(1, fixture.viewModel.uiState.value.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
     fun explicitOffRemainsOffAcrossNextUpRefresh() = runDetailTest {
         val scenario = Scenario(suffix = "-off")
         TvDetailTrackSelectionSession.remember(
@@ -460,7 +523,9 @@ class TvNextUpSelectionHandoffTest {
         val viewModel = TvItemDetailViewModel(
             catalogRepository = catalogRepository,
             personalDataRepository = personalDataRepository,
-            playerSettingsStore = FakePlayerSettingsStore(),
+            playerSettingsStore = FakePlayerSettingsStore().apply {
+                preferredQualityFlow.value = scenario.preferredQuality
+            },
             profileRepository = profileRepository,
             profileSettings = ProfileSettingsController(SettingsRepository(UnavailableSettingsApi())),
             metadataAiRepository = MetadataAiRepository(DefaultMetadataAiApi(client)),
@@ -505,6 +570,9 @@ class TvNextUpSelectionHandoffTest {
         val suffix: String = "",
         val oldVersions: List<VersionFixture> = listOf(version(101, "1080p")),
         val newVersions: List<VersionFixture> = listOf(version(201, "1080p")),
+        val oldLastFileId: Int? = null,
+        val newLastFileId: Int? = null,
+        val preferredQuality: String = "auto",
     ) {
         val seriesId = "series$suffix"
         val episodeOneId = "episode-1$suffix"
@@ -536,7 +604,7 @@ class TvNextUpSelectionHandoffTest {
                     "/api/v1/catalog/items/$episodeOneId" -> {
                         val queued = episodeOneResponses.removeFirstOrNull()
                         if (queued == null) {
-                            json(itemDetailJson(episodeOneId, episodeOneDefaultVersions))
+                            json(itemDetailJson(episodeOneId, episodeOneDefaultVersions, oldLastFileId))
                         } else {
                             pendingEpisodeOneResponses = episodeOneResponses.size
                             queued.gate?.await()
@@ -546,7 +614,7 @@ class TvNextUpSelectionHandoffTest {
                     "/api/v1/catalog/items/$episodeTwoId" -> {
                         episodeTwoRequests += 1
                         episodeTwoGate?.await()
-                        json(itemDetailJson(episodeTwoId, newVersions))
+                        json(itemDetailJson(episodeTwoId, newVersions, newLastFileId))
                     }
                     "/api/v1/watched/$episodeOneId" -> {
                         episodeOneWatchGate?.await()
@@ -703,8 +771,12 @@ class TvNextUpSelectionHandoffTest {
             external = external,
         )
 
-        fun itemDetailJson(contentId: String, versions: List<VersionFixture>): String =
-            """{"content_id":"$contentId","type":"episode","title":"Episode","versions":[${versions.joinToString(",", transform = ::versionJson)}]}"""
+        fun itemDetailJson(
+            contentId: String,
+            versions: List<VersionFixture>,
+            lastFileId: Int? = null,
+        ): String =
+            """{"content_id":"$contentId","type":"episode","title":"Episode","user_data":{"last_file_id":$lastFileId},"versions":[${versions.joinToString(",", transform = ::versionJson)}]}"""
 
         private fun versionJson(version: VersionFixture): String =
             """{"file_id":${version.fileId},"resolution":"${version.resolution}","codec_video":"${version.codec}","container":"${version.container}","subtitle_tracks":[${version.subtitles.joinToString(",", transform = ::subtitleJson)}],"audio_tracks":[${version.audio.joinToString(",", transform = ::audioJson)}]}"""
