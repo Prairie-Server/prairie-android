@@ -1,0 +1,546 @@
+package org.siloserver.silo.tv.ui.screens.detail
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.siloserver.silo.domain.settings.ProfileSettingsController
+import org.siloserver.silo.model.catalog.AudioTrack
+import org.siloserver.silo.model.catalog.SubtitleTrack
+import org.siloserver.silo.model.settings.SettingsContractCapabilities
+import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.AuthScopeSnapshot
+import org.siloserver.silo.network.DefaultIdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionBarrier
+import org.siloserver.silo.network.IdentityTransitionKind
+import org.siloserver.silo.network.SiloJson
+import org.siloserver.silo.network.TokenManager
+import org.siloserver.silo.network.api.CatalogApi
+import org.siloserver.silo.network.api.DefaultMetadataAiApi
+import org.siloserver.silo.network.api.PersonalDataApi
+import org.siloserver.silo.network.api.ProfileApi
+import org.siloserver.silo.network.api.SettingsApi
+import org.siloserver.silo.network.api.SettingsCapabilitiesResult
+import org.siloserver.silo.playback.audioTrackFingerprint
+import org.siloserver.silo.playback.subtitleTrackFingerprint
+import org.siloserver.silo.repository.CatalogRepository
+import org.siloserver.silo.repository.MetadataAiRepository
+import org.siloserver.silo.repository.PersonalDataRepository
+import org.siloserver.silo.repository.ProfileRepository
+import org.siloserver.silo.repository.SettingsRepository
+import org.siloserver.silo.repository.port.LocalTrackSelection
+import org.siloserver.silo.repository.port.OutboxHandle
+import org.siloserver.silo.repository.port.UserItemStatePort
+import org.siloserver.silo.repository.port.WriteOutcome
+import org.siloserver.silo.tv.testing.FakePlayerSettingsStore
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * Exercises the real detail ViewModel refresh path: series -> seasons -> episodes
+ * -> asynchronous target detail, including session and durable track merging.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class TvNextUpSelectionHandoffTest {
+
+    @Test
+    fun changingNextUpResolvesOldSourceAgainstNewEpisodeFiles() = runDetailTest {
+        val scenario = Scenario(
+            suffix = "-source",
+            oldVersions = listOf(version(101, "720p"), version(102, "1080p", codec = "hevc")),
+            newVersions = listOf(version(201, "480p"), version(202, "1080p", codec = "hevc")),
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpVersionSelected(102)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        assertEquals(202, fixture.viewModel.uiState.value.selectedNextUpFileId)
+    }
+
+    @Test
+    fun changingNextUpResolvesSubtitleAtDifferentCombinedIndex() = runDetailTest {
+        val french = subtitle(index = 4, language = "fre", external = true, title = "French")
+        val scenario = Scenario(
+            suffix = "-subtitle-index",
+            oldVersions = listOf(
+                version(
+                    101,
+                    "1080p",
+                    subtitles = listOf(
+                        subtitle(index = 9, language = "eng"),
+                        french,
+                    ),
+                ),
+            ),
+            newVersions = listOf(
+                version(
+                    201,
+                    "1080p",
+                    subtitles = listOf(
+                        subtitle(index = 2, language = "spa", external = true),
+                        subtitle(index = 8, language = "eng"),
+                        french.copy(index = 7),
+                    ),
+                ),
+            ),
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        // Old combined index 0 is the sole external track. On the target,
+        // French is the second external track and therefore combined index 1.
+        fixture.viewModel.onNextUpSubtitleTrackSelected(0)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        assertEquals(1, fixture.viewModel.uiState.value.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun explicitOffRemainsOffAcrossNextUpRefresh() = runDetailTest {
+        val scenario = Scenario(suffix = "-off")
+        TvDetailTrackSelectionSession.remember(
+            scenario.episodeTwoId,
+            fileId = 201,
+            audio = null,
+            subtitle = 0,
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        assertEquals(-1, fixture.viewModel.uiState.value.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun missingExplicitSubtitleUsesAutoAndDoesNotRestoreTargetDurableSubtitle() = runDetailTest {
+        val oldFrench = subtitle(index = 4, language = "fre", external = true, title = "French")
+        val targetEnglish = subtitle(index = 8, language = "eng", title = "English")
+        val targetAudio = listOf(
+            AudioTrack(index = 3, codec = "aac", language = "eng"),
+            AudioTrack(index = 7, codec = "ac3", language = "jpn"),
+        )
+        val scenario = Scenario(
+            suffix = "-missing-subtitle",
+            oldVersions = listOf(version(101, "1080p", subtitles = listOf(oldFrench))),
+            newVersions = listOf(
+                version(201, "1080p", subtitles = listOf(targetEnglish), audio = targetAudio),
+            ),
+        )
+        val fixture = createFixture(scenario)
+        fixture.userState.saved[scenario.episodeTwoId to 201] = LocalTrackSelection(
+            audioFingerprint = audioTrackFingerprint(targetAudio[1]),
+            subtitleFingerprint = subtitleTrackFingerprint(targetEnglish),
+        )
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(0)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        val state = fixture.viewModel.uiState.value
+        assertNull(state.selectedNextUpSubtitleIndex)
+        assertEquals(1, state.selectedNextUpAudioIndex, "durable audio behavior stays unchanged")
+    }
+
+    @Test
+    fun autoAllowsExistingTargetDurableSubtitleRestore() = runDetailTest {
+        val targetEnglish = subtitle(index = 8, language = "eng", title = "English")
+        val scenario = Scenario(
+            suffix = "-auto-durable",
+            newVersions = listOf(version(201, "1080p", subtitles = listOf(targetEnglish))),
+        )
+        val fixture = createFixture(scenario)
+        fixture.userState.saved[scenario.episodeTwoId to 201] = LocalTrackSelection(
+            audioFingerprint = null,
+            subtitleFingerprint = subtitleTrackFingerprint(targetEnglish),
+        )
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        assertEquals(0, fixture.viewModel.uiState.value.selectedNextUpSubtitleIndex)
+    }
+
+    @Test
+    fun staleRefreshCompletionCannotApplyHandoffToAnotherEpisode() = runDetailTest {
+        val scenario = Scenario(suffix = "-stale")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        val staleGate = CompletableDeferred<Unit>()
+        val freshGate = CompletableDeferred<Unit>()
+        scenario.episodeOneResponses.addLast(
+            DetailResponse(staleGate, itemDetailJson(scenario.episodeOneId, listOf(version(801, "720p")))),
+        )
+        scenario.episodeOneResponses.addLast(
+            DetailResponse(freshGate, itemDetailJson(scenario.episodeOneId, listOf(version(901, "2160p")))),
+        )
+
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, false)
+        awaitCondition { scenario.pendingEpisodeOneResponses == 1 }
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+        fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, false)
+        staleGate.complete(Unit)
+        awaitCondition { scenario.pendingEpisodeOneResponses == 0 }
+        delay(20)
+
+        assertNotEquals(
+            801,
+            fixture.viewModel.uiState.value.nextUpPlaybackDetail?.versions?.singleOrNull()?.fileId,
+        )
+        freshGate.complete(Unit)
+    }
+
+    @Test
+    fun carriedSelectionIsNotPersistedBeforeExplicitUserInput() = runDetailTest {
+        val scenario = Scenario(
+            suffix = "-no-persist",
+            oldVersions = listOf(version(101, "1080p", subtitles = listOf(subtitle(4, "fre", external = true)))),
+            newVersions = listOf(version(201, "1080p", subtitles = listOf(subtitle(7, "fre", external = true)))),
+        )
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onNextUpVersionSelected(101)
+        fixture.viewModel.onNextUpSubtitleTrackSelected(0)
+        awaitCondition { fixture.userState.writes.isNotEmpty() }
+        fixture.userState.writes.clear()
+
+        advanceToEpisodeTwo(fixture.viewModel, scenario)
+
+        assertTrue(fixture.userState.writes.none { it.contentId == scenario.episodeTwoId })
+        assertNull(TvDetailTrackSelectionSession.recall(scenario.episodeTwoId))
+    }
+
+    @Test
+    fun profileOrServerChangeClearsPendingNextUpHandoff() = runDetailTest {
+        for (kind in listOf(IdentityTransitionKind.PROFILE_SWITCH, IdentityTransitionKind.SERVER_SWITCH)) {
+            val scenario = Scenario(suffix = "-${kind.name.lowercase()}")
+            val gate = CompletableDeferred<Unit>()
+            scenario.episodeTwoGate = gate
+            val fixture = createFixture(scenario)
+            awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+            fixture.viewModel.onNextUpVersionSelected(101)
+            fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
+
+            fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+            awaitCondition { scenario.episodeTwoRequests > 0 }
+            fixture.identityTransitions.changing(kind) {
+                when (kind) {
+                    IdentityTransitionKind.PROFILE_SWITCH -> fixture.tokenManager.profileId = "profile-2"
+                    IdentityTransitionKind.SERVER_SWITCH -> fixture.tokenManager.serverId = "server-2"
+                    else -> error("unexpected kind")
+                }
+            }
+            gate.complete(Unit)
+            awaitCondition {
+                val state = fixture.viewModel.uiState.value
+                state.nextUpEpisode?.contentId == scenario.episodeTwoId &&
+                    state.didLoadNextUpPlaybackDetail &&
+                    !state.isLoadingNextUpPlaybackDetail
+            }
+
+            val state = fixture.viewModel.uiState.value
+            assertNull(state.selectedNextUpFileId)
+            assertNull(state.selectedNextUpSubtitleIndex)
+        }
+    }
+
+    // ------------------------------------------------------------------
+
+    private val createdViewModels = mutableListOf<ViewModel>()
+
+    private fun runDetailTest(block: suspend () -> Unit) = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            block()
+        } finally {
+            createdViewModels.forEach { it.viewModelScope.cancel() }
+            createdViewModels.clear()
+            Dispatchers.resetMain()
+        }
+    }
+
+    private fun createFixture(scenario: Scenario): Fixture {
+        val identityTransitions = DefaultIdentityTransitionBarrier()
+        val tokenManager = FakeTokenManager(identityTransitions)
+        val client = scenario.client()
+        val userState = RecordingUserItemState()
+        val catalogRepository = CatalogRepository(
+            catalogApi = CatalogApi(client),
+            identityTransitions = identityTransitions,
+        )
+        val personalDataRepository = PersonalDataRepository(
+            personalDataApi = PersonalDataApi(client),
+            userItemStatePort = userState,
+            identityTransitions = identityTransitions,
+        )
+        val profileRepository = ProfileRepository(
+            profileApi = ProfileApi(client),
+            tokenManager = tokenManager,
+            identityTransitions = identityTransitions,
+        )
+        val viewModel = TvItemDetailViewModel(
+            catalogRepository = catalogRepository,
+            personalDataRepository = personalDataRepository,
+            playerSettingsStore = FakePlayerSettingsStore(),
+            profileRepository = profileRepository,
+            profileSettings = ProfileSettingsController(SettingsRepository(UnavailableSettingsApi())),
+            metadataAiRepository = MetadataAiRepository(DefaultMetadataAiApi(client)),
+            contentId = scenario.seriesId,
+            userItemState = userState,
+            tokenManager = tokenManager,
+            identityTransitions = identityTransitions,
+        ).also { createdViewModels += it }
+        return Fixture(viewModel, userState, tokenManager, identityTransitions)
+    }
+
+    private suspend fun advanceToEpisodeTwo(viewModel: TvItemDetailViewModel, scenario: Scenario) {
+        viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
+        awaitEpisode(viewModel, scenario.episodeTwoId)
+    }
+
+    private suspend fun awaitEpisode(viewModel: TvItemDetailViewModel, contentId: String) {
+        awaitCondition {
+            val state = viewModel.uiState.value
+            state.nextUpEpisode?.contentId == contentId &&
+                state.nextUpPlaybackDetail?.contentId == contentId &&
+                state.didLoadNextUpPlaybackDetail
+        }
+    }
+
+    private suspend fun awaitCondition(predicate: () -> Boolean) {
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(30_000) {
+                while (!predicate()) delay(10)
+            }
+        }
+    }
+
+    private data class Fixture(
+        val viewModel: TvItemDetailViewModel,
+        val userState: RecordingUserItemState,
+        val tokenManager: FakeTokenManager,
+        val identityTransitions: DefaultIdentityTransitionBarrier,
+    )
+
+    private class Scenario(
+        val suffix: String = "",
+        val oldVersions: List<VersionFixture> = listOf(version(101, "1080p")),
+        val newVersions: List<VersionFixture> = listOf(version(201, "1080p")),
+    ) {
+        val seriesId = "series$suffix"
+        val episodeOneId = "episode-1$suffix"
+        val episodeTwoId = "episode-2$suffix"
+        var episodeOneWatched = false
+        var episodeTwoWatched = false
+        var episodeTwoGate: CompletableDeferred<Unit>? = null
+        var episodeTwoRequests = 0
+        var pendingEpisodeOneResponses = 0
+        val episodeOneResponses = ArrayDeque<DetailResponse>()
+
+        fun client(): HttpClient = HttpClient(
+            MockEngine { request ->
+                fun json(content: String) = respond(
+                    content = content,
+                    status = HttpStatusCode.OK,
+                    headers = JSON_HEADERS,
+                )
+                when (request.url.encodedPath) {
+                    "/api/v1/catalog/items/$seriesId" -> json(
+                        """{"content_id":"$seriesId","type":"series","title":"Series"}""",
+                    )
+                    "/api/v1/catalog/series/$seriesId/seasons" -> json(
+                        """{"seasons":[{"content_id":"season$suffix","season_number":1,"title":"Season 1"}]}""",
+                    )
+                    "/api/v1/catalog/series/$seriesId/seasons/1/episodes" -> json(episodesJson())
+                    "/api/v1/catalog/items/$episodeOneId" -> {
+                        val queued = episodeOneResponses.removeFirstOrNull()
+                        if (queued == null) {
+                            json(itemDetailJson(episodeOneId, oldVersions))
+                        } else {
+                            pendingEpisodeOneResponses = episodeOneResponses.size
+                            queued.gate?.await()
+                            json(queued.json)
+                        }
+                    }
+                    "/api/v1/catalog/items/$episodeTwoId" -> {
+                        episodeTwoRequests += 1
+                        episodeTwoGate?.await()
+                        json(itemDetailJson(episodeTwoId, newVersions))
+                    }
+                    "/api/v1/watched/$episodeOneId" -> {
+                        episodeOneWatched = request.method.value != "DELETE"
+                        respond("", HttpStatusCode.NoContent)
+                    }
+                    "/api/v1/watched/$episodeTwoId" -> {
+                        episodeTwoWatched = request.method.value != "DELETE"
+                        respond("", HttpStatusCode.NoContent)
+                    }
+                    "/api/v1/profiles" -> json(
+                        """{"profiles":[{"id":"profile-1","name":"Profile"}]}""",
+                    )
+                    else -> respond(
+                        content = """{"error":"not_found","message":"not found"}""",
+                        status = HttpStatusCode.NotFound,
+                        headers = JSON_HEADERS,
+                    )
+                }
+            },
+        ) {
+            install(ContentNegotiation) { json(SiloJson) }
+        }
+
+        private fun episodesJson(): String =
+            """{"episodes":[
+                {"content_id":"$episodeOneId","season_number":1,"episode_number":1,"title":"One","user_data":{"played":$episodeOneWatched}},
+                {"content_id":"$episodeTwoId","season_number":1,"episode_number":2,"title":"Two","user_data":{"played":$episodeTwoWatched}}
+            ]}""".trimIndent()
+    }
+
+    private class RecordingUserItemState : UserItemStatePort {
+        data class Write(val contentId: String, val fileId: Int, val kind: String, val fingerprint: String?)
+
+        val saved = mutableMapOf<Pair<String, Int>, LocalTrackSelection>()
+        val writes = mutableListOf<Write>()
+
+        override suspend fun recordWatched(contentId: String, watched: Boolean) = OutboxHandle.NONE
+        override suspend fun recordFavorite(contentId: String, favorite: Boolean) = OutboxHandle.NONE
+        override suspend fun recordRating(contentId: String, rating: Int?) = OutboxHandle.NONE
+        override suspend fun resolve(handle: OutboxHandle, outcome: WriteOutcome) = Unit
+
+        override suspend fun recordAudioTrackSelection(
+            contentId: String,
+            fileId: Int,
+            audioFingerprint: String?,
+        ) {
+            writes += Write(contentId, fileId, "audio", audioFingerprint)
+        }
+
+        override suspend fun recordSubtitleTrackSelection(
+            contentId: String,
+            fileId: Int,
+            subtitleFingerprint: String?,
+        ) {
+            writes += Write(contentId, fileId, "subtitle", subtitleFingerprint)
+        }
+
+        override suspend fun localTrackSelection(contentId: String, fileId: Int): LocalTrackSelection? =
+            saved[contentId to fileId]
+    }
+
+    private class FakeTokenManager(
+        private val identityTransitions: IdentityTransitionBarrier,
+    ) : TokenManager {
+        var serverId = "server-1"
+        var profileId = "profile-1"
+
+        override val sessionExpired: SharedFlow<Unit> = MutableSharedFlow()
+        override suspend fun getAccessToken(): String = "token"
+        override suspend fun getRefreshToken(): String? = null
+        override suspend fun saveTokens(accessToken: String, refreshToken: String, expiresIn: Long) = Unit
+        override suspend fun clearTokens() = Unit
+        override suspend fun invalidateSession() = Unit
+        override suspend fun getProfileId(): String = profileId
+        override suspend fun setProfileId(profileId: String?) {
+            this.profileId = profileId.orEmpty()
+        }
+        override suspend fun getProfileToken(): String? = null
+        override suspend fun setProfileToken(token: String?) = Unit
+        override suspend fun getServerUrl(): String = "https://tv.example"
+        override suspend fun setServerUrl(url: String) = Unit
+        override suspend fun getCurrentServerId(): String = serverId
+        override suspend fun switchActiveServer(serverId: String?) {
+            this.serverId = serverId.orEmpty()
+        }
+        override suspend fun signOutCurrentServer() = Unit
+        override suspend fun snapshotCurrentScope() = AuthScopeSnapshot(
+            serverId = serverId,
+            profileId = profileId,
+            serverUrl = getServerUrl(),
+            profileToken = null,
+            identityGeneration = identityTransitions.generation.value,
+        )
+    }
+
+    private class UnavailableSettingsApi : SettingsApi(HttpClient()) {
+        override suspend fun getContractCapabilities(): SettingsCapabilitiesResult =
+            SettingsCapabilitiesResult.ServerUpgradeRequired
+    }
+
+    private data class DetailResponse(val gate: CompletableDeferred<Unit>?, val json: String)
+
+    private data class VersionFixture(
+        val fileId: Int,
+        val resolution: String,
+        val codec: String?,
+        val container: String?,
+        val subtitles: List<SubtitleTrack>,
+        val audio: List<AudioTrack>,
+    )
+
+    private companion object {
+        val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json")
+
+        fun version(
+            fileId: Int,
+            resolution: String,
+            codec: String? = "h264",
+            container: String? = "mkv",
+            subtitles: List<SubtitleTrack> = emptyList(),
+            audio: List<AudioTrack> = emptyList(),
+        ) = VersionFixture(fileId, resolution, codec, container, subtitles, audio)
+
+        fun subtitle(
+            index: Int,
+            language: String,
+            external: Boolean = false,
+            title: String? = null,
+        ) = SubtitleTrack(
+            index = index,
+            codec = "srt",
+            language = language,
+            title = title,
+            external = external,
+        )
+
+        fun itemDetailJson(contentId: String, versions: List<VersionFixture>): String =
+            """{"content_id":"$contentId","type":"episode","title":"Episode","versions":[${versions.joinToString(",", transform = ::versionJson)}]}"""
+
+        private fun versionJson(version: VersionFixture): String =
+            """{"file_id":${version.fileId},"resolution":"${version.resolution}","codec_video":"${version.codec}","container":"${version.container}","subtitle_tracks":[${version.subtitles.joinToString(",", transform = ::subtitleJson)}],"audio_tracks":[${version.audio.joinToString(",", transform = ::audioJson)}]}"""
+
+        private fun subtitleJson(track: SubtitleTrack): String =
+            """{"index":${track.index},"codec":"${track.codec}","language":"${track.language}","title":${track.title?.let { "\"$it\"" } ?: "null"},"forced":${track.forced},"external":${track.external}}"""
+
+        private fun audioJson(track: AudioTrack): String =
+            """{"index":${track.index},"codec":"${track.codec}","language":"${track.language}"}"""
+    }
+}

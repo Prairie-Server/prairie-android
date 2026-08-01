@@ -425,6 +425,8 @@ val androidTvModule = module {
             userItemState = getOrNull<org.siloserver.silo.repository.port.UserItemStatePort>()
                 ?: org.siloserver.silo.repository.port.NoOpUserItemStatePort,
             recommendationRepository = getOrNull(),
+            tokenManager = get(),
+            identityTransitions = get(),
         )
     }
     // Watch Together entry (create/join orchestration) — backs the entry +
