@@ -21,6 +21,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import org.siloserver.silo.common.player.video.VideoPlayerRouteArgs
+import org.siloserver.silo.common.player.video.decodeEpisodeSelectionHandoff
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.ProfileRepository
@@ -790,6 +791,11 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStack ->
             val contentId = backStack.arguments
@@ -814,6 +820,9 @@ fun TvAppNavigation(
             val autoAdvanceCount = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_AUTO_ADVANCE_COUNT)
                 ?.toIntOrNull() ?: 0
+            val episodeSelectionHandoff = decodeEpisodeSelectionHandoff(
+                backStack.arguments?.getString(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF),
+            )
             TvPlayerScreen(
                 contentId = contentId,
                 preferredFileId = preferredFileId,
@@ -823,11 +832,16 @@ fun TvAppNavigation(
                 initialAudioTrackIndex = audioTrackIndex,
                 initialSubtitleTrackIndex = subtitleTrackIndex,
                 autoAdvanceCount = autoAdvanceCount,
-                onPlayNext = { nextContentId, nextCount, nextQuality ->
+                episodeSelectionHandoff = episodeSelectionHandoff,
+                onPlayNext = { nextContentId, nextCount, handoff ->
                     // Replace the current player in the back stack so an
                     // auto-played chain doesn't pile up episodes behind Back.
                     navController.navigate(
-                        TvRoute.Player(contentId = nextContentId, quality = nextQuality, autoAdvanceCount = nextCount).route,
+                        TvRoute.Player(
+                            contentId = nextContentId,
+                            autoAdvanceCount = nextCount,
+                            episodeSelectionHandoff = handoff,
+                        ).route,
                     ) {
                         popUpTo(TvRoute.Player.ROUTE) { inclusive = true }
                     }

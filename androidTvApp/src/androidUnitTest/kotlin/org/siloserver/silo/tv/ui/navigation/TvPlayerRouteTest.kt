@@ -1,8 +1,14 @@
 package org.siloserver.silo.tv.ui.navigation
 
+import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
+import org.siloserver.silo.common.player.video.EpisodeSourceIntent
+import org.siloserver.silo.common.player.video.EpisodeSubtitleIntent
+import org.siloserver.silo.common.player.video.EpisodeSubtitleMode
+import org.siloserver.silo.common.player.video.decodeEpisodeSelectionHandoff
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TvPlayerRouteTest {
@@ -53,6 +59,44 @@ class TvPlayerRouteTest {
         ).route
 
         assertFalse(route.contains("resumePosition="))
+    }
+
+    @Test
+    fun playerRouteRoundTripsEpisodeSelectionHandoff() {
+        val handoff = EpisodeSelectionHandoff(
+            source = EpisodeSourceIntent(resolution = "1080p", videoCodec = "h264"),
+            subtitle = EpisodeSubtitleIntent(
+                mode = EpisodeSubtitleMode.TRACK,
+                language = "en",
+                codecFamily = "srt",
+            ),
+        )
+
+        val route = TvRoute.Player(
+            contentId = "episode-123",
+            episodeSelectionHandoff = handoff,
+        ).route
+
+        val payload = route.substringAfter("episodeSelectionHandoff=")
+        assertTrue(payload.contains("%"), "handoff JSON must be URL-encoded in the route")
+        assertTrue(
+            decodeEpisodeSelectionHandoff(java.net.URLDecoder.decode(payload, Charsets.UTF_8)) == handoff,
+            "decoded route payload must preserve semantic selection intent",
+        )
+    }
+
+    @Test
+    fun playerRouteWithoutHandoffKeepsExistingDefaults() {
+        val route = TvRoute.Player(contentId = "episode-123").route
+
+        assertFalse(route.contains("episodeSelectionHandoff="))
+        assertFalse(route.contains("fileId="))
+        assertFalse(route.contains("subtitleTrackIndex="))
+    }
+
+    @Test
+    fun malformedEpisodeHandoffIsIgnored() {
+        assertNull(decodeEpisodeSelectionHandoff("{not-json"))
     }
 
     @Test
