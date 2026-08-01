@@ -3,10 +3,11 @@ package org.siloserver.silo.tv.ui.screens.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
+import org.siloserver.silo.common.player.video.EpisodeSubtitleIntent
 import org.siloserver.silo.common.player.video.EpisodeSubtitleMode
 import org.siloserver.silo.common.player.video.captureEpisodeSourceIntent
 import org.siloserver.silo.common.player.video.captureEpisodeSubtitleIntent
-import org.siloserver.silo.common.player.video.resolveEpisodeSelectionHandoff
+import org.siloserver.silo.common.player.video.resolveEpisodeSubtitleIntent
 import org.siloserver.silo.common.player.video.resolveEpisodeSourceIntent
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.domain.settings.ProfileSettingsController
@@ -720,6 +721,7 @@ class TvItemDetailViewModel(
 
     private var episodeLoadJob: kotlinx.coroutines.Job? = null
     private var moreLikeThisJob: Job? = null
+    private var nextUpDetailJob: Job? = null
     // The season number the currently-shown episodes/next-up actually belong to.
     // Lets a failed load revert the optimistic season selection so the chips and
     // the rail stay consistent (T15).
@@ -1005,7 +1007,8 @@ class TvItemDetailViewModel(
         identityGeneration: Long,
         handoff: EpisodeSelectionHandoff?,
     ) {
-        viewModelScope.launch {
+        nextUpDetailJob?.cancel()
+        nextUpDetailJob = viewModelScope.launch {
             val requestIdentity = captureNextUpIdentity(identityGeneration)
             if (!ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration) || requestIdentity == null) {
                 clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
@@ -1116,6 +1119,8 @@ class TvItemDetailViewModel(
     }
 
     private fun invalidateNextUpPlaybackDetailRequest() {
+        nextUpDetailJob?.cancel()
+        nextUpDetailJob = null
         nextUpPlaybackDetailGeneration += 1
         pendingNextUpSelectionHandoff = null
     }
@@ -1154,6 +1159,10 @@ class TvItemDetailViewModel(
             catalogTracks = activeVersion?.subtitleTracks.orEmpty(),
             plannedTracks = emptyList(),
         )
+        // Source intent is carried only for an explicit version choice; an
+        // automatic last-file/quality choice must remain automatic on the
+        // target. Subtitle intent uses the displayed version because its
+        // combined index belongs to that version's track list.
         val handoff = EpisodeSelectionHandoff(
             source = selectedVersion?.let(::captureEpisodeSourceIntent),
             subtitle = captureEpisodeSubtitleIntent(state.selectedNextUpSubtitleIndex, subtitleChoices),
@@ -1193,9 +1202,8 @@ class TvItemDetailViewModel(
             catalogTracks = selectedVersion.subtitleTracks.orEmpty(),
             plannedTracks = emptyList(),
         )
-        val carried = resolveEpisodeSelectionHandoff(
-            handoff = handoff,
-            targetVersions = detail.versions,
+        val carriedSubtitle = resolveEpisodeSubtitleIntent(
+            intent = handoff?.subtitle ?: EpisodeSubtitleIntent.auto(),
             targetSubtitles = targetSubtitleChoices,
         )
         val durable = userItemState.localTrackSelection(episodeContentId, selectedVersion.fileId)
@@ -1206,8 +1214,8 @@ class TvItemDetailViewModel(
         return ResolvedNextUpTrackSelection(
             fileId = selectedFileId,
             audioIndex = sessionAudio ?: durable?.audioIndex,
-            subtitleIndex = if (carried.subtitleIntentSpecified) {
-                carried.subtitleTrackIndex
+            subtitleIndex = if (carriedSubtitle.intentSpecified) {
+                carriedSubtitle.trackIndex
             } else {
                 sessionSubtitle ?: durable?.subtitleIndex
             },

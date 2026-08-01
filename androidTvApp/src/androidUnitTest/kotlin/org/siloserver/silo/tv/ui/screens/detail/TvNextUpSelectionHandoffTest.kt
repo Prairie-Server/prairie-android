@@ -53,6 +53,10 @@ import org.siloserver.silo.repository.port.OutboxHandle
 import org.siloserver.silo.repository.port.UserItemStatePort
 import org.siloserver.silo.repository.port.WriteOutcome
 import org.siloserver.silo.tv.testing.FakePlayerSettingsStore
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -65,6 +69,21 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TvNextUpSelectionHandoffTest {
+
+    @Test
+    fun absentVersionCodecAndContainerDecodeAsNull() = runDetailTest {
+        val scenario = Scenario(
+            suffix = "-null-version-metadata",
+            oldVersions = listOf(version(101, "1080p", codec = null, container = null)),
+        )
+        val fixture = createFixture(scenario)
+
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+
+        val version = fixture.viewModel.uiState.value.nextUpPlaybackDetail?.versions?.single()
+        assertNull(version?.codecVideo)
+        assertNull(version?.container)
+    }
 
     @Test
     fun changingNextUpResolvesOldSourceAgainstNewEpisodeFiles() = runDetailTest {
@@ -270,12 +289,12 @@ class TvNextUpSelectionHandoffTest {
         scenario.episodeOneDefaultVersions = listOf(version(901, "2160p"))
 
         fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, false)
-        awaitCondition { scenario.pendingEpisodeOneResponses == 1 }
+        awaitCondition { scenario.pendingEpisodeOneResponses.get() == 1 }
         fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
         awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
         fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, false)
         staleGate.complete(Unit)
-        awaitCondition { scenario.pendingEpisodeOneResponses == 0 }
+        awaitCondition { scenario.pendingEpisodeOneResponses.get() == 0 }
         delay(20)
 
         assertNotEquals(
@@ -320,7 +339,7 @@ class TvNextUpSelectionHandoffTest {
             fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
 
             fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
-            awaitCondition { scenario.episodeTwoRequests > 0 }
+            awaitCondition { scenario.episodeTwoRequests.get() > 0 }
             fixture.identityTransitions.changing(kind) {
                 when (kind) {
                     IdentityTransitionKind.PROFILE_SWITCH -> fixture.tokenManager.profileId = "profile-2"
@@ -362,12 +381,12 @@ class TvNextUpSelectionHandoffTest {
         fixture.viewModel.onNextUpSubtitleTrackSelected(0)
 
         val identityGate = CompletableDeferred<Unit>()
-        val previousSnapshotCalls = fixture.tokenManager.snapshotCalls
+        val previousSnapshotCalls = fixture.tokenManager.snapshotCalls.get()
         fixture.tokenManager.snapshotResponses.addLast(
             SnapshotResponse(identityGate, fixture.tokenManager.currentScope()),
         )
         fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
-        awaitCondition { fixture.tokenManager.snapshotCalls > previousSnapshotCalls }
+        awaitCondition { fixture.tokenManager.snapshotCalls.get() > previousSnapshotCalls }
 
         fixture.viewModel.onNextUpVersionSelected(201)
         fixture.viewModel.onNextUpSubtitleTrackSelected(-1)
@@ -430,7 +449,7 @@ class TvNextUpSelectionHandoffTest {
                 !state.isLoadingNextUpPlaybackDetail
         }
 
-        assertEquals(0, scenario.episodeTwoRequests)
+        assertEquals(0, scenario.episodeTwoRequests.get())
         assertNull(fixture.viewModel.uiState.value.selectedNextUpSubtitleIndex)
     }
 
@@ -581,10 +600,10 @@ class TvNextUpSelectionHandoffTest {
         var episodeTwoWatched = false
         var episodeTwoGate: CompletableDeferred<Unit>? = null
         var episodeOneWatchGate: CompletableDeferred<Unit>? = null
-        var episodeTwoRequests = 0
-        var pendingEpisodeOneResponses = 0
+        val episodeTwoRequests = AtomicInteger()
+        val pendingEpisodeOneResponses = AtomicInteger()
         var episodeOneDefaultVersions = oldVersions
-        val episodeOneResponses = ArrayDeque<DetailResponse>()
+        val episodeOneResponses = ConcurrentLinkedDeque<DetailResponse>()
 
         fun client(): HttpClient = HttpClient(
             MockEngine { request ->
@@ -602,17 +621,17 @@ class TvNextUpSelectionHandoffTest {
                     )
                     "/api/v1/catalog/series/$seriesId/seasons/1/episodes" -> json(episodesJson())
                     "/api/v1/catalog/items/$episodeOneId" -> {
-                        val queued = episodeOneResponses.removeFirstOrNull()
+                        val queued = episodeOneResponses.pollFirst()
                         if (queued == null) {
                             json(itemDetailJson(episodeOneId, episodeOneDefaultVersions, oldLastFileId))
                         } else {
-                            pendingEpisodeOneResponses = episodeOneResponses.size
+                            pendingEpisodeOneResponses.set(episodeOneResponses.size)
                             queued.gate?.await()
                             json(queued.json)
                         }
                     }
                     "/api/v1/catalog/items/$episodeTwoId" -> {
-                        episodeTwoRequests += 1
+                        episodeTwoRequests.incrementAndGet()
                         episodeTwoGate?.await()
                         json(itemDetailJson(episodeTwoId, newVersions, newLastFileId))
                     }
@@ -649,10 +668,10 @@ class TvNextUpSelectionHandoffTest {
     private class RecordingUserItemState : UserItemStatePort {
         data class Write(val contentId: String, val fileId: Int, val kind: String, val fingerprint: String?)
 
-        val saved = mutableMapOf<Pair<String, Int>, LocalTrackSelection>()
-        val writes = mutableListOf<Write>()
-        val readGates = mutableMapOf<Pair<String, Int>, CompletableDeferred<Unit>>()
-        val startedReads = mutableSetOf<Pair<String, Int>>()
+        val saved = ConcurrentHashMap<Pair<String, Int>, LocalTrackSelection>()
+        val writes = CopyOnWriteArrayList<Write>()
+        val readGates = ConcurrentHashMap<Pair<String, Int>, CompletableDeferred<Unit>>()
+        val startedReads: MutableSet<Pair<String, Int>> = ConcurrentHashMap.newKeySet()
 
         override suspend fun recordWatched(contentId: String, watched: Boolean) = OutboxHandle.NONE
         override suspend fun recordFavorite(contentId: String, favorite: Boolean) = OutboxHandle.NONE
@@ -688,8 +707,8 @@ class TvNextUpSelectionHandoffTest {
     ) : TokenManager {
         var serverId = "server-1"
         var profileId = "profile-1"
-        var snapshotCalls = 0
-        val snapshotResponses = ArrayDeque<SnapshotResponse>()
+        val snapshotCalls = AtomicInteger()
+        val snapshotResponses = ConcurrentLinkedDeque<SnapshotResponse>()
 
         override val sessionExpired: SharedFlow<Unit> = MutableSharedFlow()
         override suspend fun getAccessToken(): String = "token"
@@ -719,8 +738,8 @@ class TvNextUpSelectionHandoffTest {
         )
 
         override suspend fun snapshotCurrentScope(): AuthScopeSnapshot? {
-            snapshotCalls += 1
-            val queued = snapshotResponses.removeFirstOrNull()
+            snapshotCalls.incrementAndGet()
+            val queued = snapshotResponses.pollFirst()
             queued?.gate?.await()
             return if (queued != null) queued.scope else currentScope()
         }
@@ -778,8 +797,10 @@ class TvNextUpSelectionHandoffTest {
         ): String =
             """{"content_id":"$contentId","type":"episode","title":"Episode","user_data":{"last_file_id":$lastFileId},"versions":[${versions.joinToString(",", transform = ::versionJson)}]}"""
 
+        private fun jsonString(value: String?): String = value?.let { "\"$it\"" } ?: "null"
+
         private fun versionJson(version: VersionFixture): String =
-            """{"file_id":${version.fileId},"resolution":"${version.resolution}","codec_video":"${version.codec}","container":"${version.container}","subtitle_tracks":[${version.subtitles.joinToString(",", transform = ::subtitleJson)}],"audio_tracks":[${version.audio.joinToString(",", transform = ::audioJson)}]}"""
+            """{"file_id":${version.fileId},"resolution":"${version.resolution}","codec_video":${jsonString(version.codec)},"container":${jsonString(version.container)},"subtitle_tracks":[${version.subtitles.joinToString(",", transform = ::subtitleJson)}],"audio_tracks":[${version.audio.joinToString(",", transform = ::audioJson)}]}"""
 
         private fun subtitleJson(track: SubtitleTrack): String =
             """{"index":${track.index},"codec":"${track.codec}","language":"${track.language}","title":${track.title?.let { "\"$it\"" } ?: "null"},"forced":${track.forced},"external":${track.external}}"""

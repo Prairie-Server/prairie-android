@@ -320,6 +320,24 @@ class EpisodeSelectionHandoffTest {
         assertNull(decodeEpisodeSelectionHandoff("{not-json"))
     }
 
+    @Test
+    fun encodedPayloadRoundTripsSemanticIntentAndRestoresAutoDefault() {
+        val handoff = EpisodeSelectionHandoff(
+            source = captureEpisodeSourceIntent(
+                version(101, "2160p", "hevc", hdr = true, container = "mkv"),
+            ),
+            subtitle = EpisodeSubtitleIntent(
+                mode = EpisodeSubtitleMode.TRACK,
+                language = "en",
+                codecFamily = "subrip",
+                external = true,
+            ),
+        )
+
+        assertEquals(handoff, decodeEpisodeSelectionHandoff(encodeEpisodeSelectionHandoff(handoff)))
+        assertEquals(EpisodeSubtitleIntent.auto(), decodeEpisodeSelectionHandoff("{}")?.subtitle)
+    }
+
     private fun version(
         fileId: Int,
         resolution: String,

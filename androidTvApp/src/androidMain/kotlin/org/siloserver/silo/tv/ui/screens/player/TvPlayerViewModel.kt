@@ -1596,6 +1596,9 @@ class TvPlayerViewModel(
                         val allocatedSessionId = result.sessionId
                             ?.takeIf(String::isNotBlank)
                             ?: run {
+                                episodeSelectionHandoffSlot.retainForRetry(
+                                    episodeSelectionHandoffLease,
+                                )
                                 fail("Playback start returned no session.")
                                 return@launch
                             }
@@ -1821,6 +1824,9 @@ class TvPlayerViewModel(
                         }
                         if (!jointlyConfirmed) {
                             unpublishedReadySession.rollbackIfOwned(publishedSessionId)
+                            episodeSelectionHandoffSlot.retainForRetry(
+                                episodeSelectionHandoffLease,
+                            )
                             fail("Playback publication could not be confirmed.")
                             return@launch
                         }
