@@ -2,6 +2,7 @@ package org.siloserver.silo.tv.ui.screens.player
 
 import org.siloserver.silo.common.player.video.EpisodeSubtitleMode
 import org.siloserver.silo.common.player.video.ResolvedEpisodeSelection
+import org.siloserver.silo.common.player.video.encodeEpisodeSelectionHandoff
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
@@ -60,20 +61,69 @@ class TvPlayNextSelectionHandoffTest {
     }
 
     @Test
-    fun downloadedPlaybackDropsDownloadIdentityButKeepsMediaSemantics() {
+    fun downloadedPlaybackDropsDownloadIdentityButKeepsPortableMediaSemantics() {
         val handoff = captureTvEpisodeSelectionHandoff(
-            activeVersion = FileVersion(fileId = 42, resolution = "1080p", codecVideo = "h264"),
+            activeVersion = FileVersion(
+                fileId = 42,
+                fileName = "source-42.mkv",
+                filePath = "/media/source-42.mkv",
+                resolution = "1080p",
+                codecVideo = "h264",
+            ),
             committedSubtitleIdentity = SubtitleIdentity.Downloaded(
                 downloadId = 777,
-                media = SubtitleMediaIdentity(language = "nl", codecFamily = "srt"),
+                media = SubtitleMediaIdentity(
+                    trackId = "download-track-777",
+                    language = "NL",
+                    codecFamily = "srt",
+                    forced = true,
+                    hearingImpaired = true,
+                ),
             ),
             catalogSubtitles = listOf(subtitle(index = 9, language = "nl", codec = "srt")),
             hasExplicitSubtitleSelection = true,
         )
 
         assertEquals("1080p", handoff.source?.resolution)
-        assertEquals(EpisodeSubtitleMode.AUTO, handoff.subtitle.mode)
-        assertTrue(handoff.toString().contains("777").not(), "download identity is episode-local")
+        assertEquals(EpisodeSubtitleMode.TRACK, handoff.subtitle.mode)
+        assertEquals("nl", handoff.subtitle.language)
+        assertEquals("subrip", handoff.subtitle.codecFamily)
+        assertEquals(true, handoff.subtitle.forced)
+        assertEquals(true, handoff.subtitle.hearingImpaired)
+        assertEquals(true, handoff.subtitle.external)
+        val encoded = encodeEpisodeSelectionHandoff(handoff)
+        assertTrue(encoded.contains("777").not(), "download identity is episode-local")
+        assertTrue(encoded.contains("download-track").not(), "Media3 identity is episode-local")
+        assertTrue(encoded.contains("fileId").not(), "file identity is episode-local")
+        assertTrue(encoded.contains("index").not(), "subtitle indexes are episode-local")
+        assertTrue(encoded.contains("source-42").not(), "file name and path are episode-local")
+        assertTrue(encoded.contains("example.test").not(), "subtitle URLs are episode-local")
+    }
+
+    @Test
+    fun localMedia3PlaybackKeepsPortableMediaSemanticsWithoutTrackId() {
+        val handoff = captureTvEpisodeSelectionHandoff(
+            activeVersion = null,
+            committedSubtitleIdentity = SubtitleIdentity.LocalMedia3(
+                SubtitleMediaIdentity(
+                    trackId = "media3-opaque-id",
+                    language = "EN-us",
+                    codecFamily = "webvtt",
+                    forced = false,
+                    hearingImpaired = true,
+                ),
+            ),
+            catalogSubtitles = emptyList(),
+            hasExplicitSubtitleSelection = true,
+        )
+
+        assertEquals(EpisodeSubtitleMode.TRACK, handoff.subtitle.mode)
+        assertEquals("en", handoff.subtitle.language)
+        assertEquals("webvtt", handoff.subtitle.codecFamily)
+        assertEquals(false, handoff.subtitle.forced)
+        assertEquals(true, handoff.subtitle.hearingImpaired)
+        assertNull(handoff.subtitle.external)
+        assertTrue(encodeEpisodeSelectionHandoff(handoff).contains("media3-opaque-id").not())
     }
 
     @Test

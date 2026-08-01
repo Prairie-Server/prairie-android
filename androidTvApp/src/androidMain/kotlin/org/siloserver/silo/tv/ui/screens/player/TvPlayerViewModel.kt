@@ -42,9 +42,12 @@ import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
+import org.siloserver.silo.common.player.video.EpisodeSubtitleIntent
+import org.siloserver.silo.common.player.video.EpisodeSubtitleMode
 import org.siloserver.silo.common.player.video.ResolvedEpisodeSelection
 import org.siloserver.silo.common.player.video.captureEpisodeSourceIntent
 import org.siloserver.silo.common.player.video.captureEpisodeSubtitleIntent
+import org.siloserver.silo.common.player.normalizedSubtitleCodecFamily
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.settings.PlayerSettingsStore
@@ -63,6 +66,7 @@ import org.siloserver.silo.model.playback.PlaybackRouteFamily
 import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
+import org.siloserver.silo.model.playback.SubtitleMediaIdentity
 import org.siloserver.silo.model.playback.buildPlaybackSubtitleChoices
 import org.siloserver.silo.model.playback.mergeDownloadedSubtitles
 import org.siloserver.silo.model.subtitles.SubtitleAiQuota
@@ -78,6 +82,7 @@ import org.siloserver.silo.network.errorMessage
 import org.siloserver.silo.playback.nextEpisodeAfter
 import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
 import org.siloserver.silo.playback.subtitleTrackFingerprint
+import org.siloserver.silo.playback.canonicalSubtitleLanguage
 import org.siloserver.silo.player.DolbyVisionPolicy
 import org.siloserver.silo.repository.SubtitlesRepository
 import org.siloserver.silo.repository.port.PlaybackWriteScope
@@ -146,6 +151,17 @@ private fun SubtitleIdentity.serverTrackIndexForTv(): Int = when (this) {
     -> -1
 }
 
+private fun SubtitleMediaIdentity.toEpisodeSubtitleIntent(
+    external: Boolean?,
+): EpisodeSubtitleIntent = EpisodeSubtitleIntent(
+    mode = EpisodeSubtitleMode.TRACK,
+    language = canonicalSubtitleLanguage(language),
+    codecFamily = normalizedSubtitleCodecFamily(codecFamily),
+    forced = forced,
+    hearingImpaired = hearingImpaired,
+    external = external,
+)
+
 /**
  * Captures only episode-portable intent. Server, download, and Media3 identities
  * remain local to the current item and therefore cannot cross this boundary.
@@ -169,9 +185,10 @@ internal fun captureTvEpisodeSelectionHandoff(
                 committedSubtitleIdentity.serverTrackIndexForTv(),
                 catalogSubtitles,
             )
-            is SubtitleIdentity.Downloaded,
-            is SubtitleIdentity.LocalMedia3,
-            -> org.siloserver.silo.common.player.video.EpisodeSubtitleIntent.auto()
+            is SubtitleIdentity.Downloaded -> committedSubtitleIdentity.media
+                .toEpisodeSubtitleIntent(external = true)
+            is SubtitleIdentity.LocalMedia3 -> committedSubtitleIdentity.media
+                .toEpisodeSubtitleIntent(external = null)
         }
     },
 )
