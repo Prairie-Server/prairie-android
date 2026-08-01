@@ -193,13 +193,57 @@ internal fun captureTvEpisodeSelectionHandoff(
     },
 )
 
-/** One-shot handoff ownership; replacement loads are new local sessions. */
+internal class TvEpisodeSelectionHandoffLease internal constructor(
+    val ownerGeneration: Long,
+    val sequence: Long,
+    val handoff: EpisodeSelectionHandoff,
+)
+
+/** Recoverable-start lease; only the current owner can retain or acknowledge it. */
 internal class TvEpisodeSelectionHandoffSlot(
     handoff: EpisodeSelectionHandoff?,
 ) {
     private var pending = handoff
+    private var currentLease: TvEpisodeSelectionHandoffLease? = null
+    private var sequence = 0L
 
-    fun takeForStart(): EpisodeSelectionHandoff? = pending.also { pending = null }
+    @Synchronized
+    fun leaseForStart(ownerGeneration: Long): TvEpisodeSelectionHandoffLease? {
+        val handoff = pending ?: return null
+        currentLease?.let { lease ->
+            if (lease.ownerGeneration == ownerGeneration) return lease
+            // A newer launch owner supersedes this transition rather than
+            // inheriting an older in-flight selection intent.
+            invalidate()
+            return null
+        }
+        return TvEpisodeSelectionHandoffLease(
+            ownerGeneration = ownerGeneration,
+            sequence = ++sequence,
+            handoff = handoff,
+        ).also { currentLease = it }
+    }
+
+    @Synchronized
+    fun retainForRetry(lease: TvEpisodeSelectionHandoffLease?): Boolean {
+        if (lease == null || currentLease != lease) return false
+        currentLease = null
+        return true
+    }
+
+    @Synchronized
+    fun acknowledgeReady(lease: TvEpisodeSelectionHandoffLease?): Boolean {
+        if (lease == null || currentLease != lease) return false
+        currentLease = null
+        pending = null
+        return true
+    }
+
+    @Synchronized
+    fun invalidate() {
+        currentLease = null
+        pending = null
+    }
 }
 
 internal data class TvEpisodeInitialSubtitleSelection(
@@ -664,8 +708,8 @@ class TvPlayerViewModel(
     private var qualityOverride: String? = null
     private val roomId: String? = launchArgs.roomId
     private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
-    // The handoff belongs to one cross-screen transition. Consume it before the
-    // first start so profile/server/version replacement loads cannot replay it.
+    // The handoff belongs to one cross-screen transition. A recoverable start
+    // leases it until Ready publication; replacement/exit invalidates it.
     private val episodeSelectionHandoffSlot = TvEpisodeSelectionHandoffSlot(launchArgs.episodeSelectionHandoff)
 
     // Pre-playback track selections from the detail screen. Audio is sent to the
@@ -1516,11 +1560,15 @@ class TvPlayerViewModel(
             finalPositionScope = finalPlaybackPositionWriter.captureScope()
             val unpublishedReadySession =
                 TvUnpublishedLoadSessionOwnership(::rollbackUnpublishedTvLoadSession)
+            var episodeSelectionHandoffLease: TvEpisodeSelectionHandoffLease? = null
             try {
                 if (!subtitleTransactions.invalidateAndAwaitSettlement()) return@launch
                 runCatching { playerSettingsStore.refreshFromServer() }
                 if (!loadOwners.owns(loadOwner)) return@launch
-                val episodeSelectionHandoff = episodeSelectionHandoffSlot.takeForStart()
+                episodeSelectionHandoffLease = episodeSelectionHandoffSlot.leaseForStart(
+                    ownerGeneration = loadOwner.generation,
+                )
+                val episodeSelectionHandoff = episodeSelectionHandoffLease?.handoff
                 val request = VideoPlaybackStartRequest(
                         contentId = contentId,
                         preferredFileId = preferredFileIdOverride ?: preferredFileId,
@@ -1776,25 +1824,38 @@ class TvPlayerViewModel(
                             fail("Playback publication could not be confirmed.")
                             return@launch
                         }
+                        if (result.resolvedEpisodeSelection != null) {
+                            episodeSelectionHandoffSlot.acknowledgeReady(
+                                episodeSelectionHandoffLease,
+                            )
+                        }
                         startIntroAutoSkipObserver()
                         resolveNextEpisode()
                     }
                     is VideoPlayerUiState.Error -> {
+                        episodeSelectionHandoffSlot.retainForRetry(
+                            episodeSelectionHandoffLease,
+                        )
                         if (preserveCurrentPlaybackOnFailure) {
                             _uiState.update { failTvReplacementLoad(it, result.message) }
                         } else {
                             fail(result.message)
                         }
                     }
-                    is VideoPlayerUiState.ServerUnreachable -> _uiState.update {
-                        if (preserveCurrentPlaybackOnFailure) {
-                            failTvReplacementLoad(it, SERVER_UNREACHABLE_MESSAGE)
-                        } else {
-                            it.copy(
-                                isLoading = false,
-                                error = SERVER_UNREACHABLE_MESSAGE,
-                                serverUnreachable = true,
-                            )
+                    is VideoPlayerUiState.ServerUnreachable -> {
+                        episodeSelectionHandoffSlot.retainForRetry(
+                            episodeSelectionHandoffLease,
+                        )
+                        _uiState.update {
+                            if (preserveCurrentPlaybackOnFailure) {
+                                failTvReplacementLoad(it, SERVER_UNREACHABLE_MESSAGE)
+                            } else {
+                                it.copy(
+                                    isLoading = false,
+                                    error = SERVER_UNREACHABLE_MESSAGE,
+                                    serverUnreachable = true,
+                                )
+                            }
                         }
                     }
                     is VideoPlayerUiState.Loading -> Unit
@@ -1806,6 +1867,7 @@ class TvPlayerViewModel(
                 unpublishedReadySession.rollbackIfOwned()
                 Log.e(TAG, "Error loading content", e)
                 if (generation != contentLoadGeneration || !loadOwners.owns(loadOwner)) return@launch
+                episodeSelectionHandoffSlot.retainForRetry(episodeSelectionHandoffLease)
                 val message = "Unexpected error: ${e.message}"
                 if (preserveCurrentPlaybackOnFailure) {
                     _uiState.update { failTvReplacementLoad(it, message) }
@@ -3794,6 +3856,7 @@ class TvPlayerViewModel(
 
     private fun prepareSessionExit() {
         contentLoadGeneration++
+        episodeSelectionHandoffSlot.invalidate()
         subtitleSnapshotSettlement.reset()
         resetSeekRecoveryForContentChange()
         transportMountGate.reset()
@@ -4015,6 +4078,7 @@ class TvPlayerViewModel(
         val state = _uiState.value
         if (fileId == (state.selectedFileId ?: state.mediaFileId)) return
         if (state.fileVersions.none { it.fileId == fileId }) return
+        episodeSelectionHandoffSlot.invalidate()
         resetSeekRecoveryForContentChange()
         transportMountGate.beginLoad()
         val resumeAt = state.position.takeIf { it > 0.0 }
@@ -4074,6 +4138,7 @@ class TvPlayerViewModel(
     }
 
     override fun onCleared() {
+        episodeSelectionHandoffSlot.invalidate()
         val teardownSessionId = exitSessionId
         val subtitlePersistenceReservation =
             subtitleTransactions.reserveDurableFinalPersistence()

@@ -1,8 +1,6 @@
 package org.siloserver.silo.tv.ui.navigation
 
 import org.siloserver.silo.common.player.video.VideoPlayerRouteArgs
-import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
-import org.siloserver.silo.common.player.video.encodeEpisodeSelectionHandoff
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
@@ -95,8 +93,8 @@ sealed class TvRoute(val route: String) {
         val subtitleTrackIndex: Int? = null,
         /** Consecutive auto-advance count for pass-out protection (0 = manual start). */
         val autoAdvanceCount: Int = 0,
-        /** Session-only source/subtitle intent captured from the preceding episode. */
-        val episodeSelectionHandoff: EpisodeSelectionHandoff? = null,
+        /** Opaque key for a process-only, target-bound episode selection handoff. */
+        val episodeSelectionHandoffNonce: String? = null,
     ) : TvRoute(
         buildString {
             append("player/$contentId")
@@ -109,9 +107,9 @@ sealed class TvRoute(val route: String) {
                 if (audioTrackIndex != null) add("audioTrackIndex=$audioTrackIndex")
                 if (subtitleTrackIndex != null) add("subtitleTrackIndex=$subtitleTrackIndex")
                 if (autoAdvanceCount > 0) add("autoAdvanceCount=$autoAdvanceCount")
-                episodeSelectionHandoff?.let { handoff ->
-                    add("$ARG_EPISODE_SELECTION_HANDOFF=${encodeEpisodeSelectionHandoff(handoff).routeEncode()}")
-                }
+                episodeSelectionHandoffNonce
+                    ?.takeIf(::isValidTvEpisodeSelectionHandoffNonce)
+                    ?.let { nonce -> add("$ARG_EPISODE_SELECTION_HANDOFF_NONCE=$nonce") }
                 VideoPlayerRouteArgs.encodeResumePosition(resumePositionSeconds)?.let { value ->
                     add("${VideoPlayerRouteArgs.RESUME_POSITION}=$value")
                 }
@@ -123,7 +121,7 @@ sealed class TvRoute(val route: String) {
             const val ROUTE = "player/{contentId}?fileId={fileId}&quality={quality}&roomId={roomId}" +
                 "&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}" +
                 "&autoAdvanceCount={autoAdvanceCount}&resumePosition={resumePosition}" +
-                "&episodeSelectionHandoff={episodeSelectionHandoff}"
+                "&episodeSelectionHandoffNonce={episodeSelectionHandoffNonce}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
             const val ARG_QUALITY = "quality"
@@ -132,7 +130,7 @@ sealed class TvRoute(val route: String) {
             const val ARG_SUBTITLE_TRACK_INDEX = "subtitleTrackIndex"
             const val ARG_AUTO_ADVANCE_COUNT = "autoAdvanceCount"
             const val ARG_RESUME_POSITION = VideoPlayerRouteArgs.RESUME_POSITION
-            const val ARG_EPISODE_SELECTION_HANDOFF = "episodeSelectionHandoff"
+            const val ARG_EPISODE_SELECTION_HANDOFF_NONCE = "episodeSelectionHandoffNonce"
         }
     }
 

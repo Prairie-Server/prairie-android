@@ -15,6 +15,89 @@ import kotlin.test.assertTrue
 
 class TvPlayNextSelectionHandoffTest {
     @Test
+    fun serverUnreachableStartKeepsHandoffForOwnedRetry() {
+        val handoff = captureTvEpisodeSelectionHandoff(
+            activeVersion = FileVersion(fileId = 42, resolution = "1080p"),
+            committedSubtitleIdentity = SubtitleIdentity.Off,
+            catalogSubtitles = emptyList(),
+            hasExplicitSubtitleSelection = true,
+        )
+        val slot = TvEpisodeSelectionHandoffSlot(handoff)
+
+        val failedStart = requireNotNull(slot.leaseForStart(ownerGeneration = 1L))
+        assertEquals(handoff, failedStart.handoff)
+        assertTrue(slot.retainForRetry(failedStart))
+
+        assertEquals(handoff, slot.leaseForStart(ownerGeneration = 2L)?.handoff)
+    }
+
+    @Test
+    fun startErrorKeepsHandoffForOwnedRetry() {
+        val handoff = captureTvEpisodeSelectionHandoff(
+            activeVersion = FileVersion(fileId = 42, resolution = "2160p"),
+            committedSubtitleIdentity = SubtitleIdentity.ServerSidecar(serverIndex = 3),
+            catalogSubtitles = listOf(subtitle(index = 3, language = "nl", codec = "srt")),
+            hasExplicitSubtitleSelection = true,
+        )
+        val slot = TvEpisodeSelectionHandoffSlot(handoff)
+
+        val failedStart = requireNotNull(slot.leaseForStart(ownerGeneration = 7L))
+        assertTrue(slot.retainForRetry(failedStart))
+
+        assertEquals(handoff, slot.leaseForStart(ownerGeneration = 8L)?.handoff)
+    }
+
+    @Test
+    fun successfulReadyAcknowledgesHandoffOnlyForItsLease() {
+        val handoff = captureTvEpisodeSelectionHandoff(
+            activeVersion = FileVersion(fileId = 42, resolution = "1080p"),
+            committedSubtitleIdentity = SubtitleIdentity.Off,
+            catalogSubtitles = emptyList(),
+            hasExplicitSubtitleSelection = true,
+        )
+        val slot = TvEpisodeSelectionHandoffSlot(handoff)
+        val readyStart = requireNotNull(slot.leaseForStart(ownerGeneration = 11L))
+
+        assertTrue(slot.acknowledgeReady(readyStart))
+        assertNull(slot.leaseForStart(ownerGeneration = 12L))
+        assertTrue(slot.acknowledgeReady(readyStart).not(), "a Ready completion can ack only once")
+    }
+
+    @Test
+    fun explicitReplacementInvalidatesHandoffAndStaleCompletionCannotRestoreIt() {
+        val handoff = captureTvEpisodeSelectionHandoff(
+            activeVersion = FileVersion(fileId = 42, resolution = "1080p"),
+            committedSubtitleIdentity = SubtitleIdentity.Off,
+            catalogSubtitles = emptyList(),
+            hasExplicitSubtitleSelection = true,
+        )
+        val slot = TvEpisodeSelectionHandoffSlot(handoff)
+        val staleStart = requireNotNull(slot.leaseForStart(ownerGeneration = 21L))
+
+        slot.invalidate()
+
+        assertTrue(slot.retainForRetry(staleStart).not())
+        assertTrue(slot.acknowledgeReady(staleStart).not())
+        assertNull(slot.leaseForStart(ownerGeneration = 22L))
+    }
+
+    @Test
+    fun newerLaunchOwnerInvalidatesOlderLease() {
+        val handoff = captureTvEpisodeSelectionHandoff(
+            activeVersion = FileVersion(fileId = 42, resolution = "1080p"),
+            committedSubtitleIdentity = SubtitleIdentity.Off,
+            catalogSubtitles = emptyList(),
+            hasExplicitSubtitleSelection = true,
+        )
+        val slot = TvEpisodeSelectionHandoffSlot(handoff)
+        val staleStart = requireNotNull(slot.leaseForStart(ownerGeneration = 31L))
+
+        assertNull(slot.leaseForStart(ownerGeneration = 32L))
+        assertTrue(slot.retainForRetry(staleStart).not())
+        assertTrue(slot.acknowledgeReady(staleStart).not())
+    }
+
+    @Test
     fun nextEpisodeCapturesCurrentSourceAndCommittedSubtitleSemantics() {
         val handoff = captureTvEpisodeSelectionHandoff(
             activeVersion = FileVersion(
@@ -143,8 +226,15 @@ class TvPlayNextSelectionHandoffTest {
             ),
         )
 
-        assertEquals(EpisodeSubtitleMode.OFF, slot.takeForStart()?.subtitle?.mode)
-        assertNull(slot.takeForStart(), "replacement starts must not reuse a prior episode handoff")
+        assertEquals(
+            EpisodeSubtitleMode.OFF,
+            slot.leaseForStart(ownerGeneration = 1L)?.handoff?.subtitle?.mode,
+        )
+        slot.invalidate()
+        assertNull(
+            slot.leaseForStart(ownerGeneration = 2L),
+            "profile/server replacement starts must not reuse a prior episode handoff",
+        )
     }
 
     @Test

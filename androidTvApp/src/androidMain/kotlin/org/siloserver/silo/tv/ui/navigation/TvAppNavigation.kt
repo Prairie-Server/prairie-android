@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,7 +22,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import org.siloserver.silo.common.player.video.VideoPlayerRouteArgs
-import org.siloserver.silo.common.player.video.decodeEpisodeSelectionHandoff
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.ProfileRepository
@@ -791,7 +791,7 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
-                navArgument(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF) {
+                navArgument(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF_NONCE) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -820,9 +820,19 @@ fun TvAppNavigation(
             val autoAdvanceCount = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_AUTO_ADVANCE_COUNT)
                 ?.toIntOrNull() ?: 0
-            val episodeSelectionHandoff = decodeEpisodeSelectionHandoff(
-                backStack.arguments?.getString(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF),
-            )
+            val episodeSelectionHandoffNonce = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF_NONCE)
+                ?.takeIf(::isValidTvEpisodeSelectionHandoffNonce)
+            val episodeSelectionHandoff = remember(
+                backStack,
+                contentId,
+                episodeSelectionHandoffNonce,
+            ) {
+                processTvEpisodeSelectionHandoffRegistry.claim(
+                    nonce = episodeSelectionHandoffNonce,
+                    targetContentId = contentId,
+                )
+            }
             TvPlayerScreen(
                 contentId = contentId,
                 preferredFileId = preferredFileId,
@@ -834,13 +844,17 @@ fun TvAppNavigation(
                 autoAdvanceCount = autoAdvanceCount,
                 episodeSelectionHandoff = episodeSelectionHandoff,
                 onPlayNext = { nextContentId, nextCount, handoff ->
+                    val handoffNonce = processTvEpisodeSelectionHandoffRegistry.register(
+                        targetContentId = nextContentId,
+                        handoff = handoff,
+                    )
                     // Replace the current player in the back stack so an
                     // auto-played chain doesn't pile up episodes behind Back.
                     navController.navigate(
                         TvRoute.Player(
                             contentId = nextContentId,
                             autoAdvanceCount = nextCount,
-                            episodeSelectionHandoff = handoff,
+                            episodeSelectionHandoffNonce = handoffNonce,
                         ).route,
                     ) {
                         popUpTo(TvRoute.Player.ROUTE) { inclusive = true }
