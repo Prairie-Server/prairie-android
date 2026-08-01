@@ -103,9 +103,10 @@ class TvEpisodeHandoffPlaybackStartTest {
 
     @Test
     fun explicitOffIsRetainedClientSide() {
+        val handoff = handoff(subtitle = EpisodeSubtitleIntent.off())
         val resolved = resolveTvPlaybackStartSelection(
             preferredFileId = 1080,
-            episodeSelectionHandoff = handoff(subtitle = EpisodeSubtitleIntent.off()),
+            episodeSelectionHandoff = handoff,
             targetVersions = versions(),
             targetLastFileId = null,
             preferredQuality = null,
@@ -115,6 +116,27 @@ class TvEpisodeHandoffPlaybackStartTest {
         assertTrue(resolved.subtitleIntentSpecified)
         assertNull(
             resolveTvServerSubtitleTrackIndex(
+                episodeSelectionHandoff = handoff,
+                resolvedEpisodeSelection = resolved,
+                requestedSubtitleTrackIndex = 4,
+            ),
+        )
+    }
+
+    @Test
+    fun automaticHandoffDropsStaleRequestedSubtitleIndex() {
+        val handoff = handoff()
+        val resolved = resolveTvPlaybackStartSelection(
+            preferredFileId = 1080,
+            episodeSelectionHandoff = handoff,
+            targetVersions = versions(),
+            targetLastFileId = null,
+            preferredQuality = null,
+        )
+
+        assertNull(
+            resolveTvServerSubtitleTrackIndex(
+                episodeSelectionHandoff = handoff,
                 resolvedEpisodeSelection = resolved,
                 requestedSubtitleTrackIndex = 4,
             ),

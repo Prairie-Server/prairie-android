@@ -89,6 +89,7 @@ class TvVideoPlaybackStarter(
             // The server rejects -1, while the Ready result retains it for the
             // client-side Media3 selection that represents explicit Off.
             val serverSubtitleTrackIndex = resolveTvServerSubtitleTrackIndex(
+                episodeSelectionHandoff = request.episodeSelectionHandoff,
                 resolvedEpisodeSelection = resolvedEpisodeSelection,
                 requestedSubtitleTrackIndex = request.subtitleTrackIndex,
             )
@@ -208,7 +209,11 @@ class TvVideoPlaybackStarter(
                     fileId = effectiveFileId,
                     capabilities = capabilities,
                     audioTrackIndex = resolved.audioTrackIndex,
-                    subtitleTrackIndex = request.subtitleTrackIndex,
+                    subtitleTrackIndex = if (request.episodeSelectionHandoff != null) {
+                        serverSubtitleTrackIndex
+                    } else {
+                        request.subtitleTrackIndex
+                    },
                     qualityPreference = playbackQualityIntent,
                     startPosition = sourceStartPos,
                     clientPlaybackContext = playbackContext,
@@ -344,9 +349,10 @@ fun resolveTvPlaybackStartSelection(
 
 /** Converts the client-side selection to the server's non-negative index contract. */
 fun resolveTvServerSubtitleTrackIndex(
+    episodeSelectionHandoff: EpisodeSelectionHandoff?,
     resolvedEpisodeSelection: ResolvedEpisodeSelection,
     requestedSubtitleTrackIndex: Int?,
-): Int? = if (resolvedEpisodeSelection.subtitleIntentSpecified) {
+): Int? = if (episodeSelectionHandoff != null) {
     resolvedEpisodeSelection.subtitleTrackIndex?.takeIf { it >= 0 }
 } else {
     requestedSubtitleTrackIndex?.takeIf { it >= 0 }
