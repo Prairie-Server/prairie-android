@@ -29,4 +29,9 @@ data class VideoPlaybackStartRequest(
      * unreachable (issue #33). Default false = the gate applies.
      */
     val force: Boolean = false,
+    /**
+     * Session-only intent captured from the preceding episode. TV resolves it
+     * against this request's target catalog only after loading its watch detail.
+     */
+    val episodeSelectionHandoff: EpisodeSelectionHandoff? = null,
 )

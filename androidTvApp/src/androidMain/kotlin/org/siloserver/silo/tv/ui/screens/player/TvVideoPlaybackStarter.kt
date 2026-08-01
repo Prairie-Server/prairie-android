@@ -11,10 +11,16 @@ import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
 import org.siloserver.silo.common.player.video.VideoPlaybackStartResult
 import org.siloserver.silo.common.player.video.VideoPlaybackStarter
 import org.siloserver.silo.common.player.video.PlaybackDiagnosticsCode
+import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
+import org.siloserver.silo.common.player.video.EpisodeSubtitleIntent
+import org.siloserver.silo.common.player.video.ResolvedEpisodeSelection
+import org.siloserver.silo.common.player.video.resolveEpisodeSourceIntent
+import org.siloserver.silo.common.player.video.resolveEpisodeSubtitleIntent
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.player.video.shouldReachServerForPlayback
 import org.siloserver.silo.common.settings.PlayerSettingsStore
 import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
+import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.playback.applyResumeRewind
 import org.siloserver.silo.model.playback.buildPlaybackSubtitleChoices
 import org.siloserver.silo.model.playback.resolvePlaybackStartRequestPosition
@@ -72,13 +78,20 @@ class TvVideoPlaybackStarter(
             val preferredQuality = request.preferredQualityOverride
                 ?: playerSettingsStore.preferredQualityFlow.first()
             val playbackQualityIntent = request.playbackQualityIntent ?: preferredQuality
-            val version = request.preferredFileId
-                ?.let { id -> watchDetail.versions.firstOrNull { it.fileId == id } }
-                ?: selectPlaybackVersion(
-                    watchDetail.versions,
-                    watchDetail.userData?.lastFileId,
-                    preferredQuality,
-                )
+            val resolvedEpisodeSelection = resolveTvPlaybackStartSelection(
+                preferredFileId = request.preferredFileId,
+                episodeSelectionHandoff = request.episodeSelectionHandoff,
+                targetVersions = watchDetail.versions,
+                targetLastFileId = watchDetail.userData?.lastFileId,
+                preferredQuality = preferredQuality,
+            )
+            val version = watchDetail.versions.first { it.fileId == resolvedEpisodeSelection.fileId }
+            // The server rejects -1, while the Ready result retains it for the
+            // client-side Media3 selection that represents explicit Off.
+            val serverSubtitleTrackIndex = resolveTvServerSubtitleTrackIndex(
+                resolvedEpisodeSelection = resolvedEpisodeSelection,
+                requestedSubtitleTrackIndex = request.subtitleTrackIndex,
+            )
             val activeProfile = profileRepository.getActiveProfile()
             val profileId = activeProfile?.id ?: profileRepository.getActiveProfileId()
                 ?: return failure(
@@ -131,7 +144,7 @@ class TvVideoPlaybackStarter(
                     capabilities = capabilities,
                     clientPlaybackContext = playbackContext,
                     audioTrackIndex = request.audioTrackIndex,
-                    subtitleTrackIndex = request.subtitleTrackIndex,
+                    subtitleTrackIndex = serverSubtitleTrackIndex,
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
                     // The bandwidth half of the quality choice. The server
@@ -259,6 +272,7 @@ class TvVideoPlaybackStarter(
                 seriesId = watchDetail.seriesId,
                 seasonNumber = watchDetail.seasonNumber,
                 episodeNumber = watchDetail.episodeNumber,
+                resolvedEpisodeSelection = resolvedEpisodeSelection,
             )
         } catch (e: CancellationException) {
             throw e
@@ -287,4 +301,53 @@ class TvVideoPlaybackStarter(
     private companion object {
         const val TAG = "TvVideoPlaybackStarter"
     }
+}
+
+/**
+ * Resolves session-only episode intent after the target detail is available.
+ *
+ * The target subtitle list depends on the chosen version, so source precedence
+ * is decided first; the existing shared source/subtitle resolvers then provide
+ * the semantic matching without duplicating their policy here.
+ */
+fun resolveTvPlaybackStartSelection(
+    preferredFileId: Int?,
+    episodeSelectionHandoff: EpisodeSelectionHandoff?,
+    targetVersions: List<FileVersion>,
+    targetLastFileId: Int?,
+    preferredQuality: String?,
+): ResolvedEpisodeSelection {
+    require(targetVersions.isNotEmpty()) { "targetVersions must not be empty" }
+
+    val semanticFileId = resolveEpisodeSourceIntent(
+        intent = episodeSelectionHandoff?.source,
+        targetVersions = targetVersions,
+    )
+    val selectedVersion = preferredFileId
+        ?.let { preferredId -> targetVersions.firstOrNull { it.fileId == preferredId } }
+        ?: semanticFileId
+            ?.let { handoffFileId -> targetVersions.firstOrNull { it.fileId == handoffFileId } }
+        ?: selectPlaybackVersion(targetVersions, targetLastFileId, preferredQuality)
+    val resolvedSubtitle = resolveEpisodeSubtitleIntent(
+        intent = episodeSelectionHandoff?.subtitle ?: EpisodeSubtitleIntent.auto(),
+        targetSubtitles = buildPlaybackSubtitleChoices(
+            catalogTracks = selectedVersion.subtitleTracks.orEmpty(),
+            plannedTracks = emptyList(),
+        ),
+    )
+    return ResolvedEpisodeSelection(
+        fileId = selectedVersion.fileId,
+        subtitleTrackIndex = resolvedSubtitle.trackIndex,
+        subtitleIntentSpecified = resolvedSubtitle.intentSpecified,
+    )
+}
+
+/** Converts the client-side selection to the server's non-negative index contract. */
+fun resolveTvServerSubtitleTrackIndex(
+    resolvedEpisodeSelection: ResolvedEpisodeSelection,
+    requestedSubtitleTrackIndex: Int?,
+): Int? = if (resolvedEpisodeSelection.subtitleIntentSpecified) {
+    resolvedEpisodeSelection.subtitleTrackIndex?.takeIf { it >= 0 }
+} else {
+    requestedSubtitleTrackIndex?.takeIf { it >= 0 }
 }
