@@ -8,6 +8,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
+import androidx.annotation.Dimension
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -28,7 +29,6 @@ import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
-import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
@@ -265,10 +265,16 @@ class SubtitleManager(
         subtitleView.setApplyEmbeddedStyles(false)
         subtitleView.setApplyEmbeddedFontSizes(false)
         subtitleView.setStyle(captionStyle)
-        subtitleView.setFractionalTextSize(
-            fractionalSizeFor(safe.fontSize),
-            /* fractionalRelativeToTextSize = */ false,
-        )
+        when (val textSize = androidSubtitleTextSize(presentation, safe.fontSize)) {
+            is AndroidSubtitleTextSize.Fractional -> subtitleView.setFractionalTextSize(
+                textSize.fraction,
+                /* fractionalRelativeToTextSize = */ false,
+            )
+            is AndroidSubtitleTextSize.FixedSp -> subtitleView.setFixedTextSize(
+                Dimension.SP,
+                textSize.sp,
+            )
+        }
         subtitleView.setBottomPaddingFraction(bottomPaddingFor(safe.position))
         syncSubtitleVideoBounds(playerView)
     }
@@ -338,26 +344,6 @@ class SubtitleManager(
             SubtitleAppearance.MONOSPACE -> Typeface.MONOSPACE
             else -> Typeface.create(family, Typeface.NORMAL)
         }
-    }
-
-    private fun fractionalSizeFor(preset: SubtitleFontSizePreset): Float {
-        val numerator = when (presentation) {
-            AndroidSubtitlePresentation.Phone -> when (preset) {
-                SubtitleFontSizePreset.Small -> 22.5f
-                SubtitleFontSizePreset.Medium -> 29.25f
-                SubtitleFontSizePreset.Large -> 36f
-                SubtitleFontSizePreset.XLarge -> 45f
-                SubtitleFontSizePreset.XXLarge -> 54f
-            }
-            AndroidSubtitlePresentation.Television -> when (preset) {
-                SubtitleFontSizePreset.Small -> 20f
-                SubtitleFontSizePreset.Medium -> 26f
-                SubtitleFontSizePreset.Large -> 32f
-                SubtitleFontSizePreset.XLarge -> 40f
-                SubtitleFontSizePreset.XXLarge -> 48f
-            }
-        }
-        return numerator / 720f
     }
 
     private fun bottomPaddingFor(position: SubtitlePositionPreset): Float {
