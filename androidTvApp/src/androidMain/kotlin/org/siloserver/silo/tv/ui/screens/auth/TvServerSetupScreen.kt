@@ -22,9 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -35,11 +32,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.focus.onFocusEvent
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Smartphone
@@ -88,6 +81,8 @@ import org.siloserver.silo.tv.ui.components.AuroraAccent
 import org.siloserver.silo.tv.ui.components.AuroraEyebrow
 import org.siloserver.silo.tv.ui.components.AuroraInk
 import org.siloserver.silo.tv.ui.components.auroraGlass
+import org.siloserver.silo.tv.ui.components.rememberTvImeAwareFormScrollState
+import org.siloserver.silo.tv.ui.components.tvImeAwareFieldContext
 import org.siloserver.silo.tv.ui.components.AuroraGhostButton
 import org.siloserver.silo.tv.ui.components.AuroraJourneyProgress
 import org.siloserver.silo.tv.ui.components.AuroraPrimaryButton
@@ -125,9 +120,7 @@ fun TvServerSetupScreen(
     val pairingStatus by pairingReceiver.status.collectAsState()
     val focusRequester = remember { FocusRequester() }
     val phoneSetupFocus = remember { FocusRequester() }
-    val urlBringIntoView = remember { BringIntoViewRequester() }
-    val connectBringIntoView = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
+    val formScrollState = rememberTvImeAwareFormScrollState()
     val isActivePairing = pairingStatus.isActivePairing
 
     // Companion LAN pairing: advertise `_silopair._tcp` while this screen is on
@@ -234,7 +227,7 @@ fun TvServerSetupScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(formScrollState)
                     .padding(horizontal = 48.dp, vertical = 32.dp),
             ) {
                 Row(
@@ -286,7 +279,7 @@ fun TvServerSetupScreen(
                         modifier = Modifier
                             .widthIn(max = 642.dp)
                             .fillMaxWidth()
-                            .height(SERVER_SETUP_CHOOSER_HEIGHT),
+                            .heightIn(min = SERVER_SETUP_CHOOSER_HEIGHT),
                     ) {
                         PhoneSetupCard(
                             focusRequester = phoneSetupFocus,
@@ -304,9 +297,6 @@ fun TvServerSetupScreen(
                             onServerUrlChanged = viewModel::onServerUrlChanged,
                             onConnectClick = viewModel::onConnectClick,
                             focusRequester = focusRequester,
-                            urlBringIntoView = urlBringIntoView,
-                            connectBringIntoView = connectBringIntoView,
-                            scope = scope,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -404,9 +394,6 @@ private fun ManualEntryCard(
     onServerUrlChanged: (String) -> Unit,
     onConnectClick: () -> Unit,
     focusRequester: FocusRequester,
-    urlBringIntoView: BringIntoViewRequester,
-    connectBringIntoView: BringIntoViewRequester,
-    scope: CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -414,65 +401,67 @@ private fun ManualEntryCard(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         modifier = modifier
             .auroraGlass(16.dp, emphasized = true)
-            .verticalScroll(rememberScrollState())
             .padding(24.dp),
     ) {
-        Text(
-            text = "Enter it here",
-            style = TvServerSetupTextStyles.Headline,
-            color = Color.White,
-        )
-
-        Text(
-            text = "SERVER ADDRESS",
-            style = TvServerSetupTextStyles.InputLabel,
-            color = Color.White.copy(alpha = 0.52f),
-        )
-
-        OutlinedTextField(
-            value = state.serverUrl,
-            onValueChange = onServerUrlChanged,
-            placeholder = {
-                Text(
-                    text = "media.example.com",
-                    style = TvServerSetupTextStyles.FieldText,
-                )
-            },
-            singleLine = true,
-            textStyle = TvServerSetupTextStyles.FieldText,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Go,
-                showKeyboardOnFocus = false,
-            ),
-            keyboardActions = KeyboardActions(
-                onGo = {
-                    if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
-                        onConnectClick()
-                    }
-                },
-            ),
-            enabled = !state.isLoading,
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp)
-                .bringIntoViewRequester(urlBringIntoView)
-                .onFocusEvent { fs ->
-                    if (fs.isFocused) scope.launch { urlBringIntoView.bringIntoView() }
-                }
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyUp &&
-                        (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
-                    ) {
-                        keyboardController?.show()
-                        true
-                    } else {
-                        false
+                .tvImeAwareFieldContext(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            Text(
+                text = "Enter it here",
+                style = TvServerSetupTextStyles.Headline,
+                color = Color.White,
+            )
+
+            Text(
+                text = "SERVER ADDRESS",
+                style = TvServerSetupTextStyles.InputLabel,
+                color = Color.White.copy(alpha = 0.52f),
+            )
+
+            OutlinedTextField(
+                value = state.serverUrl,
+                onValueChange = onServerUrlChanged,
+                placeholder = {
+                    Text(
+                        text = "media.example.com",
+                        style = TvServerSetupTextStyles.FieldText,
+                    )
+                },
+                singleLine = true,
+                textStyle = TvServerSetupTextStyles.FieldText,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Go,
+                    showKeyboardOnFocus = false,
+                ),
+                keyboardActions = KeyboardActions(
+                    onGo = {
+                        if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
+                            onConnectClick()
+                        }
+                    },
+                ),
+                enabled = !state.isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyUp &&
+                            (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+                        ) {
+                            keyboardController?.show()
+                            true
+                        } else {
+                            false
+                        }
                     }
-                }
-                .focusRequester(focusRequester),
-            colors = tvOutlinedTextFieldColors(),
-        )
+                    .focusRequester(focusRequester),
+                colors = tvOutlinedTextFieldColors(),
+            )
+        }
 
         UrlShortcutRow(
             enabled = !state.isLoading,
@@ -496,13 +485,7 @@ private fun ManualEntryCard(
             )
         }
 
-        Box(
-            modifier = Modifier
-                .bringIntoViewRequester(connectBringIntoView)
-                .onFocusEvent { fs ->
-                    if (fs.hasFocus) scope.launch { connectBringIntoView.bringIntoView() }
-                },
-        ) {
+        Box {
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Connecting…" else "Connect",
                 icon = null,

@@ -11,7 +11,6 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
-import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -35,44 +34,6 @@ class SubtitleManagerAppearanceTest {
         assertEquals(0x00000000, style.windowColor)
         assertEquals(CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, style.edgeType)
         assertEquals(0xFF000000.toInt(), style.edgeColor)
-    }
-
-    @Test
-    fun phoneSubtitleTextFractionsAreOneEighthLarger() {
-        val manager = SubtitleManager(
-            presentation = AndroidSubtitlePresentation.Phone,
-        )
-
-        assertEquals(22.5f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
-        assertEquals(29.25f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
-        assertEquals(36f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
-        assertEquals(45f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
-        assertEquals(54f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
-    }
-
-    @Test
-    fun televisionSubtitleTextFractionsPreserveExistingScale() {
-        val manager = SubtitleManager(
-            presentation = AndroidSubtitlePresentation.Television,
-        )
-
-        assertEquals(20f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Small))
-        assertEquals(26f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Medium))
-        assertEquals(32f / 720f, fractionalSize(manager, SubtitleFontSizePreset.Large))
-        assertEquals(40f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XLarge))
-        assertEquals(48f / 720f, fractionalSize(manager, SubtitleFontSizePreset.XXLarge))
-    }
-
-    private fun fractionalSize(
-        manager: SubtitleManager,
-        preset: SubtitleFontSizePreset,
-    ): Float {
-        val method = SubtitleManager::class.java.getDeclaredMethod(
-            "fractionalSizeFor",
-            SubtitleFontSizePreset::class.java,
-        )
-        method.isAccessible = true
-        return method.invoke(manager, preset) as Float
     }
 
     @Test

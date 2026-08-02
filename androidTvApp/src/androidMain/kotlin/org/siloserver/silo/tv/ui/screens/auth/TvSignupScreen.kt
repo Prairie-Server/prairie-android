@@ -12,9 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -27,12 +24,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -48,9 +43,10 @@ import org.siloserver.silo.tv.ui.components.TvAuroraBackdrop
 import org.siloserver.silo.tv.ui.components.TvAuroraVariant
 import org.siloserver.silo.tv.ui.components.TvHeroActionPill
 import org.siloserver.silo.tv.ui.components.TvPillVariant
+import org.siloserver.silo.tv.ui.components.rememberTvImeAwareFormScrollState
+import org.siloserver.silo.tv.ui.components.tvImeAwareFieldContext
 import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
 import org.siloserver.silo.tv.ui.theme.Spacing
-import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -72,12 +68,7 @@ fun TvSignupScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val usernameFocus = remember { FocusRequester() }
-    val usernameBringIntoView = remember { BringIntoViewRequester() }
-    val emailBringIntoView = remember { BringIntoViewRequester() }
-    val passwordBringIntoView = remember { BringIntoViewRequester() }
-    val inviteBringIntoView = remember { BringIntoViewRequester() }
-    val submitBringIntoView = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
+    val formScrollState = rememberTvImeAwareFormScrollState()
 
     LaunchedEffect(state.signupSuccess) {
         if (state.signupSuccess) {
@@ -100,7 +91,7 @@ fun TvSignupScreen(
                 .align(Alignment.TopCenter)
                 .width(420.dp)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(formScrollState)
                 .padding(top = 24.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
         ) {
             BrandHeader()
@@ -131,10 +122,7 @@ fun TvSignupScreen(
                 enabled = !state.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .bringIntoViewRequester(usernameBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { usernameBringIntoView.bringIntoView() }
-                    }
+                    .tvImeAwareFieldContext()
                     .focusRequester(usernameFocus),
                 colors = tvOutlinedTextFieldColors(),
             )
@@ -152,10 +140,7 @@ fun TvSignupScreen(
                 enabled = !state.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .bringIntoViewRequester(emailBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { emailBringIntoView.bringIntoView() }
-                    },
+                    .tvImeAwareFieldContext(),
                 colors = tvOutlinedTextFieldColors(),
             )
 
@@ -173,10 +158,7 @@ fun TvSignupScreen(
                 enabled = !state.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .bringIntoViewRequester(passwordBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { passwordBringIntoView.bringIntoView() }
-                    },
+                    .tvImeAwareFieldContext(),
                 colors = tvOutlinedTextFieldColors(),
             )
 
@@ -196,10 +178,7 @@ fun TvSignupScreen(
                 enabled = !state.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .bringIntoViewRequester(inviteBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { inviteBringIntoView.bringIntoView() }
-                    },
+                    .tvImeAwareFieldContext(),
                 colors = tvOutlinedTextFieldColors(),
             )
 
@@ -216,11 +195,7 @@ fun TvSignupScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Box(
-                    modifier = Modifier
-                        .bringIntoViewRequester(submitBringIntoView)
-                        .onFocusEvent { fs -> if (fs.hasFocus) scope.launch { submitBringIntoView.bringIntoView() } },
-                ) {
+                Box {
                     TvHeroActionPill(
                         label = if (state.isLoading) "Signing up…" else "Sign Up",
                         icon = Icons.AutoMirrored.Filled.ArrowForward,

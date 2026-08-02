@@ -28,7 +28,6 @@ import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
 import org.siloserver.silo.model.settings.SubtitleAppearance
 import org.siloserver.silo.model.settings.SubtitleBackgroundStylePreset
-import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 import org.siloserver.silo.model.settings.SubtitlePositionPreset
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
@@ -235,9 +234,11 @@ class SubtitleManager(
      * Applies the user's [SubtitleAppearance] to the [PlayerView]'s subtitle layer.
      *
      * Maps onto Media3 via [CaptionStyleCompat] (colors + edge style + typeface),
-     * [androidx.media3.ui.SubtitleView.setFractionalTextSize] (relative-to-view-height
-     * font scale), and [androidx.media3.ui.SubtitleView.setBottomPaddingFraction]
-     * (vertical position within the surface).
+     * [androidx.media3.ui.SubtitleView.setFractionalTextSize] for phone
+     * relative-to-view-height sizing, [androidx.media3.ui.SubtitleView.setFixedTextSize]
+     * for television SP sizing, and
+     * [androidx.media3.ui.SubtitleView.setBottomPaddingFraction] (vertical position
+     * within the surface).
      *
      * Media3-rendered text uses the user's appearance. ASS/SSA is rendered by
      * libass and deliberately preserves the script's authored typesetting,
@@ -265,9 +266,9 @@ class SubtitleManager(
         subtitleView.setApplyEmbeddedStyles(false)
         subtitleView.setApplyEmbeddedFontSizes(false)
         subtitleView.setStyle(captionStyle)
-        subtitleView.setFractionalTextSize(
-            fractionalSizeFor(safe.fontSize),
-            /* fractionalRelativeToTextSize = */ false,
+        applyAndroidSubtitleTextSize(
+            subtitleView,
+            androidSubtitleTextSize(presentation, safe.fontSize),
         )
         subtitleView.setBottomPaddingFraction(bottomPaddingFor(safe.position))
         syncSubtitleVideoBounds(playerView)
@@ -338,26 +339,6 @@ class SubtitleManager(
             SubtitleAppearance.MONOSPACE -> Typeface.MONOSPACE
             else -> Typeface.create(family, Typeface.NORMAL)
         }
-    }
-
-    private fun fractionalSizeFor(preset: SubtitleFontSizePreset): Float {
-        val numerator = when (presentation) {
-            AndroidSubtitlePresentation.Phone -> when (preset) {
-                SubtitleFontSizePreset.Small -> 22.5f
-                SubtitleFontSizePreset.Medium -> 29.25f
-                SubtitleFontSizePreset.Large -> 36f
-                SubtitleFontSizePreset.XLarge -> 45f
-                SubtitleFontSizePreset.XXLarge -> 54f
-            }
-            AndroidSubtitlePresentation.Television -> when (preset) {
-                SubtitleFontSizePreset.Small -> 20f
-                SubtitleFontSizePreset.Medium -> 26f
-                SubtitleFontSizePreset.Large -> 32f
-                SubtitleFontSizePreset.XLarge -> 40f
-                SubtitleFontSizePreset.XXLarge -> 48f
-            }
-        }
-        return numerator / 720f
     }
 
     private fun bottomPaddingFor(position: SubtitlePositionPreset): Float {

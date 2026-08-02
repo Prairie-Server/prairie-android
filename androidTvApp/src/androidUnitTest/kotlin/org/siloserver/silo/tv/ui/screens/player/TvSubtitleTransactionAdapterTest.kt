@@ -83,6 +83,97 @@ class TvSubtitleTransactionAdapterTest {
     }
 
     @Test
+    fun `new server negotiated sidecar switches locally without replan`() = runTest {
+        val target = sidecar(4)
+        val harness = harness(
+            backgroundScope,
+            isLocallyMountable = { identity -> identity == target },
+        )
+
+        harness.adapter.select(target)
+        runCurrent()
+
+        assertTrue(
+            harness.port.requests.isEmpty(),
+            "an already-mounted sidecar must not ask the server to replan",
+        )
+        assertEquals(target, harness.adapter.snapshot.localMountIdentity)
+        assertEquals(sidecar(3), harness.adapter.snapshot.committedIdentity)
+
+        harness.adapter.reportMountedSelection(
+            identity = target,
+            selected = true,
+            snapshotKey = "mounted-sidecar-selected",
+            settled = true,
+        )
+        runCurrent()
+
+        assertEquals(target, harness.adapter.snapshot.committedIdentity)
+        assertNull(harness.adapter.snapshot.pendingIdentity)
+        assertEquals(listOf(target), harness.persistence.persisted.map { it.identity })
+    }
+
+    @Test
+    fun `old server catalog-only sidecar performs one staged replan at current position`() = runTest {
+        val harness = harness(backgroundScope, isLocallyMountable = { false })
+
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+
+        val request = harness.port.requests.single()
+        assertEquals(
+            listOf(4),
+            harness.port.requests.map { it.subtitleTrackIndex },
+            "an unmounted sidecar must retain the staged replan fallback",
+        )
+        assertEquals(42.0, request.positionSeconds)
+        assertEquals(2, request.audioTrackIndex)
+        assertEquals("auto", request.qualityPreference)
+        assertNull(harness.adapter.snapshot.localMountIdentity)
+
+        harness.port.completeStage(candidate("old-server-sidecar", 4))
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "old-server-sidecar-mounted")
+        runCurrent()
+
+        assertEquals(listOf("old-server-sidecar"), harness.port.committed)
+        assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
+    }
+
+    @Test
+    fun `burn in route stages one replan before switching to an external sidecar`() = runTest {
+        // Burn-in plans intentionally mount no negotiated alternatives. The
+        // selected SRT therefore follows the same safe fallback as an old
+        // server response and replaces the video route before it is mounted.
+        val harness = harness(backgroundScope, isLocallyMountable = { false })
+
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+
+        assertEquals(listOf(4), harness.port.requests.map { it.subtitleTrackIndex })
+        assertEquals(42.0, harness.port.requests.single().positionSeconds)
+        harness.port.completeStage(candidate("burn-in-to-sidecar", 4))
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "burn-in-replacement-mounted")
+        runCurrent()
+
+        assertEquals(listOf("burn-in-to-sidecar"), harness.port.committed)
+        assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
+    }
+
+    @Test
+    fun `an unmounted committed server sidecar is not restored locally`() = runTest {
+        val harness = harness(backgroundScope, isLocallyMountable = { false })
+
+        harness.adapter.restoreCommittedLocalMount()
+        runCurrent()
+
+        assertFalse(harness.adapter.snapshot.subtitleApplying)
+        assertNull(harness.adapter.snapshot.localMountIdentity)
+        assertEquals(sidecar(3), harness.adapter.snapshot.committedIdentity)
+    }
+
+    @Test
     fun `slow older preference write cannot overwrite newer commit`() = runTest {
         val harness = harness(backgroundScope, sessionId = null)
         harness.persistence.suspendFirst = true
@@ -2045,7 +2136,9 @@ class TvSubtitleTransactionAdapterTest {
         tracks: List<PlayerSubtitleInfo> = emptyList(),
         adoption: AdoptionControl = AdoptionControl(),
         durablePersistenceScope: CoroutineScope = scope,
-        isLocallyMountable: (SubtitleIdentity) -> Boolean = { true },
+        isLocallyMountable: (SubtitleIdentity) -> Boolean = { identity ->
+            identity !is SubtitleIdentity.ServerSidecar
+        },
         persistenceCoordinator: PlaybackTrackSelectionWriteCoordinator =
             PlaybackTrackSelectionWriteCoordinator(),
         persistence: RecordingPersistence = RecordingPersistence(),

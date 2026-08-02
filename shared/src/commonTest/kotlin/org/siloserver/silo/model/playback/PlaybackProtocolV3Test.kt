@@ -37,6 +37,72 @@ class PlaybackProtocolV3Test {
     )
 
     @Test
+    fun oldServerSingularSubtitleArtifactDecodesWithNoSidecarSet() {
+        val decoded = SiloJson.decodeFromString<PlaybackPlanV3>(
+            """
+            {
+              "plan_id": "plan",
+              "delivery": "original_http",
+              "engine": "media3_direct",
+              "stream": {"url": "/stream/session", "protocol": "http_progressive"},
+              "subtitle": {
+                "mode": "convert",
+                "track_id": "file:42:subtitle:0",
+                "artifact": {
+                  "url": "/stream/session/subtitles/0.vtt",
+                  "mime_type": "text/vtt",
+                  "format": "vtt",
+                  "timing_origin_seconds": 0
+                }
+              },
+              "decision_reason": "test"
+            }
+            """.trimIndent(),
+        )
+
+        assertTrue(decoded.subtitle.sidecars.isEmpty())
+        assertEquals("/stream/session/subtitles/0.vtt", decoded.subtitle.artifact?.url)
+    }
+
+    @Test
+    fun newServerExternalTextSidecarSetDecodesEveryIdentityField() {
+        val decoded = SiloJson.decodeFromString<PlaybackPlanV3>(
+            """
+            {
+              "plan_id": "plan",
+              "delivery": "original_http",
+              "engine": "media3_direct",
+              "stream": {"url": "/stream/session", "protocol": "http_progressive"},
+              "subtitle": {
+                "mode": "off",
+                "sidecars": [{
+                  "track_id": "file:42:subtitle:1",
+                  "index": 1,
+                  "url": "/stream/session/subtitles/1.srt?file_id=42",
+                  "mime_type": "application/x-subrip",
+                  "format": "srt",
+                  "timing_origin_seconds": 12.5
+                }]
+              },
+              "decision_reason": "test"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            PlaybackSubtitleSidecarV3(
+                trackId = "file:42:subtitle:1",
+                index = 1,
+                url = "/stream/session/subtitles/1.srt?file_id=42",
+                mimeType = "application/x-subrip",
+                format = "srt",
+                timingOriginSeconds = 12.5,
+            ),
+            decoded.subtitle.sidecars.single(),
+        )
+    }
+
+    @Test
     fun missingProtocolFeatureRequiresServerUpgradeAndPreservesAllocatedSession() {
         val result = PlaybackDecisionResponseV3(sessionId = "legacy-session").validateForMedia3()
         assertEquals(PlaybackV3Validation.Incompatible("legacy-session"), result)

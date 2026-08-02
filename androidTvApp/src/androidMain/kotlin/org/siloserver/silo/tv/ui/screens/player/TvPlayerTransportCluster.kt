@@ -159,8 +159,9 @@ private fun TransportIconButton(
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     // Uniform sizes across all buttons so the row reads as one transport group.
-    val buttonSize = 33.dp
-    val symbolSize = if (isPrimary) 15.dp else 12.5.dp
+    val metrics = tvTransportControlMetrics(isPrimary)
+    val buttonSize = metrics.buttonSizeDp.dp
+    val symbolSize = metrics.symbolSizeDp.dp
 
     // Focus is signaled by filling the circle white — no scale transform so the
     // buttons never cross the bounds of their circular hit target.

@@ -16,16 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.focus.onFocusEvent
-import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AccountCircle
@@ -74,6 +68,8 @@ import org.siloserver.silo.tv.ui.components.TvAuroraBackdrop
 import org.siloserver.silo.tv.ui.components.TvAuroraVariant
 import org.siloserver.silo.tv.ui.components.TvHeroActionPill
 import org.siloserver.silo.tv.ui.components.TvPillVariant
+import org.siloserver.silo.tv.ui.components.rememberTvImeAwareFormScrollState
+import org.siloserver.silo.tv.ui.components.tvImeAwareFieldContext
 import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
 import org.siloserver.silo.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
@@ -101,10 +97,7 @@ fun TvLoginScreen(
     val signInFocus = remember { FocusRequester() }
     val backToPhoneFocus = remember { FocusRequester() }
     val changeServerFocus = remember { FocusRequester() }
-    val usernameBringIntoView = remember { BringIntoViewRequester() }
-    val passwordBringIntoView = remember { BringIntoViewRequester() }
-    val signInBringIntoView = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
+    val formScrollState = rememberTvImeAwareFormScrollState()
 
     // Phone-first IA (mirrors tvOS TVLoginView): the QR device-login leads, and
     // the username/password form is one focus-step away behind "Use a password
@@ -139,7 +132,7 @@ fun TvLoginScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(formScrollState)
                 .padding(
                     top = if (showPasswordForm) 20.dp else 32.dp,
                     bottom = 32.dp,
@@ -172,9 +165,6 @@ fun TvLoginScreen(
                     signInFocus = signInFocus,
                     backToPhoneFocus = backToPhoneFocus,
                     changeServerFocus = changeServerFocus,
-                    usernameBringIntoView = usernameBringIntoView,
-                    passwordBringIntoView = passwordBringIntoView,
-                    signInBringIntoView = signInBringIntoView,
                     onUsernameChanged = viewModel::onUsernameChanged,
                     onPasswordChanged = viewModel::onPasswordChanged,
                     onLoginClick = viewModel::onLoginClick,
@@ -182,7 +172,6 @@ fun TvLoginScreen(
                     onCreateAccount = onCreateAccount,
                     onBackToPhone = { showPasswordForm = false },
                     onChangeServer = onChangeServer,
-                    scope = scope,
                     modifier = Modifier.width(400.dp),
                 )
             } else {
@@ -283,9 +272,6 @@ private fun CredentialFormCard(
     signInFocus: FocusRequester,
     backToPhoneFocus: FocusRequester,
     changeServerFocus: FocusRequester,
-    usernameBringIntoView: BringIntoViewRequester,
-    passwordBringIntoView: BringIntoViewRequester,
-    signInBringIntoView: BringIntoViewRequester,
     onUsernameChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
     onLoginClick: () -> Unit,
@@ -293,7 +279,6 @@ private fun CredentialFormCard(
     onCreateAccount: () -> Unit,
     onBackToPhone: () -> Unit,
     onChangeServer: () -> Unit,
-    scope: kotlinx.coroutines.CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
@@ -319,7 +304,10 @@ private fun CredentialFormCard(
         // Username — a mono uppercase caption labels each field, matching the
         // server-setup card; the Material floating label is dropped so nothing
         // floats oversized in the border notch.
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            modifier = Modifier.tvImeAwareFieldContext(),
+        ) {
             Text(
                 text = "USERNAME",
                 style = TvLoginTextStyles.InputLabel,
@@ -338,16 +326,15 @@ private fun CredentialFormCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
-                    .bringIntoViewRequester(usernameBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { usernameBringIntoView.bringIntoView() }
-                    }
                     .focusRequester(usernameFocus),
                 colors = tvOutlinedTextFieldColors(),
             )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            modifier = Modifier.tvImeAwareFieldContext(),
+        ) {
             Text(
                 text = "PASSWORD",
                 style = TvLoginTextStyles.InputLabel,
@@ -394,10 +381,6 @@ private fun CredentialFormCard(
                     modifier = Modifier
                         .weight(1f)
                         .height(52.dp)
-                        .bringIntoViewRequester(passwordBringIntoView)
-                        .onFocusEvent { fs ->
-                            if (fs.isFocused) scope.launch { passwordBringIntoView.bringIntoView() }
-                        }
                         .focusRequester(passwordFocus),
                     colors = tvOutlinedTextFieldColors(),
                 )
@@ -412,13 +395,7 @@ private fun CredentialFormCard(
             )
         }
 
-        Box(
-            modifier = Modifier
-                .bringIntoViewRequester(signInBringIntoView)
-                .onFocusEvent { fs ->
-                    if (fs.hasFocus) scope.launch { signInBringIntoView.bringIntoView() }
-                },
-        ) {
+        Box {
             AuroraPrimaryButton(
                 label = if (state.isLoading) "Signing in…" else "Sign In",
                 icon = Icons.AutoMirrored.Filled.Login,
@@ -664,6 +641,7 @@ private fun QrLoginCard(
 @Composable
 private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
     if (code.isBlank()) return
+    val tileWidthDp = matchCodeTileWidthDp(code)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -679,7 +657,7 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
             ),
             color = Color.White.copy(alpha = 0.6f),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(MATCH_CODE_TILE_GAP_DP.dp)) {
             code.uppercase().forEach { ch ->
                 val isSep = ch == '-' || ch == ' '
                 if (isSep) {
@@ -687,12 +665,12 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
                         text = "–",
                         style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
                         color = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.width(10.dp),
+                        modifier = Modifier.width(MATCH_CODE_SEPARATOR_WIDTH_DP.dp),
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(width = 24.dp, height = 30.dp)
+                            .size(width = tileWidthDp.dp, height = 30.dp)
                             .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
                             .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center,
@@ -711,4 +689,32 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+internal const val MATCH_CODE_TILE_WIDTH_DP = 24
+internal const val MATCH_CODE_SEPARATOR_WIDTH_DP = 10
+internal const val MATCH_CODE_TILE_GAP_DP = 2
+internal const val MATCH_CODE_CONTENT_WIDTH_DP = 252
+
+internal fun matchCodeTileWidthDp(code: String): Int {
+    val tileCount = code.count { ch -> ch != '-' && ch != ' ' }
+    if (tileCount == 0) return MATCH_CODE_TILE_WIDTH_DP
+
+    val separatorCount = code.length - tileCount
+    val gapWidth = (code.length - 1).coerceAtLeast(0) * MATCH_CODE_TILE_GAP_DP
+    val availableTileWidth = (
+        MATCH_CODE_CONTENT_WIDTH_DP -
+            separatorCount * MATCH_CODE_SEPARATOR_WIDTH_DP -
+            gapWidth
+        ).coerceAtLeast(tileCount)
+    return minOf(MATCH_CODE_TILE_WIDTH_DP, availableTileWidth / tileCount)
+}
+
+internal fun matchCodeRowWidthDp(code: String): Int {
+    if (code.isEmpty()) return 0
+    val tileWidth = matchCodeTileWidthDp(code)
+    val characterWidth = code.sumOf { ch ->
+        if (ch == '-' || ch == ' ') MATCH_CODE_SEPARATOR_WIDTH_DP else tileWidth
+    }
+    return characterWidth + (code.length - 1) * MATCH_CODE_TILE_GAP_DP
 }

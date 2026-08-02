@@ -15,6 +15,7 @@ import org.siloserver.silo.model.playback.ClientCodecCapabilities
 import org.siloserver.silo.model.playback.EngineCapabilityEnvelope
 import org.siloserver.silo.model.playback.EngineSubtitleCapabilities
 import org.siloserver.silo.model.playback.DETAILED_DECODE_CAPABILITIES_FEATURE
+import org.siloserver.silo.model.playback.EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE
 import org.siloserver.silo.model.playback.LAYOUT_AWARE_PASSTHROUGH_FEATURE
 import org.siloserver.silo.model.playback.CLIENT_VIDEO_TRANSFORMATIONS_FEATURE
 import org.siloserver.silo.model.playback.DEVICE_QUIRKS_V3_FEATURE
@@ -222,6 +223,7 @@ class PlaybackCapabilityDetector(
             if (!passthrough?.entries.isNullOrEmpty()) add(LAYOUT_AWARE_PASSTHROUGH_FEATURE)
             add(CLIENT_VIDEO_TRANSFORMATIONS_FEATURE)
             add(DEVICE_QUIRKS_V3_FEATURE)
+            add(EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE)
         }
         val clientVideoTransformations = buildList {
             if (8 in caps.hdrDetails?.dolbyVisionProfiles.orEmpty() && NativeDolbyVisionRpuConverter.isAvailable) {

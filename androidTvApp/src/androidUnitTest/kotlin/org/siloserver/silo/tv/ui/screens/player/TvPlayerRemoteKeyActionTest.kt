@@ -62,12 +62,9 @@ class TvPlayerRemoteKeyActionTest {
     }
 
     @Test
-    fun downMovesFocusToTransportAndMenuAndSettingsOpenHudFromIdleOverlay() {
-        // tvOS parity (QA 2026-07-08): with nothing on screen, Down opens the
-        // hover menu (HUD); with a focus-owning overlay up it still routes
-        // focus into the transport.
+    fun `down always moves focus to transport while menu and settings open hud`() {
         assertEquals(
-            TvPlayerRemoteKeyAction.OpenHud,
+            TvPlayerRemoteKeyAction.FocusTransport,
             tvPlayerRemoteKeyAction(
                 keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
                 action = KeyEvent.ACTION_DOWN,
@@ -93,6 +90,18 @@ class TvPlayerRemoteKeyActionTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun `repeated down is consumed without refocusing transport`() {
+        assertEquals(
+            TvPlayerRemoteKeyAction.ConsumeOnly,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 1,
+            ),
+        )
     }
 
     @Test

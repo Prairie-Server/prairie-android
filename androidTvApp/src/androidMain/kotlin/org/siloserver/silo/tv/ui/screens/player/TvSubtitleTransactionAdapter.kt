@@ -817,7 +817,11 @@ internal class TvSubtitleTransactionAdapter(
 
     fun restoreCommittedLocalMount() {
         val identity = transition.committed.identity
-        if (context?.sessionId != null && identity.requiresLocalMountConfirmation()) {
+        if (
+            context?.sessionId != null &&
+            identity.requiresLocalMountConfirmation() &&
+            isLocallyMountable(identity)
+        ) {
             beginLocalRestore(identity)
         }
     }
@@ -1937,7 +1941,7 @@ internal class TvSubtitleTransactionAdapter(
     private fun stageCompensatingRestore(owner: PendingLocalSelection) {
         val priorState = owner.rollbackState
         val priorIdentity = priorState.committed.identity
-        if (priorIdentity.isClientOwnedSubtitle()) {
+        if (priorIdentity.isClientOwnedSubtitle() && isLocallyMountable(priorIdentity)) {
             transition = priorState
             beginLocalRestore(priorIdentity)
             return
@@ -2085,6 +2089,7 @@ internal class TvSubtitleTransactionAdapter(
         if (
             failedLocalOwner?.mountedBeforeAdoption == true &&
             priorIdentity.requiresLocalMountConfirmation() &&
+            isLocallyMountable(priorIdentity) &&
             context?.sessionId != null
         ) {
             beginLocalRestore(priorIdentity)
@@ -2397,7 +2402,8 @@ private fun SubtitleIdentity.serverTrackIndex(): Int = when (this) {
 }
 
 private fun SubtitleIdentity.requiresLocalMountConfirmation(): Boolean =
-    this is SubtitleIdentity.LocalMedia3 ||
+    this is SubtitleIdentity.ServerSidecar ||
+        this is SubtitleIdentity.LocalMedia3 ||
         this is SubtitleIdentity.Downloaded ||
         this is SubtitleIdentity.Embedded
 
