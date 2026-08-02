@@ -85,6 +85,18 @@ class TvTrackSelectionPersistenceTest {
         assertEquals(0, merged.subtitleIndex)
     }
 
+    @Test
+    fun explicitSubtitleOffWinsDurableSubtitleWhileAudioStillRestores() {
+        val merged = mergeTrackSelection(
+            currentAudioIndex = null,
+            currentSubtitleIndex = -1,
+            durable = TvRestoredTrackSelection(audioIndex = 1, subtitleIndex = 0),
+        )
+
+        assertEquals(1, merged.audioIndex)
+        assertEquals(-1, merged.subtitleIndex)
+    }
+
     private fun version() = FileVersion(
         fileId = 22,
         audioTracks = listOf(

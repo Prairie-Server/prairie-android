@@ -149,14 +149,17 @@ class TvItemDetailSubtitlePreferenceTest {
         profileShowForced: Boolean? = null,
     ): TvItemDetailViewModel {
         val client = detailClient(profileSubtitleLanguage, profileSubtitleMode, profileShowForced)
+        val tokenManager = FakeTokenManager()
         return TvItemDetailViewModel(
             catalogRepository = CatalogRepository(CatalogApi(client)),
             personalDataRepository = PersonalDataRepository(PersonalDataApi(client)),
             playerSettingsStore = FakePlayerSettingsStore(),
-            profileRepository = ProfileRepository(ProfileApi(client), FakeTokenManager()),
+            profileRepository = ProfileRepository(ProfileApi(client), tokenManager),
             profileSettings = ProfileSettingsController(SettingsRepository(settingsApi)),
             metadataAiRepository = MetadataAiRepository(DefaultMetadataAiApi(client)),
             contentId = CONTENT_ID,
+            tokenManager = tokenManager,
+            identityTransitions = org.siloserver.silo.network.DefaultIdentityTransitionBarrier(),
         ).also { createdViewModels += it }
     }
 

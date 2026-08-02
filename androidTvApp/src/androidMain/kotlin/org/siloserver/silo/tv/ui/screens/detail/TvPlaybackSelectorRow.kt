@@ -95,6 +95,7 @@ fun TvPlaybackSelectorRow(
                 options = editions.map { edition ->
                     val count = edition.versions.size
                     TvSelectorOption(
+                        key = "edition:${edition.id}",
                         title = edition.label,
                         detail = "$count version${if (count == 1) "" else "s"}",
                         selected = currentEdition?.id == edition.id,
@@ -117,6 +118,7 @@ fun TvPlaybackSelectorRow(
             options = buildList {
                 add(
                     TvSelectorOption(
+                        key = "version:auto",
                         title = "Auto",
                         detail = "Best match for this device",
                         selected = selectedVersionFileId == null,
@@ -126,6 +128,7 @@ fun TvPlaybackSelectorRow(
                 scopedVersions.forEach { version ->
                     add(
                         TvSelectorOption(
+                            key = "version:${version.fileId}",
                             title = TvPlaybackFormatting.versionShortLabel(version),
                             detail = TvPlaybackFormatting.versionDetailLabel(version),
                             selected = selectedVersionFileId == version.fileId,
@@ -146,6 +149,7 @@ fun TvPlaybackSelectorRow(
             options = buildList {
                 add(
                     TvSelectorOption(
+                        key = "audio:auto",
                         title = "Auto",
                         detail = "Use the file default track",
                         selected = isAudioSelectorOptionSelected(null, selectedAudioTrackIndex),
@@ -157,6 +161,7 @@ fun TvPlaybackSelectorRow(
                 if (audioOptions.isEmpty()) {
                     add(
                         TvSelectorOption(
+                            key = "audio:unknown",
                             title = "Unknown",
                             detail = "",
                             selected = false,
@@ -168,6 +173,7 @@ fun TvPlaybackSelectorRow(
                     audioOptions.forEach { option ->
                         add(
                             TvSelectorOption(
+                                key = "audio:${option.ordinal}",
                                 title = option.title,
                                 detail = option.detail,
                                 selected = option.isSelected,
@@ -203,6 +209,7 @@ fun TvPlaybackSelectorRow(
             options = buildList {
                 add(
                     TvSelectorOption(
+                        key = "subtitle:auto",
                         title = "Auto",
                         detail = "Use your subtitle preferences",
                         selected = selectedSubtitleTrackIndex == null,
@@ -211,6 +218,7 @@ fun TvPlaybackSelectorRow(
                 )
                 add(
                     TvSelectorOption(
+                        key = "subtitle:off",
                         title = "Off",
                         detail = "Start without subtitles",
                         selected = selectedSubtitleTrackIndex == -1,
@@ -226,6 +234,7 @@ fun TvPlaybackSelectorRow(
                     .forEach { option ->
                         add(
                             TvSelectorOption(
+                                key = "subtitle:${option.stableId}",
                                 title = option.title,
                                 detail = option.detail,
                                 selected = option.isSelected,

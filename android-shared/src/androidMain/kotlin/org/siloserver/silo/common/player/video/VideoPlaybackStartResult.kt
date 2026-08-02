@@ -50,6 +50,8 @@ sealed interface VideoPlaybackStartResult {
         val seriesId: String? = null,
         val seasonNumber: Int? = null,
         val episodeNumber: Int? = null,
+        /** TV's target-catalog resolution of [VideoPlaybackStartRequest.episodeSelectionHandoff]. */
+        val resolvedEpisodeSelection: ResolvedEpisodeSelection? = null,
     ) : VideoPlaybackStartResult
 
     data class Error(

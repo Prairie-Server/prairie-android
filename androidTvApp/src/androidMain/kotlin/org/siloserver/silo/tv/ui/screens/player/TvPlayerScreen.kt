@@ -233,9 +233,14 @@ fun TvPlayerScreen(
     initialSubtitleTrackIndex: Int? = null,
     // Consecutive auto-advance count (pass-out protection); 0 = manual start.
     autoAdvanceCount: Int = 0,
+    episodeSelectionHandoff: org.siloserver.silo.common.player.video.EpisodeSelectionHandoff? = null,
     // Navigate to the next episode (auto-advance / "Continue"), carrying the
     // updated streak count.
-    onPlayNext: (contentId: String, autoAdvanceCount: Int, preferredQuality: String?) -> Unit = { _, _, _ -> },
+    onPlayNext: (
+        contentId: String,
+        autoAdvanceCount: Int,
+        episodeSelectionHandoff: org.siloserver.silo.common.player.video.EpisodeSelectionHandoff,
+    ) -> Unit = { _, _, _ -> },
     // Scope the ViewModel key by fileId too so switching 4K <-> 1080p on
     // the detail screen and replaying actually spins up a fresh player
     // session instead of reusing the cached one bound to the first fileId.
@@ -252,6 +257,7 @@ fun TvPlayerScreen(
                     initialAudioTrackIndex = initialAudioTrackIndex,
                     initialSubtitleTrackIndex = initialSubtitleTrackIndex,
                     autoAdvanceCount = autoAdvanceCount,
+                    episodeSelectionHandoff = episodeSelectionHandoff,
                 ),
             )
         },
@@ -547,7 +553,7 @@ fun TvPlayerScreen(
             // singleton, so a late stop() could clobber the next episode's freshly
             // adopted session, and popUpTo would otherwise cancel it mid-flight.
             viewModel.stopSessionForExit()
-            onPlayNext(req.contentId, req.autoAdvanceCount, req.preferredQuality)
+            onPlayNext(req.contentId, req.autoAdvanceCount, req.episodeSelectionHandoff)
         }
     }
     val latestIntroSkipState by rememberUpdatedState(introSkipState)

@@ -41,6 +41,13 @@ import org.siloserver.silo.common.player.seek.sourcePositionForPlayer
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
+import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
+import org.siloserver.silo.common.player.video.EpisodeSubtitleIntent
+import org.siloserver.silo.common.player.video.EpisodeSubtitleMode
+import org.siloserver.silo.common.player.video.ResolvedEpisodeSelection
+import org.siloserver.silo.common.player.video.captureEpisodeSourceIntent
+import org.siloserver.silo.common.player.video.captureEpisodeSubtitleIntent
+import org.siloserver.silo.common.player.normalizedSubtitleCodecFamily
 import org.siloserver.silo.common.player.video.VideoPlayerUiState
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.settings.PlayerSettingsStore
@@ -48,6 +55,7 @@ import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.domain.player.IntroAutoSkipController
 import org.siloserver.silo.domain.player.IntroAutoSkipState
 import org.siloserver.silo.model.catalog.AudioTrack
+import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.catalog.TimeRange
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.model.settings.SubtitleAppearance
@@ -58,6 +66,7 @@ import org.siloserver.silo.model.playback.PlaybackRouteFamily
 import org.siloserver.silo.model.playback.PlaybackSessionResponse
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
 import org.siloserver.silo.model.playback.SubtitleIdentity
+import org.siloserver.silo.model.playback.SubtitleMediaIdentity
 import org.siloserver.silo.model.playback.buildPlaybackSubtitleChoices
 import org.siloserver.silo.model.playback.mergeDownloadedSubtitles
 import org.siloserver.silo.model.subtitles.SubtitleAiQuota
@@ -73,6 +82,7 @@ import org.siloserver.silo.network.errorMessage
 import org.siloserver.silo.playback.nextEpisodeAfter
 import org.siloserver.silo.playback.resolveMountedSubtitleOrdinal
 import org.siloserver.silo.playback.subtitleTrackFingerprint
+import org.siloserver.silo.playback.canonicalSubtitleLanguage
 import org.siloserver.silo.player.DolbyVisionPolicy
 import org.siloserver.silo.repository.SubtitlesRepository
 import org.siloserver.silo.repository.port.PlaybackWriteScope
@@ -139,6 +149,124 @@ private fun SubtitleIdentity.serverTrackIndexForTv(): Int = when (this) {
     is SubtitleIdentity.Downloaded,
     is SubtitleIdentity.LocalMedia3,
     -> -1
+}
+
+private fun SubtitleMediaIdentity.toEpisodeSubtitleIntent(
+    external: Boolean?,
+): EpisodeSubtitleIntent = EpisodeSubtitleIntent(
+    mode = EpisodeSubtitleMode.TRACK,
+    language = canonicalSubtitleLanguage(language),
+    codecFamily = normalizedSubtitleCodecFamily(codecFamily),
+    forced = forced,
+    hearingImpaired = hearingImpaired,
+    external = external,
+)
+
+/**
+ * Captures only episode-portable intent. Server, download, and Media3 identities
+ * remain local to the current item and therefore cannot cross this boundary.
+ */
+internal fun captureTvEpisodeSelectionHandoff(
+    activeVersion: FileVersion?,
+    committedSubtitleIdentity: SubtitleIdentity,
+    catalogSubtitles: List<PlayerSubtitleInfo>,
+    hasExplicitSubtitleSelection: Boolean,
+): EpisodeSelectionHandoff = EpisodeSelectionHandoff(
+    source = captureEpisodeSourceIntent(activeVersion),
+    subtitle = if (!hasExplicitSubtitleSelection) {
+        org.siloserver.silo.common.player.video.EpisodeSubtitleIntent.auto()
+    } else {
+        when (committedSubtitleIdentity) {
+            SubtitleIdentity.Off -> captureEpisodeSubtitleIntent(-1, catalogSubtitles)
+            is SubtitleIdentity.ServerSidecar,
+            is SubtitleIdentity.ServerBurnIn,
+            is SubtitleIdentity.Embedded,
+            -> captureEpisodeSubtitleIntent(
+                committedSubtitleIdentity.serverTrackIndexForTv(),
+                catalogSubtitles,
+            )
+            is SubtitleIdentity.Downloaded -> committedSubtitleIdentity.media
+                .toEpisodeSubtitleIntent(external = true)
+            is SubtitleIdentity.LocalMedia3 -> committedSubtitleIdentity.media
+                .toEpisodeSubtitleIntent(external = null)
+        }
+    },
+)
+
+internal class TvEpisodeSelectionHandoffLease internal constructor(
+    val ownerGeneration: Long,
+    val sequence: Long,
+    val handoff: EpisodeSelectionHandoff,
+)
+
+/** Recoverable-start lease; only the current owner can retain or acknowledge it. */
+internal class TvEpisodeSelectionHandoffSlot(
+    handoff: EpisodeSelectionHandoff?,
+) {
+    private var pending = handoff
+    private var currentLease: TvEpisodeSelectionHandoffLease? = null
+    private var sequence = 0L
+
+    @Synchronized
+    fun leaseForStart(ownerGeneration: Long): TvEpisodeSelectionHandoffLease? {
+        val handoff = pending ?: return null
+        currentLease?.let { lease ->
+            if (lease.ownerGeneration == ownerGeneration) return lease
+            // A newer launch owner supersedes this transition rather than
+            // inheriting an older in-flight selection intent.
+            invalidate()
+            return null
+        }
+        return TvEpisodeSelectionHandoffLease(
+            ownerGeneration = ownerGeneration,
+            sequence = ++sequence,
+            handoff = handoff,
+        ).also { currentLease = it }
+    }
+
+    @Synchronized
+    fun retainForRetry(lease: TvEpisodeSelectionHandoffLease?): Boolean {
+        if (lease == null || currentLease != lease) return false
+        currentLease = null
+        return true
+    }
+
+    @Synchronized
+    fun acknowledgeReady(lease: TvEpisodeSelectionHandoffLease?): Boolean {
+        if (lease == null || currentLease != lease) return false
+        currentLease = null
+        pending = null
+        return true
+    }
+
+    @Synchronized
+    fun invalidate() {
+        currentLease = null
+        pending = null
+    }
+}
+
+internal data class TvEpisodeInitialSubtitleSelection(
+    val pendingInitialSubtitleIndex: Int?,
+    val suppressDurableSubtitleRestore: Boolean,
+)
+
+/** Applies a target-only resolution without changing ordinary/manual starts. */
+internal fun resolveTvEpisodeInitialSubtitleSelection(
+    episodeSelectionHandoff: EpisodeSelectionHandoff?,
+    resolvedEpisodeSelection: ResolvedEpisodeSelection?,
+    existingPendingInitialSubtitleIndex: Int?,
+): TvEpisodeInitialSubtitleSelection {
+    if (episodeSelectionHandoff == null || resolvedEpisodeSelection == null) {
+        return TvEpisodeInitialSubtitleSelection(
+            pendingInitialSubtitleIndex = existingPendingInitialSubtitleIndex,
+            suppressDurableSubtitleRestore = false,
+        )
+    }
+    return TvEpisodeInitialSubtitleSelection(
+        pendingInitialSubtitleIndex = resolvedEpisodeSelection.subtitleTrackIndex,
+        suppressDurableSubtitleRestore = resolvedEpisodeSelection.subtitleIntentSpecified,
+    )
 }
 
 private val hearingImpairedSubtitleTokenRegex = Regex(
@@ -427,10 +555,15 @@ data class TvPlayerLaunchArgs(
      * instead of auto-advancing.
      */
     val autoAdvanceCount: Int = 0,
+    val episodeSelectionHandoff: EpisodeSelectionHandoff? = null,
 )
 
 /** Emitted to ask the screen to navigate to the next episode (auto-advance / Continue). */
-data class PlayNextRequest(val contentId: String, val autoAdvanceCount: Int, val preferredQuality: String?)
+data class PlayNextRequest(
+    val contentId: String,
+    val autoAdvanceCount: Int,
+    val episodeSelectionHandoff: EpisodeSelectionHandoff,
+)
 
 /**
  * Subtitle provider search/download state backing the TV subtitle search
@@ -575,6 +708,9 @@ class TvPlayerViewModel(
     private var qualityOverride: String? = null
     private val roomId: String? = launchArgs.roomId
     private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
+    // The handoff belongs to one cross-screen transition. A recoverable start
+    // leases it until Ready publication; replacement/exit invalidates it.
+    private val episodeSelectionHandoffSlot = TvEpisodeSelectionHandoffSlot(launchArgs.episodeSelectionHandoff)
 
     // Pre-playback track selections from the detail screen. Audio is sent to the
     // server session start; subtitle is applied once the player's tracks land
@@ -1424,10 +1560,15 @@ class TvPlayerViewModel(
             finalPositionScope = finalPlaybackPositionWriter.captureScope()
             val unpublishedReadySession =
                 TvUnpublishedLoadSessionOwnership(::rollbackUnpublishedTvLoadSession)
+            var episodeSelectionHandoffLease: TvEpisodeSelectionHandoffLease? = null
             try {
                 if (!subtitleTransactions.invalidateAndAwaitSettlement()) return@launch
                 runCatching { playerSettingsStore.refreshFromServer() }
                 if (!loadOwners.owns(loadOwner)) return@launch
+                episodeSelectionHandoffLease = episodeSelectionHandoffSlot.leaseForStart(
+                    ownerGeneration = loadOwner.generation,
+                )
+                val episodeSelectionHandoff = episodeSelectionHandoffLease?.handoff
                 val request = VideoPlaybackStartRequest(
                         contentId = contentId,
                         preferredFileId = preferredFileIdOverride ?: preferredFileId,
@@ -1439,6 +1580,7 @@ class TvPlayerViewModel(
                         playbackQualityIntent = qualityOverride,
                         suppressResumeRewind = suppressResumeRewind,
                         force = force,
+                        episodeSelectionHandoff = episodeSelectionHandoff,
                     )
                 val result = loadOwners.withOwner(loadOwner) {
                     videoPlaybackCoordinator.start(request)
@@ -1454,6 +1596,9 @@ class TvPlayerViewModel(
                         val allocatedSessionId = result.sessionId
                             ?.takeIf(String::isNotBlank)
                             ?: run {
+                                episodeSelectionHandoffSlot.retainForRetry(
+                                    episodeSelectionHandoffLease,
+                                )
                                 fail("Playback start returned no session.")
                                 return@launch
                             }
@@ -1466,6 +1611,15 @@ class TvPlayerViewModel(
                                 stopStaleSession = unpublishedReadySession::rollbackIfOwned,
                             )
                             return@launch
+                        }
+                        val subtitleSelection = resolveTvEpisodeInitialSubtitleSelection(
+                            episodeSelectionHandoff = episodeSelectionHandoff,
+                            resolvedEpisodeSelection = result.resolvedEpisodeSelection,
+                            existingPendingInitialSubtitleIndex = pendingInitialSubtitleIndex,
+                        )
+                        pendingInitialSubtitleIndex = subtitleSelection.pendingInitialSubtitleIndex
+                        if (episodeSelectionHandoff != null && result.resolvedEpisodeSelection != null) {
+                            pendingInitialSubtitleAttempts = 0
                         }
                         val localTrackSelection = result.fileId
                             ?.let { fileId -> userItemStatePort.localTrackSelection(contentId, fileId) }
@@ -1484,7 +1638,10 @@ class TvPlayerViewModel(
                             .firstOrNull { it.fileId == (result.fileId ?: readyMediaFileId) }
                             ?.subtitleTracks
                             .orEmpty()
-                        val restorePreference = if (pendingInitialSubtitleIndex == null) {
+                        val restorePreference = if (
+                            pendingInitialSubtitleIndex == null &&
+                            !subtitleSelection.suppressDurableSubtitleRestore
+                        ) {
                             localTrackSelection?.subtitleFingerprint
                         } else {
                             null
@@ -1667,28 +1824,44 @@ class TvPlayerViewModel(
                         }
                         if (!jointlyConfirmed) {
                             unpublishedReadySession.rollbackIfOwned(publishedSessionId)
+                            episodeSelectionHandoffSlot.retainForRetry(
+                                episodeSelectionHandoffLease,
+                            )
                             fail("Playback publication could not be confirmed.")
                             return@launch
+                        }
+                        if (result.resolvedEpisodeSelection != null) {
+                            episodeSelectionHandoffSlot.acknowledgeReady(
+                                episodeSelectionHandoffLease,
+                            )
                         }
                         startIntroAutoSkipObserver()
                         resolveNextEpisode()
                     }
                     is VideoPlayerUiState.Error -> {
+                        episodeSelectionHandoffSlot.retainForRetry(
+                            episodeSelectionHandoffLease,
+                        )
                         if (preserveCurrentPlaybackOnFailure) {
                             _uiState.update { failTvReplacementLoad(it, result.message) }
                         } else {
                             fail(result.message)
                         }
                     }
-                    is VideoPlayerUiState.ServerUnreachable -> _uiState.update {
-                        if (preserveCurrentPlaybackOnFailure) {
-                            failTvReplacementLoad(it, SERVER_UNREACHABLE_MESSAGE)
-                        } else {
-                            it.copy(
-                                isLoading = false,
-                                error = SERVER_UNREACHABLE_MESSAGE,
-                                serverUnreachable = true,
-                            )
+                    is VideoPlayerUiState.ServerUnreachable -> {
+                        episodeSelectionHandoffSlot.retainForRetry(
+                            episodeSelectionHandoffLease,
+                        )
+                        _uiState.update {
+                            if (preserveCurrentPlaybackOnFailure) {
+                                failTvReplacementLoad(it, SERVER_UNREACHABLE_MESSAGE)
+                            } else {
+                                it.copy(
+                                    isLoading = false,
+                                    error = SERVER_UNREACHABLE_MESSAGE,
+                                    serverUnreachable = true,
+                                )
+                            }
                         }
                     }
                     is VideoPlayerUiState.Loading -> Unit
@@ -1700,6 +1873,7 @@ class TvPlayerViewModel(
                 unpublishedReadySession.rollbackIfOwned()
                 Log.e(TAG, "Error loading content", e)
                 if (generation != contentLoadGeneration || !loadOwners.owns(loadOwner)) return@launch
+                episodeSelectionHandoffSlot.retainForRetry(episodeSelectionHandoffLease)
                 val message = "Unexpected error: ${e.message}"
                 if (preserveCurrentPlaybackOnFailure) {
                     _uiState.update { failTvReplacementLoad(it, message) }
@@ -2881,9 +3055,17 @@ class TvPlayerViewModel(
         nextUpCountdownJob = null
         val state = _uiState.value
         val next = state.nextEpisode ?: return
-        val selectedQuality = state.selectedFileResolution
         _uiState.update { it.copy(showNextUp = false, nextUpCountdownSeconds = null) }
-        _playNextRequests.tryEmit(PlayNextRequest(next.contentId, nextAutoAdvanceCount, selectedQuality))
+        val activeVersion = state.fileVersions.firstOrNull { version ->
+            version.fileId == (state.selectedFileId ?: state.mediaFileId)
+        }
+        val handoff = captureTvEpisodeSelectionHandoff(
+            activeVersion = activeVersion,
+            committedSubtitleIdentity = state.committedSubtitleIdentity,
+            catalogSubtitles = state.subtitleUrls,
+            hasExplicitSubtitleSelection = manualSubtitleSelectionApplied,
+        )
+        _playNextRequests.tryEmit(PlayNextRequest(next.contentId, nextAutoAdvanceCount, handoff))
     }
 
     /** Up-Next "Keep Watching" — dismiss the overlay and stay on the current episode. */
@@ -3680,6 +3862,7 @@ class TvPlayerViewModel(
 
     private fun prepareSessionExit() {
         contentLoadGeneration++
+        episodeSelectionHandoffSlot.invalidate()
         subtitleSnapshotSettlement.reset()
         resetSeekRecoveryForContentChange()
         transportMountGate.reset()
@@ -3901,6 +4084,7 @@ class TvPlayerViewModel(
         val state = _uiState.value
         if (fileId == (state.selectedFileId ?: state.mediaFileId)) return
         if (state.fileVersions.none { it.fileId == fileId }) return
+        episodeSelectionHandoffSlot.invalidate()
         resetSeekRecoveryForContentChange()
         transportMountGate.beginLoad()
         val resumeAt = state.position.takeIf { it > 0.0 }
@@ -3960,6 +4144,7 @@ class TvPlayerViewModel(
     }
 
     override fun onCleared() {
+        episodeSelectionHandoffSlot.invalidate()
         val teardownSessionId = exitSessionId
         val subtitlePersistenceReservation =
             subtitleTransactions.reserveDurableFinalPersistence()

@@ -1,12 +1,18 @@
 package org.siloserver.silo.tv.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -20,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.selected
@@ -54,6 +61,7 @@ import org.siloserver.silo.tv.ui.theme.SiloOnSurface
  *  [enabled] = false renders a non-selectable row (Apple's disabled "Unknown"
  *  audio fallback / unavailable subtitle entries). */
 data class TvSelectorOption(
+    val key: String,
     val title: String,
     val detail: String,
     val selected: Boolean,
@@ -149,12 +157,10 @@ fun TvAnchoredSelectorMenu(
             }
         }
 
-        // Known limitation: this is the phone Material3 DropdownMenu rather
-        // than a TV-native popup. Its items are focusable clickables, so d-pad
-        // up/down + OK work inside the popup, but it lacks the TV focus
-        // grammar (scale/border) of the rest of the module. A TV-styled
-        // anchored popup would need a bespoke Popup — deliberate deferral,
-        // audit 2026-07-20.
+        // Known limitation: this still uses the phone Material3 DropdownMenu
+        // rather than a TV-native popup. Rows provide explicit TV focus colors
+        // and borders below, while a fully TV-native anchored popup (including
+        // scale behavior) would require a bespoke Popup.
         DropdownMenu(
             expanded = interactive && expanded,
             onDismissRequest = {
@@ -168,13 +174,22 @@ fun TvAnchoredSelectorMenu(
             shadowElevation = 18.dp,
         ) {
             options.forEach { option ->
+                val interactionSource = remember(option.key) { MutableInteractionSource() }
+                val focused by interactionSource.collectIsFocusedAsState()
+                val visual = tvSelectorRowVisualState(focused, option.selected, option.enabled)
                 val labelText = if (option.detail.isBlank()) {
                     option.title
                 } else {
                     "${option.title} — ${option.detail}"
                 }
                 DropdownMenuItem(
-                    modifier = Modifier.semantics { this.selected = option.selected },
+                    interactionSource = interactionSource,
+                    modifier = Modifier
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(visual.container)
+                        .border(1.dp, visual.border, RoundedCornerShape(8.dp))
+                        .semantics { this.selected = option.selected },
                     enabled = option.enabled,
                     text = {
                         androidx.compose.material3.Text(
@@ -200,10 +215,10 @@ fun TvAnchoredSelectorMenu(
                         null
                     },
                     colors = MenuDefaults.itemColors(
-                        textColor = SiloOnSurface,
-                        leadingIconColor = SiloOnSurface,
-                        disabledTextColor = SiloOnSurface.copy(alpha = 0.38f),
-                        disabledLeadingIconColor = SiloOnSurface.copy(alpha = 0.38f),
+                        textColor = visual.content,
+                        leadingIconColor = visual.content,
+                        disabledTextColor = visual.content,
+                        disabledLeadingIconColor = visual.content,
                     ),
                     onClick = {
                         option.onSelect()
