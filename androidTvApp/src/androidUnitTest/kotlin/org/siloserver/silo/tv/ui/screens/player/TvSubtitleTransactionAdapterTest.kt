@@ -83,7 +83,7 @@ class TvSubtitleTransactionAdapterTest {
     }
 
     @Test
-    fun `a server sidecar the player already exposes stays local`() = runTest {
+    fun `new server negotiated sidecar switches locally without replan`() = runTest {
         val target = sidecar(4)
         val harness = harness(
             backgroundScope,
@@ -114,18 +114,51 @@ class TvSubtitleTransactionAdapterTest {
     }
 
     @Test
-    fun `a server sidecar the player cannot expose is staged to the server`() = runTest {
+    fun `old server catalog-only sidecar performs one staged replan at current position`() = runTest {
         val harness = harness(backgroundScope, isLocallyMountable = { false })
 
         harness.adapter.select(sidecar(4))
         runCurrent()
 
+        val request = harness.port.requests.single()
         assertEquals(
             listOf(4),
             harness.port.requests.map { it.subtitleTrackIndex },
             "an unmounted sidecar must retain the staged replan fallback",
         )
+        assertEquals(42.0, request.positionSeconds)
+        assertEquals(2, request.audioTrackIndex)
+        assertEquals("auto", request.qualityPreference)
         assertNull(harness.adapter.snapshot.localMountIdentity)
+
+        harness.port.completeStage(candidate("old-server-sidecar", 4))
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "old-server-sidecar-mounted")
+        runCurrent()
+
+        assertEquals(listOf("old-server-sidecar"), harness.port.committed)
+        assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
+    }
+
+    @Test
+    fun `burn in route stages one replan before switching to an external sidecar`() = runTest {
+        // Burn-in plans intentionally mount no negotiated alternatives. The
+        // selected SRT therefore follows the same safe fallback as an old
+        // server response and replaces the video route before it is mounted.
+        val harness = harness(backgroundScope, isLocallyMountable = { false })
+
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+
+        assertEquals(listOf(4), harness.port.requests.map { it.subtitleTrackIndex })
+        assertEquals(42.0, harness.port.requests.single().positionSeconds)
+        harness.port.completeStage(candidate("burn-in-to-sidecar", 4))
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "burn-in-replacement-mounted")
+        runCurrent()
+
+        assertEquals(listOf("burn-in-to-sidecar"), harness.port.committed)
+        assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
     }
 
     @Test

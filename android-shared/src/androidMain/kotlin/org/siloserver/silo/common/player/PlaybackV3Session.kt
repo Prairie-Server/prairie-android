@@ -70,6 +70,8 @@ internal fun PlaybackPlanV3.toSessionResponse(
         )
     }
     val sidecarSubtitles = subtitle.sidecars.asSequence()
+        .takeUnless { subtitle.mode == PlaybackSubtitleModeV3.BURN_IN }
+        .orEmpty()
         .filter { sidecar ->
             sidecar.index >= 0 &&
                 sidecar.url.isNotBlank() &&

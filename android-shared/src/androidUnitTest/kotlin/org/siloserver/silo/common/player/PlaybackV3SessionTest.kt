@@ -17,6 +17,7 @@ import org.siloserver.silo.network.SiloJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PlaybackV3SessionTest {
     @Test
@@ -70,6 +71,26 @@ class PlaybackV3SessionTest {
         assertEquals(1, subtitle.index)
         assertEquals("/subtitles/1.vtt", subtitle.url)
         assertEquals("webvtt", subtitle.codec)
+    }
+
+    @Test
+    fun burnInPlanDoesNotMountAlternativesOverCaptionsAlreadyInTheVideo() {
+        val response = plan(
+            mode = PlaybackSubtitleModeV3.BURN_IN,
+            format = "",
+            url = "",
+            sidecars = listOf(
+                PlaybackSubtitleSidecarV3(
+                    trackId = "file:482:subtitle:0",
+                    index = 0,
+                    url = "/stream/session/subtitles/0.srt?file_id=482",
+                    mimeType = "application/x-subrip",
+                    format = "srt",
+                ),
+            ),
+        ).toSessionResponse("session", "profile", 482)
+
+        assertTrue(response.subtitleUrls.orEmpty().isEmpty())
     }
 
     @Test
