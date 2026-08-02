@@ -54,7 +54,7 @@ Decode `sidecars` with one SRT entry and assert every field, including combined 
 
 - [ ] **Step 3: Run the shared test and confirm failure**
 
-Run: `./gradlew :shared:jvmTest --tests '*PlaybackProtocolV3Test*sidecar*'`
+Run: `./gradlew :shared:testDebugUnitTest --tests '*PlaybackProtocolV3Test*sidecar*'`
 
 Expected: compile failure because `sidecars` does not exist.
 
@@ -80,7 +80,7 @@ and `val sidecars: List<PlaybackSubtitleSidecarV3> = emptyList()` to `PlaybackSu
 
 - [ ] **Step 5: Run and pass both compatibility tests**
 
-Run: `./gradlew :shared:jvmTest --tests '*PlaybackProtocolV3Test*'`
+Run: `./gradlew :shared:testDebugUnitTest --tests '*PlaybackProtocolV3Test*'`
 
 Expected: PASS, including the singular-artifact-only old-server JSON.
 
@@ -170,7 +170,7 @@ Add tests covering:
 
 - [ ] **Step 2: Run tests and confirm failure**
 
-Run: `./gradlew :android-shared:testDebugUnitTest --tests '*PlaybackV3SessionTest*' :shared:jvmTest --tests '*PlaybackSubtitleChoicesTest*'`
+Run: `./gradlew :android-shared:testDebugUnitTest --tests '*PlaybackV3SessionTest*' :shared:testDebugUnitTest --tests '*PlaybackSubtitleChoicesTest*'`
 
 Expected: sidecars are decoded but not exposed to the session.
 
@@ -193,7 +193,7 @@ Use `buildPlaybackSubtitleChoices` unchanged where possible. Add only focused as
 
 - [ ] **Step 5: Run and pass adapter and catalog tests**
 
-Run: `./gradlew :android-shared:testDebugUnitTest --tests '*PlaybackV3SessionTest*' :shared:jvmTest --tests '*PlaybackSubtitleChoicesTest*'`
+Run: `./gradlew :android-shared:testDebugUnitTest --tests '*PlaybackV3SessionTest*' :shared:testDebugUnitTest --tests '*PlaybackSubtitleChoicesTest*'`
 
 Expected: PASS.
 
