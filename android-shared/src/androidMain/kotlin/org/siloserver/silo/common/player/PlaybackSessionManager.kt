@@ -18,6 +18,7 @@ import org.siloserver.silo.model.playback.PlaybackStartRequestV3
 import org.siloserver.silo.model.playback.PlaybackV3Validation
 import org.siloserver.silo.model.playback.SubtitleFidelityPreference
 import org.siloserver.silo.model.playback.planAttemptKey
+import org.siloserver.silo.model.playback.playbackStartClientFeatures
 import org.siloserver.silo.model.playback.validateForMedia3
 import org.siloserver.silo.model.playback.PlaybackFailureV3
 import org.siloserver.silo.model.playback.PlaybackPlanV3
@@ -232,6 +233,7 @@ open class PlaybackSessionManager(
             val playbackAttemptId = UUID.randomUUID().toString()
             val network = networkEvidenceProvider.snapshot()
             val request = PlaybackStartRequestV3(
+                clientFeatures = playbackStartClientFeatures(clientPlaybackContext),
                 fileId = fileId,
                 profileId = profileId,
                 playbackAttemptId = playbackAttemptId,

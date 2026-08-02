@@ -27,6 +27,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.siloserver.silo.model.playback.ClientCodecCapabilities
 import org.siloserver.silo.model.playback.ClientPlaybackContext
+import org.siloserver.silo.model.playback.EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE
 import org.siloserver.silo.model.playback.PLAYBACK_PLAN_V3_FEATURE
 import org.siloserver.silo.model.playback.PlaybackDecisionOutcome
 import org.siloserver.silo.model.playback.PlaybackDecisionResponseV3
@@ -59,6 +60,48 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class PlaybackSessionManagerSeekReanchorTest {
+    @Test
+    fun startRequestNegotiatesExternalTextSidecarsOnlyWhenContextSupportsThem() = runTest {
+        val capable = Harness(startResponse = response(plan())) { _, _ -> error("unused") }
+        capable.manager.startVideoSessionV3(
+            fileId = 42,
+            profileId = "profile-1",
+            capabilities = ClientCodecCapabilities(),
+            clientPlaybackContext = ClientPlaybackContext(
+                features = listOf(EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE),
+                formFactor = "tv",
+                appVersion = "test",
+            ),
+            audioTrackIndex = null,
+            subtitleTrackIndex = null,
+            qualityPreference = "original",
+            startPosition = 0.0,
+        )
+        val capableBody = capable.startBodies.single()
+        assertTrue(
+            EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE in capableBody["client_features"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertTrue(
+            EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE in capableBody["client_playback_context"]!!.jsonObject["features"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+
+        val legacy = Harness(startResponse = response(plan())) { _, _ -> error("unused") }
+        legacy.manager.startVideoSessionV3(
+            fileId = 42,
+            profileId = "profile-1",
+            capabilities = ClientCodecCapabilities(),
+            clientPlaybackContext = ClientPlaybackContext(formFactor = "mobile", appVersion = "cast-test"),
+            audioTrackIndex = null,
+            subtitleTrackIndex = null,
+            qualityPreference = "original",
+            startPosition = 0.0,
+        )
+        val legacyBody = legacy.startBodies.single()
+        assertFalse(
+            EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE in legacyBody["client_features"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+    }
+
     @Test
     fun reanchorRequiresNegotiatedServerFeature() = runTest {
         val harness = Harness(
@@ -437,6 +480,7 @@ class PlaybackSessionManagerSeekReanchorTest {
         networkEvidenceProvider: PlaybackNetworkEvidenceProvider = PlaybackNetworkEvidenceProvider.None,
         private val replanResponse: suspend (Int, JsonObject) -> MockResponse,
     ) {
+        val startBodies: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
         val replanBodies: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
         val stoppedSessionIds: MutableList<String> = Collections.synchronizedList(mutableListOf())
         private val replanIndex = AtomicInteger()
@@ -444,10 +488,15 @@ class PlaybackSessionManagerSeekReanchorTest {
             MockEngine { request ->
                 val path = request.url.encodedPath
                 val response = when {
-                    path == "/api/v1/playback/start" -> MockResponse(
-                        HttpStatusCode.OK,
-                        SiloJson.encodeToString(startResponse),
-                    )
+                    path == "/api/v1/playback/start" -> {
+                        startBodies += SiloJson.parseToJsonElement(
+                            request.body.toByteArray().decodeToString(),
+                        ).jsonObject
+                        MockResponse(
+                            HttpStatusCode.OK,
+                            SiloJson.encodeToString(startResponse),
+                        )
+                    }
                     path.endsWith("/replan") -> {
                         val body = SiloJson.parseToJsonElement(
                             request.body.toByteArray().decodeToString(),

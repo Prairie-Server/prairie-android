@@ -42,6 +42,13 @@ val PLAYBACK_START_CLIENT_FEATURES_V3 = listOf(
     DIRECT_STREAM_RESUME_V1_FEATURE,
 )
 
+fun playbackStartClientFeatures(context: ClientPlaybackContext): List<String> =
+    if (EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE in context.features) {
+        PLAYBACK_START_CLIENT_FEATURES_V3 + EXTERNAL_TEXT_SIDECAR_SET_V1_FEATURE
+    } else {
+        PLAYBACK_START_CLIENT_FEATURES_V3
+    }
+
 @Serializable
 enum class PlaybackDecisionOutcome {
     @SerialName("playable") PLAYABLE,
