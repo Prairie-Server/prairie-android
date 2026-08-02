@@ -564,6 +564,11 @@ fun TvPlayerScreen(
         subtitleFocusedStableId = tvSubtitleOptionStableId(identity)
         viewModel.selectSubtitleOption(identity)
     }
+    fun applyQuickSubtitlePickerExit(exit: TvQuickSubtitlePickerExit) {
+        val chrome = tvQuickSubtitlePickerChromeState(exit)
+        showQuickSubtitlePicker = chrome.pickerVisible
+        viewModel.setControlsVisible(chrome.controlsVisible)
+    }
     val subtitlePresentation = buildTvSubtitleHudPresentation(
         options = buildTvSubtitleHudOptions(
             subtitleUrls = state.subtitleUrls,
@@ -2053,9 +2058,12 @@ fun TvPlayerScreen(
                 if (!isInPictureInPictureMode && showQuickSubtitlePicker) {
                     TvQuickSubtitlePicker(
                         presentation = subtitlePresentation,
+                        onSelect = { identity ->
+                            subtitlePresentation.onSelect(identity)
+                            applyQuickSubtitlePickerExit(TvQuickSubtitlePickerExit.Selection)
+                        },
                         onDismiss = {
-                            showQuickSubtitlePicker = false
-                            viewModel.setControlsVisible(true)
+                            applyQuickSubtitlePickerExit(TvQuickSubtitlePickerExit.Back)
                         },
                     )
                 }
@@ -2518,6 +2526,7 @@ private fun formatSleepCountdown(seconds: Int): String {
 @Composable
 private fun TvQuickSubtitlePicker(
     presentation: TvSubtitleHudPresentation,
+    onSelect: (SubtitleIdentity) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val checkedRow = presentation.rows.firstOrNull { row -> row.checked }
@@ -2557,7 +2566,7 @@ private fun TvQuickSubtitlePicker(
                 onSelect = { stableId ->
                     presentation.rows
                         .firstOrNull { row -> row.stableId == stableId }
-                        ?.let { row -> presentation.onSelect(row.identity) }
+                        ?.let { row -> onSelect(row.identity) }
                 },
             ),
             onClose = onDismiss,
