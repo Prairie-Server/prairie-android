@@ -29,7 +29,8 @@ Make the Android TV playback transport the first destination of D-pad Down and i
 ## Implementation Boundaries
 
 - Change hidden-overlay Down mapping at the shared remote-key action boundary so the key-dispatch bridge and Compose overlay agree.
-- Keep the transport dimensions centralized in `TvPlayerTransportCluster.kt` rather than special-casing captions.
+- Keep the transport dimensions centralized in `TvPlayerTransportVisualPolicy.kt`, with
+  `TvPlayerTransportCluster.kt` consuming that policy rather than special-casing captions.
 - Do not alter the HUD, subtitle picker, subtitle-selection behavior, or player state model.
 
 ## Testing

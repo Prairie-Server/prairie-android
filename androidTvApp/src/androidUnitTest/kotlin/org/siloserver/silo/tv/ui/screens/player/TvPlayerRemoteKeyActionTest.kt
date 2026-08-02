@@ -93,6 +93,18 @@ class TvPlayerRemoteKeyActionTest {
     }
 
     @Test
+    fun `repeated down is consumed without refocusing transport`() {
+        assertEquals(
+            TvPlayerRemoteKeyAction.ConsumeOnly,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 1,
+            ),
+        )
+    }
+
+    @Test
     fun leftAndRightSeekDuringPlaybackInsteadOfOpeningChrome() {
         assertEquals(
             TvPlayerRemoteKeyAction.SkipBack,

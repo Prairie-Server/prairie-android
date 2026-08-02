@@ -35,7 +35,11 @@ internal fun tvPlayerRemoteKeyAction(
     // Down always moves focus into the transport first, whether the overlay
     // is hidden or a focus-owning surface is already visible.
     KeyEvent.KEYCODE_DPAD_DOWN ->
-        if (action == KeyEvent.ACTION_DOWN) TvPlayerRemoteKeyAction.FocusTransport else null
+        when {
+            action != KeyEvent.ACTION_DOWN -> null
+            repeatCount == 0 -> TvPlayerRemoteKeyAction.FocusTransport
+            else -> TvPlayerRemoteKeyAction.ConsumeOnly
+        }
 
     KeyEvent.KEYCODE_DPAD_LEFT ->
         when {
