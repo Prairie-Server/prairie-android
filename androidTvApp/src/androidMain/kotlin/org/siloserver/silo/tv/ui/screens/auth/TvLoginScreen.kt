@@ -656,7 +656,7 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
             ),
             color = Color.White.copy(alpha = 0.6f),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(MATCH_CODE_TILE_GAP_DP.dp)) {
             code.uppercase().forEach { ch ->
                 val isSep = ch == '-' || ch == ' '
                 if (isSep) {
@@ -664,12 +664,12 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
                         text = "–",
                         style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
                         color = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.width(10.dp),
+                        modifier = Modifier.width(MATCH_CODE_SEPARATOR_WIDTH_DP.dp),
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(width = 24.dp, height = 30.dp)
+                            .size(width = MATCH_CODE_TILE_WIDTH_DP.dp, height = 30.dp)
                             .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
                             .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center,
@@ -688,4 +688,16 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+internal const val MATCH_CODE_TILE_WIDTH_DP = 24
+internal const val MATCH_CODE_SEPARATOR_WIDTH_DP = 10
+internal const val MATCH_CODE_TILE_GAP_DP = 2
+
+internal fun matchCodeRowWidthDp(code: String): Int {
+    if (code.isEmpty()) return 0
+    val characterWidth = code.sumOf { ch ->
+        if (ch == '-' || ch == ' ') MATCH_CODE_SEPARATOR_WIDTH_DP else MATCH_CODE_TILE_WIDTH_DP
+    }
+    return characterWidth + (code.length - 1) * MATCH_CODE_TILE_GAP_DP
 }
