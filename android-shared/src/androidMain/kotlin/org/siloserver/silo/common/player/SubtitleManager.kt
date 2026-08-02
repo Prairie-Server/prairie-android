@@ -8,7 +8,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
-import androidx.annotation.Dimension
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -235,9 +234,11 @@ class SubtitleManager(
      * Applies the user's [SubtitleAppearance] to the [PlayerView]'s subtitle layer.
      *
      * Maps onto Media3 via [CaptionStyleCompat] (colors + edge style + typeface),
-     * [androidx.media3.ui.SubtitleView.setFractionalTextSize] (relative-to-view-height
-     * font scale), and [androidx.media3.ui.SubtitleView.setBottomPaddingFraction]
-     * (vertical position within the surface).
+     * [androidx.media3.ui.SubtitleView.setFractionalTextSize] for phone
+     * relative-to-view-height sizing, [androidx.media3.ui.SubtitleView.setFixedTextSize]
+     * for television SP sizing, and
+     * [androidx.media3.ui.SubtitleView.setBottomPaddingFraction] (vertical position
+     * within the surface).
      *
      * Media3-rendered text uses the user's appearance. ASS/SSA is rendered by
      * libass and deliberately preserves the script's authored typesetting,
@@ -265,16 +266,10 @@ class SubtitleManager(
         subtitleView.setApplyEmbeddedStyles(false)
         subtitleView.setApplyEmbeddedFontSizes(false)
         subtitleView.setStyle(captionStyle)
-        when (val textSize = androidSubtitleTextSize(presentation, safe.fontSize)) {
-            is AndroidSubtitleTextSize.Fractional -> subtitleView.setFractionalTextSize(
-                textSize.fraction,
-                /* fractionalRelativeToTextSize = */ false,
-            )
-            is AndroidSubtitleTextSize.FixedSp -> subtitleView.setFixedTextSize(
-                Dimension.SP,
-                textSize.sp,
-            )
-        }
+        applyAndroidSubtitleTextSize(
+            subtitleView,
+            androidSubtitleTextSize(presentation, safe.fontSize),
+        )
         subtitleView.setBottomPaddingFraction(bottomPaddingFor(safe.position))
         syncSubtitleVideoBounds(playerView)
     }

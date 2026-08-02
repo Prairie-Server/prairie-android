@@ -2058,8 +2058,8 @@ fun TvPlayerScreen(
                 if (!isInPictureInPictureMode && showQuickSubtitlePicker) {
                     TvQuickSubtitlePicker(
                         presentation = subtitlePresentation,
-                        onSelect = { identity ->
-                            subtitlePresentation.onSelect(identity)
+                        onSelect = subtitlePresentation.onSelect,
+                        onSelectionComplete = {
                             applyQuickSubtitlePickerExit(TvQuickSubtitlePickerExit.Selection)
                         },
                         onDismiss = {
@@ -2527,6 +2527,7 @@ private fun formatSleepCountdown(seconds: Int): String {
 private fun TvQuickSubtitlePicker(
     presentation: TvSubtitleHudPresentation,
     onSelect: (SubtitleIdentity) -> Unit,
+    onSelectionComplete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val checkedRow = presentation.rows.firstOrNull { row -> row.checked }
@@ -2564,9 +2565,12 @@ private fun TvQuickSubtitlePicker(
                 closeOnSelect = false,
                 onFocused = presentation.onFocused,
                 onSelect = { stableId ->
-                    presentation.rows
-                        .firstOrNull { row -> row.stableId == stableId }
-                        ?.let { row -> onSelect(row.identity) }
+                    dispatchTvQuickSubtitlePickerSelection(
+                        presentation = presentation,
+                        stableId = stableId,
+                        onSelect = onSelect,
+                        onSelectionComplete = onSelectionComplete,
+                    )
                 },
             ),
             onClose = onDismiss,

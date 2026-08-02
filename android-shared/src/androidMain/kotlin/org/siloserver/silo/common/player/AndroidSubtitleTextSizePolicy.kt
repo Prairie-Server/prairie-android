@@ -1,5 +1,7 @@
 package org.siloserver.silo.common.player
 
+import androidx.annotation.Dimension
+import androidx.media3.ui.SubtitleView
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
 
 internal sealed interface AndroidSubtitleTextSize {
@@ -29,4 +31,21 @@ internal fun androidSubtitleTextSize(
             SubtitleFontSizePreset.XXLarge -> 40f
         },
     )
+}
+
+/** Applies a policy result through the corresponding Media3 subtitle-size API. */
+internal fun applyAndroidSubtitleTextSize(
+    subtitleView: SubtitleView,
+    textSize: AndroidSubtitleTextSize,
+) {
+    when (textSize) {
+        is AndroidSubtitleTextSize.Fractional -> subtitleView.setFractionalTextSize(
+            textSize.fraction,
+            /* fractionalRelativeToTextSize = */ false,
+        )
+        is AndroidSubtitleTextSize.FixedSp -> subtitleView.setFixedTextSize(
+            Dimension.SP,
+            textSize.sp,
+        )
+    }
 }

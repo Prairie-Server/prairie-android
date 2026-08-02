@@ -1,9 +1,19 @@
 package org.siloserver.silo.common.player
 
+import android.app.Activity
+import androidx.annotation.OptIn
+import androidx.media3.common.text.Cue
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.SubtitleView
 import org.siloserver.silo.model.settings.SubtitleFontSizePreset
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+@OptIn(UnstableApi::class)
+@RunWith(RobolectricTestRunner::class)
 class AndroidSubtitleTextSizePolicyTest {
     @Test
     fun televisionUsesFixedCouchReadableSpLadder() {
@@ -40,4 +50,43 @@ class AndroidSubtitleTextSizePolicyTest {
             )
         }
     }
+
+    @Test
+    fun fixedSpTextSizeUsesMedia3AbsoluteSizing() {
+        val subtitleView = SubtitleView(Robolectric.buildActivity(Activity::class.java).setup().get())
+
+        applyAndroidSubtitleTextSize(subtitleView, AndroidSubtitleTextSize.FixedSp(32f))
+
+        assertEquals(
+            SubtitleViewTextSizeConfig(Cue.TEXT_SIZE_TYPE_ABSOLUTE, 32f),
+            subtitleView.textSizeConfig(),
+        )
+    }
+
+    @Test
+    fun fractionalTextSizeUsesMedia3ViewHeightSizing() {
+        val subtitleView = SubtitleView(Robolectric.buildActivity(Activity::class.java).setup().get())
+
+        applyAndroidSubtitleTextSize(subtitleView, AndroidSubtitleTextSize.Fractional(0.05f))
+
+        assertEquals(
+            SubtitleViewTextSizeConfig(Cue.TEXT_SIZE_TYPE_FRACTIONAL, 0.05f),
+            subtitleView.textSizeConfig(),
+        )
+    }
+}
+
+private data class SubtitleViewTextSizeConfig(
+    val type: Int,
+    val size: Float,
+)
+
+private fun SubtitleView.textSizeConfig(): SubtitleViewTextSizeConfig {
+    val type = SubtitleView::class.java.getDeclaredField("defaultTextSizeType").apply {
+        isAccessible = true
+    }.getInt(this)
+    val size = SubtitleView::class.java.getDeclaredField("defaultTextSize").apply {
+        isAccessible = true
+    }.getFloat(this)
+    return SubtitleViewTextSizeConfig(type, size)
 }
