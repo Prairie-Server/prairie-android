@@ -47,7 +47,7 @@ internal fun PlaybackPlanV3.toSessionResponse(
         PlaybackDelivery.SERVER_TRANSCODE_HLS -> PlayMethod.TRANSCODE
         PlaybackDelivery.CLIENT_LOCAL_NORMALIZATION -> PlayMethod.REMUX
     }
-    val subtitles = subtitle.artifact?.takeIf {
+    val selectedSubtitle = subtitle.artifact?.takeIf {
         subtitle.mode == PlaybackSubtitleModeV3.CONVERT || subtitle.mode == PlaybackSubtitleModeV3.RENDER
     }?.let { artifact ->
         // A bitmap RENDER artifact describes the subtitle stream already
@@ -69,6 +69,27 @@ internal fun PlaybackPlanV3.toSessionResponse(
             ),
         )
     }
+    val sidecarSubtitles = subtitle.sidecars.asSequence()
+        .filter { sidecar ->
+            sidecar.index >= 0 &&
+                sidecar.url.isNotBlank() &&
+                sidecar.format.lowercase() in setOf("srt", "subrip", "vtt", "webvtt") &&
+                sidecar.mimeType.lowercase().substringBefore(';') in
+                setOf("application/x-subrip", "text/vtt")
+        }
+        .map { sidecar ->
+            PlayerSubtitleInfo(
+                index = sidecar.index,
+                codec = sidecar.format,
+                source = "external",
+                url = sidecar.url,
+            )
+        }
+        .distinctBy(PlayerSubtitleInfo::index)
+        .toList()
+    val mountedIndexes = sidecarSubtitles.mapTo(mutableSetOf(), PlayerSubtitleInfo::index)
+    val subtitles = (sidecarSubtitles + selectedSubtitle.orEmpty().filterNot { it.index in mountedIndexes })
+        .takeIf(List<PlayerSubtitleInfo>::isNotEmpty)
     val routeFamily = when (delivery) {
         PlaybackDelivery.ORIGINAL_HTTP -> PlaybackRouteFamily.PLATFORM_NATIVE
         PlaybackDelivery.SERVER_REMUX_PROGRESSIVE,

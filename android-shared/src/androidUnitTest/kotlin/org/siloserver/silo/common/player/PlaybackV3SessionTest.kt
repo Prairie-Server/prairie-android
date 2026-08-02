@@ -9,6 +9,7 @@ import org.siloserver.silo.model.playback.PlaybackStreamV3
 import org.siloserver.silo.model.playback.PlaybackSubtitleArtifactV3
 import org.siloserver.silo.model.playback.PlaybackSubtitleDecisionV3
 import org.siloserver.silo.model.playback.PlaybackSubtitleModeV3
+import org.siloserver.silo.model.playback.PlaybackSubtitleSidecarV3
 import org.siloserver.silo.model.playback.PlaybackTimelineV3
 import org.siloserver.silo.model.playback.PlaybackTrackIdentityV3
 import org.siloserver.silo.model.playback.SelectedPlaybackTracksV3
@@ -18,6 +19,59 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class PlaybackV3SessionTest {
+    @Test
+    fun negotiatedSidecarsBecomeMountableAndOverrideDuplicateSelectedArtifact() {
+        val response = plan(
+            mode = PlaybackSubtitleModeV3.CONVERT,
+            format = "vtt",
+            url = "/stream/session/subtitles/2.vtt",
+            sidecars = listOf(
+                PlaybackSubtitleSidecarV3(
+                    trackId = "file:482:subtitle:0",
+                    index = 0,
+                    url = "/stream/session/subtitles/0.srt?file_id=482",
+                    mimeType = "application/x-subrip",
+                    format = "srt",
+                ),
+                PlaybackSubtitleSidecarV3(
+                    trackId = "file:482:subtitle:2",
+                    index = 2,
+                    url = "/stream/session/subtitles/2.srt?file_id=482",
+                    mimeType = "application/x-subrip",
+                    format = "srt",
+                ),
+            ),
+        ).toSessionResponse("session", "profile", 482)
+
+        assertEquals(listOf(0, 2), response.subtitleUrls.orEmpty().map { it.index })
+        assertEquals(
+            "/stream/session/subtitles/2.srt?file_id=482",
+            response.subtitleUrls.orEmpty().single { it.index == 2 }.url,
+        )
+        assertEquals("external", response.subtitleUrls.orEmpty().single { it.index == 2 }.source)
+    }
+
+    @Test
+    fun offPlanPreloadsOnlyValidExternalTextSidecars() {
+        val response = plan(
+            mode = PlaybackSubtitleModeV3.OFF,
+            format = "",
+            url = "",
+            sidecars = listOf(
+                PlaybackSubtitleSidecarV3("valid", 1, "/subtitles/1.vtt", "text/vtt", "webvtt"),
+                PlaybackSubtitleSidecarV3("negative", -1, "/subtitles/-1.srt", "application/x-subrip", "srt"),
+                PlaybackSubtitleSidecarV3("blank", 2, "", "application/x-subrip", "srt"),
+                PlaybackSubtitleSidecarV3("ass", 3, "/subtitles/3.ass", "text/x-ssa", "ass"),
+                PlaybackSubtitleSidecarV3("mime", 4, "/subtitles/4.srt", "text/plain", "srt"),
+            ),
+        ).toSessionResponse("session", "profile", 482)
+
+        val subtitle = response.subtitleUrls.orEmpty().single()
+        assertEquals(1, subtitle.index)
+        assertEquals("/subtitles/1.vtt", subtitle.url)
+        assertEquals("webvtt", subtitle.codec)
+    }
+
     @Test
     fun originalEmbeddedBitmapRenderArtifactBecomesSelectionMetadataNotASidecar() {
         val response = plan(
@@ -131,6 +185,7 @@ class PlaybackV3SessionTest {
         url: String,
         timeline: PlaybackTimelineV3 = PlaybackTimelineV3(),
         source: PlaybackSourceDescriptorV3 = PlaybackSourceDescriptorV3(),
+        sidecars: List<PlaybackSubtitleSidecarV3> = emptyList(),
     ) = PlaybackPlanV3(
         source = source,
         planId = "plan",
@@ -153,6 +208,7 @@ class PlaybackV3SessionTest {
                 mimeType = "text/vtt",
                 format = format,
             ),
+            sidecars = sidecars,
         ),
         decisionReason = "test",
     )
