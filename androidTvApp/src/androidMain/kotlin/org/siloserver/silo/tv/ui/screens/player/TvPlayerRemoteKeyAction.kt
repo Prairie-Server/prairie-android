@@ -32,16 +32,10 @@ internal fun tvPlayerRemoteKeyAction(
         TvPlayerRemoteKeyAction.ConsumeOnly
     }
 
+    // Down always moves focus into the transport first, whether the overlay
+    // is hidden or a focus-owning surface is already visible.
     KeyEvent.KEYCODE_DPAD_DOWN ->
-        when {
-            action != KeyEvent.ACTION_DOWN -> null
-            // tvOS parity (QA 2026-07-08): while playing with nothing on
-            // screen, D-pad-down opens the hover menu (HUD). When a
-            // focus-owning surface is up (dpadHorizontalSeek == false), Down
-            // keeps moving focus into the transport instead.
-            dpadHorizontalSeek -> TvPlayerRemoteKeyAction.OpenHud
-            else -> TvPlayerRemoteKeyAction.FocusTransport
-        }
+        if (action == KeyEvent.ACTION_DOWN) TvPlayerRemoteKeyAction.FocusTransport else null
 
     KeyEvent.KEYCODE_DPAD_LEFT ->
         when {
