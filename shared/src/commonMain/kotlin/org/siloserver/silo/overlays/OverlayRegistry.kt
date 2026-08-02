@@ -412,14 +412,14 @@ object OverlayRegistry {
     // pass-through default must stay identical or the same library renders
     // different ribbons per platform.
     private fun formatShowStatus(value: String?): String? {
-        if (value.isNullOrEmpty()) return null
-        return when (value.lowercase()) {
+        val normalized = value?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
+        return when (normalized.lowercase()) {
             "returning", "returning series", "continuing", "in_production", "in production" ->
                 "Returning"
             "ended" -> "Ended"
             "cancelled", "canceled" -> "Cancelled"
             "upcoming", "planned" -> "Upcoming"
-            else -> value
+            else -> normalized
         }
     }
 
