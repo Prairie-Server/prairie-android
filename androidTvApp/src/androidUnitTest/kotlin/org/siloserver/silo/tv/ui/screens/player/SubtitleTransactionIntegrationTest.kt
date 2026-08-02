@@ -473,6 +473,7 @@ class SubtitleTransactionIntegrationTest {
             Collections.synchronizedList(mutableListOf())
         private val adoptedPlaybackRows: MutableMap<String, List<PlayerSubtitleInfo>> =
             Collections.synchronizedMap(mutableMapOf())
+        private var mountedSubtitleIdentity: SubtitleIdentity? = null
         val media3Selections = mutableListOf<MountedSelection>()
 
         private val replanEvents = Channel<Unit>(Channel.UNLIMITED)
@@ -586,6 +587,7 @@ class SubtitleTransactionIntegrationTest {
                 manageProgress = false,
                 renewMissingSessionWithLegacyStart = false,
             )
+            mountedSubtitleIdentity = committedIdentity
             adapter = TvSubtitleTransactionAdapter(
                 scope = scope,
                 stagedPort = PlaybackSessionManagerTvSubtitleStagedReplanPort(manager, lifecycle),
@@ -601,6 +603,7 @@ class SubtitleTransactionIntegrationTest {
                 },
                 durablePersistenceScope = scope,
                 settlementScope = scope,
+                isLocallyMountable = { identity -> identity == mountedSubtitleIdentity },
                 onCommittedPlayback = { adoption ->
                     val candidate = requireNotNull(adoption.playback.ready)
                     val adopted = lifecycle.adoptActiveSessionIfCurrent(
@@ -619,6 +622,7 @@ class SubtitleTransactionIntegrationTest {
                     if (adopted && adoption.isCurrent()) {
                         adoptedPlaybackRows[candidate.session.sessionId] =
                             adoption.playback.subtitleTracks
+                        mountedSubtitleIdentity = adoption.committed.identity
                         TvSubtitleAdoptionResult.Adopted
                     } else {
                         TvSubtitleAdoptionResult.Superseded
