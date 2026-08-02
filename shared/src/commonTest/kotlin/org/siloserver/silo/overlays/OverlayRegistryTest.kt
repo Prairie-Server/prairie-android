@@ -79,4 +79,12 @@ class OverlayRegistryTest {
         assertEquals("45m", def.getValue(OverlayData(runtime = 45)))
         assertNull(def.getValue(OverlayData(runtime = 0)))
     }
+
+    @Test
+    fun showStatus_getValue_trimsBeforeMappingAndFallback() {
+        val def = OverlayRegistry.def(OverlayId.ShowStatus)!!
+        assertEquals("Returning", def.getValue(OverlayData(showStatus = "  returning series  ")))
+        assertEquals("Limited Series", def.getValue(OverlayData(showStatus = "  Limited Series  ")))
+        assertNull(def.getValue(OverlayData(showStatus = "   ")))
+    }
 }
