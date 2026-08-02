@@ -14,4 +14,14 @@ class TvLoginMatchCodeLayoutTest {
             message = "Expected match-code row to fit within 252dp, but it was ${rowWidthDp}dp",
         )
     }
+
+    @Test
+    fun `long match code fits inside QR card content width`() {
+        val rowWidthDp = matchCodeRowWidthDp("PRAIRIE-SNOW")
+
+        assertTrue(
+            actual = rowWidthDp <= 252,
+            message = "Expected long match-code row to fit within 252dp, but it was ${rowWidthDp}dp",
+        )
+    }
 }

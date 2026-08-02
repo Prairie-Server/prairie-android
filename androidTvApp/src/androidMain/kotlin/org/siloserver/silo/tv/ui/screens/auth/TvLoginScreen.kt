@@ -641,6 +641,7 @@ private fun QrLoginCard(
 @Composable
 private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
     if (code.isBlank()) return
+    val tileWidthDp = matchCodeTileWidthDp(code)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -669,7 +670,7 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(width = MATCH_CODE_TILE_WIDTH_DP.dp, height = 30.dp)
+                            .size(width = tileWidthDp.dp, height = 30.dp)
                             .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
                             .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center,
@@ -693,11 +694,27 @@ private fun MatchCodeTiles(code: String, modifier: Modifier = Modifier) {
 internal const val MATCH_CODE_TILE_WIDTH_DP = 24
 internal const val MATCH_CODE_SEPARATOR_WIDTH_DP = 10
 internal const val MATCH_CODE_TILE_GAP_DP = 2
+internal const val MATCH_CODE_CONTENT_WIDTH_DP = 252
+
+internal fun matchCodeTileWidthDp(code: String): Int {
+    val tileCount = code.count { ch -> ch != '-' && ch != ' ' }
+    if (tileCount == 0) return MATCH_CODE_TILE_WIDTH_DP
+
+    val separatorCount = code.length - tileCount
+    val gapWidth = (code.length - 1).coerceAtLeast(0) * MATCH_CODE_TILE_GAP_DP
+    val availableTileWidth = (
+        MATCH_CODE_CONTENT_WIDTH_DP -
+            separatorCount * MATCH_CODE_SEPARATOR_WIDTH_DP -
+            gapWidth
+        ).coerceAtLeast(tileCount)
+    return minOf(MATCH_CODE_TILE_WIDTH_DP, availableTileWidth / tileCount)
+}
 
 internal fun matchCodeRowWidthDp(code: String): Int {
     if (code.isEmpty()) return 0
+    val tileWidth = matchCodeTileWidthDp(code)
     val characterWidth = code.sumOf { ch ->
-        if (ch == '-' || ch == ' ') MATCH_CODE_SEPARATOR_WIDTH_DP else MATCH_CODE_TILE_WIDTH_DP
+        if (ch == '-' || ch == ' ') MATCH_CODE_SEPARATOR_WIDTH_DP else tileWidth
     }
     return characterWidth + (code.length - 1) * MATCH_CODE_TILE_GAP_DP
 }
