@@ -913,6 +913,7 @@ class TvSubtitleSettlementOwnershipTest {
             },
             durablePersistenceScope = durableScope,
             settlementScope = durableScope,
+            isLocallyMountable = { identity -> identity == port.mountedSidecarIdentity },
             onCommittedPlayback = { adoption ->
                 lifecycle.adopt(adoption.playback.sessionId)
                 adoptionGate?.await()
@@ -1009,6 +1010,8 @@ class TvSubtitleSettlementOwnershipTest {
         val requests = mutableListOf<TvSubtitleStageRequest>()
         var pendingPlayback: TvSubtitleCommittedPlayback? = null
             private set
+        var mountedSidecarIdentity: SubtitleIdentity? = null
+            private set
         private var settlement = CompletableDeferred<Unit>().apply { complete(Unit) }
         private var sessionSequence = 0
         private var stageStarted: CompletableDeferred<Unit>? = null
@@ -1085,6 +1088,9 @@ class TvSubtitleSettlementOwnershipTest {
                 subtitleTracks = candidate.subtitleTracks,
                 outputRouteGeneration = candidate.outputRouteGeneration,
             )
+            mountedSidecarIdentity = candidate.selectedSubtitleIndex
+                ?.takeIf { it >= 0 }
+                ?.let(SubtitleIdentity::ServerSidecar)
             pendingPlayback = playback
             settlement = CompletableDeferred()
             return ApiResult.Success(playback)
