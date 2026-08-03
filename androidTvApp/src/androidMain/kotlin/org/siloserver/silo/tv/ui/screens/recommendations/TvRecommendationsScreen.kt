@@ -99,6 +99,7 @@ fun TvRecommendationsScreen(
     val recommendationsListState = rememberLazyListState()
     var savedListSelection by rememberSaveable { mutableStateOf(entryRequest.selection) }
     var lastAppliedEntrySequence by rememberSaveable { mutableIntStateOf(0) }
+    var firstRecommendationRowFocused by remember { mutableStateOf(false) }
     val moveIntoRecommendations: () -> Boolean = {
         if (
             !shouldBridgeRecommendationsDown(
@@ -155,6 +156,21 @@ fun TvRecommendationsScreen(
     LaunchedEffect(state.isLoading, state.error, visibleSections) {
         if (!state.isLoading && state.error == null && visibleSections.isEmpty() && savedListSelection == null) {
             savedListSelection = SavedListSelection.Watchlist
+        }
+    }
+
+    LaunchedEffect(firstRecommendationRowFocused) {
+        while (
+            firstRecommendationRowFocused &&
+            (recommendationsListState.firstVisibleItemIndex != 0 ||
+                recommendationsListState.firstVisibleItemScrollOffset != 0)
+        ) {
+            // Focus-driven bring-into-view can run after the focus callback.
+            // Delay before re-anchoring so that relocation finishes first,
+            // then stop once the list reaches its true top.
+            kotlinx.coroutines.delay(80)
+            if (!firstRecommendationRowFocused) break
+            runCatching { recommendationsListState.animateScrollToItem(0) }
         }
     }
 
@@ -297,6 +313,11 @@ fun TvRecommendationsScreen(
                                         runCatching { forYouFocusRequester.requestFocus() }
                                             .getOrDefault(false)
                                     }
+                                } else {
+                                    null
+                                },
+                                onRowFocusChanged = if (index == 0) {
+                                    { focused -> firstRecommendationRowFocused = focused }
                                 } else {
                                     null
                                 },

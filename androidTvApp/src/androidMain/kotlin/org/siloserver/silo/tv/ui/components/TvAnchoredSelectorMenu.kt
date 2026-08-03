@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -20,6 +22,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -175,7 +178,11 @@ fun TvAnchoredSelectorMenu(
         ) {
             options.forEach { option ->
                 val interactionSource = remember(option.key) { MutableInteractionSource() }
+                val bringIntoViewRequester = remember(option.key) { BringIntoViewRequester() }
                 val focused by interactionSource.collectIsFocusedAsState()
+                LaunchedEffect(focused) {
+                    if (focused) bringIntoViewRequester.bringIntoView()
+                }
                 val visual = tvSelectorRowVisualState(focused, option.selected, option.enabled)
                 val labelText = if (option.detail.isBlank()) {
                     option.title
@@ -185,6 +192,7 @@ fun TvAnchoredSelectorMenu(
                 DropdownMenuItem(
                     interactionSource = interactionSource,
                     modifier = Modifier
+                        .bringIntoViewRequester(bringIntoViewRequester)
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(visual.container)

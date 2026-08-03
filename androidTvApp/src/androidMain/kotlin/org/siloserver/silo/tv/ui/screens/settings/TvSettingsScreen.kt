@@ -485,7 +485,7 @@ private fun SettingsRail(
             onFocused = { railActionHasFocus = true },
         )
         Text(
-            text = "Silo ${BuildConfig.VERSION_NAME}",
+            text = "Silo ${BuildConfig.DISPLAY_VERSION}",
             style = MaterialTheme.typography.bodySmall.copy(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 14.sp,
@@ -1388,7 +1388,7 @@ private fun TvServerSettingsPane(
         }
         item {
             SettingsGroup(title = "About") {
-                SettingsInfoRow(label = "Version", value = BuildConfig.VERSION_NAME)
+                SettingsInfoRow(label = "Version", value = BuildConfig.DISPLAY_VERSION)
             }
         }
     }

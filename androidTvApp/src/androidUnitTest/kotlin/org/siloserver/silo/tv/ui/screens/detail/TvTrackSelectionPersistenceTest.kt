@@ -13,6 +13,7 @@ import org.siloserver.silo.repository.port.WriteOutcome
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TvTrackSelectionPersistenceTest {
@@ -58,6 +59,80 @@ class TvTrackSelectionPersistenceTest {
 
         assertEquals(TvDetailTrackSelectionSession.Saved(22, 1, 0), TvDetailTrackSelectionSession.recall("episode-session-a"))
         assertEquals(TvDetailTrackSelectionSession.Saved(23, null, -1), TvDetailTrackSelectionSession.recall("episode-session-b"))
+    }
+
+    @Test
+    fun playbackReturnPreservesPreviouslySelectedAudio() {
+        val contentId = "episode-playback-return-audio"
+        TvDetailTrackSelectionSession.remember(contentId, fileId = 22, audio = 1, subtitle = 0)
+
+        TvDetailTrackSelectionSession.rememberPlaybackReturn(
+            contentId = contentId,
+            fileId = 22,
+            audio = null,
+            subtitle = 2,
+            positionSeconds = 37.0,
+            durationSeconds = 120.0,
+        )
+
+        assertEquals(1, TvDetailTrackSelectionSession.recall(contentId)?.audio)
+    }
+
+    @Test
+    fun playbackReturnPreservesPreviouslySelectedSubtitleForKeepCurrent() {
+        val contentId = "episode-playback-return-subtitle"
+        TvDetailTrackSelectionSession.remember(contentId, fileId = 22, audio = 1, subtitle = 2)
+
+        TvDetailTrackSelectionSession.rememberPlaybackReturn(
+            contentId = contentId,
+            fileId = 22,
+            audio = null,
+            subtitle = null,
+            positionSeconds = 37.0,
+            durationSeconds = 120.0,
+        )
+
+        assertEquals(2, TvDetailTrackSelectionSession.recall(contentId)?.subtitle)
+    }
+
+    @Test
+    fun playbackReturnPreservesPreviouslySelectedFileForUnknownExitFile() {
+        val contentId = "episode-playback-return-file"
+        TvDetailTrackSelectionSession.remember(contentId, fileId = 22, audio = 1, subtitle = 2)
+
+        TvDetailTrackSelectionSession.rememberPlaybackReturn(
+            contentId = contentId,
+            fileId = null,
+            audio = null,
+            subtitle = null,
+            positionSeconds = 37.0,
+            durationSeconds = 120.0,
+        )
+
+        assertEquals(22, TvDetailTrackSelectionSession.recall(contentId)?.fileId)
+    }
+
+    @Test
+    fun playbackReturnProgressIsConsumedOnceWhileTrackChoicesRemain() {
+        val contentId = "episode-playback-return-progress"
+        TvDetailTrackSelectionSession.remember(contentId, fileId = 22, audio = 1, subtitle = 2)
+        TvDetailTrackSelectionSession.rememberPlaybackReturn(
+            contentId = contentId,
+            fileId = 22,
+            audio = null,
+            subtitle = 2,
+            positionSeconds = 37.0,
+            durationSeconds = 120.0,
+        )
+
+        val playbackReturn = TvDetailTrackSelectionSession.consumePlaybackReturn(contentId)
+
+        assertEquals(37.0, playbackReturn?.positionSeconds)
+        assertNull(TvDetailTrackSelectionSession.consumePlaybackReturn(contentId))
+        assertEquals(
+            TvDetailTrackSelectionSession.Saved(fileId = 22, audio = 1, subtitle = 2),
+            TvDetailTrackSelectionSession.recall(contentId),
+        )
     }
 
     @Test

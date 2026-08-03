@@ -104,6 +104,8 @@ fun TvMediaRow(
     /** Indexed focus callback for callers that maintain a rolling prefetch
      *  window around the currently focused card. */
     onItemFocusedAtIndex: ((SectionItem, Int) -> Unit)? = null,
+    /** Reports whether this row or any descendant card currently owns focus. */
+    onRowFocusChanged: ((Boolean) -> Unit)? = null,
     cardActions: (SectionItem) -> TvMediaCardActions = { TvMediaCardActions() },
 ) {
     if (items.isEmpty()) return
@@ -157,6 +159,15 @@ fun TvMediaRow(
                 .then(
                     if (rowContainerFocusRequester != null) {
                         Modifier.focusRequester(rowContainerFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                )
+                .then(
+                    if (onRowFocusChanged != null) {
+                        Modifier.onFocusChanged { state ->
+                            onRowFocusChanged(state.hasFocus)
+                        }
                     } else {
                         Modifier
                     },

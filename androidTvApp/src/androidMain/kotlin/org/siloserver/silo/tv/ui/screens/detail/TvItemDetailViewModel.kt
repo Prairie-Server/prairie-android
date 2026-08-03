@@ -433,16 +433,29 @@ class TvItemDetailViewModel(
      */
     fun refreshOnReturn() {
         val current = _uiState.value.detail ?: return
+        val playbackReturn = TvDetailTrackSelectionSession.consumePlaybackReturn(contentId)
+        playbackReturn?.let { saved ->
+            _uiState.update {
+                it.copy(
+                    detail = it.detail?.withPlaybackReturn(saved),
+                    selectedFileId = saved.fileId,
+                    selectedAudioIndex = saved.audio,
+                    selectedSubtitleIndex = saved.subtitle,
+                )
+            }
+        }
         viewModelScope.launch {
             // Local overlay first: the player's final position write is already
             // on disk, so the label corrects before the server round-trip.
             val overlaid = withLocalProgress(current)
+                .let { refreshed -> playbackReturn?.let(refreshed::withPlaybackReturn) ?: refreshed }
             if (overlaid != current) {
                 _uiState.update { it.copy(detail = overlaid) }
             }
             when (val result = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
                     val detail = withLocalProgress(result.data)
+                        .let { refreshed -> playbackReturn?.let(refreshed::withPlaybackReturn) ?: refreshed }
                     if (!isTvHiddenMediaType(detail.type)) {
                         _uiState.update {
                             it.copy(
@@ -1476,7 +1489,13 @@ private fun BrowseItem.toSectionItem(): SectionItem = SectionItem(
  * durable per-playback preferences are recorded by the player itself.
  */
 internal object TvDetailTrackSelectionSession {
-    internal data class Saved(val fileId: Int?, val audio: Int?, val subtitle: Int?)
+    internal data class Saved(
+        val fileId: Int?,
+        val audio: Int?,
+        val subtitle: Int?,
+        val positionSeconds: Double? = null,
+        val durationSeconds: Double? = null,
+    )
 
     private val byContent = HashMap<String, Saved>()
 
@@ -1485,5 +1504,59 @@ internal object TvDetailTrackSelectionSession {
         byContent[contentId] = Saved(fileId, audio, subtitle)
     }
 
+    fun rememberPlaybackReturn(
+        contentId: String,
+        fileId: Int?,
+        audio: Int?,
+        subtitle: Int?,
+        positionSeconds: Double,
+        durationSeconds: Double?,
+    ) {
+        if (contentId.isBlank() || !positionSeconds.isFinite() || positionSeconds < 0.0) return
+        val previous = byContent[contentId]
+        byContent[contentId] = Saved(
+            // Exit can race teardown before either player file identifier is
+            // available. Keep the detail page's selected version in that case.
+            fileId = fileId ?: previous?.fileId,
+            // The player currently reports subtitle selection on exit but not
+            // audio selection. Keep the detail page's explicit audio choice
+            // instead of replacing it with an unknown/null value.
+            audio = audio ?: previous?.audio,
+            // A null player result means the mounted track could not be
+            // resolved to a stable server index (keep current), not Off.
+            subtitle = subtitle ?: previous?.subtitle,
+            positionSeconds = positionSeconds,
+            durationSeconds = durationSeconds?.takeIf { it.isFinite() && it > 0.0 },
+        )
+    }
+
     fun recall(contentId: String): Saved? = byContent[contentId]
+
+    /**
+     * Returns the pending player-exit progress once, while retaining the
+     * session's file and track choices for later detail-screen recreation.
+     */
+    fun consumePlaybackReturn(contentId: String): Saved? {
+        val saved = byContent[contentId]
+            ?.takeIf { it.positionSeconds != null }
+            ?: return null
+        byContent[contentId] = saved.copy(
+            positionSeconds = null,
+            durationSeconds = null,
+        )
+        return saved
+    }
+}
+
+private fun ItemDetail.withPlaybackReturn(saved: TvDetailTrackSelectionSession.Saved): ItemDetail {
+    val position = saved.positionSeconds?.takeIf { it.isFinite() && it >= 0.0 } ?: return this
+    val current = userData ?: LeafItemUserData()
+    return copy(
+        userData = current.copy(
+            isInProgress = position > 0.0,
+            positionSeconds = position.takeIf { it > 0.0 },
+            durationSeconds = saved.durationSeconds ?: current.durationSeconds,
+            lastFileId = saved.fileId ?: current.lastFileId,
+        ),
+    )
 }

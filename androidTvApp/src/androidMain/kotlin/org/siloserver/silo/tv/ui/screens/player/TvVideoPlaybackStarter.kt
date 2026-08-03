@@ -23,7 +23,9 @@ import org.siloserver.silo.common.settings.dolbyVisionPolicySnapshot
 import org.siloserver.silo.model.catalog.FileVersion
 import org.siloserver.silo.model.playback.applyResumeRewind
 import org.siloserver.silo.model.playback.buildPlaybackSubtitleChoices
+import org.siloserver.silo.model.playback.isExplicitStartOver
 import org.siloserver.silo.model.playback.resolvePlaybackStartRequestPosition
+import org.siloserver.silo.model.playback.resolvePlaybackStartPosition
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.playback.orNullIfBlank
 import org.siloserver.silo.playback.selectPlaybackVersion
@@ -195,13 +197,26 @@ class TvVideoPlaybackStarter(
             // The server may reanchor an HLS stream at a non-zero movie time
             // while exposing a player timeline that begins at zero. Preserve
             // both coordinates so Media3 and the UI each receive the right one.
-            val playerStartPos = readyV3.plan.timeline.playerStartSeconds
+            val serverPlayerStartPos = readyV3.plan.timeline.playerStartSeconds
                 .takeIf { it.isFinite() && it >= 0.0 }
                 ?: resolved.position.coerceAtLeast(0.0)
-            val sourceStartPos = readyV3.plan.timeline.sourceStartSeconds
+            val playerStartPos = resolvePlaybackStartPosition(
+                // A reanchored stream may legitimately expose player time 0
+                // for a non-zero source time. Only Start Over's explicit zero
+                // may override that server-defined player coordinate.
+                overridePosition = request.resumePositionOverride
+                    .takeIf(::isExplicitStartOver),
+                sessionPosition = serverPlayerStartPos,
+                detailPosition = null,
+            )
+            val serverSourceStartPos = readyV3.plan.timeline.sourceStartSeconds
                 .takeIf { it.isFinite() && it >= 0.0 }
-                ?: startRequestPosition
-                ?: playerStartPos
+                ?: resolved.position.coerceAtLeast(0.0)
+            val sourceStartPos = resolveTvSourceStartPosition(
+                startRequestPosition = startRequestPosition,
+                serverSourceStartPosition = serverSourceStartPos,
+                playerStartPosition = playerStartPos,
+            )
 
             val adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
                 params = StartParams(
@@ -307,6 +322,16 @@ class TvVideoPlaybackStarter(
         const val TAG = "TvVideoPlaybackStarter"
     }
 }
+
+internal fun resolveTvSourceStartPosition(
+    startRequestPosition: Double?,
+    serverSourceStartPosition: Double,
+    playerStartPosition: Double,
+): Double = resolvePlaybackStartPosition(
+    overridePosition = startRequestPosition,
+    sessionPosition = serverSourceStartPosition,
+    detailPosition = playerStartPosition,
+)
 
 /**
  * Resolves session-only episode intent after the target detail is available.

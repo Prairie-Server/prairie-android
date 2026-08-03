@@ -12,6 +12,11 @@ val siloVersionName = providers
     // android-build.yml. Keep local/dev builds aligned with the latest release.
     .orElse("0.3.11")
 
+val siloDisplayVersion = providers
+    .gradleProperty("siloDisplayVersion")
+    .orElse(providers.environmentVariable("SILO_DISPLAY_VERSION"))
+    .orElse(siloVersionName)
+
 val siloVersionCode = providers
     .gradleProperty("siloVersionCode")
     .orElse(providers.environmentVariable("SILO_VERSION_CODE"))
@@ -138,6 +143,7 @@ android {
         // base*2, TV = base*2+1, so each release bumps both by 2 with no reuse.
         versionCode = siloVersionCode.get() * 2 + 1
         versionName = siloVersionName.get()
+        buildConfigField("String", "DISPLAY_VERSION", "\"${siloDisplayVersion.get()}\"")
         // Shadow the android-shared BuildConfig field so per-app flavors can
         // override without rebuilding the shared module. See androidApp's
         // build.gradle.kts for rationale.

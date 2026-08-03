@@ -344,6 +344,7 @@ jobs:
         shell: bash
         env:
           SILO_VERSION_NAME: ${{ needs.setup.outputs.version_name }}
+          SILO_DISPLAY_VERSION: ${{ needs.setup.outputs.version }}
           SILO_VERSION_CODE: ${{ needs.setup.outputs.version_code }}
           SILO_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.SILO_RELEASE_KEYSTORE_PASSWORD }}
           SILO_RELEASE_KEY_PASSWORD: ${{ secrets.SILO_RELEASE_KEY_PASSWORD }}
@@ -355,6 +356,7 @@ jobs:
             -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
             ":${{ matrix.module }}:assembleRelease" \
             "-PsiloVersionName=${SILO_VERSION_NAME}" \
+            "-PsiloDisplayVersion=${SILO_DISPLAY_VERSION}" \
             "-PsiloVersionCode=${SILO_VERSION_CODE}" \
             --max-workers=2
 

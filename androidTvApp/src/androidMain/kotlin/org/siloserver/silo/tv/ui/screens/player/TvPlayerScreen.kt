@@ -523,15 +523,14 @@ fun TvPlayerScreen(
             // idempotent local departure follows behind it.
             roomController?.leave(closeRoom = false)
             mediaController?.let { controller ->
-                viewModel.onPositionChanged(
-                    controller.currentPosition,
-                    controller.duration.coerceAtLeast(0L),
+                viewModel.stopSessionForExitAsync(
+                    positionMs = controller.currentPosition,
+                    durationMs = controller.duration.coerceAtLeast(0L),
                 )
                 controller.pause()
                 controller.stop()
                 controller.clearMediaItems()
-            }
-            viewModel.stopSessionForExitAsync()
+            } ?: viewModel.stopSessionForExitAsync()
             latestOnExit()
         }
     }
