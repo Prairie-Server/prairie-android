@@ -28,7 +28,7 @@
 - Consumes: a `Flow<ForYouListPosition>`, focus/position readers, an 80 ms settling callback, and a suspend scroll callback.
 - Produces: `ForYouListPosition(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int)` and `maintainForYouTopAnchor(...)` for the screen effect and focused unit tests.
 
-- [ ] **Step 1: Write the failing delayed-displacement regression test**
+- [x] **Step 1: Write the failing delayed-displacement regression test**
 
 ```kotlin
 @Test
@@ -57,7 +57,7 @@ fun delayedRelocationAfterAnInitiallyCorrectTopIsReanchored() = runTest {
 
 Add two neighboring tests using `flowOf(...)`: a top-only sequence produces zero corrections, and focus becoming false inside `awaitRelocation` prevents a pending correction.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -69,7 +69,7 @@ Run:
 
 Expected: compilation fails because `ForYouListPosition` and `maintainForYouTopAnchor` do not exist.
 
-- [ ] **Step 3: Implement the minimal event-driven helper**
+- [x] **Step 3: Implement the minimal event-driven helper**
 
 ```kotlin
 internal data class ForYouListPosition(
@@ -97,13 +97,13 @@ internal suspend fun maintainForYouTopAnchor(
 
 In `LaunchedEffect(firstRecommendationRowFocused)`, return immediately when focus is false. Otherwise pass a `snapshotFlow` of the real lazy-list position to the helper, retain the existing 80 ms settling delay, and call `recommendationsListState.animateScrollToItem(0)` only from `scrollToTop`.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the Step 2 command.
 
 Expected: all three `TvRecommendationsTopAnchorTest` cases pass.
 
-- [ ] **Step 5: Commit the behavior and tests**
+- [x] **Step 5: Commit the behavior and tests**
 
 ```bash
 git add \
@@ -121,7 +121,7 @@ git commit -m "fix(tv): recover late For You focus relocation"
 - Consumes: the Task 1 helper, integration, and regression suite.
 - Produces: a verified Android TV debug APK and completed plan checklist.
 
-- [ ] **Step 1: Run the complete TV verification gate**
+- [x] **Step 1: Run the complete TV verification gate**
 
 ```bash
 ./gradlew \
@@ -139,7 +139,7 @@ git diff --check
 
 Expected: Gradle reports `BUILD SUCCESSFUL`, both workflow self-tests pass, the supply-chain check passes, and `git diff --check` emits no errors.
 
-- [ ] **Step 2: Mark the plan complete and commit verification metadata**
+- [x] **Step 2: Mark the plan complete and commit verification metadata**
 
 Change every task checkbox in this plan from `[ ]` to `[x]`, then run:
 
@@ -148,7 +148,7 @@ git add docs/superpowers/plans/2026-08-03-for-you-late-focus-relocation.md
 git commit -m "docs(tv): complete For You relocation plan"
 ```
 
-- [ ] **Step 3: Review branch scope**
+- [x] **Step 3: Review branch scope**
 
 ```bash
 git status --short
