@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -98,6 +99,10 @@ internal suspend fun maintainForYouTopAnchor(
 @Composable
 fun TvRecommendationsScreen(
     onItemClick: (contentId: String) -> Unit,
+    onRecommendationItemClick: (contentId: String) -> Unit,
+    detailReturnFocusRequest: Int,
+    detailReturnCardFocusRequester: FocusRequester,
+    onSolidTopBarChanged: (Boolean) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
     entryRequest: TvForYouEntryRequest = TvForYouEntryRequest(),
@@ -110,6 +115,7 @@ fun TvRecommendationsScreen(
     val favoritesFocusRequester = remember { FocusRequester() }
     val firstRecommendationRowFocusRequester = remember { FocusRequester() }
     val firstRecommendationCardFocusRequester = remember { FocusRequester() }
+    val detailReturnRowFocusRequester = remember { FocusRequester() }
     val focusBridgeScope = rememberCoroutineScope()
     // rememberSaveable, not remember: opening an item disposes this screen's
     // composition, and a plain remember would re-initialise from
@@ -124,7 +130,39 @@ fun TvRecommendationsScreen(
     val recommendationsListState = rememberLazyListState()
     var savedListSelection by rememberSaveable { mutableStateOf(entryRequest.selection) }
     var lastAppliedEntrySequence by rememberSaveable { mutableIntStateOf(0) }
+    var lastFocusedSectionId by rememberSaveable { mutableStateOf("") }
+    var lastFocusedContentId by rememberSaveable { mutableStateOf("") }
+    var lastFocusedRowIndex by rememberSaveable { mutableIntStateOf(0) }
+    var lastFocusedCardIndex by rememberSaveable { mutableIntStateOf(0) }
+    val lastFocusedTarget = if (
+        lastFocusedSectionId.isNotBlank() && lastFocusedContentId.isNotBlank()
+    ) {
+        ForYouFocusTarget(
+            sectionId = lastFocusedSectionId,
+            contentId = lastFocusedContentId,
+            rowIndex = lastFocusedRowIndex,
+            cardIndex = lastFocusedCardIndex,
+        )
+    } else {
+        null
+    }
+    val returnRows = remember(visibleSections) {
+        visibleSections.map { section ->
+            ForYouFocusRow(section.id, section.items.map { it.contentId })
+        }
+    }
+    val resolvedReturnTarget = lastFocusedTarget?.let {
+        resolveForYouReturnTarget(it, returnRows)
+    }
     var firstRecommendationRowFocused by remember { mutableStateOf(false) }
+    // The first row still owns the established filter-to-feed bridge. When it
+    // is also the detail return row, use the return requester so the LazyRow
+    // has only one row-container requester attached at a time.
+    val firstRowContainerFocusRequester = if (resolvedReturnTarget?.rowIndex == 0) {
+        detailReturnRowFocusRequester
+    } else {
+        firstRecommendationRowFocusRequester
+    }
     val moveIntoRecommendations: () -> Boolean = {
         if (
             !shouldBridgeRecommendationsDown(
@@ -137,7 +175,7 @@ fun TvRecommendationsScreen(
             focusBridgeScope.launch {
                 requestRecommendationRowFocus(
                     requestRowContainer = {
-                        runCatching { firstRecommendationRowFocusRequester.requestFocus() }
+                        runCatching { firstRowContainerFocusRequester.requestFocus() }
                             .getOrDefault(false)
                     },
                     awaitFrame = { withFrameNanos { } },
@@ -149,6 +187,11 @@ fun TvRecommendationsScreen(
             }
             true
         }
+    }
+
+    DisposableEffect(savedListSelection, onSolidTopBarChanged) {
+        onSolidTopBarChanged(savedListSelection == null)
+        onDispose { onSolidTopBarChanged(false) }
     }
 
     LaunchedEffect(entryRequest.sequence) {
@@ -173,6 +216,39 @@ fun TvRecommendationsScreen(
                     runCatching { favoritesFocusRequester.requestFocus() }.getOrDefault(false)
                 },
             )
+        }
+    }
+
+    LaunchedEffect(detailReturnFocusRequest, resolvedReturnTarget) {
+        if (detailReturnFocusRequest == 0) return@LaunchedEffect
+        val target = resolvedReturnTarget
+        if (shouldFallbackForYouReturnToFilter(target)) {
+            repeat(6) {
+                withFrameNanos { }
+                val handled = runCatching { forYouFocusRequester.requestFocus() }
+                    .getOrDefault(false)
+                if (handled) return@LaunchedEffect
+            }
+            return@LaunchedEffect
+        }
+        target ?: return@LaunchedEffect
+        val rowVisible = recommendationsListState.layoutInfo.visibleItemsInfo
+            .any { it.index == target.rowIndex }
+        if (!rowVisible) recommendationsListState.scrollToItem(target.rowIndex)
+        repeat(6) {
+            withFrameNanos { }
+            val handled = requestRecommendationRowFocus(
+                requestRowContainer = {
+                    runCatching { detailReturnRowFocusRequester.requestFocus() }
+                        .getOrDefault(false)
+                },
+                awaitFrame = { withFrameNanos { } },
+                requestFirstCard = {
+                    runCatching { detailReturnCardFocusRequester.requestFocus() }
+                        .getOrDefault(false)
+                },
+            )
+            if (handled) return@LaunchedEffect
         }
     }
 
@@ -330,12 +406,33 @@ fun TvRecommendationsScreen(
                             TvMediaRow(
                                 title = section.title,
                                 items = section.items,
-                                onItemClick = onItemClick,
+                                onItemClick = { contentId ->
+                                    lastFocusedSectionId = section.id
+                                    lastFocusedContentId = contentId
+                                    lastFocusedRowIndex = index
+                                    lastFocusedCardIndex = section.items.indexOfFirst {
+                                        it.contentId == contentId
+                                    }.coerceAtLeast(0)
+                                    onRecommendationItemClick(contentId)
+                                },
                                 style = TvRowStyle.Poster,
                                 firstItemFocusRequester = firstRecommendationCardFocusRequester
                                     .takeIf { index == 0 },
-                                rowContainerFocusRequester = firstRecommendationRowFocusRequester
-                                    .takeIf { index == 0 },
+                                rowContainerFocusRequester = when {
+                                    index == resolvedReturnTarget?.rowIndex ->
+                                        detailReturnRowFocusRequester
+                                    index == 0 -> firstRecommendationRowFocusRequester
+                                    else -> null
+                                },
+                                restoreFocusIndex = resolvedReturnTarget?.cardIndex ?: -1,
+                                restoreFocusRequester = detailReturnCardFocusRequester
+                                    .takeIf { index == resolvedReturnTarget?.rowIndex },
+                                onItemFocusedAtIndex = { item, cardIndex ->
+                                    lastFocusedSectionId = section.id
+                                    lastFocusedContentId = item.contentId
+                                    lastFocusedRowIndex = index
+                                    lastFocusedCardIndex = cardIndex
+                                },
                                 onDirectionUp = if (index == 0) {
                                     {
                                         runCatching { forYouFocusRequester.requestFocus() }

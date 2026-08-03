@@ -52,6 +52,16 @@ class TvRecommendationsFocusBridgeTest {
     }
 
     @Test
+    fun emptyFeedFallsBackToForYouFilter() {
+        assertTrue(shouldFallbackForYouReturnToFilter(resolveForYouReturnTarget(target, emptyList())))
+        assertFalse(
+            shouldFallbackForYouReturnToFilter(
+                ResolvedForYouFocusTarget(rowIndex = 0, cardIndex = 0, exact = true),
+            ),
+        )
+    }
+
+    @Test
     fun handoffCrossesRowRestorerBeforeTargetingFirstCard() = runTest {
         val events = mutableListOf<String>()
 
@@ -77,6 +87,16 @@ class TvRecommendationsFocusBridgeTest {
 
         assertFalse(handled)
         assertEquals(listOf("row"), events)
+    }
+
+    @Test
+    fun rejectedCardRequestCanBeRetried() = runTest {
+        val handled = requestRecommendationRowFocus(
+            requestRowContainer = { true },
+            awaitFrame = {},
+            requestFirstCard = { false },
+        )
+        assertFalse(handled)
     }
 
     @Test

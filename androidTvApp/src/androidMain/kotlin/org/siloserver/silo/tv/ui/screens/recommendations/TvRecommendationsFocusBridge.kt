@@ -18,6 +18,10 @@ internal data class ResolvedForYouFocusTarget(
     val exact: Boolean,
 )
 
+internal fun shouldFallbackForYouReturnToFilter(
+    resolved: ResolvedForYouFocusTarget?,
+): Boolean = resolved == null
+
 internal fun resolveForYouReturnTarget(
     target: ForYouFocusTarget,
     rows: List<ForYouFocusRow>,
@@ -51,8 +55,7 @@ internal suspend fun requestRecommendationRowFocus(
 ): Boolean {
     if (!requestRowContainer()) return false
     awaitFrame()
-    requestFirstCard()
-    return true
+    return requestFirstCard()
 }
 
 internal fun shouldBridgeRecommendationsDown(
