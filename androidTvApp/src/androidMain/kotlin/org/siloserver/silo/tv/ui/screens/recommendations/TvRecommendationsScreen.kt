@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,9 +60,33 @@ import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.siloserver.silo.tv.ui.util.visibleOnTv
 import org.siloserver.silo.viewmodel.RecommendationsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 private val RecommendationsFilterBandHeight = 52.dp
+
+internal data class ForYouListPosition(
+    val firstVisibleItemIndex: Int,
+    val firstVisibleItemScrollOffset: Int,
+) {
+    val isAtTop: Boolean
+        get() = firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
+}
+
+internal suspend fun maintainForYouTopAnchor(
+    positionEvents: Flow<ForYouListPosition>,
+    isFirstRowFocused: () -> Boolean,
+    awaitRelocation: suspend () -> Unit,
+    currentPosition: () -> ForYouListPosition,
+    scrollToTop: suspend () -> Unit,
+) {
+    positionEvents.collect { observed ->
+        if (!isFirstRowFocused() || observed.isAtTop) return@collect
+        awaitRelocation()
+        if (isFirstRowFocused() && !currentPosition().isAtTop) scrollToTop()
+    }
+}
 
 /**
  * "For You" tab. Reuses the shared [RecommendationsViewModel] that drives
@@ -160,18 +185,21 @@ fun TvRecommendationsScreen(
     }
 
     LaunchedEffect(firstRecommendationRowFocused) {
-        while (
-            firstRecommendationRowFocused &&
-            (recommendationsListState.firstVisibleItemIndex != 0 ||
-                recommendationsListState.firstVisibleItemScrollOffset != 0)
-        ) {
-            // Focus-driven bring-into-view can run after the focus callback.
-            // Delay before re-anchoring so that relocation finishes first,
-            // then stop once the list reaches its true top.
-            kotlinx.coroutines.delay(80)
-            if (!firstRecommendationRowFocused) break
-            runCatching { recommendationsListState.animateScrollToItem(0) }
-        }
+        if (!firstRecommendationRowFocused) return@LaunchedEffect
+        fun currentPosition() = ForYouListPosition(
+            firstVisibleItemIndex = recommendationsListState.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = recommendationsListState.firstVisibleItemScrollOffset,
+        )
+        // Stay suspended while the list is correctly anchored. A delayed
+        // focus relocation can still move it after an initially-top sample;
+        // snapshotFlow observes that later displacement without polling.
+        maintainForYouTopAnchor(
+            positionEvents = snapshotFlow { currentPosition() },
+            isFirstRowFocused = { firstRecommendationRowFocused },
+            awaitRelocation = { kotlinx.coroutines.delay(80) },
+            currentPosition = ::currentPosition,
+            scrollToTop = { recommendationsListState.animateScrollToItem(0) },
+        )
     }
 
     // The saved-list shortcuts are the stable first row in every state. Focus
