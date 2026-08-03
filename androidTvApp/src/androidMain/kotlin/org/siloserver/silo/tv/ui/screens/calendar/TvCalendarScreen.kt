@@ -182,8 +182,10 @@ fun TvCalendarScreen(
             kotlinx.coroutines.delay(120)
             runCatching { requester.requestFocus() }
             androidx.compose.runtime.withFrameNanos { }
-            lastAppliedFocusRequest = focusRequest
-            onInitialContentFocus()
+            if (lastAppliedFocusRequest != focusRequest) {
+                lastAppliedFocusRequest = focusRequest
+                onInitialContentFocus()
+            }
         }
     }
     // Focus hand-off for day selection: picking a day in the week strip scrolls
@@ -216,7 +218,7 @@ fun TvCalendarScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            val controls: @Composable () -> Unit = {
+            val controls: @Composable ((CalendarControlFocusZone) -> Unit) -> Unit = { onControlFocused ->
                 CalendarControls(
                     selectedFilter = state.filter,
                     weekDates = state.weekDates,
@@ -227,7 +229,7 @@ fun TvCalendarScreen(
                     firstSegmentFocusRequester = filterFocusRequester,
                     segmentFocusRequesters = filterFocusRequesters,
                     selectedDayFocusRequester = selectedDayFocusRequester,
-                    onControlFocused = snapControlsToInitialPosition,
+                    onControlFocused = onControlFocused,
                     includeTopInset = false,
                     onSelectFilter = viewModel::setFilter,
                     onSelectDay = { date ->
@@ -256,6 +258,14 @@ fun TvCalendarScreen(
                 state = state,
                 listState = listState,
                 controls = controls,
+                activeFilterFocusRequester = filterFocusRequesters[state.filter] ?: filterFocusRequester,
+                onControlFocused = snapControlsToInitialPosition,
+                onFocusRequestAcknowledged = {
+                    if (lastAppliedFocusRequest != focusRequest) {
+                        lastAppliedFocusRequest = focusRequest
+                        onInitialContentFocus()
+                    }
+                },
                 onRefresh = viewModel::refresh,
                 onShowEverything = { viewModel.setFilter(CalendarFilter.All) },
                 selectedDayFocusRequester = selectedDayFocusRequester,
@@ -283,7 +293,7 @@ private fun CalendarControls(
     firstSegmentFocusRequester: FocusRequester,
     segmentFocusRequesters: Map<String, FocusRequester>,
     selectedDayFocusRequester: FocusRequester,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
     includeTopInset: Boolean,
     onSelectFilter: (String) -> Unit,
     onSelectDay: (String) -> Unit,
@@ -338,7 +348,7 @@ private fun CalendarControlRow(
     onSelectFilter: (String) -> Unit,
     firstSegmentFocusRequester: FocusRequester,
     segmentFocusRequesters: Map<String, FocusRequester>,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -371,7 +381,7 @@ private fun FilterBar(
     onSelect: (String) -> Unit,
     firstSegmentFocusRequester: FocusRequester,
     segmentFocusRequesters: Map<String, FocusRequester>,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
 ) {
     val presets = listOf(
         CalendarFilter.Following to "Following",
@@ -394,7 +404,7 @@ private fun FilterBar(
                 onClick = { onSelect(value) },
                 focusRequester = segmentFocusRequesters[value]
                     ?: if (index == 0) firstSegmentFocusRequester else null,
-                onFocused = onControlFocused,
+                onFocused = { onControlFocused(CalendarControlFocusZone.Filter) },
             )
         }
     }
@@ -457,7 +467,7 @@ private fun WeekStrip(
     isCurrentWeek: Boolean,
     hasEvents: (String) -> Boolean,
     selectedDayFocusRequester: FocusRequester,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
     onSelectDay: (String) -> Unit,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
@@ -470,7 +480,11 @@ private fun WeekStrip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        ChevronButton(arrow = NavArrow.Prev, onClick = onPrevWeek)
+        ChevronButton(
+            arrow = NavArrow.Prev,
+            onClick = onPrevWeek,
+            onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
+        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -482,14 +496,21 @@ private fun WeekStrip(
                     isToday = date == today,
                     hasEvents = hasEvents(date),
                     focusRequester = if (date == selectedDay) selectedDayFocusRequester else null,
-                    onFocused = onControlFocused,
+                    onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
                     onClick = { onSelectDay(date) },
                 )
             }
         }
-        ChevronButton(arrow = NavArrow.Next, onClick = onNextWeek)
+        ChevronButton(
+            arrow = NavArrow.Next,
+            onClick = onNextWeek,
+            onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
+        )
         if (!isCurrentWeek) {
-            TodayButton(onClick = onToday)
+            TodayButton(
+                onClick = onToday,
+                onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
+            )
         }
         Spacer(modifier = Modifier.weight(1f))
         Text(
@@ -508,7 +529,11 @@ private enum class NavArrow { Prev, Next }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ChevronButton(arrow: NavArrow, onClick: () -> Unit) {
+private fun ChevronButton(
+    arrow: NavArrow,
+    onClick: () -> Unit,
+    onFocused: () -> Unit,
+) {
     val shape = CircleShape
     Surface(
         onClick = onClick,
@@ -522,7 +547,9 @@ private fun ChevronButton(arrow: NavArrow, onClick: () -> Unit) {
             pressedContentColor = FocusedContent,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        modifier = Modifier.size(28.dp),
+        modifier = Modifier
+            .onFocusChanged { if (it.isFocused) onFocused() }
+            .size(28.dp),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Icon(
@@ -541,7 +568,7 @@ private fun ChevronButton(arrow: NavArrow, onClick: () -> Unit) {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TodayButton(onClick: () -> Unit) {
+private fun TodayButton(onClick: () -> Unit, onFocused: () -> Unit) {
     val shape = RoundedCornerShape(100.dp)
     Surface(
         onClick = onClick,
@@ -555,6 +582,7 @@ private fun TodayButton(onClick: () -> Unit) {
             pressedContentColor = FocusedContent,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() },
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -677,8 +705,11 @@ internal fun shouldReturnCalendarFocusToControls(
     focusedShelfIndex == firstFocusableShelfIndex &&
     !isReturningToControls
 
+internal enum class CalendarControlFocusZone { Filter, WeekStrip }
+
 internal enum class CalendarUpFallbackAction {
     EnterMenu,
+    FocusFilter,
     ReturnToControls,
     StayInContent,
     MoveWithinContent,
@@ -688,6 +719,7 @@ internal fun calendarUpFallbackAction(
     focusedShelfIndex: Int?,
     firstFocusableShelfIndex: Int,
     isReturningToControls: Boolean,
+    focusedControlZone: CalendarControlFocusZone?,
     isRepeat: Boolean = false,
 ): CalendarUpFallbackAction = when {
     shouldReturnCalendarFocusToControls(
@@ -695,8 +727,9 @@ internal fun calendarUpFallbackAction(
         firstFocusableShelfIndex = firstFocusableShelfIndex,
         isReturningToControls = isReturningToControls,
     ) -> if (isRepeat) CalendarUpFallbackAction.StayInContent else CalendarUpFallbackAction.ReturnToControls
-    focusedShelfIndex == null && isRepeat -> CalendarUpFallbackAction.StayInContent
-    focusedShelfIndex == null -> CalendarUpFallbackAction.EnterMenu
+    isRepeat -> CalendarUpFallbackAction.StayInContent
+    focusedControlZone == CalendarControlFocusZone.WeekStrip -> CalendarUpFallbackAction.FocusFilter
+    focusedControlZone == CalendarControlFocusZone.Filter -> CalendarUpFallbackAction.EnterMenu
     else -> CalendarUpFallbackAction.MoveWithinContent
 }
 
@@ -709,7 +742,10 @@ private fun CalendarList(
     onMoveUpToMenu: () -> Unit = {},
     state: org.siloserver.silo.viewmodel.CalendarUiState,
     listState: LazyListState,
-    controls: @Composable () -> Unit,
+    controls: @Composable ((CalendarControlFocusZone) -> Unit) -> Unit,
+    activeFilterFocusRequester: FocusRequester,
+    onControlFocused: () -> Unit,
+    onFocusRequestAcknowledged: () -> Unit,
     onRefresh: () -> Unit,
     onShowEverything: () -> Unit,
     selectedDayFocusRequester: FocusRequester,
@@ -722,6 +758,7 @@ private fun CalendarList(
     val snapScope = rememberCoroutineScope()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var isReturningToControls by remember { mutableStateOf(false) }
+    var focusedControlZone by remember { mutableStateOf<CalendarControlFocusZone?>(null) }
     val firstFocusableDayIndex = state.weekDates.indexOfFirst { state.itemsFor(it).isNotEmpty() }
     val onShelfFocused: (Int) -> Unit = { index ->
         // Item zero is the filter/week control shell.
@@ -758,17 +795,26 @@ private fun CalendarList(
     // when focus is already in the controls item, mirror the shell's default
     // (moveFocus within content; false -> shell hands off to the menu bar).
     var focusedShelfIndex by remember { mutableStateOf<Int?>(null) }
+    val onCalendarControlFocused: (CalendarControlFocusZone) -> Unit = { zone ->
+        focusedControlZone = zone
+        onControlFocused()
+        onFocusRequestAcknowledged()
+    }
     val currentCalendarUpFallback = rememberUpdatedState<(Boolean) -> Boolean> { isRepeat ->
             when (calendarUpFallbackAction(
                     focusedShelfIndex = focusedShelfIndex,
                     firstFocusableShelfIndex = firstFocusableDayIndex,
                     isReturningToControls = isReturningToControls,
+                    focusedControlZone = focusedControlZone,
                     isRepeat = isRepeat,
                 )
             ) {
                 CalendarUpFallbackAction.EnterMenu -> {
                     onMoveUpToMenu()
                     true
+                }
+                CalendarUpFallbackAction.FocusFilter -> {
+                    runCatching { activeFilterFocusRequester.requestFocus() }.getOrDefault(false)
                 }
                 CalendarUpFallbackAction.ReturnToControls -> {
                     onMoveUpToControls()
@@ -811,7 +857,7 @@ private fun CalendarList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item(key = "calendar-controls") {
-            controls()
+            controls(onCalendarControlFocused)
         }
 
         // Keep the control item in this same LazyColumn for every data state.
@@ -862,6 +908,7 @@ private fun CalendarList(
                 onShelfFocusChanged = { focused ->
                     if (focused) {
                         focusedShelfIndex = index
+                        focusedControlZone = null
                     } else if (focusedShelfIndex == index) {
                         focusedShelfIndex = null
                     }

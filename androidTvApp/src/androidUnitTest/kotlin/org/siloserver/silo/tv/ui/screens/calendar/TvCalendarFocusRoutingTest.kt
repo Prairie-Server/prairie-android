@@ -17,19 +17,10 @@ class TvCalendarFocusRoutingTest {
     }
 
     @Test
-    fun controlsUseNormalUpMovement() {
-        assertFalse(shouldReturnCalendarFocusToControls(null, 2, false))
-    }
-
-    @Test
-    fun controlsReturnToShellMenuTarget() {
+    fun weekStripMovesUpToActiveFilter() {
         assertEquals(
-            CalendarUpFallbackAction.EnterMenu,
-            calendarUpFallbackAction(
-                focusedShelfIndex = null,
-                firstFocusableShelfIndex = 2,
-                isReturningToControls = false,
-            ),
+            CalendarUpFallbackAction.FocusFilter,
+            calendarUpFallbackAction(null, 0, false, CalendarControlFocusZone.WeekStrip),
         )
     }
 
@@ -39,13 +30,22 @@ class TvCalendarFocusRoutingTest {
     }
 
     @Test
-    fun heldUpOnCalendarControlsStaysInContent() {
+    fun filterMovesUpToCalendarMenuTab() {
+        assertEquals(
+            CalendarUpFallbackAction.EnterMenu,
+            calendarUpFallbackAction(null, 0, false, CalendarControlFocusZone.Filter),
+        )
+    }
+
+    @Test
+    fun heldUpOnControlsDoesNotSkipALayer() {
         assertEquals(
             CalendarUpFallbackAction.StayInContent,
             calendarUpFallbackAction(
-                focusedShelfIndex = null,
-                firstFocusableShelfIndex = 2,
-                isReturningToControls = false,
+                null,
+                0,
+                false,
+                CalendarControlFocusZone.WeekStrip,
                 isRepeat = true,
             ),
         )
