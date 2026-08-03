@@ -22,6 +22,21 @@ internal fun shouldFallbackForYouReturnToFilter(
     resolved: ResolvedForYouFocusTarget?,
 ): Boolean = resolved == null
 
+internal enum class FocusRequestOutcome {
+    Handled,
+    Rejected,
+    Disposed,
+}
+
+internal fun requestFocusSafely(
+    requestFocus: () -> Boolean,
+): FocusRequestOutcome = runCatching(requestFocus).fold(
+    onSuccess = { handled ->
+        if (handled) FocusRequestOutcome.Handled else FocusRequestOutcome.Rejected
+    },
+    onFailure = { FocusRequestOutcome.Disposed },
+)
+
 internal fun resolveForYouReturnTarget(
     target: ForYouFocusTarget,
     rows: List<ForYouFocusRow>,

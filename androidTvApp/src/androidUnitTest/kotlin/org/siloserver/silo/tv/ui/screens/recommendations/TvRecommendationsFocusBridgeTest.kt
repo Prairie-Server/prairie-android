@@ -100,6 +100,19 @@ class TvRecommendationsFocusBridgeTest {
     }
 
     @Test
+    fun rejectedFocusRequestRemainsRetryable() {
+        assertEquals(FocusRequestOutcome.Rejected, requestFocusSafely { false })
+    }
+
+    @Test
+    fun focusRequesterExceptionStopsRetries() {
+        assertEquals(
+            FocusRequestOutcome.Disposed,
+            requestFocusSafely { error("FocusRequester is not initialized") },
+        )
+    }
+
+    @Test
     fun forYouWithVisibleRowsUsesTheBridge() {
         assertTrue(
             shouldBridgeRecommendationsDown(

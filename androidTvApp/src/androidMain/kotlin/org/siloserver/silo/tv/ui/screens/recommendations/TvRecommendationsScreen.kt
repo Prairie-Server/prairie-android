@@ -225,9 +225,11 @@ fun TvRecommendationsScreen(
         if (shouldFallbackForYouReturnToFilter(target)) {
             repeat(6) {
                 withFrameNanos { }
-                val handled = runCatching { forYouFocusRequester.requestFocus() }
-                    .getOrDefault(false)
-                if (handled) return@LaunchedEffect
+                when (requestFocusSafely { forYouFocusRequester.requestFocus() }) {
+                    FocusRequestOutcome.Handled,
+                    FocusRequestOutcome.Disposed -> return@LaunchedEffect
+                    FocusRequestOutcome.Rejected -> Unit
+                }
             }
             return@LaunchedEffect
         }
@@ -237,18 +239,26 @@ fun TvRecommendationsScreen(
         if (!rowVisible) recommendationsListState.scrollToItem(target.rowIndex)
         repeat(6) {
             withFrameNanos { }
+            var requesterDisposed = false
+            fun requestFocus(request: () -> Boolean): Boolean =
+                when (requestFocusSafely(request)) {
+                    FocusRequestOutcome.Handled -> true
+                    FocusRequestOutcome.Rejected -> false
+                    FocusRequestOutcome.Disposed -> {
+                        requesterDisposed = true
+                        false
+                    }
+                }
             val handled = requestRecommendationRowFocus(
                 requestRowContainer = {
-                    runCatching { detailReturnRowFocusRequester.requestFocus() }
-                        .getOrDefault(false)
+                    requestFocus { detailReturnRowFocusRequester.requestFocus() }
                 },
                 awaitFrame = { withFrameNanos { } },
                 requestFirstCard = {
-                    runCatching { detailReturnCardFocusRequester.requestFocus() }
-                        .getOrDefault(false)
+                    requestFocus { detailReturnCardFocusRequester.requestFocus() }
                 },
             )
-            if (handled) return@LaunchedEffect
+            if (requesterDisposed || handled) return@LaunchedEffect
         }
     }
 
