@@ -16,6 +16,62 @@ import kotlin.test.assertTrue
 
 class TvDiagnosticsStateTest {
     @Test
+    fun selectedConsentIsTheInitialCrashReportFocus() {
+        assertEquals(
+            TvDiagnosticsCrashFocus.ALWAYS,
+            initialTvDiagnosticsCrashFocus(DiagnosticsConsentMode.ALWAYS),
+        )
+    }
+
+    @Test
+    fun downTraversesConsentChoicesThenDebugLogging() {
+        assertEquals(
+            TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.NEVER,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun disabledDebugLoggingIsSkipped() {
+        assertEquals(
+            null,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.NEVER,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = false,
+            ),
+        )
+    }
+
+    @Test
+    fun firstChoiceHoldsAtUpperBoundary() {
+        assertEquals(
+            TvDiagnosticsCrashFocus.ASK,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.ASK,
+                direction = TvDiagnosticsFocusDirection.Up,
+                debugLoggingEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun downFromLastEnabledChoiceFallsThroughToCaptureSection() {
+        assertEquals(
+            null,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+            ),
+        )
+    }
+
+    @Test
     fun promptDefaultsToDontSend() {
         val model = tvDiagnosticsPromptModel(
             DiagnosticsPrompt("report-1", DiagnosticsReportType.CRASH, "2026-07-22T00:00:00Z"),

@@ -22,11 +22,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,9 +65,43 @@ fun TvDiagnosticsSettingsScreen(
         return
     }
     var confirmAlways by remember { mutableStateOf(false) }
-    val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    val crashFocusRequesters = remember {
+        TvDiagnosticsCrashFocus.entries.associateWith { FocusRequester() }
+    }
+    LaunchedEffect(state.consent) {
+        val target = initialTvDiagnosticsCrashFocus(state.consent)
+        repeat(6) {
+            withFrameNanos { }
+            val focused = runCatching {
+                crashFocusRequesters.getValue(target).requestFocus()
+            }.getOrDefault(false)
+            if (focused) return@LaunchedEffect
+        }
+    }
     val model = tvDiagnosticsScreenModel(state)
+    fun Modifier.crashFocusControl(current: TvDiagnosticsCrashFocus): Modifier =
+        focusRequester(crashFocusRequesters.getValue(current))
+            .onPreviewKeyEvent { event ->
+                val direction = when {
+                    event.type != KeyEventType.KeyDown -> null
+                    event.key == Key.DirectionUp -> TvDiagnosticsFocusDirection.Up
+                    event.key == Key.DirectionDown -> TvDiagnosticsFocusDirection.Down
+                    else -> null
+                }
+                val target = direction?.let {
+                    nextTvDiagnosticsCrashFocus(
+                        current = current,
+                        direction = it,
+                        debugLoggingEnabled = state.consent != DiagnosticsConsentMode.NEVER,
+                    )
+                }
+                if (target == null) {
+                    false
+                } else {
+                    runCatching { crashFocusRequesters.getValue(target).requestFocus() }
+                    true
+                }
+            }
     TvDiagnosticsPage(title = "Diagnostics") {
         LazyColumn(
             contentPadding = PaddingValues(bottom = 40.dp),
@@ -81,7 +121,7 @@ fun TvDiagnosticsSettingsScreen(
             }
             item {
                 TvDiagnosticsSection("CRASH REPORTS") {
-                    DiagnosticsConsentMode.entries.forEachIndexed { index, mode ->
+                    DiagnosticsConsentMode.entries.forEach { mode ->
                         TvDiagnosticsAction(
                             label = when (mode) {
                                 DiagnosticsConsentMode.ASK -> "Ask before sending"
@@ -96,7 +136,9 @@ fun TvDiagnosticsSettingsScreen(
                                     viewModel.setConsent(mode)
                                 }
                             },
-                            modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                            modifier = Modifier.crashFocusControl(
+                                initialTvDiagnosticsCrashFocus(mode),
+                            ),
                         )
                     }
                     TvDiagnosticsAction(
@@ -104,6 +146,7 @@ fun TvDiagnosticsSettingsScreen(
                         value = if (state.debugLogging) "On" else "Off",
                         enabled = state.consent != DiagnosticsConsentMode.NEVER,
                         onClick = { viewModel.setDebugLogging(!state.debugLogging) },
+                        modifier = Modifier.crashFocusControl(TvDiagnosticsCrashFocus.DEBUG_LOGGING),
                     )
                 }
             }
@@ -171,6 +214,36 @@ fun TvDiagnosticsSettingsScreen(
             },
             onDismiss = { confirmAlways = false },
         )
+    }
+}
+
+internal enum class TvDiagnosticsCrashFocus { ASK, ALWAYS, NEVER, DEBUG_LOGGING }
+
+internal enum class TvDiagnosticsFocusDirection { Up, Down }
+
+internal fun initialTvDiagnosticsCrashFocus(mode: DiagnosticsConsentMode) = when (mode) {
+    DiagnosticsConsentMode.ASK -> TvDiagnosticsCrashFocus.ASK
+    DiagnosticsConsentMode.ALWAYS -> TvDiagnosticsCrashFocus.ALWAYS
+    DiagnosticsConsentMode.NEVER -> TvDiagnosticsCrashFocus.NEVER
+}
+
+internal fun tvDiagnosticsCrashFocusOrder(debugLoggingEnabled: Boolean) = buildList {
+    add(TvDiagnosticsCrashFocus.ASK)
+    add(TvDiagnosticsCrashFocus.ALWAYS)
+    add(TvDiagnosticsCrashFocus.NEVER)
+    if (debugLoggingEnabled) add(TvDiagnosticsCrashFocus.DEBUG_LOGGING)
+}
+
+internal fun nextTvDiagnosticsCrashFocus(
+    current: TvDiagnosticsCrashFocus,
+    direction: TvDiagnosticsFocusDirection,
+    debugLoggingEnabled: Boolean,
+): TvDiagnosticsCrashFocus? {
+    val order = tvDiagnosticsCrashFocusOrder(debugLoggingEnabled)
+    val index = order.indexOf(current).coerceAtLeast(0)
+    return when (direction) {
+        TvDiagnosticsFocusDirection.Up -> order[(index - 1).coerceAtLeast(0)]
+        TvDiagnosticsFocusDirection.Down -> order.getOrNull(index + 1)
     }
 }
 
