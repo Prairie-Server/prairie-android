@@ -759,6 +759,7 @@ private fun CalendarList(
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var isReturningToControls by remember { mutableStateOf(false) }
     var focusedControlZone by remember { mutableStateOf<CalendarControlFocusZone?>(null) }
+    val clearControlFocusZone: () -> Unit = { focusedControlZone = null }
     val firstFocusableDayIndex = state.weekDates.indexOfFirst { state.itemsFor(it).isNotEmpty() }
     val onShelfFocused: (Int) -> Unit = { index ->
         // Item zero is the filter/week control shell.
@@ -872,6 +873,7 @@ private fun CalendarList(
                         title = state.error ?: "Failed to load calendar",
                         subtitle = "Press the week arrows to try another week.",
                         action = CalendarAction("Refresh", onRefresh),
+                        onActionFocused = clearControlFocusZone,
                     )
                 }
             }
@@ -886,6 +888,7 @@ private fun CalendarList(
                             CalendarAction("Refresh", onRefresh)
                         },
                         topAligned = true,
+                        onActionFocused = clearControlFocusZone,
                     )
                 }
             }
@@ -908,7 +911,7 @@ private fun CalendarList(
                 onShelfFocusChanged = { focused ->
                     if (focused) {
                         focusedShelfIndex = index
-                        focusedControlZone = null
+                        clearControlFocusZone()
                     } else if (focusedShelfIndex == index) {
                         focusedShelfIndex = null
                     }
@@ -1225,6 +1228,7 @@ private fun CalendarMessage(
     subtitle: String,
     action: CalendarAction,
     topAligned: Boolean = false,
+    onActionFocused: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -1273,6 +1277,7 @@ private fun CalendarMessage(
                     pressedContentColor = FocusedContent,
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                modifier = Modifier.onFocusChanged { if (it.isFocused) onActionFocused() },
             ) {
                 Box(
                     modifier = Modifier

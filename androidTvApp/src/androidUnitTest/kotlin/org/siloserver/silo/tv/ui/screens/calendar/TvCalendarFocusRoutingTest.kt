@@ -38,6 +38,14 @@ class TvCalendarFocusRoutingTest {
     }
 
     @Test
+    fun nullControlZoneUsesNormalContentMovement() {
+        assertEquals(
+            CalendarUpFallbackAction.MoveWithinContent,
+            calendarUpFallbackAction(null, 0, false, null),
+        )
+    }
+
+    @Test
     fun heldUpOnControlsDoesNotSkipALayer() {
         assertEquals(
             CalendarUpFallbackAction.StayInContent,
