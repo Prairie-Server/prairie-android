@@ -72,10 +72,16 @@ fun TvDiagnosticsSettingsScreen(
         val target = initialTvDiagnosticsCrashFocus(state.consent)
         repeat(6) {
             withFrameNanos { }
-            val focused = runCatching {
-                crashFocusRequesters.getValue(target).requestFocus()
-            }.getOrDefault(false)
-            if (focused) return@LaunchedEffect
+            when (
+                tvDiagnosticsCrashFocusRequestResult(
+                    runCatching { crashFocusRequesters.getValue(target).requestFocus() },
+                )
+            ) {
+                TvDiagnosticsCrashFocusRequestResult.FOCUSED,
+                TvDiagnosticsCrashFocusRequestResult.DISPOSED,
+                -> return@LaunchedEffect
+                TvDiagnosticsCrashFocusRequestResult.RETRY -> Unit
+            }
         }
     }
     val model = tvDiagnosticsScreenModel(state)
@@ -220,6 +226,16 @@ fun TvDiagnosticsSettingsScreen(
 internal enum class TvDiagnosticsCrashFocus { ASK, ALWAYS, NEVER, DEBUG_LOGGING }
 
 internal enum class TvDiagnosticsFocusDirection { Up, Down }
+
+internal enum class TvDiagnosticsCrashFocusRequestResult { FOCUSED, RETRY, DISPOSED }
+
+internal fun tvDiagnosticsCrashFocusRequestResult(
+    result: Result<Boolean>,
+): TvDiagnosticsCrashFocusRequestResult = when {
+    result.isFailure -> TvDiagnosticsCrashFocusRequestResult.DISPOSED
+    result.getOrDefault(false) -> TvDiagnosticsCrashFocusRequestResult.FOCUSED
+    else -> TvDiagnosticsCrashFocusRequestResult.RETRY
+}
 
 internal fun initialTvDiagnosticsCrashFocus(mode: DiagnosticsConsentMode) = when (mode) {
     DiagnosticsConsentMode.ASK -> TvDiagnosticsCrashFocus.ASK

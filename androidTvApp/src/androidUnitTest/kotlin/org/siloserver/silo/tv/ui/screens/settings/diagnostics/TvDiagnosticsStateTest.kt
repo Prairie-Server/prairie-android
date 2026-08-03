@@ -16,6 +16,24 @@ import kotlin.test.assertTrue
 
 class TvDiagnosticsStateTest {
     @Test
+    fun unsuccessfulFocusRequestIsRetryable() {
+        assertEquals(
+            TvDiagnosticsCrashFocusRequestResult.RETRY,
+            tvDiagnosticsCrashFocusRequestResult(Result.success(false)),
+        )
+    }
+
+    @Test
+    fun failedFocusRequestIsTerminalBecauseTheScreenWasDisposed() {
+        assertEquals(
+            TvDiagnosticsCrashFocusRequestResult.DISPOSED,
+            tvDiagnosticsCrashFocusRequestResult(
+                Result.failure(IllegalStateException("Focus requester is detached")),
+            ),
+        )
+    }
+
+    @Test
     fun selectedConsentIsTheInitialCrashReportFocus() {
         assertEquals(
             TvDiagnosticsCrashFocus.ALWAYS,
