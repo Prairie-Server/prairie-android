@@ -8,6 +8,49 @@ import kotlin.test.assertTrue
 
 class TvRecommendationsFocusBridgeTest {
 
+    private val target = ForYouFocusTarget("because-you-watched", "movie-b", 1, 2)
+
+    @Test
+    fun exactReturnTargetUsesStableIdsAfterReorder() {
+        val resolved = resolveForYouReturnTarget(
+            target,
+            listOf(
+                ForYouFocusRow("because-you-watched", listOf("movie-c", "movie-b", "movie-a")),
+                ForYouFocusRow("trending", listOf("movie-d")),
+            ),
+        )
+
+        assertEquals(ResolvedForYouFocusTarget(0, 1, true), resolved)
+    }
+
+    @Test
+    fun missingCardUsesClosestIndexInSameSection() {
+        val resolved = resolveForYouReturnTarget(
+            target,
+            listOf(ForYouFocusRow("because-you-watched", listOf("movie-a", "movie-c"))),
+        )
+
+        assertEquals(ResolvedForYouFocusTarget(0, 1, false), resolved)
+    }
+
+    @Test
+    fun missingSectionUsesClosestRowFirstCard() {
+        val resolved = resolveForYouReturnTarget(
+            target,
+            listOf(
+                ForYouFocusRow("row-a", listOf("a")),
+                ForYouFocusRow("row-b", listOf("b")),
+            ),
+        )
+
+        assertEquals(ResolvedForYouFocusTarget(1, 0, false), resolved)
+    }
+
+    @Test
+    fun emptyFeedHasNoCardReturnTarget() {
+        assertEquals(null, resolveForYouReturnTarget(target, emptyList()))
+    }
+
     @Test
     fun handoffCrossesRowRestorerBeforeTargetingFirstCard() = runTest {
         val events = mutableListOf<String>()
