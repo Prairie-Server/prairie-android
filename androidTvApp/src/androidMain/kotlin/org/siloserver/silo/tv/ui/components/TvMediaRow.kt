@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -22,6 +23,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.ExperimentalComposeUiApi
 import org.siloserver.silo.model.section.SectionItem
@@ -98,6 +100,12 @@ fun TvMediaRow(
      *  of card 0. Callers should only pass it while a restore is pending. */
     restoreFocusIndex: Int = -1,
     restoreFocusRequester: FocusRequester? = null,
+    /** Nonzero only while an exact-card return is pending. The row uses its
+     *  private horizontal state to compose [restoreFocusIndex] before focus is
+     *  requested; ordinary row rendering never changes horizontal position. */
+    restoreFocusRequest: Int = 0,
+    onRestoreFocusTargetPlaced: ((Int, Int) -> Unit)? = null,
+    onRestoreFocusTargetDisposed: ((Int, Int) -> Unit)? = null,
     /** Fired (on focus GAIN only) with whichever card the user focuses, so the
      *  Skyline marquee + backdrop can preview the focused item. */
     onItemFocused: ((SectionItem) -> Unit)? = null,
@@ -124,6 +132,16 @@ fun TvMediaRow(
                 contentType = "${cardLayout.name}:${style.name}:${item.type}",
             )
         }
+    }
+    val restoreFocusContentId = rowItems.getOrNull(restoreFocusIndex)?.item?.contentId
+
+    LaunchedEffect(restoreFocusRequest, restoreFocusIndex, restoreFocusContentId) {
+        prepareTvMediaRowFocusRestore(
+            requestId = restoreFocusRequest,
+            restoreFocusIndex = restoreFocusIndex,
+            itemCount = rowItems.size,
+            scrollToItem = rowState::scrollToItem,
+        )
     }
 
     LaunchedEffect(firstItemFocusRequest) {
@@ -189,6 +207,15 @@ fun TvMediaRow(
                 contentType = { _, rowItem -> rowItem.contentType },
             ) { index, rowItem ->
                 val item = rowItem.item
+                val isRestoreFocusTarget =
+                    restoreFocusRequest > 0 && index == restoreFocusIndex
+                if (isRestoreFocusTarget && onRestoreFocusTargetDisposed != null) {
+                    DisposableEffect(restoreFocusRequest, index) {
+                        onDispose {
+                            onRestoreFocusTargetDisposed(restoreFocusRequest, index)
+                        }
+                    }
+                }
                 // Always anchor firstItemFocusRequester to index 0 so it can
                 // serve as a stable fallback target for focusRestorer and for
                 // imperative requestFocus() calls from parent screens.
@@ -198,6 +225,14 @@ fun TvMediaRow(
                 ).then(
                     if (restoreFocusRequester != null && index == restoreFocusIndex) {
                         Modifier.focusRequester(restoreFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                ).then(
+                    if (isRestoreFocusTarget && onRestoreFocusTargetPlaced != null) {
+                        Modifier.onGloballyPositioned {
+                            onRestoreFocusTargetPlaced(restoreFocusRequest, index)
+                        }
                     } else {
                         Modifier
                     },
@@ -283,6 +318,17 @@ fun TvMediaRow(
             }
         }
     }
+}
+
+internal suspend fun prepareTvMediaRowFocusRestore(
+    requestId: Int,
+    restoreFocusIndex: Int,
+    itemCount: Int,
+    scrollToItem: suspend (Int) -> Unit,
+): Boolean {
+    if (requestId <= 0 || restoreFocusIndex !in 0 until itemCount) return false
+    scrollToItem(restoreFocusIndex)
+    return true
 }
 
 /** Fraction [0..1] of item consumed for "continue watching" progress bars. */

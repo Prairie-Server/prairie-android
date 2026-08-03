@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -101,7 +102,9 @@ fun TvRecommendationsScreen(
     onItemClick: (contentId: String) -> Unit,
     onRecommendationItemClick: (contentId: String) -> Unit,
     detailReturnFocusRequest: Int,
+    detailReturnFocusPending: Boolean,
     detailReturnCardFocusRequester: FocusRequester,
+    onDetailReturnFocusConsumed: (Int) -> Unit,
     onSolidTopBarChanged: (Boolean) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
@@ -130,18 +133,22 @@ fun TvRecommendationsScreen(
     val recommendationsListState = rememberLazyListState()
     var savedListSelection by rememberSaveable { mutableStateOf(entryRequest.selection) }
     var lastAppliedEntrySequence by rememberSaveable { mutableIntStateOf(0) }
-    var lastFocusedSectionId by rememberSaveable { mutableStateOf("") }
-    var lastFocusedContentId by rememberSaveable { mutableStateOf("") }
-    var lastFocusedRowIndex by rememberSaveable { mutableIntStateOf(0) }
-    var lastFocusedCardIndex by rememberSaveable { mutableIntStateOf(0) }
-    val lastFocusedTarget = if (
-        lastFocusedSectionId.isNotBlank() && lastFocusedContentId.isNotBlank()
+    // This is the card that launched the pending detail route, not a rolling
+    // "currently focused" value. Keeping the launch snapshot separate prevents
+    // the row-container hop from retargeting restoration to whichever composed
+    // card temporarily receives focus while the exact card is being prepared.
+    var detailReturnSectionId by rememberSaveable { mutableStateOf("") }
+    var detailReturnContentId by rememberSaveable { mutableStateOf("") }
+    var detailReturnRowIndex by rememberSaveable { mutableIntStateOf(0) }
+    var detailReturnCardIndex by rememberSaveable { mutableIntStateOf(0) }
+    val detailReturnLaunchTarget = if (
+        detailReturnSectionId.isNotBlank() && detailReturnContentId.isNotBlank()
     ) {
         ForYouFocusTarget(
-            sectionId = lastFocusedSectionId,
-            contentId = lastFocusedContentId,
-            rowIndex = lastFocusedRowIndex,
-            cardIndex = lastFocusedCardIndex,
+            sectionId = detailReturnSectionId,
+            contentId = detailReturnContentId,
+            rowIndex = detailReturnRowIndex,
+            cardIndex = detailReturnCardIndex,
         )
     } else {
         null
@@ -151,14 +158,23 @@ fun TvRecommendationsScreen(
             ForYouFocusRow(section.id, section.items.map { it.contentId })
         }
     }
-    val resolvedReturnTarget = lastFocusedTarget?.let {
-        resolveForYouReturnTarget(it, returnRows)
-    }
+    val detailReturnState = ForYouDetailReturnState(
+        requestId = detailReturnFocusRequest,
+        pending = detailReturnFocusPending,
+    )
+    val pendingReturnLocation = resolvePendingForYouReturnLocation(
+        state = detailReturnState,
+        launchTarget = detailReturnLaunchTarget,
+        rows = returnRows,
+    )
+    var preparedReturnLocation by remember { mutableStateOf<ForYouReturnFocusLocation?>(null) }
+    var disposedReturnLocation by remember { mutableStateOf<ForYouReturnFocusLocation?>(null) }
+    val latestOnDetailReturnFocusConsumed by rememberUpdatedState(onDetailReturnFocusConsumed)
     var firstRecommendationRowFocused by remember { mutableStateOf(false) }
     // The first row still owns the established filter-to-feed bridge. When it
     // is also the detail return row, use the return requester so the LazyRow
     // has only one row-container requester attached at a time.
-    val firstRowContainerFocusRequester = if (resolvedReturnTarget?.rowIndex == 0) {
+    val firstRowContainerFocusRequester = if (pendingReturnLocation?.rowIndex == 0) {
         detailReturnRowFocusRequester
     } else {
         firstRecommendationRowFocusRequester
@@ -194,6 +210,14 @@ fun TvRecommendationsScreen(
         onDispose { onSolidTopBarChanged(false) }
     }
 
+    DisposableEffect(detailReturnFocusRequest, detailReturnFocusPending) {
+        onDispose {
+            if (detailReturnFocusPending) {
+                latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
+            }
+        }
+    }
+
     LaunchedEffect(entryRequest.sequence) {
         val applied = applyForYouEntryRequest(
             currentSelection = savedListSelection,
@@ -219,47 +243,56 @@ fun TvRecommendationsScreen(
         }
     }
 
-    LaunchedEffect(detailReturnFocusRequest, resolvedReturnTarget) {
-        if (detailReturnFocusRequest == 0) return@LaunchedEffect
-        val target = resolvedReturnTarget
-        if (shouldFallbackForYouReturnToFilter(target)) {
+    LaunchedEffect(
+        detailReturnFocusRequest,
+        detailReturnFocusPending,
+        pendingReturnLocation,
+        state.isLoading,
+    ) {
+        if (!detailReturnFocusPending || detailReturnFocusRequest == 0 || state.isLoading) {
+            return@LaunchedEffect
+        }
+        val target = pendingReturnLocation
+        if (target == null) {
             repeat(6) {
                 withFrameNanos { }
                 when (requestFocusSafely { forYouFocusRequester.requestFocus() }) {
                     FocusRequestOutcome.Handled,
-                    FocusRequestOutcome.Disposed -> return@LaunchedEffect
+                    FocusRequestOutcome.Disposed -> {
+                        latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
+                        return@LaunchedEffect
+                    }
                     FocusRequestOutcome.Rejected -> Unit
                 }
             }
+            latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
             return@LaunchedEffect
         }
-        target ?: return@LaunchedEffect
         val rowVisible = recommendationsListState.layoutInfo.visibleItemsInfo
             .any { it.index == target.rowIndex }
         if (!rowVisible) recommendationsListState.scrollToItem(target.rowIndex)
-        repeat(6) {
-            withFrameNanos { }
-            var requesterDisposed = false
-            fun requestFocus(request: () -> Boolean): Boolean =
-                when (requestFocusSafely(request)) {
-                    FocusRequestOutcome.Handled -> true
-                    FocusRequestOutcome.Rejected -> false
-                    FocusRequestOutcome.Disposed -> {
-                        requesterDisposed = true
-                        false
-                    }
+        val result = requestPendingForYouReturnFocus(
+            maxAttempts = 6,
+            awaitFrame = { withFrameNanos { } },
+            targetState = {
+                when {
+                    disposedReturnLocation == target -> ForYouReturnTargetState.Disposed
+                    preparedReturnLocation == target -> ForYouReturnTargetState.Attached
+                    else -> ForYouReturnTargetState.NotAttached
                 }
-            val handled = requestRecommendationRowFocus(
-                requestRowContainer = {
-                    requestFocus { detailReturnRowFocusRequester.requestFocus() }
-                },
-                awaitFrame = { withFrameNanos { } },
-                requestFirstCard = {
-                    requestFocus { detailReturnCardFocusRequester.requestFocus() }
-                },
-            )
-            if (requesterDisposed || handled) return@LaunchedEffect
+            },
+            requestRowContainer = {
+                requestFocusSafely { detailReturnRowFocusRequester.requestFocus() }
+            },
+            awaitRowFrame = { withFrameNanos { } },
+            requestCard = {
+                requestFocusSafely { detailReturnCardFocusRequester.requestFocus() }
+            },
+        )
+        if (result == ForYouReturnFocusResult.Exhausted) {
+            requestFocusSafely { forYouFocusRequester.requestFocus() }
         }
+        latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
     }
 
     // Match tvOS: recommendations remain the landing content when available;
@@ -413,14 +446,16 @@ fun TvRecommendationsScreen(
                             key = { _, section -> section.id },
                             contentType = { _, _ -> "recommendation-section-row" },
                         ) { index, section ->
+                            val rowReturnLocation = pendingReturnLocation
+                                ?.takeIf { it.rowIndex == index }
                             TvMediaRow(
                                 title = section.title,
                                 items = section.items,
                                 onItemClick = { contentId ->
-                                    lastFocusedSectionId = section.id
-                                    lastFocusedContentId = contentId
-                                    lastFocusedRowIndex = index
-                                    lastFocusedCardIndex = section.items.indexOfFirst {
+                                    detailReturnSectionId = section.id
+                                    detailReturnContentId = contentId
+                                    detailReturnRowIndex = index
+                                    detailReturnCardIndex = section.items.indexOfFirst {
                                         it.contentId == contentId
                                     }.coerceAtLeast(0)
                                     onRecommendationItemClick(contentId)
@@ -429,19 +464,40 @@ fun TvRecommendationsScreen(
                                 firstItemFocusRequester = firstRecommendationCardFocusRequester
                                     .takeIf { index == 0 },
                                 rowContainerFocusRequester = when {
-                                    index == resolvedReturnTarget?.rowIndex ->
-                                        detailReturnRowFocusRequester
+                                    rowReturnLocation != null -> detailReturnRowFocusRequester
                                     index == 0 -> firstRecommendationRowFocusRequester
                                     else -> null
                                 },
-                                restoreFocusIndex = resolvedReturnTarget?.cardIndex ?: -1,
+                                restoreFocusIndex = rowReturnLocation?.cardIndex ?: -1,
                                 restoreFocusRequester = detailReturnCardFocusRequester
-                                    .takeIf { index == resolvedReturnTarget?.rowIndex },
-                                onItemFocusedAtIndex = { item, cardIndex ->
-                                    lastFocusedSectionId = section.id
-                                    lastFocusedContentId = item.contentId
-                                    lastFocusedRowIndex = index
-                                    lastFocusedCardIndex = cardIndex
+                                    .takeIf { rowReturnLocation != null },
+                                restoreFocusRequest = detailReturnFocusRequest
+                                    .takeIf {
+                                        detailReturnFocusPending && rowReturnLocation != null
+                                    } ?: 0,
+                                onRestoreFocusTargetPlaced = if (rowReturnLocation != null) {
+                                    { requestId, cardIndex ->
+                                        if (
+                                            requestId == rowReturnLocation.requestId &&
+                                            cardIndex == rowReturnLocation.cardIndex
+                                        ) {
+                                            preparedReturnLocation = rowReturnLocation
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                                onRestoreFocusTargetDisposed = if (rowReturnLocation != null) {
+                                    { requestId, cardIndex ->
+                                        if (
+                                            requestId == rowReturnLocation.requestId &&
+                                            cardIndex == rowReturnLocation.cardIndex
+                                        ) {
+                                            disposedReturnLocation = rowReturnLocation
+                                        }
+                                    }
+                                } else {
+                                    null
                                 },
                                 onDirectionUp = if (index == 0) {
                                     {

@@ -64,10 +64,7 @@ class RecommendationsViewModel(
 
         when (discoverResult) {
             is ApiResult.Success -> {
-                val sections = discoverResult.data.rows
-                    .mapIndexed { index, row -> row.toResolvedSection(index) }
-                    .filter { it.items.isNotEmpty() }
-                    .sortedByDescending { it.title.equals("For You", ignoreCase = true) }
+                val sections = discoverResult.data.rows.toResolvedSections()
 
                 _uiState.update {
                     it.copy(
@@ -103,12 +100,23 @@ class RecommendationsViewModel(
         }
     }
 
-    private fun DiscoverRow.toResolvedSection(index: Int): ResolvedSection = ResolvedSection(
-        id = "discover_${index}_${type}",
-        sectionType = type,
-        title = label,
-        itemLimit = items.size,
-        totalCount = items.size,
-        items = items,
-    )
 }
+
+internal fun List<DiscoverRow>.toResolvedSections(): List<ResolvedSection> =
+    map(DiscoverRow::toResolvedSection)
+        .filter { it.items.isNotEmpty() }
+        .sortedByDescending { it.title.equals("For You", ignoreCase = true) }
+
+private fun DiscoverRow.toResolvedSection(): ResolvedSection = ResolvedSection(
+    id = stableSectionId(),
+    sectionType = type,
+    title = label,
+    itemLimit = items.size,
+    totalCount = items.size,
+    items = items,
+)
+
+private fun DiscoverRow.stableSectionId(): String =
+    sectionKind?.takeIf { it.isNotBlank() }?.let { kind ->
+        "discover:kind=$kind:key=${sectionKey.orEmpty()}"
+    } ?: "discover:type=$type:label=$label"

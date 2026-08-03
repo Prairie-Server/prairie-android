@@ -94,17 +94,20 @@ fun TvDiagnosticsSettingsScreen(
                     event.key == Key.DirectionDown -> TvDiagnosticsFocusDirection.Down
                     else -> null
                 }
-                val target = direction?.let {
-                    nextTvDiagnosticsCrashFocus(
+                val keyResult = direction?.let {
+                    tvDiagnosticsCrashFocusKeyResult(
                         current = current,
                         direction = it,
                         debugLoggingEnabled = state.consent != DiagnosticsConsentMode.NEVER,
+                        isRepeat = event.nativeKeyEvent.repeatCount > 0,
                     )
                 }
-                if (target == null) {
+                if (keyResult == null || !keyResult.consume) {
                     false
                 } else {
-                    runCatching { crashFocusRequesters.getValue(target).requestFocus() }
+                    keyResult.target?.let { target ->
+                        runCatching { crashFocusRequesters.getValue(target).requestFocus() }
+                    }
                     true
                 }
             }
@@ -227,6 +230,11 @@ internal enum class TvDiagnosticsCrashFocus { ASK, ALWAYS, NEVER, DEBUG_LOGGING 
 
 internal enum class TvDiagnosticsFocusDirection { Up, Down }
 
+internal data class TvDiagnosticsCrashFocusKeyResult(
+    val target: TvDiagnosticsCrashFocus?,
+    val consume: Boolean,
+)
+
 internal enum class TvDiagnosticsCrashFocusRequestResult { FOCUSED, RETRY, DISPOSED }
 
 internal fun tvDiagnosticsCrashFocusRequestResult(
@@ -261,6 +269,17 @@ internal fun nextTvDiagnosticsCrashFocus(
         TvDiagnosticsFocusDirection.Up -> order[(index - 1).coerceAtLeast(0)]
         TvDiagnosticsFocusDirection.Down -> order.getOrNull(index + 1)
     }
+}
+
+internal fun tvDiagnosticsCrashFocusKeyResult(
+    current: TvDiagnosticsCrashFocus,
+    direction: TvDiagnosticsFocusDirection,
+    debugLoggingEnabled: Boolean,
+    isRepeat: Boolean,
+): TvDiagnosticsCrashFocusKeyResult {
+    if (isRepeat) return TvDiagnosticsCrashFocusKeyResult(target = null, consume = true)
+    val target = nextTvDiagnosticsCrashFocus(current, direction, debugLoggingEnabled)
+    return TvDiagnosticsCrashFocusKeyResult(target = target, consume = target != null)
 }
 
 @Composable

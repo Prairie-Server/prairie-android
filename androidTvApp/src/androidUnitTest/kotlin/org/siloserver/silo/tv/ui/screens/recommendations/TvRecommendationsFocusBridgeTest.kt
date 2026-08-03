@@ -1,9 +1,11 @@
 package org.siloserver.silo.tv.ui.screens.recommendations
 
 import kotlinx.coroutines.test.runTest
+import org.siloserver.silo.tv.ui.components.prepareTvMediaRowFocusRestore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TvRecommendationsFocusBridgeTest {
@@ -140,5 +142,144 @@ class TvRecommendationsFocusBridgeTest {
                 hasVisibleRecommendations = false,
             ),
         )
+    }
+
+    @Test
+    fun successfulReturnIsConsumedUntilANewDetailReturnBegins() {
+        val pending = beginForYouDetailReturn(previousRequestId = 4)
+        val rows = listOf(
+            ForYouFocusRow("because-you-watched", listOf("movie-a", "movie-b")),
+        )
+
+        assertEquals(
+            ForYouReturnFocusLocation(
+                requestId = 5,
+                rowIndex = 0,
+                cardIndex = 1,
+                sectionId = "because-you-watched",
+                contentId = "movie-b",
+            ),
+            resolvePendingForYouReturnLocation(pending, target, rows),
+        )
+
+        val consumed = consumeForYouDetailReturn(pending, completedRequestId = 5)
+        assertFalse(consumed.pending)
+        val ordinaryFocusTarget = ForYouFocusTarget("trending", "movie-z", 1, 0)
+        val refreshedRows = listOf(
+            ForYouFocusRow("inserted", listOf("movie-new")),
+            ForYouFocusRow("trending", listOf("movie-z")),
+            rows.single(),
+        )
+        assertNull(
+            resolvePendingForYouReturnLocation(
+                consumed,
+                ordinaryFocusTarget,
+                refreshedRows,
+            ),
+        )
+        assertEquals(consumed, consumeForYouDetailReturn(consumed, completedRequestId = 5))
+
+        val nextReturn = beginForYouDetailReturn(previousRequestId = consumed.requestId)
+        assertTrue(nextReturn.pending)
+        assertEquals(6, nextReturn.requestId)
+    }
+
+    @Test
+    fun staleCompletionCannotConsumeANewerReturn() {
+        val newer = beginForYouDetailReturn(previousRequestId = 8)
+
+        assertEquals(
+            newer,
+            consumeForYouDetailReturn(newer, completedRequestId = 8),
+        )
+    }
+
+    @Test
+    fun offscreenReorderedTargetWaitsForAttachmentThenFocuses() = runTest {
+        val reorderedRows = listOf(
+            ForYouFocusRow(
+                "because-you-watched",
+                listOf(
+                    "movie-a",
+                    "movie-c",
+                    "movie-d",
+                    "movie-e",
+                    "movie-f",
+                    "movie-g",
+                    "movie-h",
+                    "movie-i",
+                    "movie-b",
+                ),
+            ),
+        )
+        val location = resolvePendingForYouReturnLocation(
+            beginForYouDetailReturn(previousRequestId = 0),
+            target,
+            reorderedRows,
+        )
+        assertEquals(8, location?.cardIndex)
+
+        val events = mutableListOf<String>()
+        val prepared = prepareTvMediaRowFocusRestore(
+            requestId = location?.requestId ?: 0,
+            restoreFocusIndex = location?.cardIndex ?: -1,
+            itemCount = reorderedRows.single().contentIds.size,
+            scrollToItem = { index -> events += "scroll:$index" },
+        )
+        assertTrue(prepared)
+
+        var frames = 0
+        var rowRequests = 0
+        var cardRequests = 0
+        val result = requestPendingForYouReturnFocus(
+            maxAttempts = 6,
+            awaitFrame = { frames++ },
+            targetState = {
+                if (frames < 3) ForYouReturnTargetState.NotAttached
+                else ForYouReturnTargetState.Attached
+            },
+            requestRowContainer = {
+                rowRequests++
+                events += "row"
+                FocusRequestOutcome.Handled
+            },
+            awaitRowFrame = { events += "row-frame" },
+            requestCard = {
+                cardRequests++
+                events += "card"
+                FocusRequestOutcome.Handled
+            },
+        )
+
+        assertEquals(ForYouReturnFocusResult.Focused, result)
+        assertEquals(3, frames)
+        assertEquals(1, rowRequests)
+        assertEquals(1, cardRequests)
+        assertEquals(listOf("scroll:8", "row", "row-frame", "card"), events)
+    }
+
+    @Test
+    fun genuineTargetDisposalStopsBoundedRetries() = runTest {
+        var frames = 0
+        var focusRequests = 0
+
+        val result = requestPendingForYouReturnFocus(
+            maxAttempts = 6,
+            awaitFrame = { frames++ },
+            targetState = { ForYouReturnTargetState.Disposed },
+            requestRowContainer = {
+                focusRequests++
+                FocusRequestOutcome.Handled
+            },
+            awaitRowFrame = {},
+            requestCard = {
+                focusRequests++
+                FocusRequestOutcome.Handled
+            },
+        )
+
+        assertEquals(ForYouReturnFocusResult.Disposed, result)
+        assertEquals(1, frames)
+        assertEquals(0, focusRequests)
     }
 }

@@ -90,6 +90,32 @@ class TvDiagnosticsStateTest {
     }
 
     @Test
+    fun repeatedDownIsConsumedWithoutMovingToAnotherLayer() {
+        assertEquals(
+            TvDiagnosticsCrashFocusKeyResult(target = null, consume = true),
+            tvDiagnosticsCrashFocusKeyResult(
+                current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+                isRepeat = true,
+            ),
+        )
+    }
+
+    @Test
+    fun freshDownFromLastEnabledChoiceStillFallsThrough() {
+        assertEquals(
+            TvDiagnosticsCrashFocusKeyResult(target = null, consume = false),
+            tvDiagnosticsCrashFocusKeyResult(
+                current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+                isRepeat = false,
+            ),
+        )
+    }
+
+    @Test
     fun promptDefaultsToDontSend() {
         val model = tvDiagnosticsPromptModel(
             DiagnosticsPrompt("report-1", DiagnosticsReportType.CRASH, "2026-07-22T00:00:00Z"),

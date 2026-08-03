@@ -153,6 +153,9 @@ import org.siloserver.silo.tv.ui.screens.personal.TvWatchlistScreen
 import org.siloserver.silo.tv.ui.screens.recommendations.TvRecommendationsScreen
 import org.siloserver.silo.tv.ui.screens.recommendations.SavedListSelection
 import org.siloserver.silo.tv.ui.screens.recommendations.TvForYouEntryRequest
+import org.siloserver.silo.tv.ui.screens.recommendations.ForYouDetailReturnState
+import org.siloserver.silo.tv.ui.screens.recommendations.beginForYouDetailReturn
+import org.siloserver.silo.tv.ui.screens.recommendations.consumeForYouDetailReturn
 import org.siloserver.silo.tv.ui.screens.requests.TvMyRequestsScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestDetailScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestsScreen
@@ -340,7 +343,8 @@ fun TvMainShell(
     var restoreForYouContentAfterDetail by rememberSaveable { mutableStateOf(false) }
     var suppressHomeRefreshAfterDetail by rememberSaveable { mutableStateOf(false) }
     var homeDetailReturnFocusRequest by remember { mutableIntStateOf(0) }
-    var forYouDetailReturnFocusRequest by remember { mutableIntStateOf(0) }
+    var forYouDetailReturnFocusRequest by rememberSaveable { mutableIntStateOf(0) }
+    var forYouDetailReturnFocusPending by rememberSaveable { mutableStateOf(false) }
     var homeDetailReturnNeedsRetry by remember { mutableStateOf(false) }
     // Attached (by the Home feed) to the exact card a detail page was launched
     // from, while that return is pending. Used as the content restorer's enter
@@ -352,7 +356,8 @@ fun TvMainShell(
     val forYouDetailReturnCardFocusRequester = remember { FocusRequester() }
     val detailReturnFallback = when {
         restoreHomeContentAfterDetail -> homeDetailReturnCardFocusRequester
-        restoreForYouContentAfterDetail -> forYouDetailReturnCardFocusRequester
+        restoreForYouContentAfterDetail || forYouDetailReturnFocusPending ->
+            forYouDetailReturnCardFocusRequester
         else -> FocusRequester.Default
     }
     // Whether focus currently sits anywhere inside the content group. Gates
@@ -376,7 +381,9 @@ fun TvMainShell(
             restoreContentAfterDetail = false
             restoreHomeContentAfterDetail = false
             if (restoreForYouContentAfterDetail) {
-                forYouDetailReturnFocusRequest++
+                val started = beginForYouDetailReturn(forYouDetailReturnFocusRequest)
+                forYouDetailReturnFocusRequest = started.requestId
+                forYouDetailReturnFocusPending = started.pending
             }
             restoreForYouContentAfterDetail = false
             homeDetailReturnFocusRequest++
@@ -402,6 +409,7 @@ fun TvMainShell(
         onOpenItemDetail(contentId)
     }
     val openForYouItemDetail: (String) -> Unit = { contentId ->
+        forYouDetailReturnFocusPending = false
         restoreContentAfterDetail = true
         restoreForYouContentAfterDetail = true
         onOpenItemDetail(contentId)
@@ -1062,7 +1070,18 @@ fun TvMainShell(
                         onItemClick = openContentItemDetail,
                         onRecommendationItemClick = openForYouItemDetail,
                         detailReturnFocusRequest = forYouDetailReturnFocusRequest,
+                        detailReturnFocusPending = forYouDetailReturnFocusPending,
                         detailReturnCardFocusRequester = forYouDetailReturnCardFocusRequester,
+                        onDetailReturnFocusConsumed = { completedRequestId ->
+                            val consumed = consumeForYouDetailReturn(
+                                state = ForYouDetailReturnState(
+                                    requestId = forYouDetailReturnFocusRequest,
+                                    pending = forYouDetailReturnFocusPending,
+                                ),
+                                completedRequestId = completedRequestId,
+                            )
+                            forYouDetailReturnFocusPending = consumed.pending
+                        },
                         onSolidTopBarChanged = onForYouSolidTopBarChanged,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
