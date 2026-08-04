@@ -24,9 +24,9 @@ class TvDiagnosticsStateTest {
     }
 
     @Test
-    fun failedFocusRequestIsTerminalBecauseTheScreenWasDisposed() {
+    fun detachedFocusRequesterFailureIsRetryable() {
         assertEquals(
-            TvDiagnosticsCrashFocusRequestResult.DISPOSED,
+            TvDiagnosticsCrashFocusRequestResult.RETRY,
             tvDiagnosticsCrashFocusRequestResult(
                 Result.failure(IllegalStateException("Focus requester is detached")),
             ),

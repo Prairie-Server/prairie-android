@@ -77,9 +77,7 @@ fun TvDiagnosticsSettingsScreen(
                     runCatching { crashFocusRequesters.getValue(target).requestFocus() },
                 )
             ) {
-                TvDiagnosticsCrashFocusRequestResult.FOCUSED,
-                TvDiagnosticsCrashFocusRequestResult.DISPOSED,
-                -> return@LaunchedEffect
+                TvDiagnosticsCrashFocusRequestResult.FOCUSED -> return@LaunchedEffect
                 TvDiagnosticsCrashFocusRequestResult.RETRY -> Unit
             }
         }
@@ -235,14 +233,14 @@ internal data class TvDiagnosticsCrashFocusKeyResult(
     val consume: Boolean,
 )
 
-internal enum class TvDiagnosticsCrashFocusRequestResult { FOCUSED, RETRY, DISPOSED }
+internal enum class TvDiagnosticsCrashFocusRequestResult { FOCUSED, RETRY }
 
 internal fun tvDiagnosticsCrashFocusRequestResult(
     result: Result<Boolean>,
-): TvDiagnosticsCrashFocusRequestResult = when {
-    result.isFailure -> TvDiagnosticsCrashFocusRequestResult.DISPOSED
-    result.getOrDefault(false) -> TvDiagnosticsCrashFocusRequestResult.FOCUSED
-    else -> TvDiagnosticsCrashFocusRequestResult.RETRY
+): TvDiagnosticsCrashFocusRequestResult = if (result.getOrDefault(false)) {
+    TvDiagnosticsCrashFocusRequestResult.FOCUSED
+} else {
+    TvDiagnosticsCrashFocusRequestResult.RETRY
 }
 
 internal fun initialTvDiagnosticsCrashFocus(mode: DiagnosticsConsentMode) = when (mode) {
