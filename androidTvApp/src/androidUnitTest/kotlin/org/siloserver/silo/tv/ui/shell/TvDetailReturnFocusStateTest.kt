@@ -46,4 +46,34 @@ class TvDetailReturnFocusStateTest {
         assertFalse(state.needsRetry)
         assertFalse(state.fallbackPending)
     }
+
+    @Test
+    fun homeRetryArmsCardFallbackUntilRetryCompletes() {
+        val state = beginHomeDetailReturnRetryIfHome(
+            previousState = HomeDetailReturnFocusState(requestId = 7),
+            isHomeDetailReturn = true,
+            needsRetry = true,
+        )
+
+        assertEquals(8, state.requestId)
+        assertTrue(state.needsRetry)
+        assertTrue(state.fallbackPending)
+    }
+
+    @Test
+    fun successfulHomeResumeDoesNotLeaveRetryOrFallbackPending() {
+        val state = beginHomeDetailReturnRetryIfHome(
+            previousState = HomeDetailReturnFocusState(
+                requestId = 7,
+                needsRetry = true,
+                fallbackPending = true,
+            ),
+            isHomeDetailReturn = true,
+            needsRetry = false,
+        )
+
+        assertEquals(8, state.requestId)
+        assertFalse(state.needsRetry)
+        assertFalse(state.fallbackPending)
+    }
 }

@@ -30,7 +30,7 @@
 - Consumes: `calendarUpFallbackAction(focusedShelfIndex, firstFocusableShelfIndex, isReturningToControls, focusedControlZone, isRepeat)`
 - Produces: the existing `CalendarUpFallbackAction.MoveWithinContent` result for repeated Up below the first focusable shelf
 
-- [ ] **Step 1: Add the failing regression test**
+- [x] **Step 1: Add the failing regression test**
 
 Add this test to `TvCalendarFocusRoutingTest`:
 
@@ -50,7 +50,7 @@ fun heldUpBelowFirstShelfContinuesContentMovement() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -60,7 +60,7 @@ Run:
 
 Expected: `heldUpBelowFirstShelfContinuesContentMovement` fails because the current unconditional `isRepeat` branch returns `StayInContent`.
 
-- [ ] **Step 3: Restore the content-aware repeat guard**
+- [x] **Step 3: Restore the content-aware repeat guard**
 
 Change the broad repeat branch in `calendarUpFallbackAction` to:
 
@@ -70,11 +70,11 @@ focusedShelfIndex == null && isRepeat -> CalendarUpFallbackAction.StayInContent
 
 Keep the first-shelf boundary branch above it unchanged so a held event cannot skip from the first shelf into controls.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the Task 1 command again. Expected: all `TvCalendarFocusRoutingTest` tests pass.
 
-- [ ] **Step 5: Commit the Calendar correction**
+- [x] **Step 5: Commit the Calendar correction**
 
 ```bash
 git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/calendar/TvCalendarScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/calendar/TvCalendarFocusRoutingTest.kt
@@ -91,7 +91,7 @@ git commit -m "fix(tv): preserve held Calendar shelf movement"
 - Consumes: `tvDiagnosticsCrashFocusRequestResult(Result<Boolean>)`
 - Produces: `FOCUSED` for `true`; `RETRY` for `false` and caught exceptions
 
-- [ ] **Step 1: Change the failure test to the required behavior**
+- [x] **Step 1: Change the failure test to the required behavior**
 
 Replace `failedFocusRequestIsTerminalBecauseTheScreenWasDisposed` with:
 
@@ -107,7 +107,7 @@ fun detachedFocusRequesterFailureIsRetryable() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -117,7 +117,7 @@ Run:
 
 Expected: `detachedFocusRequesterFailureIsRetryable` fails because the current function returns `DISPOSED`.
 
-- [ ] **Step 3: Remove synthetic disposal classification**
+- [x] **Step 3: Remove synthetic disposal classification**
 
 Reduce the enum and classifier to:
 
@@ -135,11 +135,11 @@ internal fun tvDiagnosticsCrashFocusRequestResult(
 
 Update the `LaunchedEffect` `when` so only `FOCUSED` exits and `RETRY` continues to the next bounded frame. Disposal continues to cancel the effect through structured concurrency.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the Task 2 command again. Expected: all `TvDiagnosticsStateTest` tests pass.
 
-- [ ] **Step 5: Commit the Diagnostics correction**
+- [x] **Step 5: Commit the Diagnostics correction**
 
 ```bash
 git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/TvDiagnosticsSettingsScreen.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/settings/diagnostics/TvDiagnosticsStateTest.kt
@@ -159,7 +159,7 @@ git commit -m "fix(tv): retry detached Diagnostics focus"
 - Produces: `completeHomeDetailReturnRetry(state: HomeDetailReturnFocusState): HomeDetailReturnFocusState`
 - Produces: `resetHomeDetailReturnFocus(): HomeDetailReturnFocusState`
 
-- [ ] **Step 1: Add failing tests for the Home retry lifetime**
+- [x] **Step 1: Add failing tests for the Home retry lifetime**
 
 Create `TvDetailReturnFocusStateTest.kt`:
 
@@ -202,7 +202,7 @@ class TvDetailReturnFocusStateTest {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -212,7 +212,7 @@ Run:
 
 Expected: compilation fails because the Home state type and transition functions do not exist.
 
-- [ ] **Step 3: Add the minimal immutable state model**
+- [x] **Step 3: Add the minimal immutable state model**
 
 Create `TvDetailReturnFocusState.kt`:
 
@@ -245,13 +245,13 @@ internal fun resetHomeDetailReturnFocus(): HomeDetailReturnFocusState =
     HomeDetailReturnFocusState()
 ```
 
-- [ ] **Step 4: Wire the state model into `TvMainShell`**
+- [x] **Step 4: Wire the state model into `TvMainShell`**
 
 Replace `homeDetailReturnFocusRequest` and `homeDetailReturnNeedsRetry` with one remembered `HomeDetailReturnFocusState`. Include `homeDetailReturnFocusState.fallbackPending` in the Home branch of `detailReturnFallback`. After the synchronous resume request, call `beginHomeDetailReturnRetry`; after the optional deferred request, call `completeHomeDetailReturnRetry`. On explicit Home selection, assign `resetHomeDetailReturnFocus()`.
 
 Pass `homeDetailReturnFocusState.requestId` to both Home screen call sites. Do not change the For You flow in this task.
 
-- [ ] **Step 5: Run focused shell and Home tests and verify GREEN**
+- [x] **Step 5: Run focused shell and Home tests and verify GREEN**
 
 Run:
 
@@ -261,7 +261,7 @@ Run:
 
 Expected: both test classes pass.
 
-- [ ] **Step 6: Commit the Home correction**
+- [x] **Step 6: Commit the Home correction**
 
 ```bash
 git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvDetailReturnFocusState.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/shell/TvDetailReturnFocusStateTest.kt
@@ -279,7 +279,7 @@ git commit -m "fix(tv): retain Home detail fallback through retry"
 - Consumes: `ForYouDetailReturnState(requestId: Int, pending: Boolean)`
 - Produces: `resetForExplicitForYouSelection(): ForYouDetailReturnState`
 
-- [ ] **Step 1: Add the failing explicit-reset test**
+- [x] **Step 1: Add the failing explicit-reset test**
 
 Add to `TvRecommendationsFocusBridgeTest`:
 
@@ -293,7 +293,7 @@ fun explicitForYouSelectionClearsStaleReturnState() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -303,7 +303,7 @@ Run:
 
 Expected: compilation fails because `resetForExplicitForYouSelection` does not exist.
 
-- [ ] **Step 3: Add and wire the explicit reset**
+- [x] **Step 3: Add and wire the explicit reset**
 
 Add to `TvRecommendationsFocusBridge.kt`:
 
@@ -314,11 +314,11 @@ internal fun resetForExplicitForYouSelection(): ForYouDetailReturnState =
 
 In the `TvRootDestination.ForYou` branch of `onSelectRoot`, call the helper and assign both `forYouDetailReturnFocusRequest` and `forYouDetailReturnFocusPending` from the returned state before creating the top-level For You entry request.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run the Task 4 command again. Expected: all `TvRecommendationsFocusBridgeTest` tests pass.
 
-- [ ] **Step 5: Commit the For You correction**
+- [x] **Step 5: Commit the For You correction**
 
 ```bash
 git add androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsFocusBridge.kt androidTvApp/src/androidMain/kotlin/org/siloserver/silo/tv/ui/shell/TvMainShell.kt androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/recommendations/TvRecommendationsFocusBridgeTest.kt
@@ -334,7 +334,7 @@ git commit -m "fix(tv): reset stale For You detail return"
 - Consumes: all four independently passing fixes
 - Produces: a review-ready PR #164 branch with focused and full validation evidence
 
-- [ ] **Step 1: Run all focused regression classes together**
+- [x] **Step 1: Run all focused regression classes together**
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest \
@@ -347,7 +347,7 @@ git commit -m "fix(tv): reset stale For You detail return"
 
 Expected: all focused tests pass.
 
-- [ ] **Step 2: Run the full Android TV unit suite**
+- [x] **Step 2: Run the full Android TV unit suite**
 
 ```bash
 ./gradlew :androidTvApp:testDebugUnitTest
@@ -355,7 +355,7 @@ Expected: all focused tests pass.
 
 Expected: zero failures.
 
-- [ ] **Step 3: Assemble the Android TV debug APK**
+- [x] **Step 3: Assemble the Android TV debug APK**
 
 ```bash
 ./gradlew :androidTvApp:assembleDebug
@@ -363,7 +363,7 @@ Expected: zero failures.
 
 Expected: `BUILD SUCCESSFUL`.
 
-- [ ] **Step 4: Run repository hygiene checks**
+- [x] **Step 4: Run repository hygiene checks**
 
 ```bash
 git diff --check origin/main...HEAD
@@ -372,7 +372,7 @@ git status --short
 
 Expected: no whitespace errors and no uncommitted files.
 
-- [ ] **Step 5: Review the final diff against the approved scope**
+- [x] **Step 5: Review the final diff against the approved scope**
 
 ```bash
 git diff --stat origin/main...HEAD
@@ -386,6 +386,6 @@ git diff origin/main...HEAD -- \
 
 Confirm the diff implements only the four approved corrections and their regression coverage.
 
-- [ ] **Step 6: Record the remaining device gate**
+- [x] **Step 6: Record the remaining device gate**
 
 Report that automated validation is complete while Shield smoke checks remain required for held Calendar movement, Diagnostics initial focus, and Home/For You detail-return restoration.
