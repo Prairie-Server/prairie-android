@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,6 +63,7 @@ internal fun rememberTvVoiceSearch(
     // Resolved once. Installing a recogniser mid-session is not a case worth
     // recomposing for, and re-querying the package manager on every frame is.
     val isAvailable = remember(context) { isTvSpeechRecognitionAvailable(context) }
+    val recognizerPackage = remember(context) { preferredRecognizerPackage(context) }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -79,7 +82,7 @@ internal fun rememberTvVoiceSearch(
         if (spoken.isNotEmpty()) currentOnResult(spoken)
     }
 
-    return remember(isAvailable, prompt, launcher) {
+    return remember(isAvailable, prompt, recognizerPackage, launcher) {
         TvVoiceSearchController(
             isAvailable = isAvailable,
             launch = {
@@ -87,7 +90,7 @@ internal fun rememberTvVoiceSearch(
                 // every reason a launch could fail and left the caller unable
                 // to tell success from silence.
                 try {
-                    launcher.launch(tvSpeechRecognizerIntent(prompt))
+                    launcher.launch(tvSpeechRecognizerIntent(prompt, recognizerPackage))
                     true
                 } catch (e: ActivityNotFoundException) {
                     Log.w(TvVoiceSearchTag, "No activity accepted the speech recognition intent", e)
@@ -101,8 +104,54 @@ internal fun rememberTvVoiceSearch(
 
 private const val TvVoiceSearchTag = "TvVoiceSearch"
 
-private fun tvSpeechRecognizerIntent(prompt: String): Intent =
+/**
+ * Which package should service the recognition request, or null to leave it to
+ * the system.
+ *
+ * More than one activity commonly claims this intent — a Google TV Streamer
+ * offers both the TV search app and the text-to-speech package — and with no
+ * default the launch becomes a disambiguation chooser. Asking someone to pick
+ * an app with a remote before they can say a film title is not voice search.
+ *
+ * The order matters and is not the obvious one. The device's configured
+ * VOICE_RECOGNITION_SERVICE names a service for programmatic recognition, not
+ * necessarily the best ACTIVITY to show someone: on a Streamer it points at the
+ * text-to-speech package, whose activity is not the ten-foot voice UI anyone
+ * wants. The voice-interaction/assistant package is the system's designated
+ * spoken front end, and on a TV that is the one with the microphone UI built
+ * for a remote. So it is asked first, and the recognition service only after.
+ *
+ * When nothing matches, null leaves the intent implicit and the system shows
+ * its chooser — worse, but honest, and better than silently picking whichever
+ * handler happened to be listed first.
+ */
+private fun preferredRecognizerPackage(context: Context): String? {
+    val candidates = context.packageManager.queryIntentActivities(
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH),
+        PackageManager.MATCH_DEFAULT_ONLY,
+    )
+    if (candidates.size <= 1) {
+        return candidates.firstOrNull()?.activityInfo?.packageName
+    }
+    val resolver = context.contentResolver
+    val preferred = listOf(
+        "voice_interaction_service",
+        "assistant",
+        // Read by key: the constant is not public API.
+        "voice_recognition_service",
+    ).mapNotNull { key ->
+        Settings.Secure.getString(resolver, key)
+            ?.substringBefore('/')
+            ?.takeIf { it.isNotBlank() }
+    }
+    return preferred.firstOrNull { pkg ->
+        candidates.any { it.activityInfo?.packageName == pkg }
+    }
+}
+
+private fun tvSpeechRecognizerIntent(prompt: String, recognizerPackage: String?): Intent =
     Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        recognizerPackage?.let(::setPackage)
         // Free-form rather than web search: these are film, series and book
         // titles, not queries, and the web-search model rewrites them toward
         // whatever it thinks you meant to google.
