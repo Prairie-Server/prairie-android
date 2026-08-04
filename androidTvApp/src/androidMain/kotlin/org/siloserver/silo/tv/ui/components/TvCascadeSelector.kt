@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -328,37 +329,39 @@ fun TvCascadeSelector(
         if (!isSingleLibrary) {
             val rowsContent: @Composable () -> Unit = {
                 libraries.forEach { library ->
-                    val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
-                    CascadeLibraryRow(
-                        library = library,
-                        type = type,
-                        isCurrent = library.id == currentScopeId,
-                        entersPanel = entersPanel,
-                        focusRequester = requester,
-                        onFocusChanged = { focused ->
-                            focusedRowId = if (focused) {
-                                library.id
-                            } else {
-                                focusedRowId.takeUnless { it == library.id }
-                            }
-                        },
-                        onTopChanged = { top -> rowTops[library.id] = top },
-                        onMoveRight = {
-                            anchorId = library.id
-                            val firstPill = pills.firstOrNull()
-                            if (firstPill != null) {
-                                flyoutVisible = true
-                                focusFirstPillToken++
+                    key(library.id) {
+                        val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
+                        CascadeLibraryRow(
+                            library = library,
+                            type = type,
+                            isCurrent = library.id == currentScopeId,
+                            entersPanel = entersPanel,
+                            focusRequester = requester,
+                            onFocusChanged = { focused ->
+                                focusedRowId = if (focused) {
+                                    library.id
+                                } else {
+                                    focusedRowId.takeUnless { it == library.id }
+                                }
+                            },
+                            onTopChanged = { top -> rowTops[library.id] = top },
+                            onMoveRight = {
+                                anchorId = library.id
+                                val firstPill = pills.firstOrNull()
+                                if (firstPill != null) {
+                                    flyoutVisible = true
+                                    focusFirstPillToken++
+                                    true
+                                } else {
+                                    false
+                                }
+                            },
+                            onSelect = {
+                                onCommitLibrary(library)
                                 true
-                            } else {
-                                false
-                            }
-                        },
-                        onSelect = {
-                            onCommitLibrary(library)
-                            true
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
             }
 
@@ -374,7 +377,7 @@ fun TvCascadeSelector(
                         state = lazyListState,
                         modifier = Modifier.heightIn(max = CascadeMaxListHeight),
                     ) {
-                        items(libraries) { library ->
+                        items(libraries, key = { it.id }) { library ->
                             val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
                             CascadeLibraryRow(
                                 library = library,
