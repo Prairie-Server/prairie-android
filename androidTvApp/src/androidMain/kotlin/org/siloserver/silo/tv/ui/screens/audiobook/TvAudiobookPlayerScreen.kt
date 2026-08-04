@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -77,12 +78,21 @@ import org.siloserver.silo.common.player.SiloPlaybackService
 import org.siloserver.silo.model.catalog.VersionChapter
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvPoster
+import org.siloserver.silo.tv.ui.focus.TvFocusAcquisitionBudgetMillis
+import org.siloserver.silo.tv.ui.focus.TvObservedFocusResult
+import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
+import org.siloserver.silo.tv.ui.focus.tvFocusSuppressed
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.max
 
 private enum class AudiobookPanel { None, Chapters, Speed, Sleep, More, Skip, Bookmarks, About }
+
+private const val TvAudiobookTransportFocusRetryDelayMillis = 60L
+
+private val TvAudiobookTransportFocusMaxAttempts =
+    (TvFocusAcquisitionBudgetMillis / TvAudiobookTransportFocusRetryDelayMillis).toInt()
 
 /**
  * 10-foot, D-pad audiobook player for Android TV. A thin focus/layout view over
@@ -222,9 +232,48 @@ fun TvAudiobookPlayerScreen(
     }
 
     // Initial / restored focus lands on play/pause when no panel is open.
-    LaunchedEffect(state.isLoading, activePanel) {
-        if (!state.isLoading && activePanel == AudiobookPanel.None) {
-            runCatching { playPauseFocus.requestFocus() }
+    //
+    // Observed, because both moments this covers request focus at a target that
+    // may not be focusable yet: on first load the transport is composed in the
+    // same pass, and on panel close the panel is still being torn down. A
+    // one-shot request that lands early is silently dropped, and with the
+    // covered controls suppressed while a panel is open there is nothing else
+    // holding focus to fall back on — the screen would simply go dead.
+    var transportHasFocus by remember { mutableStateOf(false) }
+    // Set when an open panel reports that it could not take focus. Suppressing
+    // the player behind a panel that then holds no focus is worse than the
+    // escape this whole change is about, so that case hands the player back.
+    var panelFocusFailed by remember(activePanel) { mutableStateOf(false) }
+    LaunchedEffect(state.isLoading, state.error != null, activePanel, panelFocusFailed) {
+        // The error branch replaces the transport entirely, so there is nothing
+        // to acquire and retrying just burns the budget. Keyed, not just
+        // guarded, so clearing an error re-runs acquisition.
+        if (state.isLoading || state.error != null) return@LaunchedEffect
+        if (activePanel != AudiobookPanel.None && !panelFocusFailed) return@LaunchedEffect
+        if (transportHasFocus) return@LaunchedEffect
+        val result = requestFocusUntilObserved(
+            maxAttempts = TvAudiobookTransportFocusMaxAttempts,
+            awaitAttempt = { delay(TvAudiobookTransportFocusRetryDelayMillis) },
+            requestFocus = playPauseFocus::requestFocus,
+            isFocused = { transportHasFocus },
+        )
+        // Last rung of the ladder. Handing the player back is only useful if
+        // the player can actually take focus, and by here it has not: the panel
+        // reported failure and the transport did not answer either. (Strictly
+        // that says these two places lack focus, not that nothing anywhere has
+        // it — but a panel that never took focus with the player suppressed
+        // behind it leaves nothing else plausible.) Another request is not a
+        // new idea at that point. The one remaining move that changes the tree
+        // rather than re-asking the same question is dropping the overlay: it
+        // removes the panel's containment and the scrim, and re-keys this
+        // effect against an unobstructed player. That is also the terminating
+        // step — with no panel open the branch cannot fire again, so this
+        // escalates at most once.
+        if (result != TvObservedFocusResult.Focused &&
+            !transportHasFocus &&
+            activePanel != AudiobookPanel.None
+        ) {
+            activePanel = AudiobookPanel.None
         }
     }
 
@@ -238,6 +287,23 @@ fun TvAudiobookPlayerScreen(
             onExit()
         }
     }
+
+    // A runtime failure can set `error` after playback is already up. That swaps
+    // the whole content branch for TvErrorScreen, which has no actions in it —
+    // so an open panel would be left floating over a screen with nothing to
+    // return focus to once it closes. Close the panel with the content it
+    // belonged to.
+    LaunchedEffect(state.error != null) {
+        if (state.error != null) activePanel = AudiobookPanel.None
+    }
+
+    // The panels are in-window overlays, so the player stays composed and
+    // focusable behind them. Containment inside a panel cannot stop Select
+    // reaching a covered transport button when focus never entered the panel,
+    // and it cannot stop a panel row's Down walking into the pills below the
+    // scrim — the covered controls have to leave the focus graph outright.
+    val panelIsOpen = activePanel != AudiobookPanel.None
+    val playerFocusSuppressed = panelIsOpen && !panelFocusFailed
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val metrics = tvAudiobookPlayerMetrics(maxWidth.value.toInt(), maxHeight.value.toInt())
@@ -332,7 +398,10 @@ fun TvAudiobookPlayerScreen(
                             )
                             Spacer(Modifier.height(metrics.transportTopGapDp.dp))
                             TvAudiobookTransportRow(
-                                modifier = Modifier.focusProperties { down = speedChipFocus },
+                                modifier = Modifier
+                                    .focusProperties { down = speedChipFocus }
+                                    .onFocusChanged { transportHasFocus = it.hasFocus },
+                                focusSuppressed = playerFocusSuppressed,
                                 // Pause intent, not transient isPlaying, so the icon
                                 // stays stable through a seek's rebuffer.
                                 isPlaying = !state.isPaused,
@@ -353,6 +422,7 @@ fun TvAudiobookPlayerScreen(
                             Spacer(Modifier.height(metrics.utilityTopGapDp.dp))
                             TvAudiobookSecondaryControls(
                                 modifier = Modifier.focusProperties { up = playPauseFocus },
+                                focusSuppressed = playerFocusSuppressed,
                                 speedLabel = tvAudiobookSpeedLabel(state.playbackSpeed),
                                 sleepLabel = tvAudiobookSleepLabel(
                                     minutesLeft = state.sleepTimerMinutesLeft,
@@ -379,6 +449,7 @@ fun TvAudiobookPlayerScreen(
 
             when (activePanel) {
                 AudiobookPanel.Chapters -> TvAudiobookChaptersPanel(
+                    onFocusAcquisitionFailed = { panelFocusFailed = true },
                     chapters = state.chapters,
                     currentChapterIndex = currentChapterIndex,
                     onSelectChapter = { idx ->
@@ -387,6 +458,7 @@ fun TvAudiobookPlayerScreen(
                     },
                 )
                 AudiobookPanel.Speed -> TvAudiobookSpeedPanel(
+                    onFocusAcquisitionFailed = { panelFocusFailed = true },
                     currentSpeed = state.playbackSpeed,
                     // Fine-adjust / presets apply live and stay open so the user
                     // can keep tuning; "Set as default" persists and closes.
@@ -394,16 +466,19 @@ fun TvAudiobookPlayerScreen(
                     onSetDefault = { viewModel.setDefaultSpeed(it); activePanel = AudiobookPanel.None },
                 )
                 AudiobookPanel.Skip -> TvAudiobookSkipIntervalPanel(
+                    onFocusAcquisitionFailed = { panelFocusFailed = true },
                     skipBackSeconds = state.skipBackSeconds,
                     skipForwardSeconds = state.skipForwardSeconds,
                     onSelectSkipBack = { viewModel.setSkipBackSeconds(it) },
                     onSelectSkipForward = { viewModel.setSkipForwardSeconds(it) },
                 )
                 AudiobookPanel.Sleep -> TvAudiobookSleepPanel(
+                    onFocusAcquisitionFailed = { panelFocusFailed = true },
                     currentChoice = sleepChoice,
                     onSelectSleep = { viewModel.applySleepTimer(it); activePanel = AudiobookPanel.None },
                 )
                 AudiobookPanel.More -> TvAudiobookMorePanel(
+                    onFocusAcquisitionFailed = { panelFocusFailed = true },
                     skipLabel = tvAudiobookSkipLabel(
                         skipBackSeconds = state.skipBackSeconds,
                         skipForwardSeconds = state.skipForwardSeconds,
@@ -416,6 +491,7 @@ fun TvAudiobookPlayerScreen(
                 AudiobookPanel.Bookmarks -> {
                     val bookmarks by viewModel.bookmarks.collectAsState()
                     TvAudiobookBookmarksPanel(
+                        onFocusAcquisitionFailed = { panelFocusFailed = true },
                         bookmarks = bookmarks,
                         onAddCurrent = { viewModel.addBookmark() },
                         onJumpTo = { bookmark ->
@@ -425,18 +501,13 @@ fun TvAudiobookPlayerScreen(
                         onDelete = { viewModel.removeBookmark(it.id) },
                     )
                 }
-                AudiobookPanel.About -> TvAudiobookOverlayScaffold(title = "About") {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = state.overview.orEmpty(),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.White.copy(alpha = 0.82f),
-                        // Generous cap: a description fits the full-height panel; TV
-                        // can't D-pad-scroll an inner text box.
-                        maxLines = 30,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
+                AudiobookPanel.About -> TvAudiobookAboutPanel(
+                    onFocusAcquisitionFailed = { panelFocusFailed = true },
+                    overview = state.overview.orEmpty(),
+                    // Same destination as Back from any panel, so the two ways
+                    // out of About do not disagree.
+                    onClose = { activePanel = AudiobookPanel.None },
+                )
                 AudiobookPanel.None -> Unit
             }
         }
@@ -616,6 +687,7 @@ private fun TvAudiobookSecondaryControls(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
+    focusSuppressed: Boolean = false,
     buttonHeight: Dp = 58.dp,
     buttonSpacing: Dp = 16.dp,
 ) {
@@ -628,12 +700,14 @@ private fun TvAudiobookSecondaryControls(
             label = speedLabel,
             icon = Icons.Filled.Speed,
             focusRequester = focusRequester,
+            focusSuppressed = focusSuppressed,
             height = buttonHeight,
             onClick = onSpeed,
         )
         TvAudiobookPillButton(
             label = sleepLabel,
             icon = Icons.Filled.Bedtime,
+            focusSuppressed = focusSuppressed,
             height = buttonHeight,
             onClick = onSleep,
         )
@@ -641,6 +715,7 @@ private fun TvAudiobookSecondaryControls(
             TvAudiobookPillButton(
                 label = "Chapters",
                 icon = Icons.AutoMirrored.Filled.FormatListBulleted,
+                focusSuppressed = focusSuppressed,
                 height = buttonHeight,
                 onClick = onChapters,
             )
@@ -648,14 +723,53 @@ private fun TvAudiobookSecondaryControls(
         TvAudiobookPillButton(
             label = "More",
             icon = Icons.Filled.MoreHoriz,
+            focusSuppressed = focusSuppressed,
             height = buttonHeight,
             onClick = onMore,
         )
         TvAudiobookPillButton(
             label = "Stop",
             icon = Icons.Filled.Close,
+            focusSuppressed = focusSuppressed,
             height = buttonHeight,
             onClick = onStop,
+        )
+    }
+}
+
+/**
+ * The book description. Its only action is leaving, but it still needs one:
+ * with the covered player suppressed, a panel holding no focusable at all
+ * leaves the D-pad dead until Back, and nothing on screen says so.
+ */
+@Composable
+private fun TvAudiobookAboutPanel(
+    overview: String,
+    onClose: () -> Unit,
+    onFocusAcquisitionFailed: () -> Unit,
+) {
+    val closeFocus = remember { FocusRequester() }
+    TvAudiobookOverlayScaffold(
+        title = "About",
+        initialFocus = closeFocus,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
+    ) {
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = overview,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White.copy(alpha = 0.82f),
+            // Generous cap: a description fits the full-height panel; TV
+            // can't D-pad-scroll an inner text box.
+            maxLines = 30,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(16.dp))
+        TvAudiobookOverlayRow(
+            label = "Close",
+            isCurrent = false,
+            onSelect = onClose,
+            focusRequester = closeFocus,
         )
     }
 }
@@ -667,14 +781,21 @@ private fun TvAudiobookMorePanel(
     onSkip: () -> Unit,
     onBookmarks: () -> Unit,
     onAbout: () -> Unit,
+    onFocusAcquisitionFailed: () -> Unit,
 ) {
-    TvAudiobookOverlayScaffold(title = "More") {
+    val firstRowFocus = remember { FocusRequester() }
+    TvAudiobookOverlayScaffold(
+        title = "More",
+        initialFocus = firstRowFocus,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
+    ) {
         Spacer(Modifier.height(12.dp))
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             TvAudiobookMoreRow(
                 icon = Icons.Filled.Tune,
                 title = "Skip interval",
                 subtitle = skipLabel,
+                focusRequester = firstRowFocus,
                 onClick = onSkip,
             )
             TvAudiobookMoreRow(
@@ -701,6 +822,7 @@ private fun TvAudiobookMoreRow(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -711,6 +833,7 @@ private fun TvAudiobookMoreRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(bg)
+            .let { mod -> if (focusRequester != null) mod.focusRequester(focusRequester) else mod }
             .focusable(interactionSource = interactionSource)
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
@@ -741,6 +864,7 @@ private fun TvAudiobookPillButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
+    focusSuppressed: Boolean = false,
     height: Dp = 58.dp,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -753,6 +877,8 @@ private fun TvAudiobookPillButton(
             .clip(RoundedCornerShape(height / 2))
             .background(bg)
             .let { mod -> if (focusRequester != null) mod.focusRequester(focusRequester) else mod }
+            // Ahead of the focusable, so it binds to this pill's own focus target.
+            .tvFocusSuppressed(focusSuppressed)
             .focusable(interactionSource = interactionSource)
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false

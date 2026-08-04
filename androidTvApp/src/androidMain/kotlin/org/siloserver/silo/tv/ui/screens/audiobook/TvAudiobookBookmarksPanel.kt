@@ -35,7 +35,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.audiobook.AudiobookBookmark
-import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 
 /**
  * TV audiobook Bookmarks overlay. Mirrors the phone's bookmarks sheet over the
@@ -51,12 +50,15 @@ fun TvAudiobookBookmarksPanel(
     onJumpTo: (AudiobookBookmark) -> Unit,
     onDelete: (AudiobookBookmark) -> Unit,
     modifier: Modifier = Modifier,
+    onFocusAcquisitionFailed: () -> Unit = {},
 ) {
     val addFocus = remember { FocusRequester() }
 
     TvAudiobookOverlayScaffold(
         title = "Bookmarks",
-        modifier = modifier.then(rememberTvDialogInitialFocus(addFocus)),
+        initialFocus = addFocus,
+        modifier = modifier,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
     ) {
         BookmarkActionRow(
             label = "Bookmark here",

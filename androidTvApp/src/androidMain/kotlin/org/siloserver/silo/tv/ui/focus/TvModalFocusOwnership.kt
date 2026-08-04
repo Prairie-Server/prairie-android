@@ -34,6 +34,37 @@ internal fun Modifier.tvModalFocusBoundary(): Modifier = this
     // shell, the audiobook overlay and the player HUD.
     .focusProperties { exit = { FocusRequester.Cancel } }
 
+/**
+ * Take a control out of D-pad traversal while a modal owns focus.
+ *
+ * The containment in [tvModalFocusBoundary] only holds focus that is already
+ * inside the modal. It does nothing about focus that never got in — and an
+ * in-window overlay leaves the surface underneath fully composed and fully
+ * focusable, so a covered transport button keeps taking Select while a panel is
+ * open in front of it.
+ *
+ * Apply on the same modifier chain as the control's own focusable, ahead of it.
+ * An ancestor works too, but only conditionally: a focus target resolves its
+ * properties by walking up and applying each `FocusPropertiesModifierNode` it
+ * finds, stopping at the first ancestor that is itself a focus target. Anything
+ * introducing one in between — a `focusGroup()`, a TV `Surface`, another
+ * `focusable()` — swallows the suppression before it arrives, silently. Placing
+ * it on the control's own chain has no such dependency on what sits above.
+ *
+ * (`focusGroup()` is not that mechanism, despite looking like it: it deactivates
+ * its own target through `Focusability.Never` rather than through an inherited
+ * focus property, which is exactly why a focus group's children stay focusable.)
+ *
+ * Suppression alone can strand the viewer. Android TV does not re-home focus
+ * when the focused node stops being focusable: the ring disappears and the
+ * D-pad goes dead until something requests focus. So every surface that
+ * suppresses must also give focus somewhere to land — the modal on the way in
+ * (see the dialog initial-focus adapter) and [TvRestoreFocusOnModalDismiss] on
+ * the way out.
+ */
+internal fun Modifier.tvFocusSuppressed(suppressed: Boolean): Modifier =
+    if (suppressed) focusProperties { canFocus = false } else this
+
 private const val TvModalRestoreRetryDelayMillis = 60L
 
 internal const val TvModalRestoreMaxAttempts =

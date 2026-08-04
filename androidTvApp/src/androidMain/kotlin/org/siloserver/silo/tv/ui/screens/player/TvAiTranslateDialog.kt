@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -35,8 +34,8 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import kotlinx.coroutines.delay
 import org.siloserver.silo.model.playback.PlayerSubtitleInfo
+import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 
 /** Which capture mode the dialog is in — availability comes from AiStatus. */
@@ -92,14 +91,42 @@ fun TvAiTranslateDialog(
     // when the Failed/Idle form (or the Running Cancel row) comes back —
     // otherwise the dialog is dead to the d-pad. Submitting itself has nothing
     // to focus, so it is skipped.
-    var overlayHasFocus by remember { mutableStateOf(false) }
-    LaunchedEffect(aiState.phase) {
-        if (aiState.phase is AiJobPhase.Submitting) return@LaunchedEffect
-        while (!overlayHasFocus) {
-            runCatching { firstRowFocus.requestFocus() }
-            delay(60)
-        }
+    //
+    // Bounded, via the shared adapter. The loop this replaces was `while
+    // (!overlayHasFocus)` with no exit: on the empty state, where nothing at all
+    // was focusable, it re-requested a target that was not in the tree every
+    // 60 ms for as long as the dialog stayed open. Bounding it alone would not
+    // have saved that state — with no focus target in the tree the traversal
+    // fallback has nothing to find either. The Close row below is what makes
+    // the empty state recoverable; the bound is what stops the spinning.
+    //
+    // Keyed on the shape of the focus graph, not on the phase value. Two
+    // separate reasons:
+    //   - Running carries a progress percentage that changes several times a
+    //     second, so keying on the phase itself would restart acquisition
+    //     throughout the job.
+    //   - Phase alone is not enough. Track availability is derived from the
+    //     player's session tracks and can change under an open dialog, which
+    //     swaps the empty state for the picker form (or back) without the phase
+    //     moving at all. That removes the focused row and composes new ones, so
+    //     it has to re-key or the dialog goes dead in place.
+    // Row *enablement* deliberately does not appear here: a quota-exhausted
+    // submit row stays focusable and only refuses to act, so it never strands
+    // focus.
+    val bodyKey = when {
+        aiState.phase is AiJobPhase.Running -> "running"
+        aiState.phase == AiJobPhase.Submitting -> "submitting"
+        !subtitlesAvailable && !audioAvailable -> "form-empty"
+        // Both modes available adds the Mode row, which is where firstRowFocus
+        // attaches; with one mode it moves to the source row instead.
+        subtitlesAvailable && audioAvailable -> "form-both-modes"
+        else -> "form-single-mode"
     }
+    val initialFocusModifier = rememberTvDialogInitialFocus(
+        target = firstRowFocus,
+        reacquireKey = bodyKey,
+        enabled = aiState.phase !is AiJobPhase.Submitting,
+    )
     LaunchedEffect(aiState.completedNonce) {
         if (aiState.completedNonce != initialNonce) onDismiss()
     }
@@ -127,7 +154,7 @@ fun TvAiTranslateDialog(
                     .background(color = DarkBackground.copy(alpha = 0.68f), shape = panelShape)
                     .border(0.6.dp, Color.White.copy(alpha = 0.20f), panelShape)
                     .padding(horizontal = 14.dp, vertical = 14.dp)
-                    .onFocusChanged { overlayHasFocus = it.hasFocus },
+                    .then(initialFocusModifier),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
@@ -169,6 +196,16 @@ fun TvAiTranslateDialog(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color.White.copy(alpha = 0.66f),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                            )
+                            // The empty state used to render explanatory text and
+                            // nothing else: no focusable, so `firstRowFocus` was
+                            // attached to nothing and the dialog opened with the
+                            // d-pad dead and no visible way out. Back dismissed it,
+                            // but nothing on screen said so.
+                            TvDialogActionRow(
+                                title = "Close",
+                                onClick = onDismiss,
+                                modifier = Modifier.focusRequester(firstRowFocus),
                             )
                         } else {
                             if (subtitlesAvailable && audioAvailable) {
