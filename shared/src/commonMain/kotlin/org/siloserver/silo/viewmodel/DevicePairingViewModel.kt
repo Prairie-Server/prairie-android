@@ -20,8 +20,21 @@ data class DevicePairingUiState(
     val completedStatus: String? = null,
     val error: String? = null,
 ) {
-    val canSubmit: Boolean
-        get() = !isSubmitting && (token?.isNotBlank() == true || code.isNotBlank())
+    /**
+     * Whether approving or denying is a real, informed decision right now.
+     *
+     * The identifier being present is not the test. A `silo://device?token=…`
+     * deep link arrives with a token already set and starts its lookup
+     * automatically, so "there is something to submit" is true from
+     * construction — before the server has said which device is asking, from
+     * where, or with which match code. Those details are the entire content of
+     * the decision, and they only exist once [lookup] resolves. Gating on the
+     * identifier let a viewer approve a sign-in they could not see, and kept
+     * approving available after a failed lookup had cleared [lookup] and
+     * reported the request invalid or expired.
+     */
+    val canDecide: Boolean
+        get() = lookup != null && !isSubmitting
 }
 
 class DevicePairingViewModel(

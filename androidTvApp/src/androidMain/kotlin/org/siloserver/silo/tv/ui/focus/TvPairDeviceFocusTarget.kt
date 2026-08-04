@@ -4,35 +4,35 @@ package org.siloserver.silo.tv.ui.focus
 internal enum class TvPairDeviceAction { EnterCode, Check, Approve, Done }
 
 /**
- * The action that should hold focus right now, or `null` when the panel has
- * nothing actionable and focus must wait.
+ * The action that should hold focus right now.
  *
- * Focus eligibility here is driven entirely by asynchronous state — a token
- * route starts its lookup automatically, which disables Check while it runs and
- * enables Approve/Deny when it resolves — and none of that changes
- * `completedStatus`. Keying initial focus on completion alone therefore
- * requested focus once, against a control that was disabled at that instant,
- * and never asked again: the panel could sit with no focus owner at all.
+ * This answers "which control deserves focus", not "which control is
+ * focusable", and the return is not nullable because every incomplete state
+ * renders Check and every completed one renders Done.
+ *
+ * An earlier version returned null while a token lookup was running, on the
+ * theory that the disabled Check had left the focus graph and nothing was
+ * focusable. It had not: TV Material keeps disabled buttons focusable. So the
+ * null was never a real state — it just meant focus was left whereever
+ * traversal put it, including on controls that could not be used.
  *
  * A resolved lookup outranks Check, because approving is what the viewer came
- * to do. Deny is deliberately not a target: it sits beside Approve and is one
- * D-pad press away, and defaulting focus to the destructive choice is wrong.
+ * to do. It is keyed on the lookup rather than on whether approving is
+ * *currently* actionable, so submitting a decision — which briefly makes it
+ * un-actionable — does not move the target out from under the viewer.
+ *
+ * Deny is deliberately never a target: it sits beside Approve and is one D-pad
+ * press away, and defaulting focus to the destructive choice is wrong.
  */
 internal fun tvPairDeviceFocusTarget(
     hasCompleted: Boolean,
     hasResolvedLookup: Boolean,
     canEnterCode: Boolean,
-    canSubmit: Boolean,
-    isLoading: Boolean,
-    isSubmitting: Boolean,
-): TvPairDeviceAction? = when {
+): TvPairDeviceAction = when {
     hasCompleted -> TvPairDeviceAction.Done
-    // canSubmit only means an identifier exists and nothing is being submitted
-    // — on a token route it is true from construction, before the lookup has
-    // returned anything to approve. The resolved lookup is the real signal.
-    hasResolvedLookup && canSubmit -> TvPairDeviceAction.Approve
-    canEnterCode && !isSubmitting -> TvPairDeviceAction.EnterCode
-    // Check is the only remaining control, and only while it is enabled.
-    !isLoading && !isSubmitting -> TvPairDeviceAction.Check
-    else -> null
+    hasResolvedLookup -> TvPairDeviceAction.Approve
+    canEnterCode -> TvPairDeviceAction.EnterCode
+    // Check is rendered in every incomplete state and gated transiently, so it
+    // is always both present and focusable — which is what makes this total.
+    else -> TvPairDeviceAction.Check
 }
