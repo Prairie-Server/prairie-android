@@ -298,6 +298,8 @@ private fun PinKey(
             focusedContentColor = FocusedContent,
             pressedContainerColor = FocusedContainer,
             pressedContentColor = FocusedContent,
+            disabledContainerColor = Color.White.copy(alpha = 0.10f),
+            disabledContentColor = SiloOnSurface,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         border = ClickableSurfaceDefaults.border(

@@ -34,6 +34,27 @@ class TvDisabledControlWiringSourceTest {
         }
     }
 
+    @Test
+    fun actionCardRetainsCardColorsAndFocusBorder() {
+        val scans = source("ui/screens/admin/TvAdminScansScreen.kt")
+
+        assertContains(scans, "containerColor = MaterialTheme.colorScheme.surfaceVariant,")
+        assertContains(scans, "focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,")
+        assertContains(scans, "pressedContainerColor = MaterialTheme.colorScheme.surfaceVariant,")
+        assertContains(scans, "disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,")
+        assertContains(scans, "border = Border.None,")
+        assertContains(scans, "border = BorderStroke(3.dp, MaterialTheme.colorScheme.border),")
+        assertContains(scans, "pressedBorder = focusedBorder,")
+    }
+
+    @Test
+    fun pinKeyRetainsItsCustomColorsWhenDisabled() {
+        val pin = source("ui/components/TvPinEntryDialog.kt")
+
+        assertContains(pin, "disabledContainerColor = Color.White.copy(alpha = 0.10f),")
+        assertContains(pin, "disabledContentColor = SiloOnSurface,")
+    }
+
     private fun source(relativePath: String): String = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/$relativePath",
     ).readText()

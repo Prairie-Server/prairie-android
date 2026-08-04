@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.screens.admin
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,8 +29,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Glow
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -145,10 +148,50 @@ fun TvAdminScansScreen(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ActionCard(title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    val focusedBorder = Border(
+        border = BorderStroke(3.dp, MaterialTheme.colorScheme.border),
+        shape = shape,
+    )
     Surface(
         onClick = onClick,
         enabled = enabled,
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(16.dp)),
+        shape = ClickableSurfaceDefaults.shape(
+            shape = shape,
+            focusedShape = shape,
+            pressedShape = shape,
+            disabledShape = shape,
+            focusedDisabledShape = shape,
+        ),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            pressedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            pressedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        scale = ClickableSurfaceDefaults.scale(
+            scale = 1f,
+            focusedScale = 1.1f,
+            pressedScale = 1f,
+            disabledScale = 1f,
+            focusedDisabledScale = 1f,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border.None,
+            focusedBorder = focusedBorder,
+            pressedBorder = focusedBorder,
+            disabledBorder = Border.None,
+            focusedDisabledBorder = Border.None,
+        ),
+        glow = ClickableSurfaceDefaults.glow(
+            glow = Glow.None,
+            focusedGlow = Glow.None,
+            pressedGlow = Glow.None,
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
