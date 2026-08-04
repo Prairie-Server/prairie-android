@@ -684,6 +684,18 @@ private fun SearchStage(
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+        // Hidden outright when nothing can service it, rather than shown and
+        // inert: a mic that does nothing when pressed is worse than no mic.
+        if (voiceSearch.isAvailable) {
+            TvVoiceSearchButton(
+                onClick = voiceSearch::start,
+                // DOWN joins the same rail the field uses, so the mic is not a
+                // dead end, and UP is left alone so the top menu stays
+                // reachable from here exactly as it is from the field. RIGHT
+                // falls through to the field beside it.
+                modifier = Modifier.focusProperties { down = firstFilterChipFocusRequester },
+            )
+        }
         OutlinedTextField(
             value = query,
             onValueChange = { onQueryChanged(it.take(TV_SEARCH_QUERY_MAX_LENGTH)) },
@@ -726,18 +738,6 @@ private fun SearchStage(
                 unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
             ),
         )
-
-        // Hidden outright when nothing can service it, rather than shown and
-        // inert: a mic that does nothing when pressed is worse than no mic.
-        if (voiceSearch.isAvailable) {
-            TvVoiceSearchButton(
-                onClick = voiceSearch::start,
-                // DOWN joins the same rail the field uses, so the mic is not a
-                // dead end, and UP is left alone so the top menu stays
-                // reachable from here exactly as it is from the field.
-                modifier = Modifier.focusProperties { down = firstFilterChipFocusRequester },
-            )
-        }
         }
 
         LazyRow(
@@ -751,6 +751,13 @@ private fun SearchStage(
                 contentType = { _, _ -> "media-type-chip" },
             ) { index, type ->
                 val chipModifier = Modifier
+                    // UP returns to the search field, stated rather than left
+                    // to geometry. The field used to be the nearest thing above
+                    // this rail and is not any more — the mic sits to its left,
+                    // directly over the first chip — so spatial search would
+                    // now land there instead. The field is the control this row
+                    // belongs to, wherever it happens to be drawn.
+                    .focusProperties { up = searchFieldFocusRequester }
                     .then(
                         if (index == 0) {
                             Modifier.focusRequester(firstFilterChipFocusRequester)
