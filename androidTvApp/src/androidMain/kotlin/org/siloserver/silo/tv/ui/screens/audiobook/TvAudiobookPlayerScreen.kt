@@ -249,7 +249,18 @@ fun TvAudiobookPlayerScreen(
         // to acquire and retrying just burns the budget. Keyed, not just
         // guarded, so clearing an error re-runs acquisition.
         if (state.isLoading || state.error != null) return@LaunchedEffect
-        if (activePanel != AudiobookPanel.None && !panelFocusFailed) return@LaunchedEffect
+        // A panel that could not take focus has to CLOSE, not merely hand the
+        // player back. Unsuppressing the transport while the panel and its
+        // scrim are still drawn puts focus on controls the viewer cannot see —
+        // D-pad and Select land behind the modal — and the escalation below
+        // never rescues that, because it only fires when the transport also
+        // fails to take focus. Closing first re-keys this effect against an
+        // unobstructed player, which then acquires normally.
+        if (activePanel != AudiobookPanel.None && panelFocusFailed) {
+            activePanel = AudiobookPanel.None
+            return@LaunchedEffect
+        }
+        if (activePanel != AudiobookPanel.None) return@LaunchedEffect
         if (transportHasFocus) return@LaunchedEffect
         val result = requestFocusUntilObserved(
             maxAttempts = TvAudiobookTransportFocusMaxAttempts,

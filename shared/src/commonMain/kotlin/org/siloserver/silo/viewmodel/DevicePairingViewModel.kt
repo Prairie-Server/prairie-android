@@ -68,6 +68,18 @@ class DevicePairingViewModel(
         }
     }
 
+    /**
+     * Bumped by every lookup, and by every decision.
+     *
+     * canDecide stays true while an EXISTING lookup refreshes — the previous
+     * result is deliberately left on screen rather than blanked — so a viewer
+     * can approve while a lookup is still in flight. If that lookup lands last
+     * it overwrites the outcome: a lookup error painted over a successful
+     * approval, or a decision's error quietly cleared. A decision is the more
+     * authoritative event, so starting one retires any lookup already running.
+     */
+    private var lookupGeneration = 0
+
     fun lookup() {
         val current = _uiState.value
         val token = current.token?.takeIf { it.isNotBlank() }
@@ -77,9 +89,18 @@ class DevicePairingViewModel(
             return
         }
 
+        val generation = ++lookupGeneration
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, completedStatus = null) }
-            when (val result = repository.lookup(token = token, code = code)) {
+            val lookupResult = repository.lookup(token = token, code = code)
+            // Retired while in flight: a newer lookup or, more importantly, a
+            // decision has superseded this answer. Clearing isLoading is still
+            // this request's job, but nothing else it has to say is current.
+            if (generation != lookupGeneration) {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
+            when (val result = lookupResult) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(isLoading = false, lookup = result.data, error = null)
@@ -120,6 +141,9 @@ class DevicePairingViewModel(
             return
         }
 
+        // Retires any lookup already running, before it can report back over
+        // the decision this is about to make.
+        lookupGeneration++
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, error = null, completedStatus = null) }
             val result = if (approve) {
