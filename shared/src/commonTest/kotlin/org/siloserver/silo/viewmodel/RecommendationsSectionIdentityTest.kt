@@ -76,6 +76,83 @@ class RecommendationsSectionIdentityTest {
         assertEquals(ids.size, ids.toSet().size, "section ids must be unique: $ids")
     }
 
+    /**
+     * `discoverRowSectionKey` sends no key for the singleton kinds —
+     * for-you-main, similar-users, popular, recently-added, top-rated — and
+     * `section_key` is `omitempty`, so the client sees null. Those rows change
+     * contents on every refresh, so their identity must come from the kind
+     * alone; deriving it from contents would break the detail return on exactly
+     * the rows that churn most.
+     *
+     * The kind strings are the server's wire values (hyphenated), not the row
+     * `type` values (underscored) — the two differ, and only the former is
+     * matched.
+     */
+    @Test
+    fun keylessServerKindsKeepTheirIdentityAcrossContentChurn() {
+        val recentlyAdded = { contentIds: List<String> ->
+            DiscoverRow(
+                type = "recently_added",
+                label = "Recently Added",
+                sectionKind = "recently-added",
+                sectionKey = null,
+                items = contentIds.map { SectionItem(contentId = it, type = "movie", title = it) },
+            )
+        }
+
+        val before = listOf(recentlyAdded(listOf("a", "b", "c"))).toResolvedSections().single().id
+        val afterNewMedia =
+            listOf(recentlyAdded(listOf("new", "a", "b"))).toResolvedSections().single().id
+
+        assertEquals(before, afterNewMedia)
+    }
+
+    /** Kinds that legitimately repeat still separate on their key. */
+    @Test
+    fun keyedServerKindsStayDistinctPerKey() {
+        val ids = listOf(
+            row("cluster", "Because you enjoy Drama", "cluster", "2", "movie-a"),
+            row("cluster", "Because you enjoy Comedy", "cluster", "7", "movie-b"),
+        ).toResolvedSections().map { it.id }
+
+        assertEquals(ids.size, ids.toSet().size, "keyed rows must not collapse: $ids")
+    }
+
+    /**
+     * The regression that motivated the singleton allowlist. Identifying a row
+     * by a bare kind is only sound for kinds that appear at most once. A
+     * repeatable kind arriving without a key must NOT collapse onto one id,
+     * because [toResolvedSections] resolves duplicate ids by dropping rows —
+     * the second section would disappear from the feed entirely.
+     */
+    @Test
+    fun repeatableKindsWithoutKeysDoNotCollapseIntoOneSection() {
+        val sections = listOf(
+            row("cluster", "Because you enjoy Drama", "cluster", null, "movie-a"),
+            row("cluster", "Because you enjoy Comedy", "cluster", null, "movie-b"),
+        ).toResolvedSections()
+
+        assertEquals(2, sections.size, "keyless repeatable rows must both survive")
+        val ids = sections.map { it.id }
+        assertEquals(ids.size, ids.toSet().size, "section ids must be unique: $ids")
+    }
+
+    /**
+     * A kind this client has never heard of is treated as potentially
+     * repeatable for the same reason: the client cannot know it is a singleton,
+     * so identity falls back to contents rather than risking a silent drop.
+     */
+    @Test
+    fun unrecognisedKeylessKindsFallBackToContentIdentity() {
+        val sections = listOf(
+            row("mood", "Rainy Sunday", "mood-of-the-day", null, "movie-a"),
+            row("mood", "Late Night", "mood-of-the-day", null, "movie-b"),
+        ).toResolvedSections()
+
+        assertEquals(2, sections.size, "unknown keyless rows must both survive")
+        assertEquals(2, sections.map { it.id }.toSet().size)
+    }
+
     @Test
     fun keylessSectionIdsSurviveInsertionAndReorder() {
         val first = keylessRow(label = "Handpicked", contentId = "movie-a")
