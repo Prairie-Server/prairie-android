@@ -722,6 +722,13 @@ internal fun calendarUpFallbackAction(
     focusedControlZone: CalendarControlFocusZone?,
     isRepeat: Boolean = false,
 ): CalendarUpFallbackAction = when {
+    // A return to the controls is already in flight. It stays in flight until
+    // the controls actually take focus, and for those frames the shelf still
+    // reports its own index — so neither the null-index check below nor
+    // shouldReturnCalendarFocusToControls (which goes false the instant the
+    // return starts) can hold a held key. Without this, the same press that
+    // began the handoff leaks straight into geometric movement.
+    isRepeat && isReturningToControls -> CalendarUpFallbackAction.StayInContent
     shouldReturnCalendarFocusToControls(
         focusedShelfIndex = focusedShelfIndex,
         firstFocusableShelfIndex = firstFocusableShelfIndex,
