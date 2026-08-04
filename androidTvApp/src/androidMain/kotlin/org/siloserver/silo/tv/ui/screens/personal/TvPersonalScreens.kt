@@ -310,8 +310,12 @@ private fun PersonalGrid(
                 restoreItemIndex = restoration.requesterItemIndex,
                 restoreItemFocusRequester = restoreItemFocusRequester,
                 onRestoreRequesterAttached = restoration::onRequesterAttached,
-                onItemFocusedAtIndex = { item, index ->
-                    restoration.onItemFocused(item.contentId, index)
+                onItemFocusedAtIndex = { item, index, focused ->
+                    if (focused) {
+                        restoration.onItemFocused(item.contentId, index)
+                    } else {
+                        restoration.onItemFocusLost(item.contentId)
+                    }
                 },
             )
         }

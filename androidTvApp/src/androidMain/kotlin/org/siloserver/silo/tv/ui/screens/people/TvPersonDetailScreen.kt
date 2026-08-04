@@ -228,8 +228,12 @@ private fun TvPersonDetailContent(
             restoreItemIndex = restoration.requesterItemIndex,
             restoreItemFocusRequester = restoreItemFocusRequester,
             onRestoreRequesterAttached = restoration::onRequesterAttached,
-            onItemFocusedAtIndex = { item, index ->
-                restoration.onItemFocused(item.contentId, index)
+            onItemFocusedAtIndex = { item, index, focused ->
+                if (focused) {
+                    restoration.onItemFocused(item.contentId, index)
+                } else {
+                    restoration.onItemFocusLost(item.contentId)
+                }
             },
             modifier = Modifier.fillMaxSize(),
             gridState = gridState,

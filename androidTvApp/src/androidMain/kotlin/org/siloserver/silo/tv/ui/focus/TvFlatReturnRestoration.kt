@@ -102,6 +102,23 @@ internal class TvFlatReturnRestoration internal constructor(
     }
 
     /**
+     * Report a card LOSING focus. Callers must send this — without it
+     * [focusedItemId] records what was focused once rather than what is focused
+     * now, and the acquisition below reads it as the latter.
+     *
+     * That distinction is the whole game here: acquisition checks the identity
+     * BEFORE issuing any request, so a stale value lets a restoration report
+     * success without ever asking for focus, while focus sits on a control or
+     * another container entirely.
+     *
+     * Guarded on identity because a gain elsewhere arrives before this loss:
+     * clearing unconditionally would erase the position that just replaced it.
+     */
+    fun onItemFocusLost(itemId: String) {
+        if (focusedItemId == itemId) focusedItemId = null
+    }
+
+    /**
      * Report a deliberate opening.
      *
      * Always arms, unlike [onItemFocused]. A card focused during a restoration

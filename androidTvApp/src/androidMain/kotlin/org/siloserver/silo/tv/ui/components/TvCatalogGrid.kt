@@ -100,7 +100,13 @@ fun TvCatalogGrid(
     // Callers whose data only appends are unaffected; one that re-sorts in
     // place must re-resolve rather than trust a frozen index.
     onRestoreRequesterAttached: (String?) -> Unit = {},
-    onItemFocusedAtIndex: (BrowseItem, Int) -> Unit = { _, _ -> },
+    /**
+     * Both focus edges, not just the gain. A caller confirming a restoration
+     * has to know what holds focus NOW: reporting only arrivals makes its
+     * record sticky, so a card passed over on the way somewhere else still
+     * looks like the current position long after focus has moved on.
+     */
+    onItemFocusedAtIndex: (item: BrowseItem, index: Int, focused: Boolean) -> Unit = { _, _, _ -> },
     artworkAspectRatioForItem: (BrowseItem) -> Float? = { item ->
         tvArtworkAspectRatioForMediaType(item.type)
     },
@@ -278,7 +284,7 @@ fun TvCatalogGrid(
                         // card's outer Column while the Material Card inside it
                         // owns focus, so isFocused is never true here and the
                         // helper would never see a card take focus at all.
-                        .onFocusChanged { if (it.hasFocus) onItemFocusedAtIndex(item, index) },
+                        .onFocusChanged { onItemFocusedAtIndex(item, index, it.hasFocus) },
                     overlay = OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )

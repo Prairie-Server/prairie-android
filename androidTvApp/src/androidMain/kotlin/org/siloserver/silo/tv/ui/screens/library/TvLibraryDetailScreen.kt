@@ -373,9 +373,13 @@ private fun LibraryTab(
                 restoredItemFocusRequester = restoredGridItemFocusRequester,
                 restoredItemIndex = restoration.requesterItemIndex,
                 onRestoreRequesterAttached = restoration::onRequesterAttached,
-                onItemFocused = { index ->
+                onItemFocused = { index, focused ->
                     state.browseItems.getOrNull(index)?.let { item ->
-                        restoration.onItemFocused(item.contentId, index)
+                        if (focused) {
+                            restoration.onItemFocused(item.contentId, index)
+                        } else {
+                            restoration.onItemFocusLost(item.contentId)
+                        }
                     }
                 },
                 showGenreChips = showGenreChips,
@@ -432,7 +436,11 @@ private fun LibraryGrid(
     restoredItemFocusRequester: FocusRequester,
     restoredItemIndex: Int?,
     onRestoreRequesterAttached: (String?) -> Unit,
-    onItemFocused: (Int) -> Unit,
+    /**
+     * Both edges. Gain alone makes the caller's record of what holds focus
+     * sticky, and the restoration reads that record as CURRENT focus.
+     */
+    onItemFocused: (index: Int, focused: Boolean) -> Unit,
     showGenreChips: Boolean,
     onGenreChanged: (String?) -> Unit,
     onClearAudiobookGroup: (() -> Unit)?,
@@ -583,7 +591,7 @@ private fun LibraryGrid(
                         focusRequester = restoredItemFocusRequester.takeIf { index == restoredItemIndex },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .onFocusChanged { if (it.hasFocus) onItemFocused(index) },
+                            .onFocusChanged { onItemFocused(index, it.hasFocus) },
                         overlay = org.siloserver.silo.overlays.OverlayDataExtractor.fromBrowseItem(item),
                         actions = actions,
                     )

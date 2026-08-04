@@ -167,7 +167,11 @@ fun TvMyRequestsScreen(
                         // focus below this modifier, so isFocused never fires
                         // here and the restoration could never confirm.
                         modifier = Modifier.onFocusChanged {
-                            if (it.hasFocus) restoration.onItemFocused(request.id, index)
+                            if (it.hasFocus) {
+                                restoration.onItemFocused(request.id, index)
+                            } else {
+                                restoration.onItemFocusLost(request.id)
+                            }
                         },
                         trailing = {
                             if (request.canCancel()) {
