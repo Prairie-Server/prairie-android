@@ -87,6 +87,7 @@ fun TvPairDeviceScreen(
     // eligible action itself and re-acquired whenever that changes.
     val focusTarget = tvPairDeviceFocusTarget(
         hasCompleted = state.completedStatus != null,
+        hasResolvedLookup = state.lookup != null,
         canEnterCode = canEnterCode,
         canSubmit = state.canSubmit,
         isLoading = state.isLoading,

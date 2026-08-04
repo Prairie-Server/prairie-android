@@ -20,14 +20,18 @@ internal enum class TvPairDeviceAction { EnterCode, Check, Approve, Done }
  */
 internal fun tvPairDeviceFocusTarget(
     hasCompleted: Boolean,
+    hasResolvedLookup: Boolean,
     canEnterCode: Boolean,
     canSubmit: Boolean,
     isLoading: Boolean,
     isSubmitting: Boolean,
 ): TvPairDeviceAction? = when {
     hasCompleted -> TvPairDeviceAction.Done
-    canSubmit -> TvPairDeviceAction.Approve
-    canEnterCode -> TvPairDeviceAction.EnterCode
+    // canSubmit only means an identifier exists and nothing is being submitted
+    // — on a token route it is true from construction, before the lookup has
+    // returned anything to approve. The resolved lookup is the real signal.
+    hasResolvedLookup && canSubmit -> TvPairDeviceAction.Approve
+    canEnterCode && !isSubmitting -> TvPairDeviceAction.EnterCode
     // Check is the only remaining control, and only while it is enabled.
     !isLoading && !isSubmitting -> TvPairDeviceAction.Check
     else -> null
