@@ -342,10 +342,9 @@ fun TvMainShell(
     var restoreHomeContentAfterDetail by rememberSaveable { mutableStateOf(false) }
     var restoreForYouContentAfterDetail by rememberSaveable { mutableStateOf(false) }
     var suppressHomeRefreshAfterDetail by rememberSaveable { mutableStateOf(false) }
-    var homeDetailReturnFocusRequest by remember { mutableIntStateOf(0) }
+    var homeDetailReturnFocusState by remember { mutableStateOf(HomeDetailReturnFocusState()) }
     var forYouDetailReturnFocusRequest by rememberSaveable { mutableIntStateOf(0) }
     var forYouDetailReturnFocusPending by rememberSaveable { mutableStateOf(false) }
-    var homeDetailReturnNeedsRetry by remember { mutableStateOf(false) }
     // Attached (by the Home feed) to the exact card a detail page was launched
     // from, while that return is pending. Used as the content restorer's enter
     // fallback during the return resume so the synchronous claim below lands
@@ -355,7 +354,8 @@ fun TvMainShell(
     val homeDetailReturnCardFocusRequester = remember { FocusRequester() }
     val forYouDetailReturnCardFocusRequester = remember { FocusRequester() }
     val detailReturnFallback = when {
-        restoreHomeContentAfterDetail -> homeDetailReturnCardFocusRequester
+        restoreHomeContentAfterDetail || homeDetailReturnFocusState.fallbackPending ->
+            homeDetailReturnCardFocusRequester
         restoreForYouContentAfterDetail || forYouDetailReturnFocusPending ->
             forYouDetailReturnCardFocusRequester
         else -> FocusRequester.Default
@@ -373,11 +373,15 @@ fun TvMainShell(
             // but only when the feed hasn't already claimed it. Claim BEFORE
             // clearing the flag so the restorer fallback still points at the
             // launch card for this claim.
-            homeDetailReturnNeedsRetry = if (contentHasFocus) {
+            val homeDetailReturnNeedsRetry = if (contentHasFocus) {
                 false
             } else {
                 runCatching { !contentFocusRequester.requestFocus() }.getOrDefault(true)
             }
+            homeDetailReturnFocusState = beginHomeDetailReturnRetry(
+                previousRequestId = homeDetailReturnFocusState.requestId,
+                needsRetry = homeDetailReturnNeedsRetry,
+            )
             restoreContentAfterDetail = false
             restoreHomeContentAfterDetail = false
             if (restoreForYouContentAfterDetail) {
@@ -386,18 +390,18 @@ fun TvMainShell(
                 forYouDetailReturnFocusPending = started.pending
             }
             restoreForYouContentAfterDetail = false
-            homeDetailReturnFocusRequest++
         }
         onPauseOrDispose { }
     }
-    LaunchedEffect(homeDetailReturnFocusRequest) {
-        if (homeDetailReturnFocusRequest == 0) return@LaunchedEffect
+    LaunchedEffect(homeDetailReturnFocusState.requestId) {
+        if (homeDetailReturnFocusState.requestId == 0) return@LaunchedEffect
         // One-frame fallback for the disposed/recreated case where the Home row
         // requester was not attached during the synchronous resume claim.
         withFrameNanos { }
-        if (homeDetailReturnNeedsRetry) {
+        if (homeDetailReturnFocusState.needsRetry) {
             runCatching { contentFocusRequester.requestFocus() }
         }
+        homeDetailReturnFocusState = completeHomeDetailReturnRetry(homeDetailReturnFocusState)
         // The detail-return ON_RESUME event has now passed and Home is stable;
         // future real resumes (playback/background) should refresh normally.
         suppressHomeRefreshAfterDetail = false
@@ -611,8 +615,7 @@ fun TvMainShell(
             // explicitly selects Home from the bar. Otherwise its nonzero
             // token keeps suppressing Home's normal first-card focus request
             // for the rest of the shell session.
-            homeDetailReturnFocusRequest = 0
-            homeDetailReturnNeedsRetry = false
+            homeDetailReturnFocusState = resetHomeDetailReturnFocus()
         }
         if (dest == TvRootDestination.Calendar) {
             calendarFocusHandoffPending = true
@@ -941,7 +944,7 @@ fun TvMainShell(
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
-                        detailReturnFocusRequest = homeDetailReturnFocusRequest,
+                        detailReturnFocusRequest = homeDetailReturnFocusState.requestId,
                         detailReturnCardFocusRequester = homeDetailReturnCardFocusRequester,
                         firstRowFocusRequester = homeFirstItemFocusRequester,
                         firstRowContainerFocusRequester = homeFirstRowContainerFocusRequester,
@@ -962,7 +965,7 @@ fun TvMainShell(
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
-                        detailReturnFocusRequest = homeDetailReturnFocusRequest,
+                        detailReturnFocusRequest = homeDetailReturnFocusState.requestId,
                         detailReturnCardFocusRequester = homeDetailReturnCardFocusRequester,
                         firstRowFocusRequester = homeFirstItemFocusRequester,
                         firstRowContainerFocusRequester = homeFirstRowContainerFocusRequester,
