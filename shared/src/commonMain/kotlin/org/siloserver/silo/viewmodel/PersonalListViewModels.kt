@@ -55,17 +55,38 @@ abstract class PersonalListViewModel(
 
     fun loadMore() {
         val state = _uiState.value
-        if (state.isLoading || state.isLoadingMore || !state.hasMore) return
+        // isRefreshing too: refresh reloads from offset zero, so a page fetched
+        // alongside it uses an offset the replacement invalidates.
+        if (state.isLoading || state.isLoadingMore || state.isRefreshing || !state.hasMore) return
         load(reset = false)
     }
+
+    /**
+     * Bumped by every load that REPLACES the list — a reset or a refresh.
+     *
+     * Gating the triggers is not enough on its own. A page can already be in
+     * flight when a refresh starts, and refresh has no way to cancel it; when
+     * that page lands it appends items fetched at `offset = N` on top of a list
+     * that is now page one, leaving a hole where the middle used to be. Checking
+     * the generation on the way OUT is what makes a superseded page harmless,
+     * whichever order the two requests finish in.
+     */
+    private var contentGeneration = 0
 
     fun retry() = load(reset = true)
 
     fun refresh() {
         viewModelScope.launch {
+            val generation = ++contentGeneration
             _uiState.update { it.copy(isRefreshing = true, error = null) }
             val offset = 0
-            when (val r = fetchPage(offset, pageSize)) {
+            val result = fetchPage(offset, pageSize)
+            // A newer replacement started while this refresh was in flight.
+            if (generation != contentGeneration) {
+                _uiState.update { it.copy(isRefreshing = false) }
+                return@launch
+            }
+            when (val r = result) {
                 is ApiResult.Success -> _uiState.update {
                     it.copy(
                         items = r.data.items,
@@ -86,11 +107,24 @@ abstract class PersonalListViewModel(
         viewModelScope.launch {
             val state = _uiState.value
             val offset = if (reset) 0 else state.items.size
+            val generation = if (reset) ++contentGeneration else contentGeneration
             _uiState.update {
                 if (reset) it.copy(isLoading = true, error = null)
                 else it.copy(isLoadingMore = true)
             }
-            when (val r = fetchPage(offset, pageSize)) {
+            val result = fetchPage(offset, pageSize)
+            // Superseded WHILE IN FLIGHT: something replaced the list, so this
+            // page's offset no longer describes anything. Checked here rather
+            // than before the fetch — before it, there is nothing to be stale
+            // about. Dropping it silently is right: the replacement already
+            // published a coherent list, and applying this one's items or its
+            // error on top would only undo that. The loading flag still has to
+            // be released, because this request really has finished.
+            if (generation != contentGeneration) {
+                _uiState.update { it.copy(isLoadingMore = false) }
+                return@launch
+            }
+            when (val r = result) {
                 is ApiResult.Success -> {
                     hasLoadedOnce = true
                     _uiState.update {
