@@ -40,6 +40,9 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.auth.DeviceLoginLookupResponse
+import org.siloserver.silo.tv.ui.focus.rememberTvContentInitialFocus
+import org.siloserver.silo.tv.ui.focus.tvPairDeviceFocusTarget
+import org.siloserver.silo.tv.ui.focus.TvPairDeviceAction
 import org.siloserver.silo.tv.ui.components.TvTextInputDialog
 import org.siloserver.silo.viewmodel.DevicePairingViewModel
 import org.koin.compose.viewmodel.koinViewModel
@@ -68,21 +71,41 @@ fun TvPairDeviceScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showCodeEntry by remember { mutableStateOf(false) }
-    val firstActionFocus = remember { FocusRequester() }
+    val enterCodeFocus = remember { FocusRequester() }
+    val checkFocus = remember { FocusRequester() }
+    val approveFocus = remember { FocusRequester() }
+    val doneFocus = remember { FocusRequester() }
 
     BackHandler(enabled = true) { onDone() }
-
-    LaunchedEffect(state.completedStatus) {
-        runCatching { firstActionFocus.requestFocus() }
-    }
 
     // Manual code entry is only meaningful before a token-driven lookup and
     // before a decision lands; matches the phone's editable-field gating.
     val canEnterCode = state.token.isNullOrBlank() && state.completedStatus == null
 
+    // Which control is actionable changes with isLoading, isSubmitting and
+    // canSubmit, none of which alter completedStatus — so focus is keyed on the
+    // eligible action itself and re-acquired whenever that changes.
+    val focusTarget = tvPairDeviceFocusTarget(
+        hasCompleted = state.completedStatus != null,
+        canEnterCode = canEnterCode,
+        canSubmit = state.canSubmit,
+        isLoading = state.isLoading,
+        isSubmitting = state.isSubmitting,
+    )
+    val actionFocus = rememberTvContentInitialFocus(
+        target = when (focusTarget) {
+            TvPairDeviceAction.EnterCode -> enterCodeFocus
+            TvPairDeviceAction.Check -> checkFocus
+            TvPairDeviceAction.Approve -> approveFocus
+            TvPairDeviceAction.Done, null -> doneFocus
+        },
+        contentKey = focusTarget,
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(actionFocus)
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
@@ -159,7 +182,7 @@ fun TvPairDeviceScreen(
                     if (canEnterCode) {
                         Button(
                             onClick = { showCodeEntry = true },
-                            modifier = Modifier.focusRequester(firstActionFocus),
+                            modifier = Modifier.focusRequester(enterCodeFocus),
                         ) {
                             Icon(Icons.Default.Edit, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
@@ -169,7 +192,7 @@ fun TvPairDeviceScreen(
                     Button(
                         onClick = { viewModel.lookup() },
                         enabled = !state.isLoading && !state.isSubmitting,
-                        modifier = if (canEnterCode) Modifier else Modifier.focusRequester(firstActionFocus),
+                        modifier = Modifier.focusRequester(checkFocus),
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
@@ -185,7 +208,11 @@ fun TvPairDeviceScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("Deny")
                     }
-                    Button(onClick = viewModel::approve, enabled = state.canSubmit) {
+                    Button(
+                        onClick = viewModel::approve,
+                        enabled = state.canSubmit,
+                        modifier = Modifier.focusRequester(approveFocus),
+                    ) {
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(if (state.isSubmitting) "Approving…" else "Approve")
@@ -194,7 +221,7 @@ fun TvPairDeviceScreen(
             } else {
                 Button(
                     onClick = onDone,
-                    modifier = Modifier.focusRequester(firstActionFocus),
+                    modifier = Modifier.focusRequester(doneFocus),
                 ) {
                     Text("Done")
                 }
