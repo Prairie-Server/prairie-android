@@ -10,29 +10,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import kotlinx.coroutines.delay
+import org.siloserver.silo.tv.ui.focus.TvFocusTargetState
+import org.siloserver.silo.tv.ui.focus.TvObservedFocusResult
+import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
+
+internal const val TvDialogInitialFocusMaxAttempts = 40
+private const val TvDialogInitialFocusRetryDelayMillis = 60L
+
+internal suspend fun requestTvDialogInitialFocus(
+    awaitAttempt: suspend () -> Unit,
+    isOverlayFocused: () -> Boolean,
+    requestFocus: () -> Boolean,
+): TvObservedFocusResult = requestFocusUntilObserved(
+    maxAttempts = TvDialogInitialFocusMaxAttempts,
+    awaitAttempt = awaitAttempt,
+    targetState = { TvFocusTargetState.Ready },
+    requestFocus = requestFocus,
+    isFocused = isOverlayFocused,
+)
 
 /**
- * Retry-until-focused initial focus for popup overlays.
+ * Bounded retry-until-observed initial focus for popup overlays.
  *
- * A Popup window's focus lags composition on TV (Shield-class devices), so a
- * single delayed `requestFocus()` often fires before the window is focusable
- * and silently no-ops — the overlay opens with NOTHING focused and the D-pad
- * is dead (issue #64's root cause, originally fixed only in the PIN keypad).
- * This keeps requesting [target] until anything inside the overlay holds
- * focus, then stops so it never fights the user's navigation (including a
- * user who reached a different control before the first grab landed).
- *
- * Attach the returned [Modifier] to the overlay's content root:
- * `Column(modifier = rememberTvDialogInitialFocus(firstRowFocus)) { ... }`.
+ * Attach the returned modifier to the overlay content root. Focus on any child
+ * completes acquisition; forty 60 ms attempts provide a 2.4 second ceiling.
+ * Leaving composition cancels the effect through structured concurrency.
  */
 @Composable
 internal fun rememberTvDialogInitialFocus(target: FocusRequester): Modifier {
     var overlayHasFocus by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        while (!overlayHasFocus) {
-            runCatching { target.requestFocus() }
-            delay(60)
-        }
+    LaunchedEffect(target) {
+        requestTvDialogInitialFocus(
+            awaitAttempt = { delay(TvDialogInitialFocusRetryDelayMillis) },
+            isOverlayFocused = { overlayHasFocus },
+            requestFocus = target::requestFocus,
+        )
     }
     return Modifier.onFocusChanged { overlayHasFocus = it.hasFocus }
 }
