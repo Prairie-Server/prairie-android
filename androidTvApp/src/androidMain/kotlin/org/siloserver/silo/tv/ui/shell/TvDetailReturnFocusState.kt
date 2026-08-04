@@ -15,6 +15,19 @@ internal fun beginHomeDetailReturnRetry(
     fallbackPending = needsRetry,
 )
 
+internal fun beginHomeDetailReturnRetryIfHome(
+    previousState: HomeDetailReturnFocusState,
+    isHomeDetailReturn: Boolean,
+    needsRetry: Boolean,
+): HomeDetailReturnFocusState = if (isHomeDetailReturn) {
+    beginHomeDetailReturnRetry(
+        previousRequestId = previousState.requestId,
+        needsRetry = needsRetry,
+    )
+} else {
+    previousState
+}
+
 internal fun completeHomeDetailReturnRetry(
     state: HomeDetailReturnFocusState,
 ): HomeDetailReturnFocusState = state.copy(

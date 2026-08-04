@@ -33,4 +33,17 @@ class TvDetailReturnFocusStateTest {
             resetHomeDetailReturnFocus(),
         )
     }
+
+    @Test
+    fun nonHomeRetryDoesNotArmHomeFallback() {
+        val state = beginHomeDetailReturnRetryIfHome(
+            previousState = HomeDetailReturnFocusState(),
+            isHomeDetailReturn = false,
+            needsRetry = true,
+        )
+
+        assertEquals(0, state.requestId)
+        assertFalse(state.needsRetry)
+        assertFalse(state.fallbackPending)
+    }
 }

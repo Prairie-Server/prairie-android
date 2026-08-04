@@ -343,6 +343,8 @@ fun TvMainShell(
     var restoreForYouContentAfterDetail by rememberSaveable { mutableStateOf(false) }
     var suppressHomeRefreshAfterDetail by rememberSaveable { mutableStateOf(false) }
     var homeDetailReturnFocusState by remember { mutableStateOf(HomeDetailReturnFocusState()) }
+    var detailReturnFocusRequest by remember { mutableIntStateOf(0) }
+    var detailReturnNeedsRetry by remember { mutableStateOf(false) }
     var forYouDetailReturnFocusRequest by rememberSaveable { mutableIntStateOf(0) }
     var forYouDetailReturnFocusPending by rememberSaveable { mutableStateOf(false) }
     // Attached (by the Home feed) to the exact card a detail page was launched
@@ -368,19 +370,22 @@ fun TvMainShell(
     var contentHasFocus by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         if (restoreContentAfterDetail) {
+            val isHomeDetailReturn = restoreHomeContentAfterDetail
             // Claim the content group synchronously during ON_RESUME, before
             // Compose's default search can briefly settle on the Home tab —
             // but only when the feed hasn't already claimed it. Claim BEFORE
             // clearing the flag so the restorer fallback still points at the
             // launch card for this claim.
-            val homeDetailReturnNeedsRetry = if (contentHasFocus) {
+            detailReturnNeedsRetry = if (contentHasFocus) {
                 false
             } else {
                 runCatching { !contentFocusRequester.requestFocus() }.getOrDefault(true)
             }
-            homeDetailReturnFocusState = beginHomeDetailReturnRetry(
-                previousRequestId = homeDetailReturnFocusState.requestId,
-                needsRetry = homeDetailReturnNeedsRetry,
+            detailReturnFocusRequest++
+            homeDetailReturnFocusState = beginHomeDetailReturnRetryIfHome(
+                previousState = homeDetailReturnFocusState,
+                isHomeDetailReturn = isHomeDetailReturn,
+                needsRetry = detailReturnNeedsRetry,
             )
             restoreContentAfterDetail = false
             restoreHomeContentAfterDetail = false
@@ -393,12 +398,12 @@ fun TvMainShell(
         }
         onPauseOrDispose { }
     }
-    LaunchedEffect(homeDetailReturnFocusState.requestId) {
-        if (homeDetailReturnFocusState.requestId == 0) return@LaunchedEffect
+    LaunchedEffect(detailReturnFocusRequest) {
+        if (detailReturnFocusRequest == 0) return@LaunchedEffect
         // One-frame fallback for the disposed/recreated case where the Home row
         // requester was not attached during the synchronous resume claim.
         withFrameNanos { }
-        if (homeDetailReturnFocusState.needsRetry) {
+        if (detailReturnNeedsRetry) {
             runCatching { contentFocusRequester.requestFocus() }
         }
         homeDetailReturnFocusState = completeHomeDetailReturnRetry(homeDetailReturnFocusState)
