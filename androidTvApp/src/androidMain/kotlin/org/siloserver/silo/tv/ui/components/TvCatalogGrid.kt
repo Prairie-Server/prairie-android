@@ -23,10 +23,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -74,6 +76,31 @@ fun TvCatalogGrid(
     verticalSpacing: Dp = 32.dp,
     firstItemFocusRequester: FocusRequester? = null,
     firstItemCardModifier: Modifier = Modifier,
+    /**
+     * Return-restoration plumbing, for surfaces that restore focus to the card
+     * a detail page was opened from.
+     *
+     * The requester goes on [restoreItemIndex], and that card reports back
+     * which identity it is bound to — a card can be laid out while its modifier
+     * still carries the previous binding, so nothing else can say. Callers
+     * that do not restore leave these alone and keep the first-item behaviour.
+     */
+    restoreItemIndex: Int = -1,
+    restoreItemFocusRequester: FocusRequester? = null,
+    // Two caveats this component cannot remove on its own.
+    //
+    // The restorer's fallback is chosen during composition while attachment is
+    // only known after it, so there is a one-recomposition window either way:
+    // a just-detached requester still named, or a just-attached one not yet.
+    // Tolerable, because that failure is a call returning false followed by
+    // normal entry rather than focus landing somewhere wrong.
+    //
+    // And restoreItemIndex is a POSITION. If the list reorders after the caller
+    // resolved it, the requester follows the index onto a different item.
+    // Callers whose data only appends are unaffected; one that re-sorts in
+    // place must re-resolve rather than trust a frozen index.
+    onRestoreRequesterAttached: (String?) -> Unit = {},
+    onItemFocusedAtIndex: (BrowseItem, Int) -> Unit = { _, _ -> },
     artworkAspectRatioForItem: (BrowseItem) -> Float? = { item ->
         tvArtworkAspectRatioForMediaType(item.type)
     },
@@ -127,6 +154,23 @@ fun TvCatalogGrid(
     // A page we requested has settled (not loading) without adding items while
     // the server still claims more — treat as a stalled/failed load-more and
     // offer an explicit, focusable retry instead of silently re-firing.
+    // WHICH card is holding the restore requester, not merely whether one is.
+    // A Boolean cannot express ownership, and pagination moves the restore
+    // index while both the old and new cards are briefly composed: if the new
+    // card attaches before the old one disposes, the old disposal erases a live
+    // attachment and the fallback silently reverts.
+    var attachedRestoreItemId by remember { mutableStateOf<String?>(null) }
+    // Tracked the same way for the first item, so the fallback below names a
+    // requester some card is actually holding.
+    //
+    // Worth being accurate about the size of this. An UNATTACHED requester is
+    // benign: it returns false and Compose carries on with normal entry, which
+    // is where Default would have arrived anyway. What is not benign is a
+    // requester attached to the WRONG card, and that is what the identity
+    // ownership above prevents. Gating the fallback on attachment only avoids
+    // a pointless failed call.
+    var attachedFirstItemId by remember { mutableStateOf<String?>(null) }
+
     val loadMoreStalled = hasMore &&
         !isLoading &&
         items.isNotEmpty() &&
@@ -146,7 +190,17 @@ fun TvCatalogGrid(
         // explicit first-item requester (or Compose's default first-focusable
         // search) the very first time, before anything has been remembered.
         modifier = modifier.focusRestorer(
-            firstItemFocusRequester ?: FocusRequester.Default,
+            // The restore requester only once a card is genuinely holding it.
+            // It displaces the first-item requester on its card, so naming that
+            // as the fallback would point the restorer at a requester nothing
+            // is attached to — and an index alone does not prove attachment,
+            // since a deep target sits outside lazy composition until scrolled
+            // to. Compose calls this fallback directly when restoration fails,
+            // and an unattached requester returns false, dropping the whole
+            // thing into an ordinary focus search.
+            restoreItemFocusRequester?.takeIf { attachedRestoreItemId != null }
+                ?: firstItemFocusRequester?.takeIf { attachedFirstItemId != null }
+                ?: FocusRequester.Default,
         ),
     ) {
         if (header != null) {
@@ -173,6 +227,35 @@ fun TvCatalogGrid(
                 contentType = { _, item -> item.type },
             ) { index, item ->
                 val (actions, userState) = rememberTvBrowseItemCardActions(item)
+                val isRestoreTarget =
+                    restoreItemFocusRequester != null && index == restoreItemIndex
+                if (isRestoreTarget) {
+                    // Keyed on the callback as well as the item: an owner
+                    // change while the same card survives has to re-announce
+                    // the existing attachment, or the new owner only ever hears
+                    // about it when it goes away.
+                    DisposableEffect(item.contentId, onRestoreRequesterAttached) {
+                        attachedRestoreItemId = item.contentId
+                        onRestoreRequesterAttached(item.contentId)
+                        onDispose {
+                            // Only if this effect still owns the attachment. A
+                            // successor that attached first must not be undone
+                            // by its predecessor's teardown.
+                            if (attachedRestoreItemId == item.contentId) {
+                                attachedRestoreItemId = null
+                                onRestoreRequesterAttached(null)
+                            }
+                        }
+                    }
+                }
+                if (firstItemFocusRequester != null && index == 0 && !isRestoreTarget) {
+                    DisposableEffect(item.contentId) {
+                        attachedFirstItemId = item.contentId
+                        onDispose {
+                            if (attachedFirstItemId == item.contentId) attachedFirstItemId = null
+                        }
+                    }
+                }
                 TvMediaCard(
                     title = item.title,
                     posterUrl = item.posterUrl,
@@ -183,9 +266,19 @@ fun TvCatalogGrid(
                     onClick = { onBrowseItemClick?.invoke(item) ?: onItemClick(item.contentId) },
                     fillWidth = true,
                     artworkAspectRatio = artworkAspectRatioForItem(item),
-                    focusRequester = firstItemFocusRequester.takeIf { index == 0 },
+                    focusRequester = if (isRestoreTarget) {
+                        restoreItemFocusRequester
+                    } else {
+                        firstItemFocusRequester.takeIf { index == 0 }
+                    },
                     cardModifier = if (index == 0) firstItemCardModifier else Modifier,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // hasFocus, not isFocused: this modifier lands on the
+                        // card's outer Column while the Material Card inside it
+                        // owns focus, so isFocused is never true here and the
+                        // helper would never see a card take focus at all.
+                        .onFocusChanged { if (it.hasFocus) onItemFocusedAtIndex(item, index) },
                     overlay = OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
                 )
