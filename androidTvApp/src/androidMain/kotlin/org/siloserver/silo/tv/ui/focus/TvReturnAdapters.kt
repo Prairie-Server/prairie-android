@@ -38,3 +38,25 @@ internal fun List<ResolvedSection>.toTvReturnSections(): List<TvReturnSection> =
             isComplete = section.items.isNotEmpty() || section.totalCount == 0,
         )
     }
+
+/**
+ * Projects a flat, paginated surface — a library grid, personal list, people or
+ * collection — into the shape [resolveTvReturnTarget] reads.
+ *
+ * One implicit section, and [hasMore] is the honest answer to the question
+ * completeness asks. These surfaces load a page at a time, so an item further
+ * in is absent from what is loaded in exactly the way a deleted item is;
+ * reporting complete while pages remain spends the return target on whichever
+ * card happens to be nearby.
+ *
+ * The caller that receives [TvReturnResolution.Pending] owes two things: ask
+ * for the next page, and bound the hunt — by a clock, a request ceiling, or
+ * both — then re-ask with `treatAbsenceAsFinal`. A surface that only waits
+ * waits forever.
+ */
+internal fun flatTvReturnSections(
+    itemIds: List<String>,
+    hasMore: Boolean,
+): List<TvReturnSection> = listOf(
+    TvReturnSection(id = TvFlatSectionId, itemIds = itemIds, isComplete = !hasMore),
+)

@@ -105,4 +105,51 @@ class TvReturnAdaptersTest {
             resolveTvReturnTarget(launched, reordered.toTvReturnSections()),
         )
     }
+
+    // ── Flat paginated surfaces ──────────────────────────────────────────
+
+    @Test
+    fun `a flat page still loading reports incomplete`() {
+        val page = flatTvReturnSections(listOf("a", "b"), hasMore = true)
+
+        assertTrue(!page.single().isComplete)
+        assertEquals(TvFlatSectionId, page.single().id)
+    }
+
+    @Test
+    fun `a fully loaded flat surface reports complete`() {
+        assertTrue(flatTvReturnSections(listOf("a"), hasMore = false).single().isComplete)
+    }
+
+    @Test
+    fun `a target beyond the loaded page waits rather than settling nearby`() {
+        // The regression this pins for every paginated surface: an item on a
+        // later page is missing exactly as a deleted one is, and settling here
+        // strands focus on whatever card the first page happens to end with.
+        val launched = TvReturnTarget(TvFlatSectionId, "z", sectionIndex = 0, itemIndex = 60)
+
+        assertEquals(
+            TvReturnResolution.Pending,
+            resolveTvReturnTarget(launched, flatTvReturnSections(listOf("a", "b"), hasMore = true)),
+        )
+        // Once the page carrying it arrives, identity finds it wherever it sits.
+        assertEquals(
+            TvReturnResolution.Exact(0, 2, TvFlatSectionId, "z"),
+            resolveTvReturnTarget(launched, flatTvReturnSections(listOf("a", "b", "z"), hasMore = true)),
+        )
+    }
+
+    @Test
+    fun `a caller out of patience settles on the nearest loaded card`() {
+        val launched = TvReturnTarget(TvFlatSectionId, "z", sectionIndex = 0, itemIndex = 60)
+
+        assertEquals(
+            TvReturnResolution.Nearest(0, 1, TvFlatSectionId, "b"),
+            resolveTvReturnTarget(
+                launched,
+                flatTvReturnSections(listOf("a", "b"), hasMore = true),
+                treatAbsenceAsFinal = true,
+            ),
+        )
+    }
 }
