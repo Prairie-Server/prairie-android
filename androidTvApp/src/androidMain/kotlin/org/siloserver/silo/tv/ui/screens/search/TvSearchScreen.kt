@@ -59,6 +59,11 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
@@ -785,6 +790,27 @@ private fun SearchStage(
                 // regardless of whether result cards are also rendered below.
                 .focusRequester(searchFieldFocusRequester)
                 .onFocusChanged { onSearchFieldFocusChanged(it.isFocused) }
+                // LEFT reaches the mic, and it has to be taken in the PREVIEW
+                // phase to get there. Compose's text field consumes Left as
+                // cursor movement even when the caret cannot move, so both a
+                // plain key handler and a focusProperties destination lose the
+                // race — the key never becomes a focus move at all. Previewing
+                // it is the same mechanism the shell uses to claim Up.
+                //
+                // The cost is that Left no longer walks the caret. On a TV that
+                // is a fair trade: text arrives through the on-screen keyboard,
+                // which carries its own cursor keys, whereas the mic has no
+                // other way in.
+                .onPreviewKeyEvent { event ->
+                    if (voiceSearch.isAvailable &&
+                        event.type == KeyEventType.KeyDown &&
+                        event.key == Key.DirectionLeft
+                    ) {
+                        runCatching { voiceFocusRequester.requestFocus() }.getOrDefault(false)
+                    } else {
+                        false
+                    }
+                }
                 .focusProperties { down = firstFilterChipFocusRequester },
             colors = tvOutlinedTextFieldColors(
                 focusedContainerColor = ElevatedSurface,
@@ -814,26 +840,17 @@ private fun SearchStage(
                 contentType = { _, _ -> "media-type-chip" },
             ) { index, type ->
                 val chipModifier = Modifier
-                    // UP is stated rather than left to geometry, and the first
-                    // chip deliberately goes somewhere different.
-                    //
-                    // The mic sits directly above chip zero, and it is the ONLY
-                    // way in: Compose Foundation's text field consumes D-pad
-                    // Left as character navigation even when the cursor cannot
-                    // move, so Field → Left → Mic is not a route that can be
-                    // relied on. Sending chip zero up to the mic gives the
-                    // button an entry path that never crosses the field, and
-                    // the mic's own Right leads back to it.
-                    //
-                    // Every other chip goes to the field, which is the control
-                    // this row belongs to.
-                    .focusProperties {
-                        up = if (index == 0 && voiceSearch.isAvailable) {
-                            voiceFocusRequester
-                        } else {
-                            searchFieldFocusRequester
-                        }
-                    }
+                    // UP returns to the search field — every chip, no
+                    // exceptions. An earlier attempt sent chip zero to the mic
+                    // instead, to give the button a route that avoided the text
+                    // field. It did not work and made things worse: the shell
+                    // claims DirectionUp in its own preview handler above this
+                    // row, so the chip's property never decides anything, and
+                    // when the move it performs fails the shell hands focus to
+                    // the top menu. Chip zero's Up therefore left the screen
+                    // entirely instead of reaching the field. The mic is
+                    // reached from the field itself now, below.
+                    .focusProperties { up = searchFieldFocusRequester }
                     .then(
                         if (index == 0) {
                             Modifier.focusRequester(firstFilterChipFocusRequester)
