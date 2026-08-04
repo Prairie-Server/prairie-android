@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.siloserver.silo.android.ui.components.siloKeyboardActions
 import org.siloserver.silo.android.R
 
 /** Silo brand colors used across auth screens. */
@@ -147,7 +148,7 @@ fun SiloTextField(
     error: String? = null,
     keyboardType: KeyboardType = KeyboardType.Text,
     imeAction: ImeAction = ImeAction.Next,
-    onImeAction: () -> Unit = {},
+    onImeAction: (() -> Unit)? = null,
     singleLine: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -161,9 +162,7 @@ fun SiloTextField(
                 keyboardType = keyboardType,
                 imeAction = imeAction,
             ),
-            keyboardActions = KeyboardActions(
-                onAny = { onImeAction() },
-            ),
+            keyboardActions = siloKeyboardActions(onImeAction),
             shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = AuthColors.OnSurface,
@@ -213,7 +212,7 @@ fun SiloPasswordField(
     modifier: Modifier = Modifier,
     error: String? = null,
     imeAction: ImeAction = ImeAction.Done,
-    onImeAction: () -> Unit = {},
+    onImeAction: (() -> Unit)? = null,
 ) {
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -233,9 +232,7 @@ fun SiloPasswordField(
                 keyboardType = KeyboardType.Password,
                 imeAction = imeAction,
             ),
-            keyboardActions = KeyboardActions(
-                onAny = { onImeAction() },
-            ),
+            keyboardActions = siloKeyboardActions(onImeAction),
             trailingIcon = {
                 val icon = if (passwordVisible) {
                     Icons.Filled.VisibilityOff
