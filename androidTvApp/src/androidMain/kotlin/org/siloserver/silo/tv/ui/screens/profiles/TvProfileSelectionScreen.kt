@@ -69,6 +69,15 @@ import org.siloserver.silo.common.ui.components.profileAvatarDisplayText
 import org.siloserver.silo.common.ui.components.rememberProfileServerUrl
 import org.siloserver.silo.common.ui.components.resolveAvatarUrl
 import org.siloserver.silo.model.profile.Profile
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import org.siloserver.silo.tv.ui.focus.TvObservedFocusResult
+import org.siloserver.silo.tv.ui.focus.TvFocusTargetState
+import org.siloserver.silo.tv.ui.focus.tvProfileFocusTarget
+import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
+import org.siloserver.silo.tv.ui.focus.TvFrameRelocationMaxAttempts
 import org.siloserver.silo.tv.ui.components.TvAuroraBackdrop
 import org.siloserver.silo.tv.ui.components.AuroraJourneyProgress
 import org.siloserver.silo.tv.ui.components.TvAuroraVariant
@@ -217,15 +226,60 @@ fun TvProfileSelectionScreen(
 
                     Spacer(modifier = Modifier.height(32.dp))
 
-                    val firstCardFocus = remember { FocusRequester() }
-                    LaunchedEffect(state.profiles) {
-                        if (state.profiles.isNotEmpty()) {
-                            runCatching { firstCardFocus.requestFocus() }
-                        }
+                    // The screen reloads on every resume, so re-anchoring on
+                    // the first tile overrode the viewer's position on every
+                    // return. Keep a requester per profile ID and move focus
+                    // only where tvProfileFocusTarget says it belongs.
+                    val tileFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+                    var focusedProfileId by remember { mutableStateOf<String?>(null) }
+                    var previousProfileIds by remember { mutableStateOf(emptyList<String>()) }
+                    var hasAnchored by remember { mutableStateOf(false) }
+                    val profileIds = state.profiles.map { it.id }
+
+                    LaunchedEffect(profileIds) {
+                        val target = tvProfileFocusTarget(
+                            previousIds = previousProfileIds,
+                            currentIds = profileIds,
+                            focusedId = focusedProfileId,
+                            hasMaterialized = hasAnchored,
+                        )
+                        previousProfileIds = profileIds
+                        // Requesters are keyed by ID, so a deleted profile's
+                        // would otherwise be retained for the screen's lifetime.
+                        tileFocusRequesters.keys.retainAll(profileIds.toSet())
+                        if (target == null) return@LaunchedEffect
+                        // Placement can trail the data by a frame or two.
+                        val result = requestFocusUntilObserved(
+                            maxAttempts = TvFrameRelocationMaxAttempts,
+                            awaitAttempt = { withFrameNanos { } },
+                            requestFocus = {
+                                tileFocusRequesters[target]?.requestFocus() ?: false
+                            },
+                            isFocused = { focusedProfileId == target },
+                            targetState = {
+                                // The viewer moved to another tile themselves
+                                // while we were retrying. Stop chasing rather
+                                // than fight them for the rest of the budget.
+                                val focused = focusedProfileId
+                                if (focused != null && focused != target) {
+                                    TvFocusTargetState.Disposed
+                                } else {
+                                    TvFocusTargetState.Ready
+                                }
+                            },
+                        )
+                        // Only a landed anchor counts. Setting this up front
+                        // meant a second list arriving mid-retry cancelled the
+                        // first pass and left the replacement believing the
+                        // screen was already anchored, so it never anchored.
+                        if (result == TvObservedFocusResult.Focused) hasAnchored = true
                     }
                     ProfileTileGrid(
                         profiles = state.profiles,
-                        firstCardFocus = firstCardFocus,
+                        focusRequesterFor = { id ->
+                            tileFocusRequesters.getOrPut(id) { FocusRequester() }
+                        },
+                        onProfileFocused = { focusedProfileId = it },
                         isManageMode = state.isManageMode,
                         onProfileSelected = viewModel::onProfileSelected,
                         onEditProfile = { onEditProfile(it.id) },
@@ -285,7 +339,10 @@ fun TvProfileSelectionScreen(
 @Composable
 private fun ProfileTileGrid(
     profiles: List<Profile>,
-    firstCardFocus: FocusRequester,
+    focusRequesterFor: (String) -> FocusRequester,
+    // Null means no profile tile owns focus — the Add tile has it, or focus
+    // left the grid entirely. Restoration must not re-request a tile then.
+    onProfileFocused: (String?) -> Unit,
     isManageMode: Boolean,
     onProfileSelected: (Profile) -> Unit,
     onEditProfile: (Profile) -> Unit,
@@ -295,7 +352,9 @@ private fun ProfileTileGrid(
     val itemCount = profiles.size + 1
     val rowCount = (itemCount + ProfileGridColumns - 1) / ProfileGridColumns
     Column(
-        modifier = Modifier.width(ProfileGridWidth),
+        modifier = Modifier
+            .width(ProfileGridWidth)
+            .onFocusChanged { if (!it.hasFocus) onProfileFocused(null) },
         verticalArrangement = Arrangement.spacedBy(56.dp),
     ) {
         repeat(rowCount) { rowIndex ->
@@ -326,14 +385,19 @@ private fun ProfileTileGrid(
                                         }
                                     },
                                     onDelete = { onDeleteProfile(profile) },
-                                    modifier = if (itemIndex == 0) {
-                                        Modifier.focusRequester(firstCardFocus)
-                                    } else {
-                                        Modifier
-                                    },
+                                    modifier = Modifier
+                                        .focusRequester(focusRequesterFor(profile.id))
+                                        .onFocusChanged {
+                                            if (it.isFocused) onProfileFocused(profile.id)
+                                        },
                                 )
                             }
-                            itemIndex == profiles.size -> TvAddProfileCard(onClick = onAddProfile)
+                            itemIndex == profiles.size -> TvAddProfileCard(
+                                onClick = onAddProfile,
+                                modifier = Modifier.onFocusChanged {
+                                    if (it.isFocused) onProfileFocused(null)
+                                },
+                            )
                         }
                     }
                 }
@@ -491,14 +555,14 @@ private fun TvProfileCard(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvAddProfileCard(onClick: () -> Unit) {
+private fun TvAddProfileCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(ProfileTileCornerRadius)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val surfaceAlpha = if (isFocused) 0.14f else 0.06f
     val strokeAlpha = if (isFocused) 0.70f else 0.28f
     val plusAlpha = if (isFocused) 1.0f else 0.60f
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
             interactionSource = interactionSource,
