@@ -2,6 +2,7 @@ package org.siloserver.silo.tv.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -106,6 +109,22 @@ internal fun TvCardOverlaySettingsScreen(
     var sampleVariant by remember { mutableStateOf(OverlaySampleVariant.Movie) }
     var detailOverlay by remember { mutableStateOf<OverlayId?>(null) }
 
+    // `enabled` is server-driven and refreshes on foreground, so the
+    // kill-switch can flip while this screen is open. Every tile leaves the
+    // focus graph at that moment, and Android TV does not re-home focus when
+    // the focused node stops being focusable — the ring would simply vanish
+    // and the D-pad go dead. Move focus to the preview pane, which stays
+    // focusable, and close the detail panel, whose edits no longer apply.
+    val previewPaneFocus = remember { FocusRequester() }
+    var wasEnabled by remember { mutableStateOf(enabled) }
+    LaunchedEffect(enabled) {
+        if (wasEnabled && !enabled) {
+            detailOverlay = null
+            runCatching { previewPaneFocus.requestFocus() }
+        }
+        wasEnabled = enabled
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -130,7 +149,10 @@ internal fun TvCardOverlaySettingsScreen(
                 onPresetSelected = { preset ->
                     store.setPrefs(prefs.copy(preset = preset))
                 },
-                modifier = Modifier.width(260.dp),
+                modifier = Modifier
+                    .width(260.dp)
+                    .focusRequester(previewPaneFocus)
+                    .focusGroup(),
             )
             OverlayControlsPane(
                 enabled = enabled,
@@ -363,7 +385,7 @@ private fun OverlayControlsPane(
                         prefs = prefs,
                         sampleData = sampleData,
                         enabled = enabled,
-                        onClick = { if (enabled) onTileClick(def.id) },
+                        onClick = { onTileClick(def.id) },
                     )
                 }
             }
@@ -431,6 +453,7 @@ private fun OverlayTile(
     val isFocused by interactionSource.collectIsFocusedAsState()
     Surface(
         onClick = onClick,
+        enabled = enabled,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(14.dp)),
         colors = overlayRowColors(),
@@ -534,7 +557,8 @@ private fun OverlayResetRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     Surface(
-        onClick = { if (enabled) onClick() },
+        onClick = onClick,
+        enabled = enabled,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(12.dp)),
         colors = overlayRowColors(),

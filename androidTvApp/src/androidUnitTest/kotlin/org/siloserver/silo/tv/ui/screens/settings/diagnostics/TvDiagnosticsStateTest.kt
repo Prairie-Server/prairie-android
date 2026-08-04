@@ -16,6 +16,122 @@ import kotlin.test.assertTrue
 
 class TvDiagnosticsStateTest {
     @Test
+    fun unsuccessfulFocusRequestIsRetryable() {
+        assertEquals(
+            TvDiagnosticsCrashFocusRequestResult.RETRY,
+            tvDiagnosticsCrashFocusRequestResult(Result.success(false)),
+        )
+    }
+
+    @Test
+    fun detachedFocusRequesterFailureIsRetryable() {
+        assertEquals(
+            TvDiagnosticsCrashFocusRequestResult.RETRY,
+            tvDiagnosticsCrashFocusRequestResult(
+                Result.failure(IllegalStateException("Focus requester is detached")),
+            ),
+        )
+    }
+
+    @Test
+    fun selectedConsentIsTheInitialCrashReportFocus() {
+        assertEquals(
+            TvDiagnosticsCrashFocus.ALWAYS,
+            initialTvDiagnosticsCrashFocus(DiagnosticsConsentMode.ALWAYS),
+        )
+    }
+
+    @Test
+    fun downTraversesConsentChoicesThenDebugLogging() {
+        assertEquals(
+            TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.NEVER,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun disabledDebugLoggingIsSkipped() {
+        assertEquals(
+            null,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.NEVER,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = false,
+            ),
+        )
+    }
+
+    @Test
+    fun firstChoiceHoldsAtUpperBoundary() {
+        assertEquals(
+            TvDiagnosticsCrashFocus.ASK,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.ASK,
+                direction = TvDiagnosticsFocusDirection.Up,
+                debugLoggingEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun downFromLastEnabledChoiceFallsThroughToCaptureSection() {
+        assertEquals(
+            null,
+            nextTvDiagnosticsCrashFocus(
+                current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun aControlOutsideTheCurrentOrderHasNoNeighbour() {
+        // Debug logging is not in the order under consent NEVER. Treating the
+        // lookup miss as index 0 would send Down UPWARDS, to "Always send".
+        TvDiagnosticsFocusDirection.entries.forEach { direction ->
+            assertEquals(
+                null,
+                nextTvDiagnosticsCrashFocus(
+                    current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                    direction = direction,
+                    debugLoggingEnabled = false,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun repeatedDownIsConsumedWithoutMovingToAnotherLayer() {
+        assertEquals(
+            TvDiagnosticsCrashFocusKeyResult(target = null, consume = true),
+            tvDiagnosticsCrashFocusKeyResult(
+                current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+                isRepeat = true,
+            ),
+        )
+    }
+
+    @Test
+    fun freshDownFromLastEnabledChoiceStillFallsThrough() {
+        assertEquals(
+            TvDiagnosticsCrashFocusKeyResult(target = null, consume = false),
+            tvDiagnosticsCrashFocusKeyResult(
+                current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                direction = TvDiagnosticsFocusDirection.Down,
+                debugLoggingEnabled = true,
+                isRepeat = false,
+            ),
+        )
+    }
+
+    @Test
     fun promptDefaultsToDontSend() {
         val model = tvDiagnosticsPromptModel(
             DiagnosticsPrompt("report-1", DiagnosticsReportType.CRASH, "2026-07-22T00:00:00Z"),

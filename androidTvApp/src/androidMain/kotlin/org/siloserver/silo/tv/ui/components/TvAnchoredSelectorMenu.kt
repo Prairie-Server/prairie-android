@@ -72,6 +72,11 @@ data class TvSelectorOption(
     val enabled: Boolean = true,
 )
 
+internal fun selectorExpansionAfterInteractivityChange(
+    expanded: Boolean,
+    interactive: Boolean,
+): Boolean = expanded && interactive
+
 /**
  * A secondary `.compact` squared pill that opens an anchored dropdown of
  * [options]. Trigger layout mirrors tvOS `TVSelectorButton` at tvOS÷2 scale
@@ -92,7 +97,16 @@ fun TvAnchoredSelectorMenu(
     triggerFocusRequester: FocusRequester? = null,
     interactive: Boolean = true,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expansionRequested by remember { mutableStateOf(false) }
+    // Derived, not deferred: a LaunchedEffect would leave the dropdown drawn
+    // over a trigger that has already stopped being interactive for the frame
+    // it takes the effect to run. The effect below still clears the stored bit
+    // so interactivity returning does not re-open a menu the viewer never
+    // asked for a second time.
+    val expanded = selectorExpansionAfterInteractivityChange(expansionRequested, interactive)
+    LaunchedEffect(interactive) {
+        expansionRequested = selectorExpansionAfterInteractivityChange(expansionRequested, interactive)
+    }
     // Use the caller's requester when provided (Task 4 directs selector-row
     // focus to a specific trigger); otherwise a private one for focus-restore.
     val triggerFr = triggerFocusRequester ?: remember { FocusRequester() }
@@ -103,9 +117,10 @@ fun TvAnchoredSelectorMenu(
     Box(modifier = modifier) {
         SquaredPillSurface(
             kind = PillKind.Secondary,
-            onClick = { if (interactive) expanded = true },
+            onClick = { if (interactive) expansionRequested = true },
             modifier = Modifier,
             focusRequester = triggerFr,
+            enabled = interactive,
             // Secondary .compact pill body padding, tvOS 40×22pt → 20×11dp,
             // +2/+1 per design review.
             contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp),
@@ -165,9 +180,9 @@ fun TvAnchoredSelectorMenu(
         // and borders below, while a fully TV-native anchored popup (including
         // scale behavior) would require a bespoke Popup.
         DropdownMenu(
-            expanded = interactive && expanded,
+            expanded = expanded,
             onDismissRequest = {
-                expanded = false
+                expansionRequested = false
                 // Guard: the trigger may have left composition (selector row
                 // reloaded on selection) — requesting focus then throws.
                 runCatching { triggerFr.requestFocus() }
@@ -230,7 +245,7 @@ fun TvAnchoredSelectorMenu(
                     ),
                     onClick = {
                         option.onSelect()
-                        expanded = false
+                        expansionRequested = false
                         runCatching { triggerFr.requestFocus() }
                     },
                 )

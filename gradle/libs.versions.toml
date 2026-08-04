@@ -23,6 +23,10 @@ activity-compose = "1.12.4"
 tv-compose = "1.0.1"
 desugar-jdk-libs = "2.1.5"
 robolectric = "4.16.1"
+# Compose UI test artifacts: pin to the androidx.compose.ui the app already
+# resolves at runtime, so the Robolectric harness exercises the same runtime
+# the app ships rather than dragging in a newer one.
+compose-ui-test = "1.9.2"
 ksp = "2.1.20-2.0.1"
 room = "2.8.4"
 androidx-test-core = "1.6.1"
@@ -47,6 +51,8 @@ androidx-mediarouter = "1.7.0"
 bouncycastle-prov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 bouncycastle-tls = { module = "org.bouncycastle:bctls-jdk18on", version.ref = "bouncycastle" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4", version.ref = "compose-ui-test" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version.ref = "compose-ui-test" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }

@@ -53,6 +53,8 @@ import org.siloserver.silo.common.ui.components.isImageAvatar
 import org.siloserver.silo.common.ui.components.profileAvatarDisplayText
 import org.siloserver.silo.common.ui.components.rememberProfileServerUrl
 import org.siloserver.silo.common.ui.components.resolveAvatarUrl
+import org.siloserver.silo.tv.ui.focus.TvControlState
+import org.siloserver.silo.tv.ui.focus.tvControlSemantics
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
@@ -246,6 +248,11 @@ private fun PinKeypad(
     onDigitPressed: (Char) -> Unit,
     onBackspacePressed: () -> Unit,
 ) {
+    // Verification is in flight, not a structural dead end: the keys stay
+    // focusable so the ring survives the round trip. Dropping the whole keypad
+    // out of the focus graph would strand a rejected PIN with a dead D-pad —
+    // the initial-focus policy is one-shot and never re-fires.
+    val keyState = TvControlState.transient(enabled)
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -254,16 +261,22 @@ private fun PinKeypad(
                 row.forEach { digit ->
                     PinKey(
                         label = digit.toString(),
+                        controlState = keyState,
                         modifier = if (digit == '5') Modifier.focusRequester(fiveFocusRequester) else Modifier,
-                        onClick = { if (enabled) onDigitPressed(digit) },
+                        onClick = { onDigitPressed(digit) },
                     )
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Spacer(modifier = Modifier.size(48.dp))
-            PinKey(label = "0", onClick = { if (enabled) onDigitPressed('0') })
-            PinKey(label = null, icon = Icons.AutoMirrored.Filled.Backspace, onClick = { if (enabled) onBackspacePressed() })
+            PinKey(label = "0", controlState = keyState, onClick = { onDigitPressed('0') })
+            PinKey(
+                label = null,
+                controlState = keyState,
+                icon = Icons.AutoMirrored.Filled.Backspace,
+                onClick = onBackspacePressed,
+            )
         }
     }
 }
@@ -272,6 +285,7 @@ private fun PinKeypad(
 @Composable
 private fun PinKey(
     label: String?,
+    controlState: TvControlState,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
@@ -280,9 +294,13 @@ private fun PinKey(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val keyShape = RoundedCornerShape(9.dp)
     Surface(
-        onClick = onClick,
+        onClick = { controlState.perform(onClick) },
+        enabled = controlState.focusable,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = keyShape),
+        // The keypad deliberately carries no dimmed treatment while verifying
+        // (the panel shows its own progress), so the resting and disabled
+        // slots are the same colours either way.
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.White.copy(alpha = 0.10f),
             contentColor = SiloOnSurface,
@@ -290,6 +308,8 @@ private fun PinKey(
             focusedContentColor = FocusedContent,
             pressedContainerColor = FocusedContainer,
             pressedContentColor = FocusedContent,
+            disabledContainerColor = Color.White.copy(alpha = 0.10f),
+            disabledContentColor = SiloOnSurface,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         border = ClickableSurfaceDefaults.border(
@@ -302,7 +322,9 @@ private fun PinKey(
                 shape = keyShape,
             ),
         ),
-        modifier = modifier.size(48.dp),
+        modifier = modifier
+            .size(48.dp)
+            .tvControlSemantics(controlState),
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (label != null) {

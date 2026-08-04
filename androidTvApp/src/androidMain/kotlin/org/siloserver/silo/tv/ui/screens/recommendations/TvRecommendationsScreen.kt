@@ -23,15 +23,18 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,13 +58,39 @@ import org.siloserver.silo.tv.ui.screens.personal.TvFavoritesInline
 import org.siloserver.silo.tv.ui.screens.personal.TvWatchlistInline
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.tv.ui.theme.Spacing
+import org.siloserver.silo.tv.ui.focus.TvFrameRelocationMaxAttempts
 import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.siloserver.silo.tv.ui.util.visibleOnTv
 import org.siloserver.silo.viewmodel.RecommendationsViewModel
 import org.koin.compose.viewmodel.koinViewModel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private val RecommendationsFilterBandHeight = 52.dp
+
+internal data class ForYouListPosition(
+    val firstVisibleItemIndex: Int,
+    val firstVisibleItemScrollOffset: Int,
+) {
+    val isAtTop: Boolean
+        get() = firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
+}
+
+internal suspend fun maintainForYouTopAnchor(
+    positionEvents: Flow<ForYouListPosition>,
+    isFirstRowFocused: () -> Boolean,
+    awaitRelocation: suspend () -> Unit,
+    currentPosition: () -> ForYouListPosition,
+    scrollToTop: suspend () -> Unit,
+) {
+    positionEvents.collect { observed ->
+        if (!isFirstRowFocused() || observed.isAtTop) return@collect
+        awaitRelocation()
+        if (isFirstRowFocused() && !currentPosition().isAtTop) scrollToTop()
+    }
+}
 
 /**
  * "For You" tab. Reuses the shared [RecommendationsViewModel] that drives
@@ -72,7 +101,13 @@ private val RecommendationsFilterBandHeight = 52.dp
 @OptIn(ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvRecommendationsScreen(
-    onItemClick: (contentId: String) -> Unit,
+    onSavedListItemClick: (contentId: String) -> Unit,
+    onRecommendationItemClick: (contentId: String) -> Unit,
+    detailReturnFocusRequest: Int,
+    detailReturnFocusPending: Boolean,
+    detailReturnCardFocusRequester: FocusRequester,
+    onDetailReturnFocusConsumed: (Int) -> Unit,
+    onSolidTopBarChanged: (Boolean) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
     entryRequest: TvForYouEntryRequest = TvForYouEntryRequest(),
@@ -85,6 +120,7 @@ fun TvRecommendationsScreen(
     val favoritesFocusRequester = remember { FocusRequester() }
     val firstRecommendationRowFocusRequester = remember { FocusRequester() }
     val firstRecommendationCardFocusRequester = remember { FocusRequester() }
+    val detailReturnRowFocusRequester = remember { FocusRequester() }
     val focusBridgeScope = rememberCoroutineScope()
     // rememberSaveable, not remember: opening an item disposes this screen's
     // composition, and a plain remember would re-initialise from
@@ -99,7 +135,57 @@ fun TvRecommendationsScreen(
     val recommendationsListState = rememberLazyListState()
     var savedListSelection by rememberSaveable { mutableStateOf(entryRequest.selection) }
     var lastAppliedEntrySequence by rememberSaveable { mutableIntStateOf(0) }
+    // This is the card that launched the pending detail route, not a rolling
+    // "currently focused" value. Keeping the launch snapshot separate prevents
+    // the row-container hop from retargeting restoration to whichever composed
+    // card temporarily receives focus while the exact card is being prepared.
+    var detailReturnSectionId by rememberSaveable { mutableStateOf("") }
+    var detailReturnContentId by rememberSaveable { mutableStateOf("") }
+    var detailReturnRowIndex by rememberSaveable { mutableIntStateOf(0) }
+    var detailReturnCardIndex by rememberSaveable { mutableIntStateOf(0) }
+    val detailReturnLaunchTarget = if (
+        detailReturnSectionId.isNotBlank() && detailReturnContentId.isNotBlank()
+    ) {
+        ForYouFocusTarget(
+            sectionId = detailReturnSectionId,
+            contentId = detailReturnContentId,
+            rowIndex = detailReturnRowIndex,
+            cardIndex = detailReturnCardIndex,
+        )
+    } else {
+        null
+    }
+    val returnRows = remember(visibleSections) {
+        visibleSections.map { section ->
+            ForYouFocusRow(section.id, section.items.map { it.contentId })
+        }
+    }
+    val detailReturnState = ForYouDetailReturnState(
+        requestId = detailReturnFocusRequest,
+        pending = detailReturnFocusPending,
+    )
+    val pendingReturnLocation = resolvePendingForYouReturnLocation(
+        state = detailReturnState,
+        launchTarget = detailReturnLaunchTarget,
+        rows = returnRows,
+    )
+    // Whether the exact return card is currently composed and placed. A LazyRow
+    // disposes items on ordinary viewport recycling, not only on genuine
+    // removal, so disposal CLEARS this latch rather than setting a terminal
+    // "gone" one — a card scrolled out mid-restore is retried, not abandoned.
+    // Genuine removal is already handled upstream: the content id drops out of
+    // `returnRows`, so `pendingReturnLocation` resolves elsewhere or to null.
+    var attachedReturnLocation by remember { mutableStateOf<ForYouReturnFocusLocation?>(null) }
+    val latestOnDetailReturnFocusConsumed by rememberUpdatedState(onDetailReturnFocusConsumed)
     var firstRecommendationRowFocused by remember { mutableStateOf(false) }
+    // The first row still owns the established filter-to-feed bridge. When it
+    // is also the detail return row, use the return requester so the LazyRow
+    // has only one row-container requester attached at a time.
+    val firstRowContainerFocusRequester = if (pendingReturnLocation?.rowIndex == 0) {
+        detailReturnRowFocusRequester
+    } else {
+        firstRecommendationRowFocusRequester
+    }
     val moveIntoRecommendations: () -> Boolean = {
         if (
             !shouldBridgeRecommendationsDown(
@@ -112,7 +198,7 @@ fun TvRecommendationsScreen(
             focusBridgeScope.launch {
                 requestRecommendationRowFocus(
                     requestRowContainer = {
-                        runCatching { firstRecommendationRowFocusRequester.requestFocus() }
+                        runCatching { firstRowContainerFocusRequester.requestFocus() }
                             .getOrDefault(false)
                     },
                     awaitFrame = { withFrameNanos { } },
@@ -123,6 +209,19 @@ fun TvRecommendationsScreen(
                 )
             }
             true
+        }
+    }
+
+    DisposableEffect(savedListSelection, onSolidTopBarChanged) {
+        onSolidTopBarChanged(savedListSelection == null)
+        onDispose { onSolidTopBarChanged(false) }
+    }
+
+    DisposableEffect(detailReturnFocusRequest, detailReturnFocusPending) {
+        onDispose {
+            if (detailReturnFocusPending) {
+                latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
+            }
         }
     }
 
@@ -151,6 +250,58 @@ fun TvRecommendationsScreen(
         }
     }
 
+    LaunchedEffect(
+        detailReturnFocusRequest,
+        detailReturnFocusPending,
+        pendingReturnLocation,
+        state.isLoading,
+    ) {
+        if (!detailReturnFocusPending || detailReturnFocusRequest == 0 || state.isLoading) {
+            return@LaunchedEffect
+        }
+        val target = pendingReturnLocation
+        if (target == null) {
+            repeat(TvFrameRelocationMaxAttempts) {
+                withFrameNanos { }
+                when (requestFocusSafely { forYouFocusRequester.requestFocus() }) {
+                    FocusRequestOutcome.Handled,
+                    FocusRequestOutcome.Disposed -> {
+                        latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
+                        return@LaunchedEffect
+                    }
+                    FocusRequestOutcome.Rejected -> Unit
+                }
+            }
+            latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
+            return@LaunchedEffect
+        }
+        val rowVisible = recommendationsListState.layoutInfo.visibleItemsInfo
+            .any { it.index == target.rowIndex }
+        if (!rowVisible) recommendationsListState.scrollToItem(target.rowIndex)
+        val result = requestPendingForYouReturnFocus(
+            maxAttempts = TvFrameRelocationMaxAttempts,
+            awaitFrame = { withFrameNanos { } },
+            targetState = {
+                if (attachedReturnLocation == target) {
+                    ForYouReturnTargetState.Attached
+                } else {
+                    ForYouReturnTargetState.NotAttached
+                }
+            },
+            requestRowContainer = {
+                requestFocusSafely { detailReturnRowFocusRequester.requestFocus() }
+            },
+            awaitRowFrame = { withFrameNanos { } },
+            requestCard = {
+                requestFocusSafely { detailReturnCardFocusRequester.requestFocus() }
+            },
+        )
+        if (result == ForYouReturnFocusResult.Exhausted) {
+            requestFocusSafely { forYouFocusRequester.requestFocus() }
+        }
+        latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
+    }
+
     // Match tvOS: recommendations remain the landing content when available;
     // an empty successful response defaults to the inline Watchlist fallback.
     LaunchedEffect(state.isLoading, state.error, visibleSections) {
@@ -160,18 +311,21 @@ fun TvRecommendationsScreen(
     }
 
     LaunchedEffect(firstRecommendationRowFocused) {
-        while (
-            firstRecommendationRowFocused &&
-            (recommendationsListState.firstVisibleItemIndex != 0 ||
-                recommendationsListState.firstVisibleItemScrollOffset != 0)
-        ) {
-            // Focus-driven bring-into-view can run after the focus callback.
-            // Delay before re-anchoring so that relocation finishes first,
-            // then stop once the list reaches its true top.
-            kotlinx.coroutines.delay(80)
-            if (!firstRecommendationRowFocused) break
-            runCatching { recommendationsListState.animateScrollToItem(0) }
-        }
+        if (!firstRecommendationRowFocused) return@LaunchedEffect
+        fun currentPosition() = ForYouListPosition(
+            firstVisibleItemIndex = recommendationsListState.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = recommendationsListState.firstVisibleItemScrollOffset,
+        )
+        // Stay suspended while the list is correctly anchored. A delayed
+        // focus relocation can still move it after an initially-top sample;
+        // snapshotFlow observes that later displacement without polling.
+        maintainForYouTopAnchor(
+            positionEvents = snapshotFlow { currentPosition() }.distinctUntilChanged(),
+            isFirstRowFocused = { firstRecommendationRowFocused },
+            awaitRelocation = { kotlinx.coroutines.delay(80) },
+            currentPosition = ::currentPosition,
+            scrollToTop = { recommendationsListState.animateScrollToItem(0) },
+        )
     }
 
     // The saved-list shortcuts are the stable first row in every state. Focus
@@ -218,13 +372,13 @@ fun TvRecommendationsScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             savedListSelection == SavedListSelection.Watchlist -> TvWatchlistInline(
-                onItemClick = onItemClick,
+                onItemClick = onSavedListItemClick,
                 modifier = Modifier.padding(
                     top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
                 ),
             )
             savedListSelection == SavedListSelection.Favorites -> TvFavoritesInline(
-                onItemClick = onItemClick,
+                onItemClick = onSavedListItemClick,
                 modifier = Modifier.padding(
                     top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
                 ),
@@ -299,15 +453,61 @@ fun TvRecommendationsScreen(
                             key = { _, section -> section.id },
                             contentType = { _, _ -> "recommendation-section-row" },
                         ) { index, section ->
+                            val rowReturnLocation = pendingReturnLocation
+                                ?.takeIf { it.rowIndex == index }
                             TvMediaRow(
                                 title = section.title,
                                 items = section.items,
-                                onItemClick = onItemClick,
+                                onItemClick = { contentId ->
+                                    detailReturnSectionId = section.id
+                                    detailReturnContentId = contentId
+                                    detailReturnRowIndex = index
+                                    detailReturnCardIndex = section.items.indexOfFirst {
+                                        it.contentId == contentId
+                                    }.coerceAtLeast(0)
+                                    onRecommendationItemClick(contentId)
+                                },
                                 style = TvRowStyle.Poster,
                                 firstItemFocusRequester = firstRecommendationCardFocusRequester
                                     .takeIf { index == 0 },
-                                rowContainerFocusRequester = firstRecommendationRowFocusRequester
-                                    .takeIf { index == 0 },
+                                rowContainerFocusRequester = when {
+                                    rowReturnLocation != null -> detailReturnRowFocusRequester
+                                    index == 0 -> firstRecommendationRowFocusRequester
+                                    else -> null
+                                },
+                                restoreFocusIndex = rowReturnLocation?.cardIndex ?: -1,
+                                restoreFocusRequester = detailReturnCardFocusRequester
+                                    .takeIf { rowReturnLocation != null },
+                                restoreFocusRequest = detailReturnFocusRequest
+                                    .takeIf {
+                                        detailReturnFocusPending && rowReturnLocation != null
+                                    } ?: 0,
+                                onRestoreFocusTargetPlaced = if (rowReturnLocation != null) {
+                                    { requestId, cardIndex ->
+                                        if (
+                                            requestId == rowReturnLocation.requestId &&
+                                            cardIndex == rowReturnLocation.cardIndex
+                                        ) {
+                                            attachedReturnLocation = rowReturnLocation
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                                onRestoreFocusTargetDisposed = if (rowReturnLocation != null) {
+                                    { requestId, cardIndex ->
+                                        if (
+                                            requestId == rowReturnLocation.requestId &&
+                                            cardIndex == rowReturnLocation.cardIndex
+                                        ) {
+                                            if (attachedReturnLocation == rowReturnLocation) {
+                                                attachedReturnLocation = null
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
                                 onDirectionUp = if (index == 0) {
                                     {
                                         runCatching { forYouFocusRequester.requestFocus() }

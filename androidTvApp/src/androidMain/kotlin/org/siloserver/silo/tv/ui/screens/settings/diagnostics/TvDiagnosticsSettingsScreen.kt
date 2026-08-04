@@ -22,11 +22,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,6 +47,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.siloserver.silo.common.diagnostics.DiagnosticsAvailabilityUi
 import org.siloserver.silo.common.diagnostics.DiagnosticsConsentMode
 import org.siloserver.silo.common.diagnostics.TimedCaptureStatus
+import org.siloserver.silo.tv.ui.focus.TvFrameRelocationMaxAttempts
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
 
@@ -59,9 +66,52 @@ fun TvDiagnosticsSettingsScreen(
         return
     }
     var confirmAlways by remember { mutableStateOf(false) }
-    val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    val crashFocusRequesters = remember {
+        TvDiagnosticsCrashFocus.entries.associateWith { FocusRequester() }
+    }
+    LaunchedEffect(state.consent) {
+        val target = initialTvDiagnosticsCrashFocus(state.consent)
+        // Relocation, not acquisition: the page is already focusable, so a
+        // miss just leaves focus wherever the route transition put it.
+        repeat(TvFrameRelocationMaxAttempts) {
+            withFrameNanos { }
+            when (
+                tvDiagnosticsCrashFocusRequestResult(
+                    runCatching { crashFocusRequesters.getValue(target).requestFocus() },
+                )
+            ) {
+                TvDiagnosticsCrashFocusRequestResult.FOCUSED -> return@LaunchedEffect
+                TvDiagnosticsCrashFocusRequestResult.RETRY -> Unit
+            }
+        }
+    }
     val model = tvDiagnosticsScreenModel(state)
+    fun Modifier.crashFocusControl(current: TvDiagnosticsCrashFocus): Modifier =
+        focusRequester(crashFocusRequesters.getValue(current))
+            .onPreviewKeyEvent { event ->
+                val direction = when {
+                    event.type != KeyEventType.KeyDown -> null
+                    event.key == Key.DirectionUp -> TvDiagnosticsFocusDirection.Up
+                    event.key == Key.DirectionDown -> TvDiagnosticsFocusDirection.Down
+                    else -> null
+                }
+                val keyResult = direction?.let {
+                    tvDiagnosticsCrashFocusKeyResult(
+                        current = current,
+                        direction = it,
+                        debugLoggingEnabled = state.consent != DiagnosticsConsentMode.NEVER,
+                        isRepeat = event.nativeKeyEvent.repeatCount > 0,
+                    )
+                }
+                if (keyResult == null || !keyResult.consume) {
+                    false
+                } else {
+                    keyResult.target?.let { target ->
+                        runCatching { crashFocusRequesters.getValue(target).requestFocus() }
+                    }
+                    true
+                }
+            }
     TvDiagnosticsPage(title = "Diagnostics") {
         LazyColumn(
             contentPadding = PaddingValues(bottom = 40.dp),
@@ -81,7 +131,7 @@ fun TvDiagnosticsSettingsScreen(
             }
             item {
                 TvDiagnosticsSection("CRASH REPORTS") {
-                    DiagnosticsConsentMode.entries.forEachIndexed { index, mode ->
+                    DiagnosticsConsentMode.entries.forEach { mode ->
                         TvDiagnosticsAction(
                             label = when (mode) {
                                 DiagnosticsConsentMode.ASK -> "Ask before sending"
@@ -96,7 +146,9 @@ fun TvDiagnosticsSettingsScreen(
                                     viewModel.setConsent(mode)
                                 }
                             },
-                            modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                            modifier = Modifier.crashFocusControl(
+                                initialTvDiagnosticsCrashFocus(mode),
+                            ),
                         )
                     }
                     TvDiagnosticsAction(
@@ -104,6 +156,7 @@ fun TvDiagnosticsSettingsScreen(
                         value = if (state.debugLogging) "On" else "Off",
                         enabled = state.consent != DiagnosticsConsentMode.NEVER,
                         onClick = { viewModel.setDebugLogging(!state.debugLogging) },
+                        modifier = Modifier.crashFocusControl(TvDiagnosticsCrashFocus.DEBUG_LOGGING),
                     )
                 }
             }
@@ -172,6 +225,66 @@ fun TvDiagnosticsSettingsScreen(
             onDismiss = { confirmAlways = false },
         )
     }
+}
+
+internal enum class TvDiagnosticsCrashFocus { ASK, ALWAYS, NEVER, DEBUG_LOGGING }
+
+internal enum class TvDiagnosticsFocusDirection { Up, Down }
+
+internal data class TvDiagnosticsCrashFocusKeyResult(
+    val target: TvDiagnosticsCrashFocus?,
+    val consume: Boolean,
+)
+
+internal enum class TvDiagnosticsCrashFocusRequestResult { FOCUSED, RETRY }
+
+internal fun tvDiagnosticsCrashFocusRequestResult(
+    result: Result<Boolean>,
+): TvDiagnosticsCrashFocusRequestResult = if (result.getOrDefault(false)) {
+    TvDiagnosticsCrashFocusRequestResult.FOCUSED
+} else {
+    TvDiagnosticsCrashFocusRequestResult.RETRY
+}
+
+internal fun initialTvDiagnosticsCrashFocus(mode: DiagnosticsConsentMode) = when (mode) {
+    DiagnosticsConsentMode.ASK -> TvDiagnosticsCrashFocus.ASK
+    DiagnosticsConsentMode.ALWAYS -> TvDiagnosticsCrashFocus.ALWAYS
+    DiagnosticsConsentMode.NEVER -> TvDiagnosticsCrashFocus.NEVER
+}
+
+internal fun tvDiagnosticsCrashFocusOrder(debugLoggingEnabled: Boolean) = buildList {
+    add(TvDiagnosticsCrashFocus.ASK)
+    add(TvDiagnosticsCrashFocus.ALWAYS)
+    add(TvDiagnosticsCrashFocus.NEVER)
+    if (debugLoggingEnabled) add(TvDiagnosticsCrashFocus.DEBUG_LOGGING)
+}
+
+internal fun nextTvDiagnosticsCrashFocus(
+    current: TvDiagnosticsCrashFocus,
+    direction: TvDiagnosticsFocusDirection,
+    debugLoggingEnabled: Boolean,
+): TvDiagnosticsCrashFocus? {
+    val order = tvDiagnosticsCrashFocusOrder(debugLoggingEnabled)
+    // A control outside the current order (Debug logging under consent NEVER)
+    // has no neighbour to move to. Coercing a -1 miss to 0 would silently treat
+    // it as the FIRST row and send Down upwards, so hand the key back instead.
+    val index = order.indexOf(current)
+    if (index < 0) return null
+    return when (direction) {
+        TvDiagnosticsFocusDirection.Up -> order[(index - 1).coerceAtLeast(0)]
+        TvDiagnosticsFocusDirection.Down -> order.getOrNull(index + 1)
+    }
+}
+
+internal fun tvDiagnosticsCrashFocusKeyResult(
+    current: TvDiagnosticsCrashFocus,
+    direction: TvDiagnosticsFocusDirection,
+    debugLoggingEnabled: Boolean,
+    isRepeat: Boolean,
+): TvDiagnosticsCrashFocusKeyResult {
+    if (isRepeat) return TvDiagnosticsCrashFocusKeyResult(target = null, consume = true)
+    val target = nextTvDiagnosticsCrashFocus(current, direction, debugLoggingEnabled)
+    return TvDiagnosticsCrashFocusKeyResult(target = target, consume = target != null)
 }
 
 @Composable

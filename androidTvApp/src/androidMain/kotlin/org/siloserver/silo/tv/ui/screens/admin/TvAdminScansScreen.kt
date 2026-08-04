@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.screens.admin
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,14 +29,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Glow
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.tv.ui.components.TvDialogOption
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import org.siloserver.silo.tv.ui.components.TvOptionDialog
+import org.siloserver.silo.tv.ui.focus.TvControlState
+import org.siloserver.silo.tv.ui.focus.tvControlSemantics
 import org.siloserver.silo.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -92,7 +99,11 @@ fun TvAdminScansScreen(
                     ActionCard(
                         title = if (state.scanningAll) "Scanning all libraries…" else "Scan all libraries",
                         subtitle = "Trigger a full rescan of every library",
-                        enabled = !state.scanningAll,
+                        // A scan can run for minutes. Keep the card focusable
+                        // for its duration: it is the screen's first control,
+                        // and dropping it out of the graph mid-scan leaves the
+                        // D-pad with nothing to hold.
+                        controlState = TvControlState.transient(!state.scanningAll),
                         onClick = { viewModel.scanAll() },
                     )
                 }
@@ -142,14 +153,61 @@ fun TvAdminScansScreen(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ActionCard(title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
-    Card(
-        onClick = { if (enabled) onClick() },
-        shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
+private fun ActionCard(
+    title: String,
+    subtitle: String,
+    controlState: TvControlState,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val focusedBorder = Border(
+        border = BorderStroke(3.dp, MaterialTheme.colorScheme.border),
+        shape = shape,
+    )
+    Surface(
+        onClick = { controlState.perform(onClick) },
+        enabled = controlState.focusable,
+        shape = ClickableSurfaceDefaults.shape(
+            shape = shape,
+            focusedShape = shape,
+            pressedShape = shape,
+            disabledShape = shape,
+            focusedDisabledShape = shape,
+        ),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            pressedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            pressedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        scale = ClickableSurfaceDefaults.scale(
+            scale = 1f,
+            focusedScale = 1.1f,
+            pressedScale = 1f,
+            disabledScale = 1f,
+            focusedDisabledScale = 1f,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border.None,
+            focusedBorder = focusedBorder,
+            pressedBorder = focusedBorder,
+            disabledBorder = Border.None,
+            focusedDisabledBorder = Border.None,
+        ),
+        glow = ClickableSurfaceDefaults.glow(
+            glow = Glow.None,
+            focusedGlow = Glow.None,
+            pressedGlow = Glow.None,
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .heightIn(min = 44.dp),
+            .heightIn(min = 44.dp)
+            .tvControlSemantics(controlState),
     ) {
         Column(
             modifier = Modifier
