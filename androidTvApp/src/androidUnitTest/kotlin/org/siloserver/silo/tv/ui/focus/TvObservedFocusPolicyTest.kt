@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.focus
 
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -118,5 +119,25 @@ class TvObservedFocusPolicyTest {
 
         assertEquals(TvObservedFocusResult.Focused, result)
         assertEquals(0, requests)
+    }
+
+    @Test
+    fun cancellationFromFocusRequestEscapes() = runTest {
+        val cancellation = CancellationException("cancelled")
+
+        val thrown = try {
+            requestFocusUntilObserved(
+                maxAttempts = 1,
+                awaitAttempt = {},
+                targetState = { TvFocusTargetState.Ready },
+                requestFocus = { throw cancellation },
+                isFocused = { false },
+            )
+            null
+        } catch (thrown: CancellationException) {
+            thrown
+        }
+
+        assertEquals(cancellation, thrown)
     }
 }

@@ -1,5 +1,7 @@
 package org.siloserver.silo.tv.ui.focus
 
+import kotlin.coroutines.cancellation.CancellationException
+
 internal enum class TvFocusTargetState { NotReady, Ready, Disposed }
 
 internal enum class TvFocusRequestOutcome { Rejected, AcceptedUnobserved, Focused }
@@ -32,7 +34,10 @@ internal suspend fun requestFocusUntilObserved(
             TvFocusTargetState.Disposed -> return TvObservedFocusResult.Disposed
             TvFocusTargetState.NotReady -> Unit
             TvFocusTargetState.Ready -> {
-                val accepted = runCatching(requestFocus).getOrDefault(false)
+                val accepted = runCatching(requestFocus).getOrElse { exception ->
+                    if (exception is CancellationException) throw exception
+                    false
+                }
                 if (observeTvFocusRequest(accepted, isFocused()) == TvFocusRequestOutcome.Focused) {
                     return TvObservedFocusResult.Focused
                 }
