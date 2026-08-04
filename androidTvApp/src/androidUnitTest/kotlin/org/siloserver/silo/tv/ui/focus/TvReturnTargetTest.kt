@@ -644,4 +644,31 @@ class TvReturnTargetTest {
             resolveTvReturnTarget(target(sectionIndex = 1, itemIndex = 0), namesakes),
         )
     }
+
+    // ── Targets are partitioned by the surface that saved them ───────────
+
+    @Test
+    fun `a saved target is discarded when it comes back on a different surface`() {
+        // rememberSaveable does not validate restored values against its keys,
+        // so a process returning on a different tab would otherwise adopt the
+        // previous surface's target and restore focus to somewhere the viewer
+        // was in another list entirely.
+        val saver = keyedTvReturnTargetSaver("browse")
+        val scope = SaverScope { true }
+        val saved = with(saver) { scope.save(TvReturnTarget(TvFlatSectionId, "q", 0, 3)) }
+
+        assertEquals(null, keyedTvReturnTargetSaver("genres").restore(saved!!))
+        assertEquals(
+            TvReturnTarget(TvFlatSectionId, "q", 0, 3),
+            keyedTvReturnTargetSaver("browse").restore(saved),
+        )
+    }
+
+    @Test
+    fun `an empty target round-trips as empty on its own surface`() {
+        val saver = keyedTvReturnTargetSaver("browse")
+        val scope = SaverScope { true }
+        val saved = with(saver) { scope.save(null) }
+        assertEquals(null, saved?.let { saver.restore(it) })
+    }
 }

@@ -38,19 +38,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import org.siloserver.silo.tv.ui.focus.TvFocusAcquisitionBudgetMillis
-import org.siloserver.silo.tv.ui.focus.TvFlatSectionId
-import org.siloserver.silo.tv.ui.focus.TvFocusTargetState
-import org.siloserver.silo.tv.ui.focus.TvObservedFocusResult
-import org.siloserver.silo.tv.ui.focus.TvReturnResolution
-import org.siloserver.silo.tv.ui.focus.TvReturnTarget
-import org.siloserver.silo.tv.ui.focus.TvReturnTargetSaver
-import org.siloserver.silo.tv.ui.focus.flatTvReturnSections
-import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
-import org.siloserver.silo.tv.ui.focus.resolveTvReturnTarget
-import androidx.compose.runtime.snapshotFlow
+import org.siloserver.silo.tv.ui.focus.rememberTvFlatReturnRestoration
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,8 +71,6 @@ import org.siloserver.silo.tv.ui.theme.Spacing
 import org.siloserver.silo.tv.ui.theme.SubtleSurface
 import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.siloserver.silo.tv.ui.theme.monoGroupHeader
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.flow.first
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -310,105 +297,6 @@ private enum class TvBrowsePanel { Sort, Filter }
 internal fun libraryLazyGridIndex(itemIndex: Int, headerCount: Int): Int =
     itemIndex.coerceAtLeast(0) + headerCount.coerceAtLeast(0)
 
-/**
- * How long to wait for a requested page to mark itself active.
- *
- * Short, because this only observes a flag the view model sets before its first
- * suspension. Sizing it like a network round trip made a missed pulse — the
- * load completing between two snapshot evaluations — cost seconds of frozen
- * focus for nothing.
- */
-private const val LibraryReturnPageActiveTimeoutMillis: Long = 300L
-
-/** How long to wait for an active page to settle. */
-private const val LibraryReturnPageSettleTimeoutMillis: Long = 2_000L
-
-/**
- * The whole budget for hunting a target through unloaded pages.
- *
- * A wall clock, paired with — not replaced by — [LibraryReturnPageRequests].
- * The two bound different things: this is what the viewer experiences, that is
- * how hard a struggling endpoint gets pushed. Counting attempts alone let one
- * slow fetch spend the entire allowance on a single page and gave no ceiling
- * at all on the hunt.
- */
-private const val LibraryReturnHuntBudgetMillis: Long = 6_000L
-
-/**
- * How many pages one restoration may ask for.
- *
- * A ceiling on requests, separate from the viewer-facing clock: the two bound
- * different things, and using the clock alone let a fast-failing endpoint be
- * asked over and over for its whole duration.
- */
-private const val LibraryReturnPageRequests: Int = 4
-
-private const val LibraryReturnFocusRetryMillis: Long = 60L
-
-private val LibraryReturnFocusAttempts: Int =
-    (TvFocusAcquisitionBudgetMillis / LibraryReturnFocusRetryMillis).toInt()
-
-/**
- * What a wait for a requested page actually observed.
- *
- * The distinction matters because the caller decides whether a page load
- * failed, and it can only do that honestly for a load it saw reach a terminal
- * state. [NeverActive] carries no information about any load at all — the flags
- * it would otherwise read describe the world before the request.
- */
-private enum class LibraryPageWait {
-    /**
-     * A load reached a terminal state, or the list changed. Not necessarily
-     * the load this caller requested — an already-active one can be what
-     * settles — which is fine, because the caller only reads this as "a
-     * result exists to judge".
-     */
-    Settled,
-
-    /** Nothing marked itself active in time — the request may still be queued. */
-    NeverActive,
-
-    /** Observed running, but it had not finished when the wait expired. */
-    StillActive,
-}
-
-/**
- * Wait for a requested page, reporting what was observed.
- *
- * `loadMoreBrowse` launches its work, and while that normally reaches the
- * loading flag synchronously on the main dispatcher, it is not guaranteed to.
- * Waiting only for "not loading" can therefore succeed instantly against the
- * state from before the request, and a caller in a loop fires every request it
- * has before the first fetch marks itself active — which the view model then
- * accepts, because it also still sees idle.
- *
- * So this waits for the request to become active first, and only then for it to
- * settle. Settling means the list changed OR loading cleared: a page can
- * legitimately arrive without changing the visible list (every item hidden on
- * TV, or duplicates the view model dedupes away), and a failed fetch leaves
- * `hasMore` set.
- *
- * Both phases time out, so this always returns promptly. A timeout is not proof
- * the page is dead — deciding that is the caller's job, and the outcome
- * returned here is what lets it avoid blaming a request it never actually saw
- * start.
- */
-private suspend fun awaitLibraryPageSettled(
-    loadedBefore: Int,
-    state: () -> TvLibraryDetailViewModel.UiState,
-): LibraryPageWait {
-    val became = withTimeoutOrNull(LibraryReturnPageActiveTimeoutMillis) {
-        snapshotFlow { state().browseItems.size to state().browseLoadingMore }
-            .first { (size, loadingMore) -> size != loadedBefore || loadingMore }
-    } ?: return LibraryPageWait.NeverActive
-    if (became.first != loadedBefore) return LibraryPageWait.Settled
-    val settled = withTimeoutOrNull(LibraryReturnPageSettleTimeoutMillis) {
-        snapshotFlow { state().browseItems.size to state().browseLoadingMore }
-            .first { (size, loadingMore) -> size != loadedBefore || !loadingMore }
-    }
-    return if (settled == null) LibraryPageWait.StillActive else LibraryPageWait.Settled
-}
-
 @Composable
 private fun LibraryTab(
     state: TvLibraryDetailViewModel.UiState,
@@ -429,21 +317,6 @@ private fun LibraryTab(
 ) {
     val restoredGridItemFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
-    // The card this grid was on, by identity. A saved index survives a re-sort,
-    // a filter change and a page arriving above it while addressing entirely
-    // different content — which is what returning from a detail page used to
-    // land on.
-    var returnTarget by rememberSaveable(state.selectedTab, stateSaver = TvReturnTargetSaver) {
-        mutableStateOf<TvReturnTarget?>(null)
-    }
-    // The card focus is on right now, used to confirm a restoration actually
-    // landed rather than trusting that requestFocus held.
-    var focusedItemId by remember { mutableStateOf<String?>(null) }
-    // Guards the armed identity while a restoration is running: focus can land
-    // on another card first, and its callback would otherwise redefine what the
-    // viewer launched from and make that card an exact match.
-    var restorationInFlight by remember { mutableStateOf(false) }
-    var initialFocusRequested by remember { mutableStateOf(false) }
     var openPanel by remember { mutableStateOf<TvBrowsePanel?>(null) }
     val gridHeaderCount = listOf(
         showBrowseControls,
@@ -451,138 +324,23 @@ private fun LibraryTab(
         state.selectedAudiobookGroup != null && onClearAudiobookGroup != null,
     ).count { it }
 
-    // LibraryTab receives state as a plain value, so everything the hunt below
-    // reads has to come through here — a captured UiState would freeze the item
-    // list, the loading flags and every resolution, and snapshotFlow would
-    // observe no state reads at all.
-    val currentState by rememberUpdatedState(state)
-
-    fun resolveReturn(
-        snapshot: TvLibraryDetailViewModel.UiState,
-        final: Boolean,
-    ): TvReturnResolution = resolveTvReturnTarget(
-        target = returnTarget,
-        sections = flatTvReturnSections(
-            itemIds = snapshot.browseItems.map { it.contentId },
-            hasMore = snapshot.browseHasMore,
-        ),
-        treatAbsenceAsFinal = final,
+    val restoration = rememberTvFlatReturnRestoration(
+        itemIds = state.browseItems.map { it.contentId },
+        hasMore = state.browseHasMore,
+        isLoadingMore = state.browseLoadingMore,
+        errorMessage = state.browseError,
+        surfaceKey = state.selectedTab.name,
+        onLoadMore = onLoadMore,
+        // Headers occupy full-span slots ahead of the cards, so the grid's own
+        // index runs ahead of the item index by however many are showing.
+        scrollToItem = { itemIndex ->
+            gridState.scrollToItem(
+                libraryLazyGridIndex(itemIndex = itemIndex, headerCount = gridHeaderCount),
+            )
+        },
+        requestFocus = restoredGridItemFocusRequester::requestFocus,
+        onRestored = onInitialContentFocus,
     )
-
-    // Provisional placement for the requester, remembered rather than rescanned
-    // on every recomposition.
-    // Where the restoration decided to go, published once so composition and
-    // the focus watcher agree. Null until then, when a provisional position
-    // keeps a requester attached for ordinary first entry.
-    var focusTarget by remember { mutableStateOf<TvReturnResolution.Located?>(null) }
-    // Which item the restore requester is currently bound to, as reported by
-    // the card itself after composition applies.
-    var attachedRestoreItemId by remember { mutableStateOf<String?>(null) }
-    val provisionalItemIndex = remember(state.browseItems, state.browseHasMore, returnTarget) {
-        (resolveReturn(state, final = true) as? TvReturnResolution.Located)?.itemIndex ?: 0
-    }
-    val restoredItemIndex = focusTarget?.itemIndex ?: provisionalItemIndex
-
-    // One hunt, driven as a loop rather than by re-keying this effect.
-    //
-    // Re-keying cannot work here: Pending is a singleton, so a resolution that
-    // stays Pending is an unchanged key and the effect never re-runs. Every way
-    // a page can fail to move the list — a page of hidden or duplicate items, a
-    // failed fetch that leaves hasMore set, a request the view model rejects
-    // because one is already in flight — would then stall restoration forever
-    // with nothing ever setting initialFocusRequested.
-    LaunchedEffect(state.selectedTab, state.browseItems.isNotEmpty()) {
-        if (initialFocusRequested || currentState.browseItems.isEmpty()) return@LaunchedEffect
-        // Claimed before the settle delay, not after: default or restored focus
-        // can land during it, and its callback would redefine the launch card.
-        restorationInFlight = true
-        try {
-            kotlinx.coroutines.delay(120)
-
-            // Hunt the target through unloaded pages, bounded by one clock.
-            withTimeoutOrNull(LibraryReturnHuntBudgetMillis) {
-                var requests = 0
-                while (resolveReturn(currentState, final = false) is TvReturnResolution.Pending) {
-                    val loadedBefore = currentState.browseItems.size
-                    if (!currentState.browseLoadingMore) {
-                        // The ceiling stops NEW requests. It must not stop us
-                        // waiting for one already in flight, or a fourth page
-                        // still loading is abandoned with budget to spare.
-                        if (requests >= LibraryReturnPageRequests) break
-                        onLoadMore()
-                        requests++
-                    }
-                    // A slow page is not a dead one. The clock above decides
-                    // when to stop waiting; a settle timeout here only means
-                    // this iteration learned nothing, and abandoning on it
-                    // threw away seconds of remaining budget.
-                    val waited = awaitLibraryPageSettled(loadedBefore) { currentState }
-
-                    // Judge the OUTCOME, and only when a load actually reached
-                    // a terminal state. A load that grew the list made progress
-                    // whatever an older error still says; one that finished
-                    // with nothing to show and left an error behind is a real
-                    // failure — including when its message matches the previous
-                    // one, which comparing error values would miss.
-                    //
-                    // NeverActive is the case this guard exists for: the
-                    // request may simply still be queued, and the idle flag and
-                    // stale error then describe the world BEFORE it, not its
-                    // result.
-                    val grew = currentState.browseItems.size != loadedBefore
-                    val settledInFailure = waited == LibraryPageWait.Settled &&
-                        !grew &&
-                        !currentState.browseLoadingMore &&
-                        currentState.browseError != null
-                    if (settledInFailure) break
-                }
-            }
-
-            // Whatever was found — or the fallback, once the clock ran out.
-            val located = resolveReturn(currentState, final = true) as? TvReturnResolution.Located
-            // Published as one value so the requester's position and the
-            // identity being watched for cannot drift apart. They did: the
-            // provisional index tracked live data while the identity was
-            // frozen, so a page landing mid-attempt moved the requester onto
-            // the real card and left the watcher waiting for the fallback —
-            // focus arriving exactly where it should and being called a
-            // failure.
-            focusTarget = located
-            val targetItemId = located?.itemId
-                ?: currentState.browseItems.firstOrNull()?.contentId
-            val gridIndex = libraryLazyGridIndex(
-                itemIndex = located?.itemIndex ?: 0,
-                headerCount = gridHeaderCount,
-            )
-
-            gridState.scrollToItem(gridIndex)
-            // Readiness is part of the acquisition rather than a wait beside
-            // it. Waiting separately and then requesting anyway on timeout just
-            // delays the wrong-node request by a second; reporting NotReady
-            // makes the loop hold its request until the requester is genuinely
-            // bound to this card, and give up honestly if it never is.
-            val landed = requestFocusUntilObserved(
-                maxAttempts = LibraryReturnFocusAttempts,
-                awaitAttempt = { kotlinx.coroutines.delay(LibraryReturnFocusRetryMillis) },
-                requestFocus = restoredGridItemFocusRequester::requestFocus,
-                isFocused = { targetItemId != null && focusedItemId == targetItemId },
-                targetState = {
-                    if (targetItemId != null && attachedRestoreItemId == targetItemId) {
-                        TvFocusTargetState.Ready
-                    } else {
-                        TvFocusTargetState.NotReady
-                    }
-                },
-            )
-            // Latch either way — nothing re-keys this effect, so not latching
-            // means never trying again rather than trying later. But only tell
-            // the shell that content took focus when it actually did.
-            if (landed == TvObservedFocusResult.Focused) onInitialContentFocus()
-        } finally {
-            restorationInFlight = false
-        }
-        initialFocusRequested = true
-    }
 
     if (state.browseError != null && state.browseItems.isEmpty()) {
         TvErrorScreen(
@@ -604,44 +362,20 @@ private fun LibraryTab(
             LibraryGrid(
                 state = state,
                 onItemClick = { contentId ->
-                    // Arm the clicked card explicitly. A card that took focus
-                    // during a restoration deliberately did not re-arm the
-                    // target, and its focus callback will not fire again — so
-                    // opening it straight away would navigate with nothing
-                    // recorded, or worse, with the previous trip's card.
-                    val index = state.browseItems.indexOfFirst { it.contentId == contentId }
-                    returnTarget = TvReturnTarget(
-                        sectionId = TvFlatSectionId,
+                    restoration.onItemClicked(
                         itemId = contentId,
-                        sectionIndex = 0,
-                        // Only a fallback coordinate, so keep the last known
-                        // one rather than inventing the top of the grid if the
-                        // card somehow is not in the list we can see.
-                        itemIndex = index.takeIf { it >= 0 }
-                            ?: returnTarget?.itemIndex
-                            ?: 0,
+                        index = state.browseItems.indexOfFirst { it.contentId == contentId },
                     )
                     onItemClick(contentId)
                 },
                 onLoadMore = onLoadMore,
                 gridState = gridState,
                 restoredItemFocusRequester = restoredGridItemFocusRequester,
-                restoredItemIndex = restoredItemIndex,
-                onRestoreRequesterAttached = { attachedRestoreItemId = it },
+                restoredItemIndex = restoration.requesterItemIndex,
+                onRestoreRequesterAttached = restoration::onRequesterAttached,
                 onItemFocused = { index ->
                     state.browseItems.getOrNull(index)?.let { item ->
-                        focusedItemId = item.contentId
-                        // Browse movement re-arms; a restoration in progress
-                        // must not, or the card focus happens to touch on the
-                        // way becomes what the viewer "launched from".
-                        if (!restorationInFlight) {
-                            returnTarget = TvReturnTarget(
-                                sectionId = TvFlatSectionId,
-                                itemId = item.contentId,
-                                sectionIndex = 0,
-                                itemIndex = index,
-                            )
-                        }
+                        restoration.onItemFocused(item.contentId, index)
                     }
                 },
                 showGenreChips = showGenreChips,
