@@ -84,6 +84,11 @@ internal val CascadeRowPaddingHorizontal = 9.dp
 internal val CascadeRowPaddingVertical = 8.dp
 internal val CascadeRowCornerRadius = 7.dp
 
+internal val CascadeFlyoutRowTextSize = 14.sp
+internal val CascadeFlyoutRowIconSize = 9.dp
+internal val CascadeFlyoutRowPaddingHorizontal = 8.dp
+internal val CascadeFlyoutRowPaddingVertical = 6.5.dp
+
 /** Resolves per-row state by stable identity while preserving the current display order. */
 internal fun <K, V> stableIdentityValues(
     ids: List<K>,
@@ -95,10 +100,6 @@ internal fun <K, V> stableIdentityValues(
     }
 }
 
-internal val CascadeFlyoutRowTextSize = 14.sp
-internal val CascadeFlyoutRowIconSize = 9.dp
-internal val CascadeFlyoutRowPaddingHorizontal = 8.dp
-internal val CascadeFlyoutRowPaddingVertical = 6.5.dp
 internal val CascadeFlyoutRowCornerRadius = 6.dp
 
 private val CascadeRowSpacing = 7.dp

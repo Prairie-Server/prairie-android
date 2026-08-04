@@ -266,15 +266,21 @@ class TvRecommendationsFocusBridgeTest {
         assertEquals(listOf("scroll:8", "row", "row-frame", "card"), events)
     }
 
+    /**
+     * A target that never attaches spends the whole budget and then exhausts,
+     * without ever requesting focus on a node that is not there. There is no
+     * early "disposed" exit: viewport recycling looks identical to removal from
+     * here, and giving up on it abandons restores that would have succeeded.
+     */
     @Test
-    fun genuineTargetDisposalStopsBoundedRetries() = runTest {
+    fun targetThatNeverAttachesExhaustsWithoutRequestingFocus() = runTest {
         var frames = 0
         var focusRequests = 0
 
         val result = requestPendingForYouReturnFocus(
             maxAttempts = 6,
             awaitFrame = { frames++ },
-            targetState = { ForYouReturnTargetState.Disposed },
+            targetState = { ForYouReturnTargetState.NotAttached },
             requestRowContainer = {
                 focusRequests++
                 FocusRequestOutcome.Handled
@@ -286,8 +292,8 @@ class TvRecommendationsFocusBridgeTest {
             },
         )
 
-        assertEquals(ForYouReturnFocusResult.Disposed, result)
-        assertEquals(1, frames)
+        assertEquals(ForYouReturnFocusResult.Exhausted, result)
+        assertEquals(6, frames)
         assertEquals(0, focusRequests)
     }
 

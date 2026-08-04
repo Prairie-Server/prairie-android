@@ -31,16 +31,23 @@ internal data class ForYouReturnFocusLocation(
     val contentId: String,
 )
 
+/**
+ * Whether the exact return card is composed and placed right now.
+ *
+ * Deliberately two-valued. There is no third "gone for good" state to report:
+ * a LazyRow disposes items on ordinary viewport recycling, so disposal means
+ * "not attached at the moment", and genuine removal is handled a level up —
+ * the content id drops out of the feed, so the pending location resolves
+ * somewhere else or to null before this loop is ever entered.
+ */
 internal enum class ForYouReturnTargetState {
     NotAttached,
     Attached,
-    Disposed,
 }
 
 internal enum class ForYouReturnFocusResult {
     Focused,
     Exhausted,
-    Disposed,
 }
 
 internal fun shouldFallbackForYouReturnToFilter(
@@ -137,7 +144,6 @@ internal suspend fun requestPendingForYouReturnFocus(
         awaitFrame()
         when (targetState()) {
             ForYouReturnTargetState.NotAttached -> Unit
-            ForYouReturnTargetState.Disposed -> return ForYouReturnFocusResult.Disposed
             ForYouReturnTargetState.Attached -> {
                 when (requestRowContainer()) {
                     FocusRequestOutcome.Rejected,
@@ -145,11 +151,9 @@ internal suspend fun requestPendingForYouReturnFocus(
                     -> Unit
                     FocusRequestOutcome.Handled -> {
                         awaitRowFrame()
-                        when (targetState()) {
-                            ForYouReturnTargetState.NotAttached -> return@attempt
-                            ForYouReturnTargetState.Disposed -> return ForYouReturnFocusResult.Disposed
-                            ForYouReturnTargetState.Attached -> Unit
-                        }
+                        // The row hop can scroll the target out again; recheck
+                        // before spending the card request on a detached node.
+                        if (targetState() == ForYouReturnTargetState.NotAttached) return@attempt
                         when (requestCard()) {
                             FocusRequestOutcome.Handled -> return ForYouReturnFocusResult.Focused
                             FocusRequestOutcome.Rejected,
