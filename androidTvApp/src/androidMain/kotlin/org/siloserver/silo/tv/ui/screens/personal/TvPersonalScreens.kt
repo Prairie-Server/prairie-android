@@ -24,7 +24,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.ui.focus.FocusRequester
+import org.siloserver.silo.tv.ui.focus.rememberTvFlatReturnRestoration
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -68,6 +70,7 @@ fun TvFavoritesScreen(
     PersonalListResumeRefresh(viewModel)
     PersonalGrid(
         title = "Favorites",
+        surfaceKey = "personal-favorites",
         icon = Icons.Filled.Favorite,
         emptyMessage = "No favorites yet",
         state = state,
@@ -89,6 +92,7 @@ fun TvWatchlistScreen(
     PersonalListResumeRefresh(viewModel)
     PersonalGrid(
         title = "Watchlist",
+        surfaceKey = "personal-watchlist",
         icon = Icons.Outlined.BookmarkBorder,
         emptyMessage = "Your watchlist is empty",
         state = state,
@@ -150,6 +154,7 @@ fun TvHistoryScreen(
     PersonalListResumeRefresh(viewModel)
     PersonalGrid(
         title = "Watch History",
+        surfaceKey = "personal-history",
         icon = Icons.Filled.History,
         emptyMessage = "No watch history yet",
         state = state,
@@ -195,6 +200,7 @@ private fun PersonalGrid(
     title: String,
     icon: ImageVector,
     emptyMessage: String,
+    surfaceKey: String,
     state: PersonalListUiState,
     onItemClick: (contentId: String) -> Unit,
     onLoadMore: () -> Unit,
@@ -202,14 +208,37 @@ private fun PersonalGrid(
     onInitialContentFocus: () -> Unit,
 ) {
     val startPadding = tvPageStartPadding()
+    val gridState = rememberLazyGridState()
     val firstItemFocusRequester = remember { FocusRequester() }
+    val restoreItemFocusRequester = remember { FocusRequester() }
     val firstItemId = state.items.firstOrNull()?.contentId
+
+    val restoration = rememberTvFlatReturnRestoration(
+        itemIds = state.items.map { it.contentId },
+        hasMore = state.hasMore,
+        isLoadingMore = state.isLoadingMore,
+        // These lists refresh on every resume — exactly when a viewer comes
+        // back from a detail page — and a refresh REPLACES the items with page
+        // one rather than appending. Folding it into isLoadingMore was not
+        // enough: a stale multi-page list still contains the target, so it
+        // resolves before that flag is ever consulted.
+        isReplacingContent = state.isRefreshing,
+        errorMessage = state.error,
+        surfaceKey = surfaceKey,
+        onLoadMore = onLoadMore,
+        scrollToItem = { itemIndex -> gridState.scrollToItem(itemIndex) },
+        requestFocus = restoreItemFocusRequester::requestFocus,
+        onRestored = onInitialContentFocus,
+    )
 
     // One-shot guard so pagination, retries, or any other ViewModel re-emission
     // doesn't yank focus back to the first card after the user has scrolled.
     var initialFocusRequested by remember { mutableStateOf(false) }
     LaunchedEffect(firstItemId) {
         if (initialFocusRequested || firstItemId == null) return@LaunchedEffect
+        // A pending return owns entry; the restoration reports the handoff
+        // itself once it has actually landed.
+        if (restoration.isReturning) return@LaunchedEffect
         runCatching { firstItemFocusRequester.requestFocus() }
         onInitialContentFocus()
         initialFocusRequested = true
@@ -266,16 +295,34 @@ private fun PersonalGrid(
             )
             else -> TvCatalogGrid(
                 items = state.items,
-                isLoading = state.isLoadingMore,
+                // A restored deep scroll position sits at the paging threshold,
+                // so the grid would ask for the next page the moment it lands.
+                // During a refresh that page is fetched at an offset the
+                // refresh is about to invalidate — it either gets discarded or
+                // lands after page one and leaves a hole.
+                isLoading = state.isLoadingMore || state.isRefreshing,
                 hasMore = state.hasMore,
-                onItemClick = onItemClick,
+                onItemClick = { contentId ->
+                    restoration.onItemClicked(
+                        itemId = contentId,
+                        index = state.items.indexOfFirst { it.contentId == contentId },
+                    )
+                    onItemClick(contentId)
+                },
                 onLoadMore = onLoadMore,
                 contentPadding = tvPageContentPadding(top = Spacing.lg),
                 // Match every other catalog grid (browse/person/collections):
                 // the adaptive default rendered ~5 oversized columns here
                 // (QA 2026-07-08).
                 fixedColumnCount = 6,
+                gridState = gridState,
                 firstItemFocusRequester = firstItemFocusRequester,
+                restoreItemIndex = restoration.requesterItemIndex,
+                restoreItemFocusRequester = restoreItemFocusRequester,
+                onRestoreRequesterAttached = restoration::onRequesterAttached,
+                onItemFocusedAtIndex = { item, index ->
+                    restoration.onItemFocused(item.contentId, index)
+                },
             )
         }
     }
@@ -308,7 +355,12 @@ private fun PersonalInlineGrid(
             )
             else -> TvCatalogGrid(
                 items = state.items,
-                isLoading = state.isLoadingMore,
+                // A restored deep scroll position sits at the paging threshold,
+                // so the grid would ask for the next page the moment it lands.
+                // During a refresh that page is fetched at an offset the
+                // refresh is about to invalidate — it either gets discarded or
+                // lands after page one and leaves a hole.
+                isLoading = state.isLoadingMore || state.isRefreshing,
                 hasMore = state.hasMore,
                 onItemClick = onItemClick,
                 onLoadMore = onLoadMore,

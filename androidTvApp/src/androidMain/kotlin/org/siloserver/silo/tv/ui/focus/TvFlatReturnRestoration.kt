@@ -44,6 +44,17 @@ internal class TvFlatReturnRestoration internal constructor(
      * there is and the live focus state is gone.
      */
     private val targetState: MutableState<TvReturnTarget?>,
+    /**
+     * Whether a target was already saved when this holder was created — the
+     * only honest way to tell "the viewer came back" from "the viewer just
+     * arrived".
+     *
+     * Asking whether a target exists cannot answer it: browsing arms one on
+     * every card focus, so on a fresh entry the answer flips the moment the
+     * grid happens to take focus, and it races whatever else the screen wanted
+     * to focus instead. Captured once, at creation, it cannot race anything.
+     */
+    val isReturning: Boolean,
 ) {
     internal var target: TvReturnTarget?
         get() = targetState.value
@@ -71,6 +82,8 @@ internal class TvFlatReturnRestoration internal constructor(
      * ordinary first entry.
      */
     val requesterItemIndex: Int get() = destination?.itemIndex ?: provisionalItemIndex
+
+
 
     /**
      * Report ordinary browse movement.
@@ -157,12 +170,44 @@ internal fun rememberTvFlatReturnRestoration(
     itemIds: List<String>,
     hasMore: Boolean,
     isLoadingMore: Boolean,
+    /**
+     * True while the surface is REPLACING its list rather than extending it —
+     * a resume refresh that reloads from offset zero.
+     *
+     * This is not the same signal as [isLoadingMore] and cannot be folded into
+     * it. [isLoadingMore] is only consulted once resolution has already come
+     * back Pending, and a stale multi-page list still CONTAINS the target, so
+     * it resolves Exact and that check is never reached. Restoration would then
+     * scroll and acquire against a list the refresh is about to throw away:
+     * either the card vanishes mid-acquisition and the one-shot attempt fails,
+     * or focus lands on a card that is removed a frame later.
+     *
+     * So a replacement gates the FIRST resolution, not the page hunt. Once the
+     * refresh has settled and the truncated list is authoritative, a target
+     * beyond it is genuinely Pending and paging back toward it is the right
+     * answer rather than a race.
+     */
+    isReplacingContent: Boolean = false,
     errorMessage: String?,
     surfaceKey: String,
     onLoadMore: () -> Unit,
     scrollToItem: suspend (itemIndex: Int) -> Unit,
     requestFocus: () -> Boolean,
     onRestored: () -> Unit,
+    /**
+     * What to do on a surface with nothing recorded yet — ordinary first entry.
+     *
+     * True focuses the first item, which is what a surface whose entry point IS
+     * its first card wants, and makes restoration subsume its plain initial
+     * focus. False stands down and leaves entry to the screen: a person page
+     * deliberately opens on its filter chips so the identity header stays
+     * visible, and a restoration that grabbed the first poster instead would
+     * break that on every visit while only being wanted on returns.
+     *
+     * "Fresh arrival" here means no target was saved before this composition —
+     * see [TvFlatReturnRestoration.isReturning].
+     */
+    focusFirstItemWithoutTarget: Boolean = true,
 ): TvFlatReturnRestoration {
     // The key is saved WITH the target and checked on the way back.
     // rememberSaveable does not validate restored values against its inputs, so
@@ -174,11 +219,14 @@ internal fun rememberTvFlatReturnRestoration(
     ) {
         mutableStateOf<TvReturnTarget?>(null)
     }
-    val restoration = remember(surfaceKey, savedTarget) { TvFlatReturnRestoration(savedTarget) }
+    val restoration = remember(surfaceKey, savedTarget) {
+        TvFlatReturnRestoration(savedTarget, isReturning = savedTarget.value != null)
+    }
 
     val currentItemIds by rememberUpdatedState(itemIds)
     val currentHasMore by rememberUpdatedState(hasMore)
     val currentIsLoadingMore by rememberUpdatedState(isLoadingMore)
+    val currentIsReplacing by rememberUpdatedState(isReplacingContent)
     val currentError by rememberUpdatedState(errorMessage)
     val currentLoadMore by rememberUpdatedState(onLoadMore)
     val currentScrollToItem by rememberUpdatedState(scrollToItem)
@@ -204,17 +252,70 @@ internal fun rememberTvFlatReturnRestoration(
     // because one is already in flight — would stall restoration forever.
     LaunchedEffect(surfaceKey, itemIds.isNotEmpty()) {
         if (restoration.completed || currentItemIds.isEmpty()) return@LaunchedEffect
+        // A fresh arrival on a surface that owns its own entry focus. Decided
+        // from state saved before this composition began, so it cannot depend
+        // on whether a card has taken focus yet.
+        if (!restoration.isReturning && !focusFirstItemWithoutTarget) return@LaunchedEffect
         // Claimed before the settle delay, not after: default or restored focus
         // can land during it, and its callback would redefine the launch item.
         restoration.inFlight = true
         try {
             delay(TvFlatReturnSettleDelayMillis)
 
+            // Ordered after the settle delay on purpose: a resume refresh is
+            // usually dispatched a frame or two after the screen recomposes, so
+            // checking on arrival would sail straight past one that has not
+            // raised its flag yet.
+            //
+            // Bounded, because a surface wedged in refresh must not hold
+            // restoration open forever — timing out here simply proceeds
+            // against whatever list exists, which is the old behaviour.
+            val settled = withTimeoutOrNull(TvFlatReturnReplaceWaitMillis) {
+                while (true) {
+                    snapshotFlow { currentIsReplacing }.first { !it }
+                    // Quiet has to be PROVEN, not assumed. Entering this only
+                    // when the flag is already true was the earlier mistake: it
+                    // returned instantly on a false reading, which is exactly
+                    // what a refresh dispatched one frame later also looks
+                    // like. So watch for a restart, and only a window that
+                    // passes without one counts as settled.
+                    val restarted = withTimeoutOrNull(TvFlatReturnSettleDelayMillis) {
+                        snapshotFlow { currentIsReplacing }.first { it }
+                    } != null
+                    if (!restarted) break
+                }
+            } != null
+
+            // Still replacing after the budget. Restoring the recorded target
+            // now is the one genuinely unsafe outcome: focus can land on a card
+            // the imminent replacement removes, and once Compose is relocating
+            // focus away from a disappearing node nothing here controls where
+            // it ends up.
+            //
+            // So retarget to the first item instead of standing down. It is the
+            // one position a replacement cannot invalidate — a reload produces
+            // page one, whose first item is this one — and it keeps the shell
+            // handoff honest, where abandoning would leave the surface with
+            // nothing focused at all.
+            if (!settled) {
+                currentItemIds.firstOrNull()?.let { firstId ->
+                    restoration.target = TvReturnTarget(
+                        sectionId = TvFlatSectionId,
+                        itemId = firstId,
+                        sectionIndex = 0,
+                        itemIndex = 0,
+                    )
+                }
+            }
+
             withTimeoutOrNull(TvFlatReturnHuntBudgetMillis) {
                 var requests = 0
                 while (resolve(final = false) is TvReturnResolution.Pending) {
                     val loadedBefore = currentItemIds.size
-                    if (!currentIsLoadingMore) {
+                    // A refresh in flight is a load too — asking for the next
+                    // page on top of it appends at an offset the refresh is
+                    // about to invalidate.
+                    if (!currentIsLoadingMore && !currentIsReplacing) {
                         // The ceiling stops NEW requests. It must not stop us
                         // waiting for one already in flight, or the last page
                         // is abandoned with budget to spare.
@@ -225,7 +326,7 @@ internal fun rememberTvFlatReturnRestoration(
                     val waited = awaitFlatPageSettled(
                         loadedBefore = loadedBefore,
                         itemCount = { currentItemIds.size },
-                        isLoadingMore = { currentIsLoadingMore },
+                        isLoadingMore = { currentIsLoadingMore || currentIsReplacing },
                     )
 
                     // Judge the OUTCOME, and only when a load actually reached
@@ -328,6 +429,17 @@ private const val TvFlatReturnPageSettleTimeoutMillis: Long = 2_000L
  * hard a struggling endpoint gets pushed. Counting requests alone let one slow
  * fetch spend the entire allowance on a single page and gave no ceiling at all.
  */
+/**
+ * How long restoration will wait for a content REPLACEMENT to settle before it
+ * resolves anyway.
+ *
+ * Generous, because waiting costs nothing visible — the surface is mid-refresh
+ * and has no stable content to focus regardless — while giving up early costs a
+ * restoration against a list that is about to be discarded. It exists only so a
+ * refresh that never completes cannot wedge the surface.
+ */
+private const val TvFlatReturnReplaceWaitMillis: Long = 3_000L
+
 private const val TvFlatReturnHuntBudgetMillis: Long = 6_000L
 
 /** How many pages one restoration may ask for. */
