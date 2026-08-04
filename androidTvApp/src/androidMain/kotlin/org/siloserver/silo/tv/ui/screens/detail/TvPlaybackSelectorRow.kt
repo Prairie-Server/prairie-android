@@ -41,7 +41,8 @@ internal fun isAudioSelectorOptionSelected(
     selectedAudioTrackIndex: Int?,
 ): Boolean = optionIndex == selectedAudioTrackIndex
 
-internal fun selectorIsInteractive(optionCount: Int): Boolean = optionCount > 1
+internal fun selectorIsInteractive(options: List<TvSelectorOption>): Boolean =
+    options.count(TvSelectorOption::enabled) > 1
 
 @Composable
 fun TvPlaybackSelectorRow(
@@ -74,6 +75,110 @@ fun TvPlaybackSelectorRow(
     } else {
         versions
     }
+    val editionOptions = editions.map { edition ->
+        val count = edition.versions.size
+        TvSelectorOption(
+            key = "edition:${edition.id}",
+            title = edition.label,
+            detail = "$count version${if (count == 1) "" else "s"}",
+            selected = currentEdition?.id == edition.id,
+            onSelect = { onSelectVersion(edition.versions.firstOrNull()?.fileId) },
+        )
+    }
+    val versionOptions = buildList {
+        add(
+            TvSelectorOption(
+                key = "version:auto",
+                title = "Auto",
+                detail = "Best match for this device",
+                selected = selectedVersionFileId == null,
+                onSelect = { onSelectVersion(null) },
+            ),
+        )
+        scopedVersions.forEach { version ->
+            add(
+                TvSelectorOption(
+                    key = "version:${version.fileId}",
+                    title = TvPlaybackFormatting.versionShortLabel(version),
+                    detail = TvPlaybackFormatting.versionDetailLabel(version),
+                    selected = selectedVersionFileId == version.fileId,
+                    onSelect = { onSelectVersion(version.fileId) },
+                ),
+            )
+        }
+    }
+    val audioSelectorOptions = buildList {
+        add(
+            TvSelectorOption(
+                key = "audio:auto",
+                title = "Auto",
+                detail = "Use the file default track",
+                selected = isAudioSelectorOptionSelected(null, selectedAudioTrackIndex),
+                onSelect = { onSelectAudioTrack(null) },
+            ),
+        )
+        val formattedAudioOptions =
+            TvPlaybackFormatting.audioOptions(currentVersion, selectedAudioTrackIndex)
+        if (formattedAudioOptions.isEmpty()) {
+            add(
+                TvSelectorOption(
+                    key = "audio:unknown",
+                    title = "Unknown",
+                    detail = "",
+                    selected = false,
+                    onSelect = {},
+                    enabled = false,
+                ),
+            )
+        } else {
+            formattedAudioOptions.forEach { option ->
+                add(
+                    TvSelectorOption(
+                        key = "audio:${option.ordinal}",
+                        title = option.title,
+                        detail = option.detail,
+                        selected = option.isSelected,
+                        onSelect = { onSelectAudioTrack(option.ordinal) },
+                    ),
+                )
+            }
+        }
+    }
+    val subtitleSelectorOptions = buildList {
+        add(
+            TvSelectorOption(
+                key = "subtitle:auto",
+                title = "Auto",
+                detail = "Use your subtitle preferences",
+                selected = selectedSubtitleTrackIndex == null,
+                onSelect = { onSelectSubtitleTrack(null) },
+            ),
+        )
+        add(
+            TvSelectorOption(
+                key = "subtitle:off",
+                title = "Off",
+                detail = "Start without subtitles",
+                selected = selectedSubtitleTrackIndex == -1,
+                onSelect = { onSelectSubtitleTrack(-1) },
+            ),
+        )
+        TvPlaybackFormatting.subtitleOptions(
+            currentVersion,
+            selectedSubtitleTrackIndex,
+            preferredLanguage = preferredSubtitleLanguage,
+        ).forEach { option ->
+            add(
+                TvSelectorOption(
+                    key = "subtitle:${option.stableId}",
+                    title = option.title,
+                    detail = option.detail,
+                    selected = option.isSelected,
+                    onSelect = { onSelectSubtitleTrack(option.selectionIndex) },
+                ),
+            )
+        }
+    }
 
     // fillMaxWidth + a focus container so a Down press from any top-row control
     // (including the far-right circle toggles) lands on the nearest selector
@@ -92,20 +197,8 @@ fun TvPlaybackSelectorRow(
                 icon = Icons.Filled.Layers,
                 label = "Edition",
                 value = currentEdition?.label ?: "Standard",
-                options = editions.map { edition ->
-                    val count = edition.versions.size
-                    TvSelectorOption(
-                        key = "edition:${edition.id}",
-                        title = edition.label,
-                        detail = "$count version${if (count == 1) "" else "s"}",
-                        selected = currentEdition?.id == edition.id,
-                        onSelect = {
-                            // Select the best version of that edition.
-                            onSelectVersion(edition.versions.firstOrNull()?.fileId)
-                        },
-                    )
-                },
-                interactive = selectorIsInteractive(editions.size),
+                options = editionOptions,
+                interactive = selectorIsInteractive(editionOptions),
             )
         }
 
@@ -115,29 +208,8 @@ fun TvPlaybackSelectorRow(
             icon = Icons.Filled.Tv,
             label = "Version",
             value = TvPlaybackFormatting.versionShortLabel(currentVersion),
-            options = buildList {
-                add(
-                    TvSelectorOption(
-                        key = "version:auto",
-                        title = "Auto",
-                        detail = "Best match for this device",
-                        selected = selectedVersionFileId == null,
-                        onSelect = { onSelectVersion(null) },
-                    ),
-                )
-                scopedVersions.forEach { version ->
-                    add(
-                        TvSelectorOption(
-                            key = "version:${version.fileId}",
-                            title = TvPlaybackFormatting.versionShortLabel(version),
-                            detail = TvPlaybackFormatting.versionDetailLabel(version),
-                            selected = selectedVersionFileId == version.fileId,
-                            onSelect = { onSelectVersion(version.fileId) },
-                        ),
-                    )
-                }
-            },
-            interactive = selectorIsInteractive(scopedVersions.size),
+            options = versionOptions,
+            interactive = selectorIsInteractive(versionOptions),
         )
 
         // Audio
@@ -146,44 +218,8 @@ fun TvPlaybackSelectorRow(
             icon = Icons.AutoMirrored.Filled.VolumeUp,
             label = "Audio",
             value = TvPlaybackFormatting.audioValueLabel(currentVersion, selectedAudioTrackIndex),
-            options = buildList {
-                add(
-                    TvSelectorOption(
-                        key = "audio:auto",
-                        title = "Auto",
-                        detail = "Use the file default track",
-                        selected = isAudioSelectorOptionSelected(null, selectedAudioTrackIndex),
-                        onSelect = { onSelectAudioTrack(null) },
-                    ),
-                )
-                val audioOptions =
-                    TvPlaybackFormatting.audioOptions(currentVersion, selectedAudioTrackIndex)
-                if (audioOptions.isEmpty()) {
-                    add(
-                        TvSelectorOption(
-                            key = "audio:unknown",
-                            title = "Unknown",
-                            detail = "",
-                            selected = false,
-                            onSelect = {},
-                            enabled = false,
-                        ),
-                    )
-                } else {
-                    audioOptions.forEach { option ->
-                        add(
-                            TvSelectorOption(
-                                key = "audio:${option.ordinal}",
-                                title = option.title,
-                                detail = option.detail,
-                                selected = option.isSelected,
-                                onSelect = { onSelectAudioTrack(option.ordinal) },
-                            ),
-                        )
-                    }
-                }
-            },
-            interactive = selectorIsInteractive(currentVersion.audioTracks.orEmpty().size),
+            options = audioSelectorOptions,
+            interactive = selectorIsInteractive(audioSelectorOptions),
         )
 
         // Subtitles — tvOS uses `captions.bubble`; Chat (bubble with text
@@ -206,44 +242,8 @@ fun TvPlaybackSelectorRow(
                     ),
                 ),
             ),
-            options = buildList {
-                add(
-                    TvSelectorOption(
-                        key = "subtitle:auto",
-                        title = "Auto",
-                        detail = "Use your subtitle preferences",
-                        selected = selectedSubtitleTrackIndex == null,
-                        onSelect = { onSelectSubtitleTrack(null) },
-                    ),
-                )
-                add(
-                    TvSelectorOption(
-                        key = "subtitle:off",
-                        title = "Off",
-                        detail = "Start without subtitles",
-                        selected = selectedSubtitleTrackIndex == -1,
-                        onSelect = { onSelectSubtitleTrack(-1) },
-                    ),
-                )
-                TvPlaybackFormatting
-                    .subtitleOptions(
-                        currentVersion,
-                        selectedSubtitleTrackIndex,
-                        preferredLanguage = preferredSubtitleLanguage,
-                    )
-                    .forEach { option ->
-                        add(
-                            TvSelectorOption(
-                                key = "subtitle:${option.stableId}",
-                                title = option.title,
-                                detail = option.detail,
-                                selected = option.isSelected,
-                                onSelect = { onSelectSubtitleTrack(option.selectionIndex) },
-                            ),
-                        )
-                    }
-            },
-            interactive = selectorIsInteractive(currentVersion.subtitleTracks.orEmpty().size),
+            options = subtitleSelectorOptions,
+            interactive = selectorIsInteractive(subtitleSelectorOptions),
         )
     }
 }
