@@ -39,6 +39,9 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import org.siloserver.silo.tv.ui.focus.TvRestoreFocusOnModalDismiss
 import org.siloserver.silo.tv.ui.components.TvCatalogEmptyState
 import org.siloserver.silo.tv.ui.components.TvCatalogGrid
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
@@ -71,6 +74,19 @@ fun TvBrowseScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showFilterSheet by remember { mutableStateOf(false) }
+    // The sheet is a modal focus owner, so something has to hand focus back
+    // when it closes. Left to the focus system, the successor is picked
+    // geometrically and lands on whatever the dimmed page happened to have.
+    val filterOpenerFocus = remember { FocusRequester() }
+    var filterOpenerFocused by remember { mutableStateOf(false) }
+    val filterOpenerModifier = Modifier
+        .focusRequester(filterOpenerFocus)
+        .onFocusChanged { filterOpenerFocused = it.isFocused }
+    TvRestoreFocusOnModalDismiss(
+        visible = showFilterSheet,
+        opener = filterOpenerFocus,
+        isOpenerFocused = { filterOpenerFocused },
+    )
 
     val firstItemFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
@@ -99,6 +115,7 @@ fun TvBrowseScreen(
                     sortLabel = sortLabel,
                     filter = state.filter,
                     onOpenFilters = { showFilterSheet = true },
+                    filterOpenerModifier = filterOpenerModifier,
                     modifier = Modifier.padding(
                         top = TvTopMenuLayout.contentTopInset,
                         start = Spacing.safeArea,
@@ -122,6 +139,7 @@ fun TvBrowseScreen(
                     sortLabel = sortLabel,
                     filter = state.filter,
                     onOpenFilters = { showFilterSheet = true },
+                    filterOpenerModifier = filterOpenerModifier,
                     modifier = Modifier.padding(
                         top = TvTopMenuLayout.contentTopInset,
                         start = Spacing.safeArea,
@@ -136,6 +154,7 @@ fun TvBrowseScreen(
                     onItemClick = onOpenItemDetail,
                     onLoadMore = viewModel::loadMore,
                     onOpenFilters = { showFilterSheet = true },
+                    filterOpenerModifier = filterOpenerModifier,
                     firstItemFocusRequester = firstItemFocusRequester,
                 )
             }
@@ -251,6 +270,7 @@ private fun BrowseGrid(
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
     onOpenFilters: () -> Unit,
+    filterOpenerModifier: Modifier,
     firstItemFocusRequester: FocusRequester,
 ) {
     // Shared catalog grid: pagination, focus-restorer, header + empty state.
@@ -282,6 +302,7 @@ private fun BrowseGrid(
                 sortLabel = sortLabel,
                 filter = state.filter,
                 onOpenFilters = onOpenFilters,
+                filterOpenerModifier = filterOpenerModifier,
             )
         },
         emptyState = {
@@ -300,6 +321,7 @@ private fun BrowseHeader(
     sortLabel: String,
     filter: TvBrowseFilter,
     onOpenFilters: () -> Unit,
+    filterOpenerModifier: Modifier,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -330,6 +352,7 @@ private fun BrowseHeader(
             filter = filter,
             sortLabel = sortLabel,
             onOpenFilters = onOpenFilters,
+            filterOpenerModifier = filterOpenerModifier,
         )
     }
 }
@@ -344,6 +367,7 @@ private fun FilterRow(
     filter: TvBrowseFilter,
     sortLabel: String,
     onOpenFilters: () -> Unit,
+    filterOpenerModifier: Modifier,
     modifier: Modifier = Modifier,
 ) {
     FlowRow(
@@ -353,7 +377,11 @@ private fun FilterRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        FilterEntryButton(label = "Filter", onClick = onOpenFilters)
+        FilterEntryButton(
+            label = "Filter",
+            onClick = onOpenFilters,
+            modifier = filterOpenerModifier,
+        )
 
         if (filter.genre != null) {
             ActiveFilterPill(label = "Genre: ${filter.genre}")
