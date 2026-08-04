@@ -65,6 +65,17 @@ class TvDisabledControlWiringSourceTest {
         assertContains(squaredPills, ".clickable(\n                enabled = enabled,")
     }
 
+    @Test
+    fun selectorAppliesInteractivityChangesToStoredExpansion() {
+        val selectorMenu = source("ui/components/TvAnchoredSelectorMenu.kt")
+
+        assertContains(selectorMenu, "LaunchedEffect(interactive) {")
+        assertContains(
+            selectorMenu,
+            "expanded = selectorExpansionAfterInteractivityChange(expanded, interactive)",
+        )
+    }
+
     private fun source(relativePath: String): String = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/$relativePath",
     ).readText()

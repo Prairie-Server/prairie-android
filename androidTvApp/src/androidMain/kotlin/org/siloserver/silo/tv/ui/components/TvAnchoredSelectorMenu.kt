@@ -72,6 +72,11 @@ data class TvSelectorOption(
     val enabled: Boolean = true,
 )
 
+internal fun selectorExpansionAfterInteractivityChange(
+    expanded: Boolean,
+    interactive: Boolean,
+): Boolean = expanded && interactive
+
 /**
  * A secondary `.compact` squared pill that opens an anchored dropdown of
  * [options]. Trigger layout mirrors tvOS `TVSelectorButton` at tvOS÷2 scale
@@ -93,6 +98,9 @@ fun TvAnchoredSelectorMenu(
     interactive: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    LaunchedEffect(interactive) {
+        expanded = selectorExpansionAfterInteractivityChange(expanded, interactive)
+    }
     // Use the caller's requester when provided (Task 4 directs selector-row
     // focus to a specific trigger); otherwise a private one for focus-restore.
     val triggerFr = triggerFocusRequester ?: remember { FocusRequester() }
