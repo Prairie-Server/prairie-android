@@ -73,18 +73,45 @@ abstract class PersonalListViewModel(
      */
     private var contentGeneration = 0
 
+    /**
+     * Which request currently owns each loading flag.
+     *
+     * Generation alone cannot answer this. A reset owns isLoading and a refresh
+     * owns isRefreshing, so when one supersedes the other the newer request
+     * clears a DIFFERENT flag from the one the superseded request set — and the
+     * superseded one, told that "the newer replacement owns those flags",
+     * cleared nothing. A reset overtaken by a refresh therefore left isLoading
+     * true forever, and the surface spinning.
+     *
+     * Every request releases exactly the flag it claimed, and only while it is
+     * still the claimant.
+     */
+    private var requestSequence = 0
+    private var loadingOwner = 0
+    private var refreshingOwner = 0
+    private var loadingMoreOwner = 0
+
     fun retry() = load(reset = true)
 
     fun refresh() {
         // Claimed synchronously, for the same reason as load().
         val generation = ++contentGeneration
+        val requestId = ++requestSequence
+        refreshingOwner = requestId
         _uiState.update { it.copy(isRefreshing = true, error = null) }
         viewModelScope.launch {
             val offset = 0
             val result = fetchPage(offset, pageSize)
-            // A newer replacement started while this refresh was in flight and
-            // now owns isRefreshing, so this one clears nothing.
-            if (generation != contentGeneration) return@launch
+            // A newer replacement started while this refresh was in flight.
+            // Release isRefreshing unless a newer REFRESH has re-claimed it —
+            // a superseding reset owns isLoading instead and would not clear
+            // this one on its way past.
+            if (generation != contentGeneration) {
+                if (refreshingOwner == requestId) {
+                    _uiState.update { it.copy(isRefreshing = false) }
+                }
+                return@launch
+            }
             when (val r = result) {
                 is ApiResult.Success -> _uiState.update {
                     it.copy(
@@ -113,6 +140,8 @@ abstract class PersonalListViewModel(
         val state = _uiState.value
         val offset = if (reset) 0 else state.items.size
         val generation = if (reset) ++contentGeneration else contentGeneration
+        val requestId = ++requestSequence
+        if (reset) loadingOwner = requestId else loadingMoreOwner = requestId
         _uiState.update {
             if (reset) it.copy(isLoading = true, error = null)
             else it.copy(isLoadingMore = true)
@@ -127,11 +156,16 @@ abstract class PersonalListViewModel(
             // error on top would only undo that. The loading flag still has to
             // be released, because this request really has finished.
             if (generation != contentGeneration) {
-                // Only paging's own flag. isLoading and isRefreshing belong to
-                // whichever replacement superseded this one, and it will clear
-                // them when it lands — clearing them here would report that
-                // load as finished while it is still running.
-                if (!reset) _uiState.update { it.copy(isLoadingMore = false) }
+                // Release this request's own flag, and only while it still owns
+                // it. A later request of the same kind has already re-claimed
+                // it and will clear it itself.
+                _uiState.update {
+                    when {
+                        reset && loadingOwner == requestId -> it.copy(isLoading = false)
+                        !reset && loadingMoreOwner == requestId -> it.copy(isLoadingMore = false)
+                        else -> it
+                    }
+                }
                 return@launch
             }
             when (val r = result) {

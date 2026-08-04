@@ -300,7 +300,7 @@ internal fun rememberTvFlatReturnRestoration(
             // One subscription, then. collectLatest restarts the quiet timer on
             // every change, so the window only elapses if nothing happened
             // during it, which is what "settled" has to mean.
-            withTimeoutOrNull(TvFlatReturnReplaceWaitMillis) {
+            val settled = withTimeoutOrNull(TvFlatReturnReplaceWaitMillis) {
                 snapshotFlow { currentIsReplacing }
                     .transformLatest { replacing ->
                         if (!replacing) {
@@ -309,21 +309,28 @@ internal fun rememberTvFlatReturnRestoration(
                         }
                     }
                     .first()
-            }
+            } != null
 
-            // Deliberately nothing on timeout. An earlier version retargeted to
-            // the first item here, reasoning that a reload produces page one so
-            // index zero cannot be invalidated. That was wrong: the id came
-            // from the OUTGOING list, which a replacement can reorder, empty,
-            // or drop that item from entirely — so acquisition would confirm
-            // against an identity that no longer means what it did, and the
-            // real target was overwritten in saved state where no later entry
-            // could ever retry it.
+            // Abandon rather than proceed. Falling through was the previous
+            // answer, on the reasoning that a replacement landing mid-flight
+            // would fail the identity check and simply not restore — but that
+            // is not guaranteed. A target from the OUTGOING list can resolve
+            // Exact, skip the hunt, take focus and report a landing in the
+            // moment before the replacement removes the card underneath it,
+            // and then focus is somewhere nobody chose and the shell has been
+            // told content owns it.
             //
-            // Falling through instead resolves live against whatever list
-            // exists by then. If the replacement lands mid-flight the identity
-            // check simply fails and restoration ends without a landing, which
-            // is a worse outcome than restoring but not an incorrect one.
+            // The target is deliberately left intact: this restoration is
+            // giving up, not deciding the target was wrong, so a later entry
+            // can still honour it.
+            if (!settled) return@LaunchedEffect
+
+            // An even earlier version retargeted to the first item on timeout,
+            // reasoning that a reload produces page one so index zero cannot be
+            // invalidated. That was wrong twice over: the id came from the
+            // OUTGOING list, which a replacement can reorder, empty or drop
+            // that item from entirely, and it overwrote the real target in
+            // saved state where no later entry could retry it.
 
             withTimeoutOrNull(TvFlatReturnHuntBudgetMillis) {
                 var requests = 0

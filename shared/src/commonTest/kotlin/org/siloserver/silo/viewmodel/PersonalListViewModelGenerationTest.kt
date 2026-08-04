@@ -17,6 +17,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * A page fetched at `offset = N` describes a list that a refresh has since
@@ -141,6 +142,50 @@ class PersonalListViewModelGenerationTest {
         } finally {
             Dispatchers.setMain(dispatcher)
         }
+    }
+
+    /**
+     * A reset and a refresh claim DIFFERENT flags, so neither can be trusted to
+     * clear the other's on its way past. These two cover both orderings; before
+     * each request released the flag it actually owned, one of them left the
+     * surface spinning forever.
+     */
+    @Test
+    fun aResetSupersededByARefreshDoesNotStrandIsLoading() = runTest {
+        val vm = TestList()
+        vm.start()
+        vm.pending.removeFirst().complete(page("a", "b", hasMore = true))
+
+        vm.retry()
+        val staleReset = vm.pending.removeFirst()
+        assertTrue(vm.uiState.value.isLoading, "the reset should have claimed isLoading")
+
+        vm.refresh()
+        vm.pending.removeFirst().complete(page("x", "y"))
+        staleReset.complete(page("stale"))
+
+        assertFalse(vm.uiState.value.isLoading, "isLoading must not outlive the reset that claimed it")
+        assertFalse(vm.uiState.value.isRefreshing)
+        assertEquals(listOf("x", "y"), vm.uiState.value.items.map { it.contentId })
+    }
+
+    @Test
+    fun aRefreshSupersededByAResetDoesNotStrandIsRefreshing() = runTest {
+        val vm = TestList()
+        vm.start()
+        vm.pending.removeFirst().complete(page("a", "b", hasMore = true))
+
+        vm.refresh()
+        val staleRefresh = vm.pending.removeFirst()
+        assertTrue(vm.uiState.value.isRefreshing, "the refresh should have claimed isRefreshing")
+
+        vm.retry()
+        vm.pending.removeFirst().complete(page("x", "y"))
+        staleRefresh.complete(page("stale"))
+
+        assertFalse(vm.uiState.value.isRefreshing, "isRefreshing must not outlive the refresh that claimed it")
+        assertFalse(vm.uiState.value.isLoading)
+        assertEquals(listOf("x", "y"), vm.uiState.value.items.map { it.contentId })
     }
 
     @Test
