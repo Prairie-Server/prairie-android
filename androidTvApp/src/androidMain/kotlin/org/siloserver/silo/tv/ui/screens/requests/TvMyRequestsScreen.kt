@@ -27,7 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import org.siloserver.silo.tv.ui.focus.rememberTvFlatReturnRestoration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -53,16 +57,43 @@ fun TvMyRequestsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val visibleRequests = state.requests.filterTvMediaRequests()
-    val firstItemFocusRequester = remember { FocusRequester() }
-    val firstRequestId = visibleRequests.firstOrNull()?.id
-    var initialFocusRequested by remember { mutableStateOf(false) }
+    val restoreItemFocusRequester = remember { FocusRequester() }
+    var attachedRequesterId by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
 
-    LaunchedEffect(firstRequestId) {
-        if (initialFocusRequested || firstRequestId == null) return@LaunchedEffect
-        runCatching { firstItemFocusRequester.requestFocus() }
-        onInitialContentFocus()
-        initialFocusRequested = true
-    }
+    // Rows are identified by the REQUEST, not by what they open. A row with a
+    // library item opens that item while every other row opens the request
+    // detail, so two rows can share a navigation target; keying restoration on
+    // it would send focus to whichever came first. request.id is the row.
+    //
+    // Projected from the FILTERED list, because that is what is rendered — the
+    // view model's unfiltered list would put every index in a different
+    // coordinate space from the rows these indices address.
+    //
+    // Nothing here paginates, so hasMore is false and the page hunt never runs;
+    // the restoration is purely resolve, scroll, confirm.
+    val restoration = rememberTvFlatReturnRestoration(
+        itemIds = visibleRequests.map { it.id },
+        hasMore = false,
+        isLoadingMore = false,
+        // Refresh here is a button rather than a resume hook, so it cannot
+        // collide with entry the way the personal lists' does — but it still
+        // REPLACES the list, and a viewer who presses it and opens a row
+        // before it lands would otherwise restore against the outgoing one.
+        isReplacingContent = state.isRefreshing,
+        errorMessage = state.error,
+        surfaceKey = "my-requests",
+        onLoadMore = {},
+        scrollToItem = { itemIndex -> listState.scrollToItem(itemIndex + requestsHeaderSlots(state.error)) },
+        requestFocus = restoreItemFocusRequester::requestFocus,
+        onRestored = onInitialContentFocus,
+    )
+
+    // No separate first-entry path. On a fresh arrival the restoration already
+    // targets row zero, so a second requester would race it — and worse, the
+    // one that ran first was UNATTACHED whenever restoration owned row zero,
+    // meaning it reported a content handoff it had not actually made. One
+    // claimant, and it only reports once focus is confirmed.
 
     Column(
         modifier = Modifier
@@ -81,6 +112,7 @@ fun TvMyRequestsScreen(
             )
             visibleRequests.isEmpty() -> EmptyMyRequests()
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .focusGroup(),
@@ -101,9 +133,27 @@ fun TvMyRequestsScreen(
                     }
                 }
                 itemsIndexed(visibleRequests, key = { _, request -> request.id }) { index, request ->
+                    if (index == restoration.requesterItemIndex) {
+                        DisposableEffect(request.id) {
+                            attachedRequesterId = request.id
+                            restoration.onRequesterAttached(request.id)
+                            onDispose {
+                                // Only if this row is still the owner. When the
+                                // requester moves, the new row can attach
+                                // before the old one disposes, and an
+                                // unconditional clear would erase the live
+                                // attachment and lose the restore.
+                                if (attachedRequesterId == request.id) {
+                                    attachedRequesterId = null
+                                    restoration.onRequesterAttached(null)
+                                }
+                            }
+                        }
+                    }
                     TvRequestListCard(
                         request = request,
                         onClick = {
+                            restoration.onItemClicked(itemId = request.id, index = index)
                             // In-library items open library detail; everything else
                             // opens the request detail (phone parity — rows are always
                             // actionable, not only when a library item exists).
@@ -111,7 +161,14 @@ fun TvMyRequestsScreen(
                             if (contentId != null) onOpenLibraryItem(contentId)
                             else onOpenRequestDetail(request.mediaType, request.tmdbId)
                         },
-                        focusRequester = firstItemFocusRequester.takeIf { index == 0 },
+                        focusRequester = restoreItemFocusRequester
+                            .takeIf { index == restoration.requesterItemIndex },
+                        // hasFocus, not isFocused: the card's own Surface owns
+                        // focus below this modifier, so isFocused never fires
+                        // here and the restoration could never confirm.
+                        modifier = Modifier.onFocusChanged {
+                            if (it.hasFocus) restoration.onItemFocused(request.id, index)
+                        },
                         trailing = {
                             if (request.canCancel()) {
                                 TvRequestActionPill(
@@ -195,3 +252,6 @@ private fun EmptyMyRequests() {
         }
     }
 }
+
+/** The error banner, when shown, is one list slot ahead of the request rows. */
+private fun requestsHeaderSlots(error: String?): Int = if (error != null) 1 else 0
