@@ -21,6 +21,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import org.siloserver.silo.tv.ui.focus.rememberTvContentInitialFocus
 import org.siloserver.silo.tv.ui.components.TvCatalogEmptyState
 import org.siloserver.silo.tv.ui.components.TvCatalogGrid
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
@@ -43,16 +44,16 @@ fun TvCollectionDetailScreen(
     BackHandler(enabled = true) { onBack() }
 
     val firstItemFocusRequester = remember { FocusRequester() }
-    var initialFocusRequested by remember { mutableStateOf(false) }
-    LaunchedEffect(state.items.firstOrNull()?.contentId) {
-        if (initialFocusRequested || state.items.isEmpty()) return@LaunchedEffect
-        runCatching { firstItemFocusRequester.requestFocus() }
-        initialFocusRequested = true
-    }
+    // Same rejected-during-placement latch as the collections grid.
+    val contentInitialFocus = rememberTvContentInitialFocus(
+        target = firstItemFocusRequester,
+        contentKey = state.items.firstOrNull()?.contentId,
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .then(contentInitialFocus)
             .background(MaterialTheme.colorScheme.background),
     ) {
         Text(

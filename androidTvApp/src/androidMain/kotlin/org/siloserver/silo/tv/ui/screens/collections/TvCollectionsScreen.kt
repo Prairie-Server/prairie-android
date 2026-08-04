@@ -43,6 +43,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.koin.compose.viewmodel.koinViewModel
 import org.siloserver.silo.model.personal.Collection
+import org.siloserver.silo.tv.ui.focus.rememberTvContentInitialFocus
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import org.siloserver.silo.tv.ui.theme.Spacing
@@ -62,13 +63,14 @@ fun TvCollectionsScreen(
     val firstCollectionFocusRequester = remember { FocusRequester() }
     val firstCollectionId = state.sections.firstNotNullOfOrNull { it.collections.firstOrNull()?.id }
 
-    var initialFocusRequested by remember { mutableStateOf(false) }
-    LaunchedEffect(firstCollectionId) {
-        if (initialFocusRequested || firstCollectionId == null) return@LaunchedEffect
-        runCatching { firstCollectionFocusRequester.requestFocus() }
-        onInitialContentFocus()
-        initialFocusRequested = true
-    }
+    // Latching "attempted" as "acquired" left the grid with no focus owner when
+    // the first request landed during lazy placement, and told the shell that
+    // content focus had succeeded anyway.
+    val contentInitialFocus = rememberTvContentInitialFocus(
+        target = firstCollectionFocusRequester,
+        contentKey = firstCollectionId,
+        onAcquired = onInitialContentFocus,
+    )
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var skippedFirstResume by remember { mutableStateOf(false) }
@@ -85,6 +87,7 @@ fun TvCollectionsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .then(contentInitialFocus)
             .background(MaterialTheme.colorScheme.background),
     ) {
         Header()

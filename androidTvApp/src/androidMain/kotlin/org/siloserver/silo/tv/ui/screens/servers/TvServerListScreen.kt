@@ -47,6 +47,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.server.ServerEntry
+import org.siloserver.silo.tv.ui.focus.rememberTvContentInitialFocus
 import org.siloserver.silo.tv.ui.components.TvDialogOption
 import org.siloserver.silo.tv.ui.components.TvOptionDialog
 import org.siloserver.silo.tv.ui.theme.Spacing
@@ -94,20 +95,19 @@ fun TvServerListScreen(
         }
     }
 
-    LaunchedEffect(state.servers.size) {
-        // Anchor focus on the first row whenever the list materializes so
-        // d-pad navigation has somewhere to land.
-        if (state.servers.isNotEmpty()) {
-            repeat(TvInitialFocusRetryCount) {
-                if (runCatching { firstFocus.requestFocus() }.isSuccess) return@LaunchedEffect
-                delay(TvInitialFocusRetryDelayMs)
-            }
-        }
-    }
+    // Anchor focus on the first row whenever the list materializes so d-pad
+    // navigation has somewhere to land. The rows are lazy, so the first request
+    // lands before placement and is rejected — this retries until focus is
+    // actually observed rather than until a call merely returns.
+    val contentInitialFocus = rememberTvContentInitialFocus(
+        target = firstFocus,
+        contentKey = state.servers.firstOrNull()?.id,
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(contentInitialFocus)
             .background(ServerSettingsBackground)
             .padding(start = 44.dp, top = Spacing.safeArea, end = 44.dp, bottom = Spacing.xxxl),
     ) {
@@ -210,8 +210,6 @@ fun TvServerListScreen(
 
 }
 
-private const val TvInitialFocusRetryCount = 4
-private const val TvInitialFocusRetryDelayMs = 50L
 private val ServerSettingsBackground = Color(0xFF17181A)
 private val ServerListMaxWidth = 620.dp
 private val ServerRowShape = RoundedCornerShape(8.dp)
