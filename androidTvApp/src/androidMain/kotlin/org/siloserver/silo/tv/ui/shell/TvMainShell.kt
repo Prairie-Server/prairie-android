@@ -156,6 +156,7 @@ import org.siloserver.silo.tv.ui.screens.recommendations.TvForYouEntryRequest
 import org.siloserver.silo.tv.ui.screens.recommendations.ForYouDetailReturnState
 import org.siloserver.silo.tv.ui.screens.recommendations.beginForYouDetailReturn
 import org.siloserver.silo.tv.ui.screens.recommendations.consumeForYouDetailReturn
+import org.siloserver.silo.tv.ui.screens.recommendations.resetForExplicitForYouSelection
 import org.siloserver.silo.tv.ui.screens.requests.TvMyRequestsScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestDetailScreen
 import org.siloserver.silo.tv.ui.screens.requests.TvRequestsScreen
@@ -612,6 +613,9 @@ fun TvMainShell(
     val onSelectRoot: (TvRootDestination) -> Unit = { dest ->
         val route = dest.toRoute()
         if (dest == TvRootDestination.ForYou) {
+            val reset = resetForExplicitForYouSelection()
+            forYouDetailReturnFocusRequest = reset.requestId
+            forYouDetailReturnFocusPending = reset.pending
             forYouEntryRequest = forYouEntryRequest.nextForTopLevelForYou()
         }
         if (dest == TvRootDestination.Home) {

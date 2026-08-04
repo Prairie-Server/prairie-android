@@ -95,6 +95,9 @@ internal fun beginForYouDetailReturn(
     pending = true,
 )
 
+internal fun resetForExplicitForYouSelection(): ForYouDetailReturnState =
+    ForYouDetailReturnState(requestId = 0, pending = false)
+
 internal fun consumeForYouDetailReturn(
     state: ForYouDetailReturnState,
     completedRequestId: Int,

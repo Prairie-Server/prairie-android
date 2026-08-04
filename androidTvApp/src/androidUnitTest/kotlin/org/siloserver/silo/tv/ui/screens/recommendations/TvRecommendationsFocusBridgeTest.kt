@@ -195,6 +195,14 @@ class TvRecommendationsFocusBridgeTest {
     }
 
     @Test
+    fun explicitForYouSelectionClearsStaleReturnState() {
+        assertEquals(
+            ForYouDetailReturnState(requestId = 0, pending = false),
+            resetForExplicitForYouSelection(),
+        )
+    }
+
+    @Test
     fun offscreenReorderedTargetWaitsForAttachmentThenFocuses() = runTest {
         val reorderedRows = listOf(
             ForYouFocusRow(
