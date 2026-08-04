@@ -40,6 +40,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
 import org.siloserver.silo.tv.ui.focus.TvControlState
+import org.siloserver.silo.tv.ui.focus.tvControlSemantics
 import org.siloserver.silo.tv.ui.screens.player.TvDialogActionRow
 import org.siloserver.silo.tv.ui.theme.DarkBackground
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
@@ -212,7 +213,7 @@ private fun JoinCodeKey(
     val enabled = controlState.actionable
 
     Surface(
-        onClick = { if (controlState.actionable) onClick() },
+        onClick = { controlState.perform(onClick) },
         enabled = controlState.focusable,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
@@ -254,7 +255,8 @@ private fun JoinCodeKey(
                 } else {
                     Modifier
                 },
-            ),
+            )
+            .tvControlSemantics(controlState),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),

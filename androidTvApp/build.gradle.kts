@@ -101,14 +101,16 @@ kotlin {
             implementation(libs.androidx.profileinstaller)
         }
 
-        // First tests in this module — JUnit 4 via kotlin-test-junit, mirroring
-        // the android-shared setup. Covers the AmbientBackdropTintState stale-
-        // result guard (A.2). Tests that need android.* APIs would require
-        // Robolectric; the current suite is pure JVM.
+        // JUnit 4 behavior tests plus a small Robolectric Compose harness for
+        // focus and accessibility semantics that cannot be verified from
+        // source text.
         androidUnitTest.dependencies {
             implementation(kotlin("test"))
             implementation(kotlin("test-junit"))
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.robolectric)
+            implementation(libs.androidx.test.core)
+            implementation("androidx.compose.ui:ui-test-junit4:1.9.2")
             // NotificationRow's constructor default uses JsonObject; the inbox
             // formatter test constructs rows directly, so json must be on the
             // test classpath.
@@ -215,9 +217,10 @@ android {
     }
     testOptions {
         unitTests {
-            // Default to safe no-op stubs for android.* classes (e.g. android.util.Log.w)
-            // so tests can exercise code paths that touch them without requiring Robolectric.
+            // Default to safe no-op stubs for pure JVM tests that touch android.*;
+            // the focused Compose semantics suite opts into Robolectric explicitly.
             isReturnDefaultValues = true
+            isIncludeAndroidResources = true
         }
     }
     packaging {
@@ -231,4 +234,5 @@ android {
 
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.9.2")
 }

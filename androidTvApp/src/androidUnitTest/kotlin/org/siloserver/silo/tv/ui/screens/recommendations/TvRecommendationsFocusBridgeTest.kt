@@ -290,4 +290,58 @@ class TvRecommendationsFocusBridgeTest {
         assertEquals(1, frames)
         assertEquals(0, focusRequests)
     }
+
+    @Test
+    fun recycledTargetDuringRowHandoffRetriesAfterReattachment() = runTest {
+        var attached = true
+        var frames = 0
+        var rowFrames = 0
+        var cardRequests = 0
+
+        val result = requestPendingForYouReturnFocus(
+            maxAttempts = 4,
+            awaitFrame = {
+                frames++
+                if (frames == 2) attached = true
+            },
+            targetState = {
+                if (attached) ForYouReturnTargetState.Attached
+                else ForYouReturnTargetState.NotAttached
+            },
+            requestRowContainer = { FocusRequestOutcome.Handled },
+            awaitRowFrame = {
+                rowFrames++
+                if (rowFrames == 1) attached = false
+            },
+            requestCard = {
+                cardRequests++
+                if (attached) FocusRequestOutcome.Handled else FocusRequestOutcome.Disposed
+            },
+        )
+
+        assertEquals(ForYouReturnFocusResult.Focused, result)
+        assertEquals(2, frames)
+        assertEquals(2, rowFrames)
+        assertEquals(1, cardRequests)
+    }
+
+    @Test
+    fun recycledRowRequesterRetriesWithinTheBound() = runTest {
+        var rowRequests = 0
+
+        val result = requestPendingForYouReturnFocus(
+            maxAttempts = 3,
+            awaitFrame = {},
+            targetState = { ForYouReturnTargetState.Attached },
+            requestRowContainer = {
+                rowRequests++
+                if (rowRequests == 1) FocusRequestOutcome.Disposed else FocusRequestOutcome.Handled
+            },
+            awaitRowFrame = {},
+            requestCard = { FocusRequestOutcome.Handled },
+        )
+
+        assertEquals(ForYouReturnFocusResult.Focused, result)
+        assertEquals(2, rowRequests)
+    }
 }

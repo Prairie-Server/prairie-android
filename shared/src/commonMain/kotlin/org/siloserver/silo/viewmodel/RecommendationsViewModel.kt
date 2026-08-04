@@ -105,27 +105,15 @@ class RecommendationsViewModel(
 internal fun List<DiscoverRow>.toResolvedSections(): List<ResolvedSection> =
     map(DiscoverRow::toResolvedSection)
         .filter { it.items.isNotEmpty() }
-        .disambiguateSectionIds()
+        .distinctBy(ResolvedSection::id)
         .sortedByDescending { it.title.equals("For You", ignoreCase = true) }
 
 /**
- * Section IDs key a `LazyColumn`, where a duplicate key is a hard crash rather
- * than a degraded render. [stableSectionId] is only as unique as the server
- * makes it: `discoverRowSectionKey` returns an empty kind for any row type it
- * does not recognise, and both fields are `omitempty`, so unrecognised rows —
- * and every row from a server predating `section_kind` — fall back to
- * type+label. Two such rows collide. Suffix the repeats so identity stays
- * stable for the common case and merely imperfect (never fatal) otherwise.
+ * Modern servers provide a stable kind/key pair. Older servers and unknown row
+ * types do not, so their identity includes the row's stable content identities.
+ * Length-prefixing every component makes the encoding unambiguous even when a
+ * server label contains separators or suffix-looking text.
  */
-private fun List<ResolvedSection>.disambiguateSectionIds(): List<ResolvedSection> {
-    val seen = mutableMapOf<String, Int>()
-    return map { section ->
-        val occurrence = seen.getOrElse(section.id) { 0 }
-        seen[section.id] = occurrence + 1
-        if (occurrence == 0) section else section.copy(id = "${section.id}#$occurrence")
-    }
-}
-
 private fun DiscoverRow.toResolvedSection(): ResolvedSection = ResolvedSection(
     id = stableSectionId(),
     sectionType = type,
@@ -135,7 +123,21 @@ private fun DiscoverRow.toResolvedSection(): ResolvedSection = ResolvedSection(
     items = items,
 )
 
-private fun DiscoverRow.stableSectionId(): String =
-    sectionKind?.takeIf { it.isNotBlank() }?.let { kind ->
-        "discover:kind=$kind:key=${sectionKey.orEmpty()}"
-    } ?: "discover:type=$type:label=$label"
+private fun DiscoverRow.stableSectionId(): String {
+    val kind = sectionKind?.takeIf(String::isNotBlank)
+    val key = sectionKey?.takeIf(String::isNotBlank)
+    if (kind != null && key != null) {
+        return "discover:server:${encodeIdentityPart(kind)}${encodeIdentityPart(key)}"
+    }
+
+    val itemIdentities = items
+        .map { item -> encodeIdentityPart(item.type) + encodeIdentityPart(item.contentId) }
+        .sorted()
+        .joinToString(separator = "")
+    return "discover:legacy:" +
+        encodeIdentityPart(type) +
+        encodeIdentityPart(label) +
+        encodeIdentityPart(itemIdentities)
+}
+
+private fun encodeIdentityPart(value: String): String = "${value.length}:$value"

@@ -5,6 +5,7 @@ import org.siloserver.silo.model.section.SectionItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertSame
 
 class RecommendationsSectionIdentityTest {
     @Test
@@ -75,6 +76,46 @@ class RecommendationsSectionIdentityTest {
         assertEquals(ids.size, ids.toSet().size, "section ids must be unique: $ids")
     }
 
+    @Test
+    fun keylessSectionIdsSurviveInsertionAndReorder() {
+        val first = keylessRow(label = "Handpicked", contentId = "movie-a")
+        val second = keylessRow(label = "Handpicked", contentId = "movie-b")
+
+        val beforeRefresh = listOf(first, second).toResolvedSections()
+        val afterRefresh = listOf(
+            keylessRow(label = "Handpicked", contentId = "movie-new"),
+            second,
+            first,
+        ).toResolvedSections()
+
+        beforeRefresh.forEach { original ->
+            val contentId = original.items.single().contentId
+            val refreshed = afterRefresh.single { it.items.single().contentId == contentId }
+            assertEquals(original.id, refreshed.id)
+        }
+    }
+
+    @Test
+    fun suffixLikeLegacyLabelsCannotCollideWithGeneratedIds() {
+        val ids = listOf(
+            keylessRow(label = "Handpicked", contentId = "movie-a"),
+            keylessRow(label = "Handpicked", contentId = "movie-b"),
+            keylessRow(label = "Handpicked#1", contentId = "movie-a"),
+        ).toResolvedSections().map { it.id }
+
+        assertEquals(ids.size, ids.toSet().size, "section ids must be delimiter-safe: $ids")
+    }
+
+    @Test
+    fun indistinguishableLegacyRowsCollapseToOneSection() {
+        val duplicate = keylessRow(label = "Handpicked", contentId = "movie-a")
+
+        val sections = listOf(duplicate, duplicate).toResolvedSections()
+
+        assertEquals(1, sections.size)
+        assertSame(duplicate.items.single(), sections.single().items.single())
+    }
+
     private fun row(
         type: String,
         label: String,
@@ -93,5 +134,11 @@ class RecommendationsSectionIdentityTest {
                 title = contentId,
             ),
         ),
+    )
+
+    private fun keylessRow(label: String, contentId: String) = DiscoverRow(
+        type = "server_row_this_client_does_not_know",
+        label = label,
+        items = listOf(SectionItem(contentId = contentId, type = "movie", title = contentId)),
     )
 }

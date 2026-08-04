@@ -83,6 +83,18 @@ internal val CascadeRowIconSize = 15.dp
 internal val CascadeRowPaddingHorizontal = 9.dp
 internal val CascadeRowPaddingVertical = 8.dp
 internal val CascadeRowCornerRadius = 7.dp
+
+/** Resolves per-row state by stable identity while preserving the current display order. */
+internal fun <K, V> stableIdentityValues(
+    ids: List<K>,
+    valuesById: MutableMap<K, V>,
+    create: () -> V,
+): Map<K, V> = buildMap {
+    ids.forEach { id ->
+        put(id, valuesById.getOrPut(id, create))
+    }
+}
+
 internal val CascadeFlyoutRowTextSize = 14.sp
 internal val CascadeFlyoutRowIconSize = 9.dp
 internal val CascadeFlyoutRowPaddingHorizontal = 8.dp
@@ -202,6 +214,11 @@ fun TvCascadeSelector(
     // One stable FocusRequester per library id and per pill, surviving recomposition.
     val libraryRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
     val pillRequesters = remember { mutableStateMapOf<TvLibraryPill, FocusRequester>() }
+    val visibleLibraryRequesters = stableIdentityValues(
+        ids = libraries.map(UserLibrary::id),
+        valuesById = libraryRequesters,
+        create = ::FocusRequester,
+    )
 
     // Each library row's top edge in the level-1 column's coordinate space; the
     // flyout offsets down to the anchored row's value to align tops (§5.3).
@@ -330,7 +347,7 @@ fun TvCascadeSelector(
             val rowsContent: @Composable () -> Unit = {
                 libraries.forEach { library ->
                     key(library.id) {
-                        val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
+                        val requester = visibleLibraryRequesters.getValue(library.id)
                         CascadeLibraryRow(
                             library = library,
                             type = type,
@@ -378,7 +395,7 @@ fun TvCascadeSelector(
                         modifier = Modifier.heightIn(max = CascadeMaxListHeight),
                     ) {
                         items(libraries, key = { it.id }) { library ->
-                            val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
+                            val requester = visibleLibraryRequesters.getValue(library.id)
                             CascadeLibraryRow(
                                 library = library,
                                 type = type,

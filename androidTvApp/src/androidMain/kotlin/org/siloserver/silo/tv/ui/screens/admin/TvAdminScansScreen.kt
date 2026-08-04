@@ -42,6 +42,7 @@ import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import org.siloserver.silo.tv.ui.components.TvOptionDialog
 import org.siloserver.silo.tv.ui.focus.TvControlState
+import org.siloserver.silo.tv.ui.focus.tvControlSemantics
 import org.siloserver.silo.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -164,7 +165,7 @@ private fun ActionCard(
         shape = shape,
     )
     Surface(
-        onClick = { if (controlState.actionable) onClick() },
+        onClick = { controlState.perform(onClick) },
         enabled = controlState.focusable,
         shape = ClickableSurfaceDefaults.shape(
             shape = shape,
@@ -205,7 +206,8 @@ private fun ActionCard(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
-            .heightIn(min = 44.dp),
+            .heightIn(min = 44.dp)
+            .tvControlSemantics(controlState),
     ) {
         Column(
             modifier = Modifier

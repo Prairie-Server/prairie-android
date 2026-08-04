@@ -1,5 +1,9 @@
 package org.siloserver.silo.tv.ui.focus
 
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
+
 /**
  * Disabled TV controls come in two kinds, and they must not be wired alike.
  *
@@ -32,4 +36,14 @@ internal data class TvControlState(
         fun transient(isEnabled: Boolean) =
             TvControlState(focusable = true, actionable = isEnabled)
     }
+
+    fun perform(action: () -> Unit) {
+        if (actionable) action()
+    }
 }
+
+/** Keeps transiently gated controls focusable while exposing truthful accessibility state. */
+internal fun Modifier.tvControlSemantics(controlState: TvControlState): Modifier =
+    semantics {
+        if (!controlState.actionable) disabled()
+    }

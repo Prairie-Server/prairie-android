@@ -54,6 +54,7 @@ import org.siloserver.silo.common.ui.components.profileAvatarDisplayText
 import org.siloserver.silo.common.ui.components.rememberProfileServerUrl
 import org.siloserver.silo.common.ui.components.resolveAvatarUrl
 import org.siloserver.silo.tv.ui.focus.TvControlState
+import org.siloserver.silo.tv.ui.focus.tvControlSemantics
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
@@ -293,7 +294,7 @@ private fun PinKey(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val keyShape = RoundedCornerShape(9.dp)
     Surface(
-        onClick = { if (controlState.actionable) onClick() },
+        onClick = { controlState.perform(onClick) },
         enabled = controlState.focusable,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = keyShape),
@@ -321,7 +322,9 @@ private fun PinKey(
                 shape = keyShape,
             ),
         ),
-        modifier = modifier.size(48.dp),
+        modifier = modifier
+            .size(48.dp)
+            .tvControlSemantics(controlState),
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (label != null) {

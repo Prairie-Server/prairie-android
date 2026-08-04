@@ -133,21 +133,28 @@ internal suspend fun requestPendingForYouReturnFocus(
     awaitRowFrame: suspend () -> Unit,
     requestCard: () -> FocusRequestOutcome,
 ): ForYouReturnFocusResult {
-    repeat(maxAttempts) {
+    repeat(maxAttempts) attempt@{
         awaitFrame()
         when (targetState()) {
             ForYouReturnTargetState.NotAttached -> Unit
             ForYouReturnTargetState.Disposed -> return ForYouReturnFocusResult.Disposed
             ForYouReturnTargetState.Attached -> {
                 when (requestRowContainer()) {
-                    FocusRequestOutcome.Rejected -> Unit
-                    FocusRequestOutcome.Disposed -> return ForYouReturnFocusResult.Disposed
+                    FocusRequestOutcome.Rejected,
+                    FocusRequestOutcome.Disposed,
+                    -> Unit
                     FocusRequestOutcome.Handled -> {
                         awaitRowFrame()
+                        when (targetState()) {
+                            ForYouReturnTargetState.NotAttached -> return@attempt
+                            ForYouReturnTargetState.Disposed -> return ForYouReturnFocusResult.Disposed
+                            ForYouReturnTargetState.Attached -> Unit
+                        }
                         when (requestCard()) {
                             FocusRequestOutcome.Handled -> return ForYouReturnFocusResult.Focused
-                            FocusRequestOutcome.Rejected -> Unit
-                            FocusRequestOutcome.Disposed -> return ForYouReturnFocusResult.Disposed
+                            FocusRequestOutcome.Rejected,
+                            FocusRequestOutcome.Disposed,
+                            -> Unit
                         }
                     }
                 }
