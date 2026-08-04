@@ -41,6 +41,7 @@ import org.siloserver.silo.tv.ui.components.TvDialogOption
 import org.siloserver.silo.tv.ui.components.TvErrorScreen
 import org.siloserver.silo.tv.ui.components.TvLoadingScreen
 import org.siloserver.silo.tv.ui.components.TvOptionDialog
+import org.siloserver.silo.tv.ui.focus.TvControlState
 import org.siloserver.silo.tv.ui.theme.Spacing
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -97,7 +98,11 @@ fun TvAdminScansScreen(
                     ActionCard(
                         title = if (state.scanningAll) "Scanning all libraries…" else "Scan all libraries",
                         subtitle = "Trigger a full rescan of every library",
-                        enabled = !state.scanningAll,
+                        // A scan can run for minutes. Keep the card focusable
+                        // for its duration: it is the screen's first control,
+                        // and dropping it out of the graph mid-scan leaves the
+                        // D-pad with nothing to hold.
+                        controlState = TvControlState.transient(!state.scanningAll),
                         onClick = { viewModel.scanAll() },
                     )
                 }
@@ -147,15 +152,20 @@ fun TvAdminScansScreen(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ActionCard(title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
+private fun ActionCard(
+    title: String,
+    subtitle: String,
+    controlState: TvControlState,
+    onClick: () -> Unit,
+) {
     val shape = RoundedCornerShape(16.dp)
     val focusedBorder = Border(
         border = BorderStroke(3.dp, MaterialTheme.colorScheme.border),
         shape = shape,
     )
     Surface(
-        onClick = onClick,
-        enabled = enabled,
+        onClick = { if (controlState.actionable) onClick() },
+        enabled = controlState.focusable,
         shape = ClickableSurfaceDefaults.shape(
             shape = shape,
             focusedShape = shape,

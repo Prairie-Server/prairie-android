@@ -53,6 +53,7 @@ import org.siloserver.silo.common.ui.components.isImageAvatar
 import org.siloserver.silo.common.ui.components.profileAvatarDisplayText
 import org.siloserver.silo.common.ui.components.rememberProfileServerUrl
 import org.siloserver.silo.common.ui.components.resolveAvatarUrl
+import org.siloserver.silo.tv.ui.focus.TvControlState
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
@@ -246,6 +247,11 @@ private fun PinKeypad(
     onDigitPressed: (Char) -> Unit,
     onBackspacePressed: () -> Unit,
 ) {
+    // Verification is in flight, not a structural dead end: the keys stay
+    // focusable so the ring survives the round trip. Dropping the whole keypad
+    // out of the focus graph would strand a rejected PIN with a dead D-pad —
+    // the initial-focus policy is one-shot and never re-fires.
+    val keyState = TvControlState.transient(enabled)
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -254,7 +260,7 @@ private fun PinKeypad(
                 row.forEach { digit ->
                     PinKey(
                         label = digit.toString(),
-                        enabled = enabled,
+                        controlState = keyState,
                         modifier = if (digit == '5') Modifier.focusRequester(fiveFocusRequester) else Modifier,
                         onClick = { onDigitPressed(digit) },
                     )
@@ -263,10 +269,10 @@ private fun PinKeypad(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Spacer(modifier = Modifier.size(48.dp))
-            PinKey(label = "0", enabled = enabled, onClick = { onDigitPressed('0') })
+            PinKey(label = "0", controlState = keyState, onClick = { onDigitPressed('0') })
             PinKey(
                 label = null,
-                enabled = enabled,
+                controlState = keyState,
                 icon = Icons.AutoMirrored.Filled.Backspace,
                 onClick = onBackspacePressed,
             )
@@ -278,7 +284,7 @@ private fun PinKeypad(
 @Composable
 private fun PinKey(
     label: String?,
-    enabled: Boolean,
+    controlState: TvControlState,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
@@ -287,10 +293,13 @@ private fun PinKey(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val keyShape = RoundedCornerShape(9.dp)
     Surface(
-        onClick = onClick,
-        enabled = enabled,
+        onClick = { if (controlState.actionable) onClick() },
+        enabled = controlState.focusable,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = keyShape),
+        // The keypad deliberately carries no dimmed treatment while verifying
+        // (the panel shows its own progress), so the resting and disabled
+        // slots are the same colours either way.
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.White.copy(alpha = 0.10f),
             contentColor = SiloOnSurface,

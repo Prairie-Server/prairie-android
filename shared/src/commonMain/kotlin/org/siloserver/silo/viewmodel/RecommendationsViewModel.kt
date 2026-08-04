@@ -105,7 +105,26 @@ class RecommendationsViewModel(
 internal fun List<DiscoverRow>.toResolvedSections(): List<ResolvedSection> =
     map(DiscoverRow::toResolvedSection)
         .filter { it.items.isNotEmpty() }
+        .disambiguateSectionIds()
         .sortedByDescending { it.title.equals("For You", ignoreCase = true) }
+
+/**
+ * Section IDs key a `LazyColumn`, where a duplicate key is a hard crash rather
+ * than a degraded render. [stableSectionId] is only as unique as the server
+ * makes it: `discoverRowSectionKey` returns an empty kind for any row type it
+ * does not recognise, and both fields are `omitempty`, so unrecognised rows —
+ * and every row from a server predating `section_kind` — fall back to
+ * type+label. Two such rows collide. Suffix the repeats so identity stays
+ * stable for the common case and merely imperfect (never fatal) otherwise.
+ */
+private fun List<ResolvedSection>.disambiguateSectionIds(): List<ResolvedSection> {
+    val seen = mutableMapOf<String, Int>()
+    return map { section ->
+        val occurrence = seen.getOrElse(section.id) { 0 }
+        seen[section.id] = occurrence + 1
+        if (occurrence == 0) section else section.copy(id = "${section.id}#$occurrence")
+    }
+}
 
 private fun DiscoverRow.toResolvedSection(): ResolvedSection = ResolvedSection(
     id = stableSectionId(),

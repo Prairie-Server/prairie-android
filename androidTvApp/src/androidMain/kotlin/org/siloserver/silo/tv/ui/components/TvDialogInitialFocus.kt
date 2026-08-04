@@ -7,15 +7,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import kotlinx.coroutines.delay
-import org.siloserver.silo.tv.ui.focus.TvFocusTargetState
+import org.siloserver.silo.tv.ui.focus.TvFocusAcquisitionBudgetMillis
 import org.siloserver.silo.tv.ui.focus.TvObservedFocusResult
 import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
 
-internal const val TvDialogInitialFocusMaxAttempts = 40
 private const val TvDialogInitialFocusRetryDelayMillis = 60L
+
+internal const val TvDialogInitialFocusMaxAttempts =
+    (TvFocusAcquisitionBudgetMillis / TvDialogInitialFocusRetryDelayMillis).toInt()
 
 internal suspend fun requestTvDialogInitialFocus(
     awaitAttempt: suspend () -> Unit,
@@ -24,7 +28,6 @@ internal suspend fun requestTvDialogInitialFocus(
 ): TvObservedFocusResult = requestFocusUntilObserved(
     maxAttempts = TvDialogInitialFocusMaxAttempts,
     awaitAttempt = awaitAttempt,
-    targetState = { TvFocusTargetState.Ready },
     requestFocus = requestFocus,
     isFocused = isOverlayFocused,
 )
@@ -33,18 +36,29 @@ internal suspend fun requestTvDialogInitialFocus(
  * Bounded retry-until-observed initial focus for popup overlays.
  *
  * Attach the returned modifier to the overlay content root. Focus on any child
- * completes acquisition; forty 60 ms attempts provide a 2.4 second ceiling.
- * Leaving composition cancels the effect through structured concurrency.
+ * completes acquisition; the retry cadence divides
+ * [TvFocusAcquisitionBudgetMillis] into fixed attempts. Leaving composition
+ * cancels the effect through structured concurrency.
+ *
+ * Exhausting the budget must not end in a dead D-pad, which is the failure the
+ * whole policy exists to prevent — so a last resort asks the focus system to
+ * enter the overlay by traversal. That works even when [target] never became
+ * focusable (an all-disabled option list, a control that left the graph while
+ * the request was in flight), which is exactly when the retries run out.
  */
 @Composable
 internal fun rememberTvDialogInitialFocus(target: FocusRequester): Modifier {
     var overlayHasFocus by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     LaunchedEffect(target) {
-        requestTvDialogInitialFocus(
+        val result = requestTvDialogInitialFocus(
             awaitAttempt = { delay(TvDialogInitialFocusRetryDelayMillis) },
             isOverlayFocused = { overlayHasFocus },
             requestFocus = target::requestFocus,
         )
+        if (result == TvObservedFocusResult.Exhausted && !overlayHasFocus) {
+            runCatching { focusManager.moveFocus(FocusDirection.Enter) }
+        }
     }
     return Modifier.onFocusChanged { overlayHasFocus = it.hasFocus }
 }

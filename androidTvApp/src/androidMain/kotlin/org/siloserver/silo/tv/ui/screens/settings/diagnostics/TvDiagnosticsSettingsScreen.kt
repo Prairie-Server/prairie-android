@@ -47,6 +47,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.siloserver.silo.common.diagnostics.DiagnosticsAvailabilityUi
 import org.siloserver.silo.common.diagnostics.DiagnosticsConsentMode
 import org.siloserver.silo.common.diagnostics.TimedCaptureStatus
+import org.siloserver.silo.tv.ui.focus.TvFrameRelocationMaxAttempts
 import org.siloserver.silo.tv.ui.theme.FocusedContainer
 import org.siloserver.silo.tv.ui.theme.FocusedContent
 
@@ -70,7 +71,9 @@ fun TvDiagnosticsSettingsScreen(
     }
     LaunchedEffect(state.consent) {
         val target = initialTvDiagnosticsCrashFocus(state.consent)
-        repeat(6) {
+        // Relocation, not acquisition: the page is already focusable, so a
+        // miss just leaves focus wherever the route transition put it.
+        repeat(TvFrameRelocationMaxAttempts) {
             withFrameNanos { }
             when (
                 tvDiagnosticsCrashFocusRequestResult(
@@ -262,7 +265,11 @@ internal fun nextTvDiagnosticsCrashFocus(
     debugLoggingEnabled: Boolean,
 ): TvDiagnosticsCrashFocus? {
     val order = tvDiagnosticsCrashFocusOrder(debugLoggingEnabled)
-    val index = order.indexOf(current).coerceAtLeast(0)
+    // A control outside the current order (Debug logging under consent NEVER)
+    // has no neighbour to move to. Coercing a -1 miss to 0 would silently treat
+    // it as the FIRST row and send Down upwards, so hand the key back instead.
+    val index = order.indexOf(current)
+    if (index < 0) return null
     return when (direction) {
         TvDiagnosticsFocusDirection.Up -> order[(index - 1).coerceAtLeast(0)]
         TvDiagnosticsFocusDirection.Down -> order.getOrNull(index + 1)

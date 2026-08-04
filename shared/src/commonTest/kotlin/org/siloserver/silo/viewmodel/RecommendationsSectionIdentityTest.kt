@@ -50,6 +50,31 @@ class RecommendationsSectionIdentityTest {
         assertNotEquals(insertedId, refreshedId)
     }
 
+    /**
+     * `discoverRowSectionKey` returns an empty kind for row types it does not
+     * recognise, and both identity fields are `omitempty`, so unrecognised rows
+     * — and every row from a server predating `section_kind` — fall back to
+     * type+label. Section IDs key a LazyColumn, where a duplicate is a crash,
+     * so collisions must resolve rather than propagate.
+     */
+    @Test
+    fun collidingSectionIdentitiesStayUniqueForLazyListKeys() {
+        val keyless = { contentId: String ->
+            DiscoverRow(
+                type = "server_row_this_client_does_not_know",
+                label = "Handpicked",
+                items = listOf(SectionItem(contentId = contentId, type = "movie", title = contentId)),
+            )
+        }
+
+        val ids = listOf(keyless("movie-a"), keyless("movie-b"), keyless("movie-c"))
+            .toResolvedSections()
+            .map { it.id }
+
+        assertEquals(3, ids.size)
+        assertEquals(ids.size, ids.toSet().size, "section ids must be unique: $ids")
+    }
+
     private fun row(
         type: String,
         label: String,

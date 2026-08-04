@@ -97,9 +97,15 @@ fun TvAnchoredSelectorMenu(
     triggerFocusRequester: FocusRequester? = null,
     interactive: Boolean = true,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expansionRequested by remember { mutableStateOf(false) }
+    // Derived, not deferred: a LaunchedEffect would leave the dropdown drawn
+    // over a trigger that has already stopped being interactive for the frame
+    // it takes the effect to run. The effect below still clears the stored bit
+    // so interactivity returning does not re-open a menu the viewer never
+    // asked for a second time.
+    val expanded = selectorExpansionAfterInteractivityChange(expansionRequested, interactive)
     LaunchedEffect(interactive) {
-        expanded = selectorExpansionAfterInteractivityChange(expanded, interactive)
+        expansionRequested = selectorExpansionAfterInteractivityChange(expansionRequested, interactive)
     }
     // Use the caller's requester when provided (Task 4 directs selector-row
     // focus to a specific trigger); otherwise a private one for focus-restore.
@@ -111,7 +117,7 @@ fun TvAnchoredSelectorMenu(
     Box(modifier = modifier) {
         SquaredPillSurface(
             kind = PillKind.Secondary,
-            onClick = { if (interactive) expanded = true },
+            onClick = { if (interactive) expansionRequested = true },
             modifier = Modifier,
             focusRequester = triggerFr,
             enabled = interactive,
@@ -174,9 +180,9 @@ fun TvAnchoredSelectorMenu(
         // and borders below, while a fully TV-native anchored popup (including
         // scale behavior) would require a bespoke Popup.
         DropdownMenu(
-            expanded = interactive && expanded,
+            expanded = expanded,
             onDismissRequest = {
-                expanded = false
+                expansionRequested = false
                 // Guard: the trigger may have left composition (selector row
                 // reloaded on selection) — requesting focus then throws.
                 runCatching { triggerFr.requestFocus() }
@@ -239,7 +245,7 @@ fun TvAnchoredSelectorMenu(
                     ),
                     onClick = {
                         option.onSelect()
-                        expanded = false
+                        expansionRequested = false
                         runCatching { triggerFr.requestFocus() }
                     },
                 )

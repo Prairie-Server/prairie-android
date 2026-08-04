@@ -335,13 +335,14 @@ fun TvMainShell(
     // then re-enter the existing content focusRestorer when Main resumes.
     // `restoreContentAfterDetail` says a detail return is pending for ANY root
     // and gates the resume claim below so focus lands back inside content
-    // instead of Compose's default search picking the top bar. The Home and
-    // For You flags select their route-specific launch-card requesters; using
-    // either requester for a root that never attached it would point the
-    // restorer at a detached node.
+    // instead of Compose's default search picking the top bar.
+    // `detailReturnRoot` names which root it was, for the two decisions that
+    // differ per root: the restorer's enter fallback and Home's retry ladder.
+    // Stored as the route string because rememberSaveable takes primitives.
     var restoreContentAfterDetail by rememberSaveable { mutableStateOf(false) }
-    var restoreHomeContentAfterDetail by rememberSaveable { mutableStateOf(false) }
-    var restoreForYouContentAfterDetail by rememberSaveable { mutableStateOf(false) }
+    var detailReturnRoot by rememberSaveable { mutableStateOf<String?>(null) }
+    val restoreHomeContentAfterDetail = detailReturnRoot == TvMainRoute.Home.route
+    val restoreForYouContentAfterDetail = detailReturnRoot == TvMainRoute.ForYou.route
     var suppressHomeRefreshAfterDetail by rememberSaveable { mutableStateOf(false) }
     var homeDetailReturnFocusState by remember { mutableStateOf(HomeDetailReturnFocusState()) }
     var detailReturnFocusRequest by remember { mutableIntStateOf(0) }
@@ -356,13 +357,23 @@ fun TvMainShell(
     // default enter could land a row below the launch card for a few frames.
     val homeDetailReturnCardFocusRequester = remember { FocusRequester() }
     val forYouDetailReturnCardFocusRequester = remember { FocusRequester() }
-    val detailReturnFallback = when {
-        restoreHomeContentAfterDetail || homeDetailReturnFocusState.fallbackPending ->
+    // Home ONLY. The Home feed arms its launch-card requester at click time
+    // (`detailReturnPending` in TvSkylineSectionFeed), so the node is attached
+    // for the whole round trip and is a valid restorer target during the
+    // synchronous resume claim below.
+    //
+    // For You deliberately stays on Default. It arms at RESUME, one composition
+    // later than the claim, so naming its requester here would hand the
+    // restorer a detached node — `requestFocus` throws, `runCatching` swallows
+    // it, and the claim silently degrades to the one-frame retry. Default enter
+    // lands inside content, which is all the claim owes; the screen's own
+    // bounded restore then walks focus to the exact card.
+    val detailReturnFallback =
+        if (restoreHomeContentAfterDetail || homeDetailReturnFocusState.fallbackPending) {
             homeDetailReturnCardFocusRequester
-        restoreForYouContentAfterDetail || forYouDetailReturnFocusPending ->
-            forYouDetailReturnCardFocusRequester
-        else -> FocusRequester.Default
-    }
+        } else {
+            FocusRequester.Default
+        }
     // Whether focus currently sits anywhere inside the content group. Gates
     // the detail-return resume claim below: the Home feed's early restore
     // ladder usually re-focuses the launch card during the pop transition, and
@@ -388,14 +399,13 @@ fun TvMainShell(
                 isHomeDetailReturn = isHomeDetailReturn,
                 needsRetry = detailReturnNeedsRetry,
             )
-            restoreContentAfterDetail = false
-            restoreHomeContentAfterDetail = false
             if (restoreForYouContentAfterDetail) {
                 val started = beginForYouDetailReturn(forYouDetailReturnFocusRequest)
                 forYouDetailReturnFocusRequest = started.requestId
                 forYouDetailReturnFocusPending = started.pending
             }
-            restoreForYouContentAfterDetail = false
+            restoreContentAfterDetail = false
+            detailReturnRoot = null
         }
         onPauseOrDispose { }
     }
@@ -414,14 +424,14 @@ fun TvMainShell(
     }
     val openHomeItemDetail: (String) -> Unit = { contentId ->
         restoreContentAfterDetail = true
-        restoreHomeContentAfterDetail = true
+        detailReturnRoot = TvMainRoute.Home.route
         suppressHomeRefreshAfterDetail = true
         onOpenItemDetail(contentId)
     }
     val openForYouItemDetail: (String) -> Unit = { contentId ->
         forYouDetailReturnFocusPending = false
         restoreContentAfterDetail = true
-        restoreForYouContentAfterDetail = true
+        detailReturnRoot = TvMainRoute.ForYou.route
         onOpenItemDetail(contentId)
     }
     // Same generic hand-back for roots that render inside the shell but do not
@@ -431,6 +441,9 @@ fun TvMainShell(
     // drives the rows the viewer was just in.
     val openContentItemDetail: (String) -> Unit = { contentId ->
         restoreContentAfterDetail = true
+        // No launch-card requester for this root — clear any root left over
+        // from an earlier return so the restorer does not reuse Home's.
+        detailReturnRoot = null
         onOpenItemDetail(contentId)
     }
     var contentUpFallback by remember { mutableStateOf<((Boolean) -> Boolean)?>(null) }
@@ -1079,7 +1092,7 @@ fun TvMainShell(
                 }
                 shellComposable(TvMainRoute.ForYou.route) {
                     TvRecommendationsScreen(
-                        onItemClick = openContentItemDetail,
+                        onSavedListItemClick = openContentItemDetail,
                         onRecommendationItemClick = openForYouItemDetail,
                         detailReturnFocusRequest = forYouDetailReturnFocusRequest,
                         detailReturnFocusPending = forYouDetailReturnFocusPending,

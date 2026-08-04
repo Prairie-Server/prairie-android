@@ -58,12 +58,14 @@ import org.siloserver.silo.tv.ui.screens.personal.TvFavoritesInline
 import org.siloserver.silo.tv.ui.screens.personal.TvWatchlistInline
 import org.siloserver.silo.tv.ui.shell.TvTopMenuLayout
 import org.siloserver.silo.tv.ui.theme.Spacing
+import org.siloserver.silo.tv.ui.focus.TvFrameRelocationMaxAttempts
 import org.siloserver.silo.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.siloserver.silo.tv.ui.util.visibleOnTv
 import org.siloserver.silo.viewmodel.RecommendationsViewModel
 import org.koin.compose.viewmodel.koinViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private val RecommendationsFilterBandHeight = 52.dp
@@ -99,7 +101,7 @@ internal suspend fun maintainForYouTopAnchor(
 @OptIn(ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvRecommendationsScreen(
-    onItemClick: (contentId: String) -> Unit,
+    onSavedListItemClick: (contentId: String) -> Unit,
     onRecommendationItemClick: (contentId: String) -> Unit,
     detailReturnFocusRequest: Int,
     detailReturnFocusPending: Boolean,
@@ -167,8 +169,13 @@ fun TvRecommendationsScreen(
         launchTarget = detailReturnLaunchTarget,
         rows = returnRows,
     )
-    var preparedReturnLocation by remember { mutableStateOf<ForYouReturnFocusLocation?>(null) }
-    var disposedReturnLocation by remember { mutableStateOf<ForYouReturnFocusLocation?>(null) }
+    // Whether the exact return card is currently composed and placed. A LazyRow
+    // disposes items on ordinary viewport recycling, not only on genuine
+    // removal, so disposal CLEARS this latch rather than setting a terminal
+    // "gone" one — a card scrolled out mid-restore is retried, not abandoned.
+    // Genuine removal is already handled upstream: the content id drops out of
+    // `returnRows`, so `pendingReturnLocation` resolves elsewhere or to null.
+    var attachedReturnLocation by remember { mutableStateOf<ForYouReturnFocusLocation?>(null) }
     val latestOnDetailReturnFocusConsumed by rememberUpdatedState(onDetailReturnFocusConsumed)
     var firstRecommendationRowFocused by remember { mutableStateOf(false) }
     // The first row still owns the established filter-to-feed bridge. When it
@@ -254,7 +261,7 @@ fun TvRecommendationsScreen(
         }
         val target = pendingReturnLocation
         if (target == null) {
-            repeat(6) {
+            repeat(TvFrameRelocationMaxAttempts) {
                 withFrameNanos { }
                 when (requestFocusSafely { forYouFocusRequester.requestFocus() }) {
                     FocusRequestOutcome.Handled,
@@ -272,13 +279,13 @@ fun TvRecommendationsScreen(
             .any { it.index == target.rowIndex }
         if (!rowVisible) recommendationsListState.scrollToItem(target.rowIndex)
         val result = requestPendingForYouReturnFocus(
-            maxAttempts = 6,
+            maxAttempts = TvFrameRelocationMaxAttempts,
             awaitFrame = { withFrameNanos { } },
             targetState = {
-                when {
-                    disposedReturnLocation == target -> ForYouReturnTargetState.Disposed
-                    preparedReturnLocation == target -> ForYouReturnTargetState.Attached
-                    else -> ForYouReturnTargetState.NotAttached
+                if (attachedReturnLocation == target) {
+                    ForYouReturnTargetState.Attached
+                } else {
+                    ForYouReturnTargetState.NotAttached
                 }
             },
             requestRowContainer = {
@@ -313,7 +320,7 @@ fun TvRecommendationsScreen(
         // focus relocation can still move it after an initially-top sample;
         // snapshotFlow observes that later displacement without polling.
         maintainForYouTopAnchor(
-            positionEvents = snapshotFlow { currentPosition() },
+            positionEvents = snapshotFlow { currentPosition() }.distinctUntilChanged(),
             isFirstRowFocused = { firstRecommendationRowFocused },
             awaitRelocation = { kotlinx.coroutines.delay(80) },
             currentPosition = ::currentPosition,
@@ -365,13 +372,13 @@ fun TvRecommendationsScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             savedListSelection == SavedListSelection.Watchlist -> TvWatchlistInline(
-                onItemClick = onItemClick,
+                onItemClick = onSavedListItemClick,
                 modifier = Modifier.padding(
                     top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
                 ),
             )
             savedListSelection == SavedListSelection.Favorites -> TvFavoritesInline(
-                onItemClick = onItemClick,
+                onItemClick = onSavedListItemClick,
                 modifier = Modifier.padding(
                     top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
                 ),
@@ -481,7 +488,7 @@ fun TvRecommendationsScreen(
                                             requestId == rowReturnLocation.requestId &&
                                             cardIndex == rowReturnLocation.cardIndex
                                         ) {
-                                            preparedReturnLocation = rowReturnLocation
+                                            attachedReturnLocation = rowReturnLocation
                                         }
                                     }
                                 } else {
@@ -493,7 +500,9 @@ fun TvRecommendationsScreen(
                                             requestId == rowReturnLocation.requestId &&
                                             cardIndex == rowReturnLocation.cardIndex
                                         ) {
-                                            disposedReturnLocation = rowReturnLocation
+                                            if (attachedReturnLocation == rowReturnLocation) {
+                                                attachedReturnLocation = null
+                                            }
                                         }
                                     }
                                 } else {

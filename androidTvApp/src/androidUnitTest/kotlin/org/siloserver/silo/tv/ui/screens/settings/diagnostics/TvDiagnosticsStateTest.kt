@@ -90,6 +90,22 @@ class TvDiagnosticsStateTest {
     }
 
     @Test
+    fun aControlOutsideTheCurrentOrderHasNoNeighbour() {
+        // Debug logging is not in the order under consent NEVER. Treating the
+        // lookup miss as index 0 would send Down UPWARDS, to "Always send".
+        TvDiagnosticsFocusDirection.entries.forEach { direction ->
+            assertEquals(
+                null,
+                nextTvDiagnosticsCrashFocus(
+                    current = TvDiagnosticsCrashFocus.DEBUG_LOGGING,
+                    direction = direction,
+                    debugLoggingEnabled = false,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun repeatedDownIsConsumedWithoutMovingToAnotherLayer() {
         assertEquals(
             TvDiagnosticsCrashFocusKeyResult(target = null, consume = true),
