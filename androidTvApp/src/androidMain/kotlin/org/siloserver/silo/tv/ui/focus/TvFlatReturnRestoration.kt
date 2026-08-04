@@ -12,8 +12,10 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -165,6 +167,7 @@ internal class TvFlatReturnRestoration internal constructor(
  * items converts. [onRestored] fires only on a confirmed landing, so a caller
  * never tells its shell that content took focus when it did not.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @Composable
 internal fun rememberTvFlatReturnRestoration(
     itemIds: List<String>,
@@ -270,43 +273,40 @@ internal fun rememberTvFlatReturnRestoration(
             // Bounded, because a surface wedged in refresh must not hold
             // restoration open forever — timing out here simply proceeds
             // against whatever list exists, which is the old behaviour.
-            val settled = withTimeoutOrNull(TvFlatReturnReplaceWaitMillis) {
-                while (true) {
-                    snapshotFlow { currentIsReplacing }.first { !it }
-                    // Quiet has to be PROVEN, not assumed. Entering this only
-                    // when the flag is already true was the earlier mistake: it
-                    // returned instantly on a false reading, which is exactly
-                    // what a refresh dispatched one frame later also looks
-                    // like. So watch for a restart, and only a window that
-                    // passes without one counts as settled.
-                    val restarted = withTimeoutOrNull(TvFlatReturnSettleDelayMillis) {
-                        snapshotFlow { currentIsReplacing }.first { it }
-                    } != null
-                    if (!restarted) break
-                }
-            } != null
-
-            // Still replacing after the budget. Restoring the recorded target
-            // now is the one genuinely unsafe outcome: focus can land on a card
-            // the imminent replacement removes, and once Compose is relocating
-            // focus away from a disappearing node nothing here controls where
-            // it ends up.
+            // Quiet has to be PROVEN, not assumed. Checking the flag on
+            // arrival was the first mistake: a false reading is exactly what a
+            // refresh dispatched one frame later also looks like. Watching for
+            // a restart with a SECOND subscription was the next one — a
+            // complete true→false pulse between the two subscriptions slips
+            // past unobserved.
             //
-            // So retarget to the first item instead of standing down. It is the
-            // one position a replacement cannot invalidate — a reload produces
-            // page one, whose first item is this one — and it keeps the shell
-            // handoff honest, where abandoning would leave the surface with
-            // nothing focused at all.
-            if (!settled) {
-                currentItemIds.firstOrNull()?.let { firstId ->
-                    restoration.target = TvReturnTarget(
-                        sectionId = TvFlatSectionId,
-                        itemId = firstId,
-                        sectionIndex = 0,
-                        itemIndex = 0,
-                    )
-                }
+            // One subscription, then. collectLatest restarts the quiet timer on
+            // every change, so the window only elapses if nothing happened
+            // during it, which is what "settled" has to mean.
+            withTimeoutOrNull(TvFlatReturnReplaceWaitMillis) {
+                snapshotFlow { currentIsReplacing }
+                    .transformLatest { replacing ->
+                        if (!replacing) {
+                            delay(TvFlatReturnSettleDelayMillis)
+                            emit(Unit)
+                        }
+                    }
+                    .first()
             }
+
+            // Deliberately nothing on timeout. An earlier version retargeted to
+            // the first item here, reasoning that a reload produces page one so
+            // index zero cannot be invalidated. That was wrong: the id came
+            // from the OUTGOING list, which a replacement can reorder, empty,
+            // or drop that item from entirely — so acquisition would confirm
+            // against an identity that no longer means what it did, and the
+            // real target was overwritten in saved state where no later entry
+            // could ever retry it.
+            //
+            // Falling through instead resolves live against whatever list
+            // exists by then. If the replacement lands mid-flight the identity
+            // check simply fails and restoration ends without a landing, which
+            // is a worse outcome than restoring but not an incorrect one.
 
             withTimeoutOrNull(TvFlatReturnHuntBudgetMillis) {
                 var requests = 0

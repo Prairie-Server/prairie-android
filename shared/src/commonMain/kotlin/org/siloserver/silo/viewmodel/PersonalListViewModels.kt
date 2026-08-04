@@ -76,16 +76,15 @@ abstract class PersonalListViewModel(
     fun retry() = load(reset = true)
 
     fun refresh() {
+        // Claimed synchronously, for the same reason as load().
+        val generation = ++contentGeneration
+        _uiState.update { it.copy(isRefreshing = true, error = null) }
         viewModelScope.launch {
-            val generation = ++contentGeneration
-            _uiState.update { it.copy(isRefreshing = true, error = null) }
             val offset = 0
             val result = fetchPage(offset, pageSize)
-            // A newer replacement started while this refresh was in flight.
-            if (generation != contentGeneration) {
-                _uiState.update { it.copy(isRefreshing = false) }
-                return@launch
-            }
+            // A newer replacement started while this refresh was in flight and
+            // now owns isRefreshing, so this one clears nothing.
+            if (generation != contentGeneration) return@launch
             when (val r = result) {
                 is ApiResult.Success -> _uiState.update {
                     it.copy(
@@ -104,14 +103,21 @@ abstract class PersonalListViewModel(
     }
 
     private fun load(reset: Boolean) {
+        // Offset, generation and loading flag are all claimed SYNCHRONOUSLY,
+        // before the coroutine is launched. Doing it inside the launch left a
+        // window where loadMore() could see an idle list, queue itself, and
+        // have refresh() run first — the paging coroutine would then capture
+        // the refresh's generation, look current, and append its old-offset
+        // page anyway. Claiming here also makes the guard in loadMore() mean
+        // something: the flag is set by the time a second call can read it.
+        val state = _uiState.value
+        val offset = if (reset) 0 else state.items.size
+        val generation = if (reset) ++contentGeneration else contentGeneration
+        _uiState.update {
+            if (reset) it.copy(isLoading = true, error = null)
+            else it.copy(isLoadingMore = true)
+        }
         viewModelScope.launch {
-            val state = _uiState.value
-            val offset = if (reset) 0 else state.items.size
-            val generation = if (reset) ++contentGeneration else contentGeneration
-            _uiState.update {
-                if (reset) it.copy(isLoading = true, error = null)
-                else it.copy(isLoadingMore = true)
-            }
             val result = fetchPage(offset, pageSize)
             // Superseded WHILE IN FLIGHT: something replaced the list, so this
             // page's offset no longer describes anything. Checked here rather
@@ -121,7 +127,11 @@ abstract class PersonalListViewModel(
             // error on top would only undo that. The loading flag still has to
             // be released, because this request really has finished.
             if (generation != contentGeneration) {
-                _uiState.update { it.copy(isLoadingMore = false) }
+                // Only paging's own flag. isLoading and isRefreshing belong to
+                // whichever replacement superseded this one, and it will clear
+                // them when it lands — clearing them here would report that
+                // load as finished while it is still running.
+                if (!reset) _uiState.update { it.copy(isLoadingMore = false) }
                 return@launch
             }
             when (val r = result) {

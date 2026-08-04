@@ -209,9 +209,7 @@ private fun PersonalGrid(
 ) {
     val startPadding = tvPageStartPadding()
     val gridState = rememberLazyGridState()
-    val firstItemFocusRequester = remember { FocusRequester() }
     val restoreItemFocusRequester = remember { FocusRequester() }
-    val firstItemId = state.items.firstOrNull()?.contentId
 
     val restoration = rememberTvFlatReturnRestoration(
         itemIds = state.items.map { it.contentId },
@@ -231,18 +229,11 @@ private fun PersonalGrid(
         onRestored = onInitialContentFocus,
     )
 
-    // One-shot guard so pagination, retries, or any other ViewModel re-emission
-    // doesn't yank focus back to the first card after the user has scrolled.
-    var initialFocusRequested by remember { mutableStateOf(false) }
-    LaunchedEffect(firstItemId) {
-        if (initialFocusRequested || firstItemId == null) return@LaunchedEffect
-        // A pending return owns entry; the restoration reports the handoff
-        // itself once it has actually landed.
-        if (restoration.isReturning) return@LaunchedEffect
-        runCatching { firstItemFocusRequester.requestFocus() }
-        onInitialContentFocus()
-        initialFocusRequested = true
-    }
+    // No separate first-entry path. On a fresh arrival the restoration already
+    // targets index zero, so the grid gives that slot to the restore requester
+    // and this one was never attached — it requested focus on nothing and then
+    // told the shell content had taken focus. One claimant, reporting only
+    // once focus is confirmed.
 
     Column(
         modifier = Modifier
@@ -316,7 +307,6 @@ private fun PersonalGrid(
                 // (QA 2026-07-08).
                 fixedColumnCount = 6,
                 gridState = gridState,
-                firstItemFocusRequester = firstItemFocusRequester,
                 restoreItemIndex = restoration.requesterItemIndex,
                 restoreItemFocusRequester = restoreItemFocusRequester,
                 onRestoreRequesterAttached = restoration::onRequesterAttached,

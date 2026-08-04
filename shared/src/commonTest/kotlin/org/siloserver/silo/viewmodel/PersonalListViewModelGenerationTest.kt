@@ -6,6 +6,8 @@ import org.siloserver.silo.network.ApiResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -102,6 +104,43 @@ class PersonalListViewModelGenerationTest {
         assertEquals(null, vm.uiState.value.error)
         assertEquals(listOf("x", "y"), vm.uiState.value.items.map { it.contentId })
         assertFalse(vm.uiState.value.isLoadingMore)
+    }
+
+    /**
+     * The trigger gate only works if the state it reads has already been
+     * claimed. Under a queuing dispatcher, a refresh that has not yet run its
+     * own body is invisible to loadMore() — so a page goes out, captures the
+     * refresh's generation once it finally runs, looks current, and appends at
+     * an offset belonging to the list the refresh replaced.
+     *
+     * An unconfined dispatcher cannot express this: it runs refresh eagerly to
+     * its first suspension, which claims the flag as a side effect and hides
+     * the very ordering under test.
+     */
+    @Test
+    fun aRefreshQueuedButNotYetRunStillBlocksPaging() = runTest {
+        val scheduler = TestCoroutineScheduler()
+        val queuing = StandardTestDispatcher(scheduler)
+        Dispatchers.setMain(queuing)
+        try {
+            val vm = TestList()
+            vm.start()
+            scheduler.advanceUntilIdle()
+            vm.pending.removeFirst().complete(page("a", "b", hasMore = true))
+            scheduler.advanceUntilIdle()
+
+            // Neither body has run yet; the gate has only the claimed state.
+            vm.refresh()
+            vm.loadMore()
+            scheduler.advanceUntilIdle()
+
+            assertEquals(listOf(0, 0), vm.offsets, "paging must not go out behind a queued refresh")
+            vm.pending.removeFirst().complete(page("x", "y"))
+            scheduler.advanceUntilIdle()
+            assertEquals(listOf("x", "y"), vm.uiState.value.items.map { it.contentId })
+        } finally {
+            Dispatchers.setMain(dispatcher)
+        }
     }
 
     @Test
