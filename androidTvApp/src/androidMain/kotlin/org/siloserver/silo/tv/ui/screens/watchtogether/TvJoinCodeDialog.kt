@@ -207,7 +207,8 @@ private fun JoinCodeKey(
     val shape = RoundedCornerShape(12.dp)
 
     Surface(
-        onClick = { if (enabled) onClick() },
+        onClick = onClick,
+        enabled = enabled,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(

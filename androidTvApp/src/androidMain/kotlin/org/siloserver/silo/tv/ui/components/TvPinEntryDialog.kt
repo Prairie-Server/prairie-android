@@ -254,16 +254,22 @@ private fun PinKeypad(
                 row.forEach { digit ->
                     PinKey(
                         label = digit.toString(),
+                        enabled = enabled,
                         modifier = if (digit == '5') Modifier.focusRequester(fiveFocusRequester) else Modifier,
-                        onClick = { if (enabled) onDigitPressed(digit) },
+                        onClick = { onDigitPressed(digit) },
                     )
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Spacer(modifier = Modifier.size(48.dp))
-            PinKey(label = "0", onClick = { if (enabled) onDigitPressed('0') })
-            PinKey(label = null, icon = Icons.AutoMirrored.Filled.Backspace, onClick = { if (enabled) onBackspacePressed() })
+            PinKey(label = "0", enabled = enabled, onClick = { onDigitPressed('0') })
+            PinKey(
+                label = null,
+                enabled = enabled,
+                icon = Icons.AutoMirrored.Filled.Backspace,
+                onClick = onBackspacePressed,
+            )
         }
     }
 }
@@ -272,6 +278,7 @@ private fun PinKeypad(
 @Composable
 private fun PinKey(
     label: String?,
+    enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
@@ -281,6 +288,7 @@ private fun PinKey(
     val keyShape = RoundedCornerShape(9.dp)
     Surface(
         onClick = onClick,
+        enabled = enabled,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = keyShape),
         colors = ClickableSurfaceDefaults.colors(

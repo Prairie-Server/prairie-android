@@ -28,8 +28,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.siloserver.silo.model.personal.UserLibrary
 import org.siloserver.silo.tv.ui.components.TvDialogOption
@@ -143,9 +145,10 @@ fun TvAdminScansScreen(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ActionCard(title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
-    Card(
-        onClick = { if (enabled) onClick() },
-        shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(16.dp)),
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 960.dp)
