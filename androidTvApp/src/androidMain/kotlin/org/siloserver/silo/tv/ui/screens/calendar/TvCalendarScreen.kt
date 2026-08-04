@@ -727,7 +727,7 @@ internal fun calendarUpFallbackAction(
         firstFocusableShelfIndex = firstFocusableShelfIndex,
         isReturningToControls = isReturningToControls,
     ) -> if (isRepeat) CalendarUpFallbackAction.StayInContent else CalendarUpFallbackAction.ReturnToControls
-    isRepeat -> CalendarUpFallbackAction.StayInContent
+    focusedShelfIndex == null && isRepeat -> CalendarUpFallbackAction.StayInContent
     focusedControlZone == CalendarControlFocusZone.WeekStrip -> CalendarUpFallbackAction.FocusFilter
     focusedControlZone == CalendarControlFocusZone.Filter -> CalendarUpFallbackAction.EnterMenu
     else -> CalendarUpFallbackAction.MoveWithinContent

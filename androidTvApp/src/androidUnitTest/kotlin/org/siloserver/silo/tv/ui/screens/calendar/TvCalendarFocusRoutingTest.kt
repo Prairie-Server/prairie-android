@@ -58,4 +58,18 @@ class TvCalendarFocusRoutingTest {
             ),
         )
     }
+
+    @Test
+    fun heldUpBelowFirstShelfContinuesContentMovement() {
+        assertEquals(
+            CalendarUpFallbackAction.MoveWithinContent,
+            calendarUpFallbackAction(
+                focusedShelfIndex = 4,
+                firstFocusableShelfIndex = 2,
+                isReturningToControls = false,
+                focusedControlZone = null,
+                isRepeat = true,
+            ),
+        )
+    }
 }
