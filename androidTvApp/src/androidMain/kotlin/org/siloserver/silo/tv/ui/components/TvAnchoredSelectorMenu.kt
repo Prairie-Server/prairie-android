@@ -106,6 +106,7 @@ fun TvAnchoredSelectorMenu(
             onClick = { if (interactive) expanded = true },
             modifier = Modifier,
             focusRequester = triggerFr,
+            enabled = interactive,
             // Secondary .compact pill body padding, tvOS 40×22pt → 20×11dp,
             // +2/+1 per design review.
             contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp),

@@ -55,6 +55,16 @@ class TvDisabledControlWiringSourceTest {
         assertContains(pin, "disabledContentColor = SiloOnSurface,")
     }
 
+    @Test
+    fun noninteractiveSelectorDisablesItsFocusableTrigger() {
+        val selectorMenu = source("ui/components/TvAnchoredSelectorMenu.kt")
+        val squaredPills = source("ui/components/TvSquaredButtons.kt")
+
+        assertContains(selectorMenu, "enabled = interactive,")
+        assertContains(squaredPills, "enabled: Boolean = true,")
+        assertContains(squaredPills, ".clickable(\n                enabled = enabled,")
+    }
+
     private fun source(relativePath: String): String = File(
         "src/androidMain/kotlin/org/siloserver/silo/tv/$relativePath",
     ).readText()
