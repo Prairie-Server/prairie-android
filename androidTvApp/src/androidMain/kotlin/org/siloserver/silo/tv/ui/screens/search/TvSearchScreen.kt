@@ -125,6 +125,11 @@ fun TvSearchScreen(
         mutableStateOf<TvReturnTarget?>(null)
     }
     var returnPending by rememberSaveable { mutableStateOf(false) }
+    // One refresh per return, and a hard ceiling on how many times a return may
+    // stand down waiting for content. Both exist because this effect is keyed
+    // on state its own body changes.
+    var returnRefreshed by rememberSaveable { mutableStateOf(false) }
+    var returnStandDowns by remember { mutableIntStateOf(0) }
     var resumeGeneration by remember { mutableIntStateOf(0) }
     TvSearchResumeSignal { resumeGeneration++ }
     var focusedReturnItemId by remember { mutableStateOf<String?>(null) }
@@ -136,6 +141,8 @@ fun TvSearchScreen(
 
     val recordReturn: (String, String, Int, Int) -> Unit = { sectionId, itemId, sectionIndex, itemIndex ->
         returnPending = true
+        returnRefreshed = false
+        returnStandDowns = 0
         // Consumed, not deferred. Merely holding the submit handoff back until
         // the return finishes means it becomes eligible the moment restoration
         // clears returnPending — and then steals focus off the card that was
@@ -181,16 +188,28 @@ fun TvSearchScreen(
     // typed one does — including handing focus to the results afterwards,
     // which is the whole point of speaking: nobody dictates a title in order
     // to then be left on the search field.
-    val voiceSearch = rememberTvVoiceSearch(prompt = "Speak a title") { spoken ->
-        viewModel.onQueryChanged(spoken)
-        pendingSearchFocus = true
-        if (requestsEnabled && spoken.length >= 2) {
-            requestSearchViewModel.onMediaTypeChanged(requestMediaType)
-            requestSearchViewModel.onQueryChanged(spoken)
-            requestSearchViewModel.search()
-        }
-        viewModel.submitSearch()
-    }
+    var voiceUnavailableMessage by remember { mutableStateOf<String?>(null) }
+    val voiceSearch = rememberTvVoiceSearch(
+        prompt = "Speak a title",
+        onResult = { spoken ->
+            // The same cap typing obeys. A noisy recognition can run long, and
+            // the field's own limit does not apply to text that never went
+            // through it.
+            val query = spoken.take(TV_SEARCH_QUERY_MAX_LENGTH)
+            voiceUnavailableMessage = null
+            viewModel.onQueryChanged(query)
+            pendingSearchFocus = true
+            if (requestsEnabled && query.length >= 2) {
+                requestSearchViewModel.onMediaTypeChanged(requestMediaType)
+                requestSearchViewModel.onQueryChanged(query)
+                requestSearchViewModel.search()
+            }
+            viewModel.submitSearch()
+        },
+        onUnavailable = {
+            voiceUnavailableMessage = "Voice search isn't available on this device."
+        },
+    )
 
     LaunchedEffect(requestsEnabled, state.query, requestMediaType) {
         val query = state.query.trim()
@@ -253,8 +272,31 @@ fun TvSearchScreen(
         // status these cards show — so a return is exactly when this row is
         // stale, and it is stale whether or not the screen stayed composed.
         // In place, so the cards a restoration is aiming at stay put.
-        if (canSearchRequests && requestState.hasSubmittedQuery && !requestState.isLoading) {
+        //
+        // ONCE per return. Refreshing flips requestSearchSettled, which is a
+        // key of this very effect, so an unguarded call relaunches the effect
+        // and refreshes again — forever, whenever resolution does not finish
+        // on the first pass.
+        //
+        // Skipped while an error is showing: there the query-keyed effect owns
+        // recovery and runs a full search, and two refetches racing would have
+        // one cancel the other and blank the row underneath the restoration.
+        if (!returnRefreshed &&
+            canSearchRequests &&
+            requestState.hasSubmittedQuery &&
+            !requestState.isLoading &&
+            requestState.error == null
+        ) {
+            returnRefreshed = true
             requestSearchViewModel.refreshInPlace()
+            // A request card must be resolved against the REFRESHED row.
+            // Preserved results still contain it, so it would otherwise match
+            // Exact, take focus and disarm before the response lands — and if
+            // that response drops the card, focus goes with it. Incomplete
+            // only yields Pending when the target is ABSENT, so completeness
+            // alone does not hold this back. A catalog target is unaffected by
+            // the request row and carries on immediately.
+            if (returnTarget?.sectionId == TvSearchRequestSectionId) return@LaunchedEffect
         }
 
         val sections = tvSearchReturnSections(
@@ -302,7 +344,13 @@ fun TvSearchScreen(
                     snapshotFlow { requestState.isLoading || state.isLoadingMore }
                         .first { !it }
                 } != null
-                if (!settled) {
+                returnStandDowns++
+                // Absolute, not per-attempt. A timeout that restarts with the
+                // effect bounds one stuck fetch and nothing else — a sequence
+                // of quick successful ones would keep re-arming it while the
+                // return never resolved and went on suppressing the ordinary
+                // submit handoff.
+                if (!settled || returnStandDowns >= TvSearchReturnMaxStandDowns) {
                     returnTarget = null
                     returnPending = false
                 }
@@ -483,6 +531,7 @@ fun TvSearchScreen(
                     },
                     onMediaTypeChanged = viewModel::onMediaTypeChanged,
                     voiceSearch = voiceSearch,
+                    voiceUnavailableMessage = voiceUnavailableMessage,
                 )
             },
             footer = {
@@ -665,7 +714,9 @@ private fun SearchStage(
     onSearch: () -> Unit,
     onMediaTypeChanged: (TvSearchMediaType) -> Unit,
     voiceSearch: TvVoiceSearchController,
+    voiceUnavailableMessage: String?,
 ) {
+    val voiceFocusRequester = remember { FocusRequester() }
     val mediaTypes = availableMediaTypes
     val fieldShape = RoundedCornerShape(14.dp)
 
@@ -689,11 +740,15 @@ private fun SearchStage(
         if (voiceSearch.isAvailable) {
             TvVoiceSearchButton(
                 onClick = voiceSearch::start,
-                // DOWN joins the same rail the field uses, so the mic is not a
-                // dead end, and UP is left alone so the top menu stays
-                // reachable from here exactly as it is from the field. RIGHT
-                // falls through to the field beside it.
-                modifier = Modifier.focusProperties { down = firstFilterChipFocusRequester },
+                modifier = Modifier
+                    .focusRequester(voiceFocusRequester)
+                    // RIGHT is stated rather than left to geometry, because the
+                    // route INTO this button comes from below and the way back
+                    // out has to be certain.
+                    .focusProperties {
+                        right = searchFieldFocusRequester
+                        down = firstFilterChipFocusRequester
+                    },
             )
         }
         OutlinedTextField(
@@ -740,6 +795,14 @@ private fun SearchStage(
         )
         }
 
+        voiceUnavailableMessage?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.72f),
+            )
+        }
+
         LazyRow(
             modifier = Modifier.focusRestorer(firstFilterChipFocusRequester),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -751,13 +814,26 @@ private fun SearchStage(
                 contentType = { _, _ -> "media-type-chip" },
             ) { index, type ->
                 val chipModifier = Modifier
-                    // UP returns to the search field, stated rather than left
-                    // to geometry. The field used to be the nearest thing above
-                    // this rail and is not any more — the mic sits to its left,
-                    // directly over the first chip — so spatial search would
-                    // now land there instead. The field is the control this row
-                    // belongs to, wherever it happens to be drawn.
-                    .focusProperties { up = searchFieldFocusRequester }
+                    // UP is stated rather than left to geometry, and the first
+                    // chip deliberately goes somewhere different.
+                    //
+                    // The mic sits directly above chip zero, and it is the ONLY
+                    // way in: Compose Foundation's text field consumes D-pad
+                    // Left as character navigation even when the cursor cannot
+                    // move, so Field → Left → Mic is not a route that can be
+                    // relied on. Sending chip zero up to the mic gives the
+                    // button an entry path that never crosses the field, and
+                    // the mic's own Right leads back to it.
+                    //
+                    // Every other chip goes to the field, which is the control
+                    // this row belongs to.
+                    .focusProperties {
+                        up = if (index == 0 && voiceSearch.isAvailable) {
+                            voiceFocusRequester
+                        } else {
+                            searchFieldFocusRequester
+                        }
+                    }
                     .then(
                         if (index == 0) {
                             Modifier.focusRequester(firstFilterChipFocusRequester)
@@ -954,6 +1030,9 @@ private const val TvSearchReturnPendingBudgetMillis: Long = 1_200L
  * thing it guards against is a request that never returns at all.
  */
 private const val TvSearchReturnInFlightBudgetMillis: Long = 10_000L
+
+/** How many times a return may stand down before it gives up for good. */
+private const val TvSearchReturnMaxStandDowns: Int = 4
 
 /** Focus must hold the card this long to count as arrived rather than passing. */
 private const val TvSearchReturnSettleMillis: Long = 120L

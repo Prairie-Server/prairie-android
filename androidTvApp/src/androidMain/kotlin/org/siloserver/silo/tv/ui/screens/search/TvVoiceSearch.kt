@@ -2,9 +2,10 @@ package org.siloserver.silo.tv.ui.screens.search
 
 import android.app.Activity
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.speech.RecognizerIntent
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -34,10 +35,16 @@ internal class TvVoiceSearchController(
      * cannot do anything.
      */
     val isAvailable: Boolean,
-    private val launch: () -> Unit,
+    private val launch: () -> Boolean,
+    private val onUnavailable: () -> Unit,
 ) {
     fun start() {
-        if (isAvailable) launch()
+        // Availability was resolved earlier and can be wrong by now — the
+        // recogniser may have been disabled or uninstalled since. Say so
+        // instead of doing nothing: a visible mic that silently ignores a
+        // press is the worst outcome for someone who does not know what an
+        // intent is.
+        if (!isAvailable || !launch()) onUnavailable()
     }
 }
 
@@ -45,9 +52,11 @@ internal class TvVoiceSearchController(
 internal fun rememberTvVoiceSearch(
     prompt: String,
     onResult: (String) -> Unit,
+    onUnavailable: () -> Unit,
 ): TvVoiceSearchController {
     val context = LocalContext.current
     val currentOnResult by rememberUpdatedState(onResult)
+    val currentOnUnavailable by rememberUpdatedState(onUnavailable)
 
     // Resolved once. Installing a recogniser mid-session is not a case worth
     // recomposing for, and re-querying the package manager on every frame is.
@@ -71,11 +80,26 @@ internal fun rememberTvVoiceSearch(
     }
 
     return remember(isAvailable, prompt, launcher) {
-        TvVoiceSearchController(isAvailable = isAvailable) {
-            runCatching { launcher.launch(tvSpeechRecognizerIntent(prompt)) }
-        }
+        TvVoiceSearchController(
+            isAvailable = isAvailable,
+            launch = {
+                // Narrow, and reported. A blanket runCatching here swallowed
+                // every reason a launch could fail and left the caller unable
+                // to tell success from silence.
+                try {
+                    launcher.launch(tvSpeechRecognizerIntent(prompt))
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    Log.w(TvVoiceSearchTag, "No activity accepted the speech recognition intent", e)
+                    false
+                }
+            },
+            onUnavailable = { currentOnUnavailable() },
+        )
     }
 }
+
+private const val TvVoiceSearchTag = "TvVoiceSearch"
 
 private fun tvSpeechRecognizerIntent(prompt: String): Intent =
     Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -87,9 +111,14 @@ private fun tvSpeechRecognizerIntent(prompt: String): Intent =
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
         )
         putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
-        // One result is all the caller uses; asking for more only makes the
-        // recogniser work harder for output that gets discarded.
-        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        // EXTRA_MAX_RESULTS is deliberately unset. Only the first result is
+        // used either way, and leaving the cap off asks nothing unusual of a
+        // third-party recogniser.
+        //
+        // EXTRA_LANGUAGE is deliberately unset too. Unset means the device's
+        // own speech locale, which is what a household actually configured;
+        // pinning the app's UI locale would make an English UI work and break
+        // a family that speaks Dutch.
     }
 
 /**
@@ -100,6 +129,13 @@ private fun tvSpeechRecognizerIntent(prompt: String): Intent =
  * this returns false on every modern device and the mic silently never appears.
  */
 private fun isTvSpeechRecognitionAvailable(context: Context): Boolean =
-    context.packageManager
-        .queryIntentActivities(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0)
-        .isNotEmpty()
+    // resolveActivity, not queryIntentActivities(intent, 0). The latter also
+    // returns handlers whose filter lacks CATEGORY_DEFAULT, which
+    // startActivityForResult will not launch — so the mic could appear for a
+    // recogniser that cannot actually be started.
+    //
+    // SpeechRecognizer.isRecognitionAvailable is not the check either: it
+    // reports a recognition SERVICE, and what this needs is an exported
+    // ACTIVITY. A device can have one without the other.
+    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        .resolveActivity(context.packageManager) != null

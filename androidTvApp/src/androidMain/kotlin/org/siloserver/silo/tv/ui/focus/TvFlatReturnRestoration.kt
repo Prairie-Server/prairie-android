@@ -288,8 +288,10 @@ internal fun rememberTvFlatReturnRestoration(
             // raised its flag yet.
             //
             // Bounded, because a surface wedged in refresh must not hold
-            // restoration open forever — timing out here simply proceeds
-            // against whatever list exists, which is the old behaviour.
+            // restoration open forever. Timing out ABANDONS — see below; an
+            // earlier version proceeded against whatever list existed, and
+            // that was the defect, not the fallback.
+            //
             // Quiet has to be PROVEN, not assumed. Checking the flag on
             // arrival was the first mistake: a false reading is exactly what a
             // refresh dispatched one frame later also looks like. Watching for
