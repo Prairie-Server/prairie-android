@@ -110,7 +110,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.robolectric)
             implementation(libs.androidx.test.core)
-            implementation("androidx.compose.ui:ui-test-junit4:1.9.2")
+            implementation(libs.compose.ui.test.junit4)
             // NotificationRow's constructor default uses JsonObject; the inbox
             // formatter test constructs rows directly, so json must be on the
             // test classpath.
@@ -234,5 +234,7 @@ android {
 
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
-    debugImplementation("androidx.compose.ui:ui-test-manifest:1.9.2")
+    // Robolectric's createComposeRule needs the test ComponentActivity in the
+    // manifest. debug-only: it never reaches the release APK.
+    debugImplementation(libs.compose.ui.test.manifest)
 }
