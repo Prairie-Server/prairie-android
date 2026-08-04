@@ -1,6 +1,7 @@
 package org.siloserver.silo.tv.ui.screens.collections
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,12 +37,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.components.TvHideStockImeOnDispose
 import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
 
@@ -71,11 +74,18 @@ fun TvCreateCollectionDialog(
             keyboardController?.show()
         }
     }
+    TvHideStockImeOnDispose()
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        // imePadding below is inert without this: a Dialog gets its own window,
+        // which by default fits system windows itself and reports no IME inset.
+        properties = DialogProperties(decorFitsSystemWindows = false),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .background(Color.Black.copy(alpha = 0.85f)),
             contentAlignment = Alignment.Center,
         ) {

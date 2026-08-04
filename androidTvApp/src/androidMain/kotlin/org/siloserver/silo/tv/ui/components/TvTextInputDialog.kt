@@ -77,12 +77,7 @@ fun TvTextInputDialog(
         runCatching { fieldFocusRequester.requestFocus() }
         keyboardController?.show()
     }
-    // Dismiss the IME when the dialog leaves composition so the system keyboard
-    // doesn't float over whatever screen follows (Android TV leaves it up
-    // otherwise). Mirrors the fix in TvSearchScreen.
-    DisposableEffect(Unit) {
-        onDispose { runCatching { keyboardController?.hide() } }
-    }
+    TvHideStockImeOnDispose()
 
     Dialog(onDismissRequest = onDismiss) {
         Box(

@@ -55,6 +55,7 @@ import org.siloserver.silo.model.catalog.BrowseItem
 import org.siloserver.silo.model.feature.RequestsFeatureStore
 import org.siloserver.silo.model.request.RequestMediaResult
 import org.siloserver.silo.model.request.RequestMediaType
+import org.siloserver.silo.tv.ui.components.TvHideStockImeOnDispose
 import org.siloserver.silo.tv.ui.components.TvCatalogGrid
 import org.siloserver.silo.tv.ui.components.TvFilterChip
 import org.siloserver.silo.tv.ui.components.tvOutlinedTextFieldColors
@@ -142,13 +143,10 @@ fun TvSearchScreen(
         }
         hasEnteredSearch = true
     }
-    // The search field auto-shows the soft keyboard on focus, but nothing hid
-    // it when leaving Search — on Android TV the system IME then floats over
-    // the next screen (e.g. starting playback from a search result left the
-    // keyboard on top of the video). Dismiss it when Search leaves composition.
-    DisposableEffect(Unit) {
-        onDispose { runCatching { keyboardController?.hide() } }
-    }
+    // The search field auto-shows the soft keyboard on focus; leaving Search
+    // without dismissing it left the system IME floating over the next screen
+    // (e.g. over the video when starting playback from a result).
+    TvHideStockImeOnDispose()
     LaunchedEffect(backToSearchFieldRequest) {
         if (backToSearchFieldRequest <= 0) return@LaunchedEffect
         searchGridState.animateScrollToItem(0)
