@@ -1,0 +1,176 @@
+package org.siloserver.silo.tv.ui.screens.player
+
+import org.siloserver.silo.common.player.video.MountedAudioTrack
+import org.siloserver.silo.model.catalog.AudioTrack
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+/**
+ * The decision half of desired-audio reconciliation.
+ *
+ * Every review round of this area produced a case that neither reasoning nor
+ * the pure-matcher tests caught — a discarded intent, a false confirmation, a
+ * cross-file ordinal — so the cases below are those failures written down.
+ */
+class TvAudioReconcileTest {
+
+    private val english = AudioTrack(
+        codec = "dts", channels = 6, language = "en", title = "English DTS 5.1", isDefault = true,
+    )
+    private val dutch = AudioTrack(
+        codec = "aac", channels = 2, language = "nl", title = "Dutch AAC Stereo",
+    )
+    private val catalog = listOf(english, dutch)
+
+    /** Mounted order is the REVERSE of catalog order, as on the device. */
+    private val mounted = listOf(
+        MountedAudioTrack(0, "nl", "audio/mp4a-latm", 2, "Dutch AAC Stereo"),
+        MountedAudioTrack(1, "en", "audio/vnd.dts", 6, "English DTS 5.1"),
+    )
+
+    private fun desire(ordinal: Int, fileId: Int? = 1, confirmed: Boolean = false) =
+        TvDesiredAudio(
+            generation = 1L,
+            catalogOrdinal = ordinal,
+            explicit = true,
+            fileId = fileId,
+            confirmed = confirmed,
+        )
+
+    private fun reconcile(
+        desired: TvDesiredAudio?,
+        mountedTracks: List<MountedAudioTrack> = mounted,
+        selectedOrdinal: Int? = 1,
+        activeFileId: Int? = 1,
+        planAudioOrdinal: Int? = null,
+    ) = reconcileDesiredAudioAction(
+        desired = desired,
+        activeFileId = activeFileId,
+        catalog = catalog,
+        mounted = mountedTracks,
+        selectedOrdinal = selectedOrdinal,
+        planAudioOrdinal = planAudioOrdinal,
+    )
+
+    @Test
+    fun wantedTrackPresentButUnselectedIsApplied() {
+        // Dutch is catalog 1 and mounted 0; a positional answer would say 1.
+        assertEquals(TvAudioReconcileAction.Apply(0), reconcile(desire(1)))
+    }
+
+    @Test
+    fun wantedTrackAlreadySelectedConfirms() {
+        assertEquals(TvAudioReconcileAction.Confirm, reconcile(desire(1), selectedOrdinal = 0))
+        assertEquals(TvAudioReconcileAction.Confirm, reconcile(desire(0), selectedOrdinal = 1))
+    }
+
+    /**
+     * The bug that made a launch pick silently fail: an empty or partial first
+     * callback must not be treated as evidence, and must not consume the intent.
+     */
+    @Test
+    fun emptySnapshotDecidesNothing() {
+        assertEquals(TvAudioReconcileAction.None, reconcile(desire(1), mountedTracks = emptyList()))
+    }
+
+    @Test
+    fun noIntentDecidesNothing() {
+        assertEquals(TvAudioReconcileAction.None, reconcile(null))
+    }
+
+    /** Ordinals are per-file; an intent from the outgoing version is abandoned. */
+    @Test
+    fun intentFromAnotherFileIsDropped() {
+        assertEquals(
+            TvAudioReconcileAction.DropForeignFile,
+            reconcile(desire(1, fileId = 7), activeFileId = 9),
+        )
+    }
+
+    @Test
+    fun intentWithoutAFileIsNotTreatedAsForeign() {
+        assertEquals(TvAudioReconcileAction.Apply(0), reconcile(desire(1, fileId = null)))
+    }
+
+    /**
+     * A transcode delivers a recoded representation that cannot identity-match
+     * its source. The server saying it delivered the row is what satisfies it —
+     * otherwise the intent retries an impossible match forever.
+     */
+    @Test
+    fun absentTrackIsSatisfiedOnlyWhenThePlanNamesIt() {
+        val transcoded = listOf(MountedAudioTrack(0, null, "audio/mp4a-latm", 2, null))
+
+        assertEquals(
+            TvAudioReconcileAction.Confirm,
+            reconcile(desire(0), mountedTracks = transcoded, selectedOrdinal = 0, planAudioOrdinal = 0),
+        )
+        assertEquals(
+            TvAudioReconcileAction.None,
+            reconcile(desire(0), mountedTracks = transcoded, selectedOrdinal = 0, planAudioOrdinal = 1),
+        )
+        assertEquals(
+            TvAudioReconcileAction.None,
+            reconcile(desire(0), mountedTracks = transcoded, selectedOrdinal = 0, planAudioOrdinal = null),
+        )
+    }
+
+    /**
+     * Main mix and commentary share language and codec. Resolving against a
+     * one-element list let them confirm each other, because the matcher stops
+     * as soon as one candidate remains.
+     */
+    @Test
+    fun commentaryDoesNotConfirmTheMainMix() {
+        val withCommentary = listOf(
+            AudioTrack(codec = "aac", channels = 2, language = "en", title = "Main", isDefault = true),
+            AudioTrack(codec = "aac", channels = 2, language = "en", title = "Director Commentary"),
+        )
+        val mountedBoth = listOf(
+            MountedAudioTrack(0, "en", "audio/mp4a-latm", 2, "Director Commentary"),
+            MountedAudioTrack(1, "en", "audio/mp4a-latm", 2, "Main"),
+        )
+
+        // Wanting Main while Commentary is selected must not confirm.
+        val action = reconcileDesiredAudioAction(
+            desired = TvDesiredAudio(1L, catalogOrdinal = 0, explicit = true, fileId = 1),
+            activeFileId = 1,
+            catalog = withCommentary,
+            mounted = mountedBoth,
+            selectedOrdinal = 0,
+            planAudioOrdinal = null,
+        )
+        assertEquals(TvAudioReconcileAction.Apply(1), action)
+    }
+
+    /**
+     * A remount can reorder the groups. The same intent must resolve to the new
+     * ordinal, and the ordinal that used to be right must not confirm.
+     */
+    @Test
+    fun aReorderMovesTheTargetAndInvalidatesTheOldOrdinal() {
+        val reordered = listOf(
+            MountedAudioTrack(0, "en", "audio/vnd.dts", 6, "English DTS 5.1"),
+            MountedAudioTrack(1, "nl", "audio/mp4a-latm", 2, "Dutch AAC Stereo"),
+        )
+        // Dutch was mounted 0 before the remount, is mounted 1 after.
+        assertEquals(
+            TvAudioReconcileAction.Apply(1),
+            reconcile(desire(1), mountedTracks = reordered, selectedOrdinal = 0),
+        )
+    }
+
+    /** A confirmed choice is re-applied after a remount, not assumed to hold. */
+    @Test
+    fun aConfirmedChoiceIsReappliedWhenThePlayerIsNoLongerOnIt() {
+        assertEquals(
+            TvAudioReconcileAction.Apply(0),
+            reconcile(desire(1, confirmed = true), selectedOrdinal = 1),
+        )
+    }
+
+    @Test
+    fun anOrdinalOutsideTheCatalogDecidesNothing() {
+        assertEquals(TvAudioReconcileAction.None, reconcile(desire(9)))
+    }
+}

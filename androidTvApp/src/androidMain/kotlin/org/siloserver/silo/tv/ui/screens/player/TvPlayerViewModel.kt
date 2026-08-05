@@ -2663,64 +2663,47 @@ class TvPlayerViewModel(
      */
     private fun reconcileDesiredAudio(audio: List<PlayerTrackEntry>) {
         val desired = desiredAudio ?: return
-        if (audio.isEmpty()) return
-        val activeFileId = _uiState.value.selectedFileId ?: _uiState.value.mediaFileId
-        if (desired.fileId != null && desired.fileId != activeFileId) {
-            // Belongs to the version we were playing before. The same integer
-            // names a different track here, so drop it rather than apply it.
-            desiredAudio = null
-            _pendingLocalAudioSelection.value = null
-            _uiState.update { it.copy(desiredAudioOrdinal = null, desiredAudioConfirmed = false) }
-            return
-        }
-        val mounted = audio.map { it.toMountedAudioTrack() }
-        val selectedOrdinal = audio.firstOrNull { it.isSelected }?.index
-        val catalog = catalogAudioTracks(_uiState.value)
-        val wanted = catalog.getOrNull(desired.catalogOrdinal) ?: return
+        val state = _uiState.value
+        val action = reconcileDesiredAudioAction(
+            desired = desired,
+            activeFileId = state.selectedFileId ?: state.mediaFileId,
+            catalog = catalogAudioTracks(state),
+            mounted = audio.map { it.toMountedAudioTrack() },
+            selectedOrdinal = audio.firstOrNull { it.isSelected }?.index,
+            planAudioOrdinal = state.playbackPlan?.selectedTracks?.audioIndex,
+        )
+        when (action) {
+            TvAudioReconcileAction.None -> Unit
 
-        // Resolved ONCE against the whole snapshot. Matching a one-element list
-        // instead would answer a different question: the matcher stops as soon
-        // as one candidate remains, so a main mix and its commentary — same
-        // language, same codec — would confirm each other.
-        val target = matchMountedAudioTrack(wanted, mounted)
-        if (target == null) {
-            // Not in this stream. If the plan already names this catalog row the
-            // server delivered it -- a transcode's recoded representation cannot
-            // match its own source -- so treat it as satisfied instead of
-            // retrying an impossible identity match forever.
-            if (_uiState.value.playbackPlan?.selectedTracks?.audioIndex == desired.catalogOrdinal) {
-                // Drop any request for the previous mount first: the collector
-                // would otherwise replay a stale ordinal at a new backend.
+            TvAudioReconcileAction.DropForeignFile -> {
+                desiredAudio = null
+                _pendingLocalAudioSelection.value = null
+                _uiState.update {
+                    it.copy(desiredAudioOrdinal = null, desiredAudioConfirmed = false)
+                }
+            }
+
+            TvAudioReconcileAction.Confirm -> {
+                // Dropped first: the collector would otherwise replay a stale
+                // ordinal against a replacement backend.
                 _pendingLocalAudioSelection.value = null
                 confirmDesiredAudio(desired)
             }
-            return
-        }
 
-        // Both ordinals come from this same snapshot, so comparing them is safe
-        // and is the identity comparison — target was resolved by identity.
-        if (selectedOrdinal == target.ordinal) {
-            _pendingLocalAudioSelection.value = null
-            confirmDesiredAudio(desired)
-            return
+            is TvAudioReconcileAction.Apply -> {
+                localAudioAttempt += 1
+                // Reapplying is not a confirmed state: the row must stop
+                // claiming the track until the player is back on it.
+                if (desired.confirmed) desiredAudio = desired.copy(confirmed = false)
+                _uiState.update { it.copy(desiredAudioConfirmed = false) }
+                _pendingLocalAudioSelection.value = TvLocalAudioSelection(
+                    generation = desired.generation,
+                    catalogOrdinal = desired.catalogOrdinal,
+                    targetOrdinal = action.targetOrdinal,
+                    attempt = localAudioAttempt,
+                )
+            }
         }
-
-        // Reissued on every snapshot where the wanted track is present but not
-        // selected. Applying the override is idempotent and onTracksChanged only
-        // fires when tracks actually change, so this cannot spin — and it needs
-        // no notion of which mount we are on, which is the part that could not
-        // be established reliably from outside the backend.
-        localAudioAttempt += 1
-        // Reapplication after a remount is not a confirmed state: the row must
-        // stop claiming the track until the player is back on it.
-        if (desired.confirmed) desiredAudio = desired.copy(confirmed = false)
-        _uiState.update { it.copy(desiredAudioConfirmed = false) }
-        _pendingLocalAudioSelection.value = TvLocalAudioSelection(
-            generation = desired.generation,
-            catalogOrdinal = desired.catalogOrdinal,
-            targetOrdinal = target.ordinal,
-            attempt = localAudioAttempt,
-        )
     }
 
     /** The player is on the wanted track: only now is it the viewer's choice. */
