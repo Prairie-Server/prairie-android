@@ -16,6 +16,36 @@ class TvPlayerRouteTest {
         "src/androidMain/kotlin/org/siloserver/silo/tv/ui/screens/detail/TvItemDetailScreen.kt",
     ).readText()
 
+    /**
+     * A fresh detail-page pick and a durable value seeded onto that page arrive
+     * as the same ordinal. Provenance has to survive navigation, or the player
+     * treats a restore as a new decision and pins it onto every later episode.
+     */
+    @Test
+    fun playerRouteCarriesAudioPickProvenance() {
+        val picked = TvRoute.Player(
+            contentId = "movie-1",
+            audioTrackIndex = 1,
+            audioPickedThisSession = true,
+        ).route
+        val restored = TvRoute.Player(
+            contentId = "movie-1",
+            audioTrackIndex = 1,
+        ).route
+
+        assertContains(picked, "audioTrackIndex=1")
+        assertContains(picked, "audioPicked=true")
+        // Same ordinal, no provenance: the route must not claim a fresh pick.
+        assertContains(restored, "audioTrackIndex=1")
+        assertFalse(restored.contains("audioPicked"), "got $restored")
+    }
+
+    @Test
+    fun playerRoutePatternDeclaresTheAudioPickArgument() {
+        assertContains(TvRoute.Player.ROUTE, "audioPicked={audioPicked}")
+        assertEquals("audioPicked", TvRoute.Player.ARG_AUDIO_PICKED)
+    }
+
     @Test
     fun playerRouteIncludesResumePositionWhenPresent() {
         val route = TvRoute.Player(

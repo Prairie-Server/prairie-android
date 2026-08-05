@@ -159,8 +159,14 @@ data class TvLocalAudioSelection(
     val catalogOrdinal: Int,
     /** Media3 audio-group ordinal — what AudioTrackManager expects. */
     val targetOrdinal: Int,
-    /** The mount this request belongs to; a remount must reissue. */
-    val mountNonce: Long,
+    /**
+     * Distinct per issuance. StateFlow conflates equal values, so re-applying
+     * after a remount has to look different or the collector never fires — and
+     * keying on a mount generation instead was unsound: the generation is read
+     * separately from the Tracks object, so a queued callback for the old item
+     * can carry the new value and suppress the reissue that mattered.
+     */
+    val attempt: Long,
 )
 
 /** Reduced to the fields that can identify the track across index spaces. */
@@ -662,6 +668,8 @@ data class TvPlayerLaunchArgs(
     val resumePositionOverride: Double? = null,
     /** Pre-selected audio track index from the detail screen (null = auto). */
     val initialAudioTrackIndex: Int? = null,
+    /** True when the launch ordinal is a pick made this session, not a restore. */
+    val initialAudioPickedThisSession: Boolean = false,
     /** Pre-selected subtitle track index (null = auto, -1 = Off). */
     val initialSubtitleTrackIndex: Int? = null,
     /**
@@ -2572,6 +2580,16 @@ class TvPlayerViewModel(
 
     private var desiredAudioGeneration = if (initialAudioTrackIndex != null) 1L else 0L
 
+    /**
+     * The backend's setMediaItem counter for the latest track snapshot.
+     *
+     * transportMountNonce tracks INTENDED primary mounts; a subtitle-refresh
+     * remount replaces the media item without moving it, so keying request
+     * identity on it missed exactly the remounts that invalidate an override.
+     */
+    /** Monotonic; makes each local-selection request distinct for StateFlow. */
+    private var localAudioAttempt = 0L
+
     /** The audio the viewer wants, as a CATALOG ordinal. */
     private var desiredAudio: TvDesiredAudio? = initialAudioTrackIndex?.let {
         // The detail page's pick reaches the server in the start request, but a
@@ -2582,7 +2600,9 @@ class TvPlayerViewModel(
         TvDesiredAudio(
             generation = 1L,
             catalogOrdinal = it,
-            explicit = false,
+            // A fresh detail-page pick carries to the next episode; a durable
+            // value seeded onto that page is a restore and must not.
+            explicit = launchArgs.initialAudioPickedThisSession,
             fileId = launchArgs.preferredFileId,
         )
     }
@@ -2685,18 +2705,12 @@ class TvPlayerViewModel(
             return
         }
 
-        // The mount nonce participates in request identity. Without it, a
-        // remount that resolves the wanted track to the SAME ordinal matches the
-        // in-flight request and returns — leaving the override bound to the
-        // group that setMediaItem already replaced.
-        val mountNonce = _uiState.value.transportMountNonce
-        val inFlight = _pendingLocalAudioSelection.value
-        if (inFlight?.generation == desired.generation &&
-            inFlight.targetOrdinal == target.ordinal &&
-            inFlight.mountNonce == mountNonce
-        ) {
-            return
-        }
+        // Reissued on every snapshot where the wanted track is present but not
+        // selected. Applying the override is idempotent and onTracksChanged only
+        // fires when tracks actually change, so this cannot spin — and it needs
+        // no notion of which mount we are on, which is the part that could not
+        // be established reliably from outside the backend.
+        localAudioAttempt += 1
         // Reapplication after a remount is not a confirmed state: the row must
         // stop claiming the track until the player is back on it.
         if (desired.confirmed) desiredAudio = desired.copy(confirmed = false)
@@ -2705,7 +2719,7 @@ class TvPlayerViewModel(
             generation = desired.generation,
             catalogOrdinal = desired.catalogOrdinal,
             targetOrdinal = target.ordinal,
-            mountNonce = mountNonce,
+            attempt = localAudioAttempt,
         )
     }
 

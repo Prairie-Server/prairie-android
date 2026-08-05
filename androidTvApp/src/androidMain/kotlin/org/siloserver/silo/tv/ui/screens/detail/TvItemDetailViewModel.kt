@@ -78,6 +78,15 @@ data class TvItemDetailUiState(
     // index -1 means "Off". Reset whenever the version changes since each file
     // has its own track lists.
     val selectedAudioIndex: Int? = null,
+    /**
+     * True only when the viewer picked the audio here, this session.
+     *
+     * A restored durable value and a fresh pick both land in
+     * [selectedAudioIndex], and the player cannot tell them apart from the
+     * ordinal alone — so a restore would masquerade as a new decision and pin
+     * itself onto every later episode.
+     */
+    val audioPickedThisSession: Boolean = false,
     val selectedSubtitleIndex: Int? = null,
     // Catalog-backed related shelf. This is a same-type / same-primary-genre
     // browse query until the server exposes an item-specific related endpoint.
@@ -98,6 +107,8 @@ data class TvItemDetailUiState(
     // selectedFileId/audio/subtitle, which series/season detail does not use).
     val selectedNextUpFileId: Int? = null,
     val selectedNextUpAudioIndex: Int? = null,
+    /** As [audioPickedThisSession], for the series/season next-up selector. */
+    val nextUpAudioPickedThisSession: Boolean = false,
     val selectedNextUpSubtitleIndex: Int? = null,
     val preferredQuality: String = "auto",
     // Cascaded subtitle preferences that annotate the selector row's Auto
@@ -588,7 +599,12 @@ class TvItemDetailViewModel(
         // Track indexes are file-specific; clear them so a stale index can't
         // carry over to a different version's track list.
         _uiState.update {
-            it.copy(selectedFileId = fileId, selectedAudioIndex = null, selectedSubtitleIndex = null)
+            it.copy(
+                selectedFileId = fileId,
+                selectedAudioIndex = null,
+                audioPickedThisSession = false,
+                selectedSubtitleIndex = null,
+            )
         }
         TvDetailTrackSelectionSession.remember(contentId, fileId, audio = null, subtitle = null)
         // Do NOT persist here: a version switch resets the indexes to null, and
@@ -600,7 +616,7 @@ class TvItemDetailViewModel(
 
     /** Pre-select an audio track for the next Play (index into the version's audioTracks). */
     fun onAudioTrackSelected(index: Int?) {
-        _uiState.update { it.copy(selectedAudioIndex = index) }
+        _uiState.update { it.copy(selectedAudioIndex = index, audioPickedThisSession = index != null) }
         val state = _uiState.value
         TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, index, state.selectedSubtitleIndex)
         persistTrackSelection()
@@ -947,6 +963,7 @@ class TvItemDetailViewModel(
                         didLoadNextUpPlaybackDetail = false,
                         selectedNextUpFileId = null,
                         selectedNextUpAudioIndex = null,
+                        nextUpAudioPickedThisSession = false,
                         selectedNextUpSubtitleIndex = null,
                     )
                 }
@@ -973,6 +990,7 @@ class TvItemDetailViewModel(
                     didLoadNextUpPlaybackDetail = false,
                     selectedNextUpFileId = null,
                     selectedNextUpAudioIndex = null,
+                    nextUpAudioPickedThisSession = false,
                     selectedNextUpSubtitleIndex = null,
                 )
             }
@@ -995,6 +1013,7 @@ class TvItemDetailViewModel(
                 didLoadNextUpPlaybackDetail = false,
                 selectedNextUpFileId = null,
                 selectedNextUpAudioIndex = null,
+                nextUpAudioPickedThisSession = false,
                 selectedNextUpSubtitleIndex = null,
             )
         }
@@ -1109,6 +1128,7 @@ class TvItemDetailViewModel(
                                 didLoadNextUpPlaybackDetail = true,
                                 selectedNextUpFileId = selection.fileId,
                                 selectedNextUpAudioIndex = selection.audioIndex,
+                                nextUpAudioPickedThisSession = false,
                                 selectedNextUpSubtitleIndex = selection.subtitleIndex,
                             )
                         }
@@ -1271,6 +1291,7 @@ class TvItemDetailViewModel(
             it.copy(
                 selectedNextUpFileId = fileId,
                 selectedNextUpAudioIndex = null,
+                nextUpAudioPickedThisSession = false,
                 selectedNextUpSubtitleIndex = null,
             )
         }
@@ -1280,7 +1301,12 @@ class TvItemDetailViewModel(
 
     fun onNextUpAudioTrackSelected(index: Int?) {
         markNextUpSelectorInput()
-        _uiState.update { it.copy(selectedNextUpAudioIndex = index) }
+        _uiState.update {
+            it.copy(
+                selectedNextUpAudioIndex = index,
+                nextUpAudioPickedThisSession = index != null,
+            )
+        }
         rememberNextUpTrackSelection()
         persistNextUpTrackSelection()
     }
