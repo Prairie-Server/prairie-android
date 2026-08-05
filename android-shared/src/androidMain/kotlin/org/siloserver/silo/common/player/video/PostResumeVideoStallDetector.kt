@@ -41,7 +41,12 @@ class PostResumeVideoStallDetector(
         baselineRenderedCount = 0
     }
 
-    fun onFirstFrameRendered() {
+    /**
+     * Attempt-qualified, for the same reason as the startup detector: a first
+     * frame belonging to the outgoing item must not mark this one as healthy.
+     */
+    fun onFirstFrameRendered(sessionKey: String) {
+        if (sessionKey != this.sessionKey) return
         firstFrameRendered = true
     }
 

@@ -775,8 +775,15 @@ fun PlayerScreen(
                 }
 
                 override fun onRenderedFirstFrame() {
-                    startupStallDetector.onFirstFrameRendered()
-                    postResumeStallDetector.onFirstFrameRendered()
+                    val live = viewModel.uiState.value
+                    val key = live.sessionId?.let { sessionId ->
+                        "$sessionId:${live.streamUrl}:${live.playbackPlan?.planId.orEmpty()}:" +
+                            "${live.playbackPlan?.decisionTrace?.size ?: 0}:${live.mediaMountGeneration}"
+                    }
+                    if (key != null) {
+                        startupStallDetector.onFirstFrameRendered(key)
+                        postResumeStallDetector.onFirstFrameRendered(key)
+                    }
                     viewModel.onFirstVideoFrameRendered()
                 }
 

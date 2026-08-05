@@ -9,7 +9,7 @@ class PostResumeVideoStallDetectorTest {
     fun performsBoundedSeekThenReprepareWhenClockAdvancesWithoutFrames() {
         val detector = PostResumeVideoStallDetector(1_000, 1_000, 500, 2_000)
         detector.onMounted("session")
-        detector.onFirstFrameRendered()
+        detector.onFirstFrameRendered("session")
         detector.onIsPlayingChanged("session", false, 0, 10_000, 20)
         detector.onIsPlayingChanged("session", true, 100, 10_000, 20)
 
@@ -33,7 +33,7 @@ class PostResumeVideoStallDetectorTest {
     fun frameProgressCancelsRecovery() {
         val detector = PostResumeVideoStallDetector(1_000, 1_000, 500, 2_000)
         detector.onMounted("session")
-        detector.onFirstFrameRendered()
+        detector.onFirstFrameRendered("session")
         detector.onIsPlayingChanged("session", false, 0, 10_000, 20)
         detector.onIsPlayingChanged("session", true, 100, 10_000, 20)
 
@@ -49,7 +49,7 @@ class PostResumeVideoStallDetectorTest {
         detector.onIsPlayingChanged("session", true, 100, 0, 0)
         assertNull(detector.sample("session", 2_000, true, true, true, 1_500, 60_000, 0))
 
-        detector.onFirstFrameRendered()
+        detector.onFirstFrameRendered("session")
         detector.onIsPlayingChanged("session", false, 2_100, 58_000, 20)
         detector.onIsPlayingChanged("session", true, 2_200, 58_000, 20)
         assertNull(detector.sample("session", 4_000, true, true, true, 59_000, 60_000, 20))
@@ -59,7 +59,7 @@ class PostResumeVideoStallDetectorTest {
     fun pauseDuringRecoveryDoesNotCountTowardTheStageDeadline() {
         val detector = PostResumeVideoStallDetector(1_000, 1_000, 500, 2_000)
         detector.onMounted("session")
-        detector.onFirstFrameRendered()
+        detector.onFirstFrameRendered("session")
         detector.onIsPlayingChanged("session", false, 0, 10_000, 20)
         detector.onIsPlayingChanged("session", true, 100, 10_000, 20)
         detector.onIsPlayingChanged("session", false, 500, 10_400, 20)

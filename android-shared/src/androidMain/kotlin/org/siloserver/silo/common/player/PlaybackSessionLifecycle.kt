@@ -616,7 +616,14 @@ class PlaybackSessionLifecycle(
                 )
             }
 
+            // The adopted id, not the published state's. Reconnecting and
+            // Failed carry no session id, so reading it from Active alone meant
+            // leaving during an outage — or after the outage timeout gave up —
+            // never told the server to stop. The transcode then ran on until it
+            // timed out, holding a stream slot the viewer had already walked
+            // away from.
             val sessionId = (_state.value as? SessionState.Active)?.session?.sessionId
+                ?: lastAdoptedSessionId
             // Fire the final snapshot regardless — even during Reconnecting we
             // want to durably record where the user was so a fresh login resumes
             // there.
@@ -745,6 +752,18 @@ class PlaybackSessionLifecycle(
                     position = pos,
                     isPaused = lastIsPaused,
                 )
+                // Re-check ownership AFTER the call. Cancelling this job is not
+                // enough to stop what follows: the network wrapper catches
+                // cancellation and hands back a NetworkError, so a reporter
+                // belonging to the previous episode carries on and acts on a
+                // reply about a session nobody is watching any more.
+                //
+                // Everything below reacts to that reply by rewriting shared
+                // state — publishing Reconnecting, restoring Active, or
+                // starting a replacement session from the CURRENT start
+                // params. Left unguarded, a late answer about episode A does
+                // all of that to episode B.
+                if (!ownsProgressReply(sess.sessionId)) continue
                 when {
                     isPlaybackSessionMissing(result) -> handleSessionMissing(sess.sessionId)
                     result is ApiResult.NetworkError -> {
@@ -762,6 +781,17 @@ class PlaybackSessionLifecycle(
             }
         }
     }
+
+    /**
+     * Whether a progress reply still concerns the session on screen.
+     *
+     * Compared against the adopted id rather than the published state, because
+     * the states this guards against — Reconnecting and Failed — carry no
+     * session id of their own, and a reply arriving during one of them is
+     * exactly the case that must not act.
+     */
+    private fun ownsProgressReply(sessionId: String): Boolean =
+        lastAdoptedSessionId == sessionId
 
     // ---- Internal: 404 session-missing recovery -----------------------------
 

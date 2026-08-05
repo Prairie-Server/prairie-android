@@ -1303,8 +1303,15 @@ fun TvPlayerScreen(
                     }
                 }
                 override fun onRenderedFirstFrame() {
-                    startupStallDetector.onFirstFrameRendered()
-                    postResumeStallDetector.onFirstFrameRendered()
+                    val live = viewModel.uiState.value
+                    val key = live.sessionId?.let { sessionId ->
+                        "$sessionId:${live.streamUrl}:${live.playbackPlan?.planId.orEmpty()}:" +
+                            "${live.playbackPlan?.decisionTrace?.size ?: 0}:${live.transportMountNonce}"
+                    }
+                    if (key != null) {
+                        startupStallDetector.onFirstFrameRendered(key)
+                        postResumeStallDetector.onFirstFrameRendered(key)
+                    }
                     viewModel.onFirstVideoFrameRendered()
                 }
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1465,11 +1472,18 @@ fun TvPlayerScreen(
                         recovery.correctionId,
                         "rendered_frame_progress",
                     )
-                    is PostResumeVideoStallDetector.Signal.Failed -> viewModel.onRuntimeCorrection(
-                        "runtime_correction_failed",
-                        recovery.correctionId,
-                        "bounded_recovery_exhausted",
-                    )
+                    is PostResumeVideoStallDetector.Signal.Failed -> {
+                        viewModel.onRuntimeCorrection(
+                            "runtime_correction_failed",
+                            recovery.correctionId,
+                            "bounded_recovery_exhausted",
+                        )
+                        // Tell the viewer too. This signal fires once and never
+                        // again, so a frozen picture with running audio would
+                        // otherwise sit there indefinitely, recorded in
+                        // telemetry and invisible on screen.
+                        viewModel.onPlaybackRecoveryExhausted()
+                    }
                     null -> Unit
                 }
                 delay(1_000)

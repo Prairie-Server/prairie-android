@@ -185,10 +185,49 @@ class PlaybackStartupStallDetectorTest {
             bufferedPositionMs = 5_000,
             decoderInputBufferCount = 1,
         )
-        detector.onFirstFrameRendered()
+        detector.onFirstFrameRendered("rendered")
         assertNull(
             detector.sample(
                 sessionKey = "rendered",
+                nowMs = 2_000,
+                playWhenReady = true,
+                isPlaying = true,
+                isBuffering = false,
+                currentPositionMs = 2_000,
+                bufferedPositionMs = 5_000,
+                decoderInputBufferCount = 10,
+            ),
+        )
+    }
+
+    /**
+     * A first frame belonging to a DIFFERENT attempt must not disarm this one.
+     *
+     * Media3 delivers the callback asynchronously, so one queued by the
+     * outgoing stream can land after a replan or episode change. Crediting it
+     * here marked the replacement healthy before it had rendered anything —
+     * a black picture with its watchdog switched off, and diagnostics recording
+     * a first frame that never happened for this stream.
+     */
+    @Test
+    fun aFirstFrameFromAnotherAttemptDoesNotDisarmTheDeadline() {
+        val detector = PlaybackStartupStallDetector(startupGraceMs = 1_000)
+        detector.onMounted("attempt-b", PlayMethod.DIRECT, 0, 0)
+        detector.sample(
+            sessionKey = "attempt-b",
+            nowMs = 100,
+            playWhenReady = true,
+            isPlaying = true,
+            isBuffering = false,
+            currentPositionMs = 100,
+            bufferedPositionMs = 5_000,
+            decoderInputBufferCount = 1,
+        )
+        detector.onFirstFrameRendered("attempt-a")
+        // Still armed, because nothing has rendered for attempt-b.
+        assertNotNull(
+            detector.sample(
+                sessionKey = "attempt-b",
                 nowMs = 2_000,
                 playWhenReady = true,
                 isPlaying = true,
@@ -353,7 +392,7 @@ class PlaybackStartupStallDetectorTest {
         )
         detector.onMounted("session", PlayMethod.DIRECT, 0, 0)
         detector.sample("session", 100, true, true, false, 1_000, 5_000)
-        detector.onFirstFrameRendered()
+        detector.onFirstFrameRendered("session")
 
         assertNull(detector.sample("session", 900, true, false, true, 1_000, 6_000))
         assertNotNull(detector.sample("session", 1_101, true, false, true, 1_000, 7_000))

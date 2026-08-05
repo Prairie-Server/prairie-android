@@ -2029,6 +2029,32 @@ class TvPlayerViewModel(
             )
             // PlaybackRepository's safe-call layer may translate cancellation to an ApiResult.
             // Re-check both coroutine and content generations before any response can adopt.
+            //
+            // Bailing out here is not enough on its own. By the time this
+            // returns, the manager has already committed and taken ownership of
+            // the replacement session — so abandoning the result quietly leaves
+            // a transcode running on the server that nothing will ever stop.
+            // The viewer sees playback exit; the server keeps the stream slot
+            // until it times out. Release it explicitly on every abandon path.
+            val abandonedSessionId = (result as? ApiResult.Success)
+                ?.data
+                ?.let { it as? VideoSessionStartV3.Ready }
+                ?.session
+                ?.sessionId
+            if (!isActive || recoveryContentGeneration != contentLoadGeneration) {
+                abandonedSessionId?.let { sessionId ->
+                    // Detached from this cancelled scope on purpose: the whole
+                    // point is to run after the reason for abandoning.
+                    // NonCancellable: this runs precisely because the
+                    // surrounding work was cancelled, so it must not inherit
+                    // that cancellation and skip the release.
+                    viewModelScope.launch(NonCancellable) {
+                        runCatching {
+                            playbackSessionManager.abandonActiveVideoSession(sessionId)
+                        }
+                    }
+                }
+            }
             coroutineContext.ensureActive()
             if (recoveryContentGeneration != contentLoadGeneration) return@launch
             when (result) {
@@ -2325,6 +2351,22 @@ class TvPlayerViewModel(
     fun onFirstVideoFrameRendered() {
         hasRenderedFirstFrame = true
         playbackSessionManager.reportFirstVideoFrame(_uiState.value.stats)
+    }
+
+    /**
+     * Bounded recovery has given up and the picture is not coming back.
+     *
+     * The detector reports Failed exactly once and then goes quiet forever, so
+     * without surfacing it the viewer is left with advancing audio over a
+     * frozen frame, no message, and no reason to think pressing anything would
+     * help. Telemetry recorded this; nobody told the person watching.
+     */
+    fun onPlaybackRecoveryExhausted() {
+        _uiState.update {
+            if (it.error != null) it else it.copy(
+                error = "Playback stopped responding. Press Back and try again.",
+            )
+        }
     }
 
     fun onRuntimeCorrection(event: String, correctionId: String, stage: String, details: Map<String, String> = emptyMap()) {

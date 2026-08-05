@@ -51,7 +51,15 @@ class PlaybackStartupStallDetector(
         this.lastProgressAtMs = nowMs
     }
 
-    fun onFirstFrameRendered() {
+    /**
+     * Attempt-qualified. An unqualified callback let a first frame queued by the
+     * PREVIOUS item arrive after a replan or episode change and disarm the new
+     * attempt's watchdog before it had rendered anything — leaving a black
+     * picture with no fallback, and diagnostics recording a first frame that
+     * never happened for this stream.
+     */
+    fun onFirstFrameRendered(sessionKey: String) {
+        if (sessionKey != this.sessionKey) return
         firstFrameRendered = true
         decoderStartupAtMs = null
     }

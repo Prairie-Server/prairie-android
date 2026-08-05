@@ -65,6 +65,8 @@ class PgsSupExtractor(
     private var displaySetSegmentCount = 0
     private var failedClosed = false
     private var emittedSets = 0
+    /** Display sets dropped because the parser could not survive them. */
+    private var malformedSets = 0
     private var emittedCues = 0
 
     override fun sniff(input: ExtractorInput): Boolean {
@@ -188,6 +190,7 @@ class PgsSupExtractor(
         displaySetTimeUs = C.TIME_UNSET
         displaySetSegmentCount = 0
         val activeParser = parser ?: return
+        val output = trackOutput ?: return
         if (timeUs == C.TIME_UNSET) return
 
         emittedSets++
@@ -196,6 +199,38 @@ class PgsSupExtractor(
                 "SUP set=$emittedSets t=${timeUs / 1000}ms bytes=${bytes.size}",
             )
         }
+        // The bundled Media3 PGS parser trusts the display set's own 16-bit
+        // width/height: it allocates IntArray(width * height) and applies RLE
+        // runs with no pixel bound of its own. A corrupt or hostile set can
+        // therefore throw NegativeArraySizeException, an oversized-run
+        // IllegalArgumentException, or ask for an allocation large enough to
+        // take the process down on a low-memory box.
+        //
+        // Bounding the byte length upstream does not help — a handful of bytes
+        // can declare an enormous bitmap. So the parse is contained here, and a
+        // damaged caption costs one missing subtitle rather than the film.
+        //
+        // OutOfMemoryError is caught deliberately. It is not an error this
+        // process caused by being unhealthy; it is one specific allocation
+        // sized by untrusted input, and refusing to catch it on principle means
+        // a bad caption kills playback.
+        try {
+            parseDisplaySet(activeParser, output, bytes, timeUs)
+        } catch (e: Exception) {
+            malformedSets++
+            org.siloserver.silo.common.player.SubDiag.log("SUP set $emittedSets rejected: ${e::class.simpleName}: ${e.message}")
+        } catch (e: OutOfMemoryError) {
+            malformedSets++
+            org.siloserver.silo.common.player.SubDiag.log("SUP set $emittedSets exhausted memory and was dropped")
+        }
+    }
+
+    private fun parseDisplaySet(
+        activeParser: SubtitleParser,
+        output: TrackOutput,
+        bytes: ByteArray,
+        timeUs: Long,
+    ) {
         activeParser.parse(
             bytes,
             0,
