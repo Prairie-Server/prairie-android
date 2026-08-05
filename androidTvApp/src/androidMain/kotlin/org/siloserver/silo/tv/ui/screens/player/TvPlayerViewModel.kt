@@ -17,6 +17,10 @@ import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.PlaybackTeardownGate
 import org.siloserver.silo.common.player.video.MountedAudioTrack
+import org.siloserver.silo.common.player.video.AudioReconcileAction
+import org.siloserver.silo.common.player.video.DesiredAudio
+import org.siloserver.silo.common.player.video.LocalAudioSelection
+import org.siloserver.silo.common.player.video.reconcileDesiredAudioAction
 import org.siloserver.silo.common.player.video.matchMountedAudioTrack
 import org.siloserver.silo.playback.resolveAudioTrackOrdinal
 import org.siloserver.silo.common.player.FinalPlaybackPosition
@@ -128,47 +132,6 @@ import kotlinx.coroutines.withContext
  * [trackId] retains Media3's stable selector identity; [label] is presentation
  * metadata and [displayLabel] is the polished user-facing string.
  */
-/**
- * What the viewer wants the audio to be, as a CATALOG ordinal.
- *
- * [explicit] separates a fresh decision from a restore: a launch pick or a
- * persisted fingerprint puts playback back where it was and must not be
- * recorded as a new choice for episode carry-over, whereas a HUD or remote
- * selection must.
- */
-internal data class TvDesiredAudio(
-    val generation: Long,
-    val catalogOrdinal: Int,
-    val explicit: Boolean,
-    /**
-     * The file this ordinal belongs to. Audio ordinals are per-file, and the
-     * outgoing version stays interactive while a replacement loads — so a pick
-     * made during that window is scoped to the file it was made against and
-     * must not be reconciled against a different one.
-     */
-    val fileId: Int?,
-    val confirmed: Boolean = false,
-)
-
-/**
- * A pending local audio switch: select [targetOrdinal] on the player, and on
- * confirmation commit [catalogOrdinal] as the viewer's choice.
- */
-data class TvLocalAudioSelection(
-    val generation: Long,
-    val catalogOrdinal: Int,
-    /** Media3 audio-group ordinal — what AudioTrackManager expects. */
-    val targetOrdinal: Int,
-    /**
-     * Distinct per issuance. StateFlow conflates equal values, so re-applying
-     * after a remount has to look different or the collector never fires — and
-     * keying on a mount generation instead was unsound: the generation is read
-     * separately from the Tracks object, so a queued callback for the old item
-     * can carry the new value and suppress the reissue that mattered.
-     */
-    val attempt: Long,
-)
-
 /** Reduced to the fields that can identify the track across index spaces. */
 internal fun PlayerTrackEntry.toMountedAudioTrack(): MountedAudioTrack = MountedAudioTrack(
     ordinal = index,
@@ -2591,13 +2554,13 @@ class TvPlayerViewModel(
     private var localAudioAttempt = 0L
 
     /** The audio the viewer wants, as a CATALOG ordinal. */
-    private var desiredAudio: TvDesiredAudio? = initialAudioTrackIndex?.let {
+    private var desiredAudio: DesiredAudio? = initialAudioTrackIndex?.let {
         // The detail page's pick reaches the server in the start request, but a
         // direct-play stream carrying every audio track still lets Media3 pick
         // its own default — so choosing Dutch and pressing Play mounted English.
         // Seeded as a plain value, NOT through setDesiredAudio: an init block
         // running before the flow below is declared would dereference null.
-        TvDesiredAudio(
+        DesiredAudio(
             generation = 1L,
             catalogOrdinal = it,
             // A fresh detail-page pick carries to the next episode; a durable
@@ -2607,7 +2570,7 @@ class TvPlayerViewModel(
         )
     }
 
-    private val _pendingLocalAudioSelection = MutableStateFlow<TvLocalAudioSelection?>(null)
+    private val _pendingLocalAudioSelection = MutableStateFlow<LocalAudioSelection?>(null)
 
     /**
      * A mounted track the screen should select on the player directly.
@@ -2616,7 +2579,7 @@ class TvPlayerViewModel(
      * acknowledgement be ignored: rapid Dutch -> English -> Dutch would
      * otherwise collapse into indistinguishable requests.
      */
-    val pendingLocalAudioSelection: StateFlow<TvLocalAudioSelection?> =
+    val pendingLocalAudioSelection: StateFlow<LocalAudioSelection?> =
         _pendingLocalAudioSelection.asStateFlow()
 
     private fun catalogAudioTracks(state: UiState): List<AudioTrack> = state.fileVersions
@@ -2637,7 +2600,7 @@ class TvPlayerViewModel(
         if (explicit) pendingPersistedAudioFingerprint = null
         desiredAudioGeneration += 1
         val state = _uiState.value
-        desiredAudio = TvDesiredAudio(
+        desiredAudio = DesiredAudio(
             generation = desiredAudioGeneration,
             catalogOrdinal = catalogOrdinal,
             explicit = explicit,
@@ -2673,9 +2636,9 @@ class TvPlayerViewModel(
             planAudioOrdinal = state.playbackPlan?.selectedTracks?.audioIndex,
         )
         when (action) {
-            TvAudioReconcileAction.None -> Unit
+            AudioReconcileAction.None -> Unit
 
-            TvAudioReconcileAction.DropForeignFile -> {
+            AudioReconcileAction.DropForeignFile -> {
                 desiredAudio = null
                 _pendingLocalAudioSelection.value = null
                 _uiState.update {
@@ -2683,20 +2646,20 @@ class TvPlayerViewModel(
                 }
             }
 
-            TvAudioReconcileAction.Confirm -> {
+            AudioReconcileAction.Confirm -> {
                 // Dropped first: the collector would otherwise replay a stale
                 // ordinal against a replacement backend.
                 _pendingLocalAudioSelection.value = null
                 confirmDesiredAudio(desired)
             }
 
-            is TvAudioReconcileAction.Apply -> {
+            is AudioReconcileAction.Apply -> {
                 localAudioAttempt += 1
                 // Reapplying is not a confirmed state: the row must stop
                 // claiming the track until the player is back on it.
                 if (desired.confirmed) desiredAudio = desired.copy(confirmed = false)
                 _uiState.update { it.copy(desiredAudioConfirmed = false) }
-                _pendingLocalAudioSelection.value = TvLocalAudioSelection(
+                _pendingLocalAudioSelection.value = LocalAudioSelection(
                     generation = desired.generation,
                     catalogOrdinal = desired.catalogOrdinal,
                     targetOrdinal = action.targetOrdinal,
@@ -2707,7 +2670,7 @@ class TvPlayerViewModel(
     }
 
     /** The player is on the wanted track: only now is it the viewer's choice. */
-    private fun confirmDesiredAudio(desired: TvDesiredAudio) {
+    private fun confirmDesiredAudio(desired: DesiredAudio) {
         if (desired.confirmed) return
         desiredAudio = desired.copy(confirmed = true)
         _uiState.update {
