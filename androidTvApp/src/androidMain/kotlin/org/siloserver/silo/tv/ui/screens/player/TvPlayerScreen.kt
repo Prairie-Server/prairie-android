@@ -1981,8 +1981,8 @@ fun TvPlayerScreen(
                             subtitlePresentation = subtitlePresentation,
                             stats = state.stats,
                             playbackPlan = state.playbackPlan,
-                            committedLocalAudioOrdinal = state.committedLocalAudioOrdinal,
-                            pendingLocalAudioOrdinal = state.pendingLocalAudioOrdinal,
+                            desiredAudioOrdinal = state.desiredAudioOrdinal,
+                            desiredAudioConfirmed = state.desiredAudioConfirmed,
                             videoFillMode = state.videoFillMode,
                             onSelectAudio = viewModel::selectAudioOption,
                             onSelectVideoQuality = { id ->

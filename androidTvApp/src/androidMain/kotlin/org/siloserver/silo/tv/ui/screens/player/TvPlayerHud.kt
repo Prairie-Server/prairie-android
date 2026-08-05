@@ -158,8 +158,8 @@ internal fun TvPlayerHud(
     subtitlePresentation: TvSubtitleHudPresentation,
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
-    committedLocalAudioOrdinal: Int? = null,
-    pendingLocalAudioOrdinal: Int? = null,
+    desiredAudioOrdinal: Int? = null,
+    desiredAudioConfirmed: Boolean = false,
     videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
     onSelectVideoQuality: (String) -> Unit,
@@ -394,9 +394,11 @@ internal fun TvPlayerHud(
                             ?: fileVersions.firstOrNull(),
                         // A locally-confirmed choice is the viewer's answer;
                         // the plan only names what the server last delivered.
-                        planAudioOrdinal = committedLocalAudioOrdinal
+                        planAudioOrdinal = desiredAudioOrdinal
                             ?: playbackPlan?.selectedTracks?.audioIndex,
-                        pendingLocalAudioOrdinal = pendingLocalAudioOrdinal,
+                        // Only an unconfirmed intent renders as pending.
+                        pendingLocalAudioOrdinal = desiredAudioOrdinal
+                            ?.takeUnless { desiredAudioConfirmed },
                         onSelectAudio = onSelectAudio,
                         audioDelayMs = audioDelayMs,
                         audioDelayEnabled = audioDelayEnabled,

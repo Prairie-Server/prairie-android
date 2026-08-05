@@ -113,19 +113,6 @@ internal fun resolveTvFreshSubtitlePreference(
     )
 }
 
-internal fun resolveTvPersistedAudioPlayerOrdinal(
-    fingerprint: String?,
-    catalogAudioTracks: List<AudioTrack>,
-    mountedAudioTracks: List<PlayerTrackEntry>,
-): Int? {
-    val catalogOrdinal = resolveAudioTrackOrdinal(catalogAudioTracks, fingerprint)
-        ?.takeIf { it >= 0 }
-        ?: return null
-    return mountedAudioTracks
-        .singleOrNull { it.index == catalogOrdinal }
-        ?.index
-}
-
 /**
  * Hydration and restore resolution are one owned publication unit. A stale
  * load can finish its network call, but it cannot return rows or an intent.
