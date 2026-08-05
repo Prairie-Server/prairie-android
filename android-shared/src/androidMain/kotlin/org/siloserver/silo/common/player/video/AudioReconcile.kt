@@ -113,3 +113,40 @@ fun reconcileDesiredAudioAction(
         AudioReconcileAction.Apply(target.ordinal)
     }
 }
+
+/**
+ * The mounted audio tracks of a Media3 [androidx.media3.common.Tracks], in the
+ * ordinal space [org.siloserver.silo.common.player.AudioTrackManager] expects:
+ * position among audio groups, counting only audio groups.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+fun mountedAudioTracks(tracks: androidx.media3.common.Tracks): List<MountedAudioTrack> {
+    val result = mutableListOf<MountedAudioTrack>()
+    var ordinal = 0
+    for (group in tracks.groups) {
+        if (group.type != androidx.media3.common.C.TRACK_TYPE_AUDIO) continue
+        val media = group.mediaTrackGroup
+        val format = if (media.length > 0) media.getFormat(0) else null
+        result += MountedAudioTrack(
+            ordinal = ordinal,
+            language = format?.language,
+            codecOrMime = format?.sampleMimeType ?: format?.codecs,
+            channelCount = format?.channelCount?.takeIf { it > 0 },
+            label = format?.label,
+        )
+        ordinal += 1
+    }
+    return result
+}
+
+/** Ordinal of the currently selected audio group, if any. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+fun selectedMountedAudioOrdinal(tracks: androidx.media3.common.Tracks): Int? {
+    var ordinal = 0
+    for (group in tracks.groups) {
+        if (group.type != androidx.media3.common.C.TRACK_TYPE_AUDIO) continue
+        if (group.isSelected) return ordinal
+        ordinal += 1
+    }
+    return null
+}

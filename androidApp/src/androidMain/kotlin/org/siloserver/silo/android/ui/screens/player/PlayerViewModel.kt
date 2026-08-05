@@ -78,6 +78,12 @@ import org.siloserver.silo.playback.audioTrackFingerprint
 import org.siloserver.silo.playback.encodeSubtitleIdentityPreference
 import org.siloserver.silo.playback.nextEpisodeAfter
 import org.siloserver.silo.playback.resolveAudioTrackOrdinal
+import org.siloserver.silo.common.player.video.AudioReconcileAction
+import org.siloserver.silo.common.player.video.DesiredAudio
+import org.siloserver.silo.common.player.video.LocalAudioSelection
+import org.siloserver.silo.common.player.video.MountedAudioTrack
+import org.siloserver.silo.common.player.video.matchMountedAudioTrack
+import org.siloserver.silo.common.player.video.reconcileDesiredAudioAction
 import org.siloserver.silo.playback.selectPlaybackVersion
 import org.siloserver.silo.repository.CatalogRepository
 import org.siloserver.silo.repository.PersonalDataRepository
@@ -1302,12 +1308,18 @@ class PlayerViewModel(
                 ?.takeIf { it != committedIdentity }
                 ?.let(mobileSubtitleTransactions::select)
 
-            if (
-                persistedAudioIndex != null &&
-                persistedAudioIndex != selectedAudioOrdinal &&
-                persistedAudioIndex in _uiState.value.audioTracks.indices
-            ) {
-                selectAudio(persistedAudioIndex, userInitiated = false)
+            // Seeded whether or not it differs from what the server reported.
+            // Equality with the plan is not evidence the RENDERER is on that
+            // track: a direct-play file mounts every track and Media3 picks its
+            // own default, which is precisely the case this exists for.
+            val restoreOrdinal = persistedAudioIndex
+                ?: initialAudioTrackIndex
+                ?: selectedAudioOrdinal
+            if (restoreOrdinal != null && restoreOrdinal in _uiState.value.audioTracks.indices) {
+                setDesiredAudio(restoreOrdinal, explicit = false)
+                if (restoreOrdinal != selectedAudioOrdinal) {
+                    selectAudio(restoreOrdinal, userInitiated = false)
+                }
             }
         }
         if (!published) {
@@ -2844,8 +2856,171 @@ class PlayerViewModel(
                 serverIndex = serverIndex,
             )
         }
+        setDesiredAudio(serverIndex, explicit = userInitiated)
+        // Already in the mounted stream: switch it on the player instead of
+        // rebuilding the session to deliver audio already being received. A
+        // replan is only needed when the track is genuinely absent.
+        if (matchMountedAudioTrack(
+                state.audioTracks[serverIndex],
+                mountedAudio,
+            ) != null
+        ) {
+            return
+        }
         mobileSubtitleTransactions.updatePlaybackContext(mobileSubtitleContext(state))
         mobileSubtitleTransactions.selectAudio(serverIndex)
+    }
+
+    // ---- Desired audio ------------------------------------------------------
+    //
+    // Mirrors TV: one generation-owned intent that every entry point writes,
+    // reconciled against each track snapshot by the shared decision.
+
+    private var desiredAudioGeneration = 0L
+    private var desiredAudio: DesiredAudio? = null
+    private var localAudioAttempt = 0L
+    private var mountedAudio: List<MountedAudioTrack> = emptyList()
+
+    private val _pendingLocalAudioSelection = MutableStateFlow<LocalAudioSelection?>(null)
+
+    /** A mounted track PlayerScreen should select directly on the player. */
+    val pendingLocalAudioSelection: StateFlow<LocalAudioSelection?> =
+        _pendingLocalAudioSelection.asStateFlow()
+
+    private fun setDesiredAudio(catalogOrdinal: Int, explicit: Boolean) {
+        desiredAudioGeneration += 1
+        localAudioAttemptCount = 0
+        val state = _uiState.value
+        desiredAudio = DesiredAudio(
+            generation = desiredAudioGeneration,
+            catalogOrdinal = catalogOrdinal,
+            explicit = explicit,
+            fileId = state.mediaFileId,
+        )
+        _pendingLocalAudioSelection.value = null
+        reconcileDesiredAudio(mountedAudio, selectedMountedAudioOrdinal)
+    }
+
+    private var selectedMountedAudioOrdinal: Int? = null
+
+    /** Called by PlayerScreen on every Media3 track snapshot. */
+    fun onMountedAudioChanged(mounted: List<MountedAudioTrack>, selectedOrdinal: Int?) {
+        mountedAudio = mounted
+        selectedMountedAudioOrdinal = selectedOrdinal
+        reconcileDesiredAudio(mounted, selectedOrdinal)
+    }
+
+    private fun reconcileDesiredAudio(mounted: List<MountedAudioTrack>, selectedOrdinal: Int?) {
+        val desired = desiredAudio ?: return
+        val state = _uiState.value
+        when (
+            val action = reconcileDesiredAudioAction(
+                desired = desired,
+                activeFileId = state.mediaFileId,
+                catalog = state.audioTracks,
+                mounted = mounted,
+                selectedOrdinal = selectedOrdinal,
+                planAudioOrdinal = state.playbackPlan?.selectedTracks?.audioIndex,
+            )
+        ) {
+            AudioReconcileAction.None -> Unit
+
+            AudioReconcileAction.DropForeignFile -> {
+                desiredAudio = null
+                _pendingLocalAudioSelection.value = null
+            }
+
+            AudioReconcileAction.Confirm -> {
+                _pendingLocalAudioSelection.value = null
+                if (!desired.confirmed) {
+                    desiredAudio = desired.copy(confirmed = true)
+                    commitLocalAudio(desired)
+                }
+            }
+
+            is AudioReconcileAction.Apply -> {
+                // AudioTrackManager returns Unit and does nothing silently when
+                // the group has gone, and a no-op produces no callback -- so an
+                // unbounded local path can dead-end with the audio never
+                // applied. After a few snapshots that still have not taken, hand
+                // it to the server instead of retrying forever.
+                if (localAudioAttemptsFor(desired.generation) >= MAX_LOCAL_AUDIO_ATTEMPTS) {
+                    _pendingLocalAudioSelection.value = null
+                    replanForDesiredAudio(desired)
+                    return
+                }
+                localAudioAttempt += 1
+                localAudioAttemptGeneration = desired.generation
+                localAudioAttemptCount += 1
+                if (desired.confirmed) desiredAudio = desired.copy(confirmed = false)
+                _pendingLocalAudioSelection.value = LocalAudioSelection(
+                    generation = desired.generation,
+                    catalogOrdinal = desired.catalogOrdinal,
+                    targetOrdinal = action.targetOrdinal,
+                    attempt = localAudioAttempt,
+                )
+            }
+        }
+    }
+
+    /**
+     * Publishes a locally-applied switch as committed state.
+     *
+     * A replan commit reaches all of this through
+     * [applyMobileSubtitleSnapshot]; the local path bypasses the transaction
+     * entirely, so without this the picker keeps the old checkmark, route
+     * redelivery reports the old ordinal, and a later recovery, Cast handoff or
+     * subtitle transaction starts from stale audio.
+     */
+    private fun commitLocalAudio(desired: DesiredAudio) {
+        _uiState.update { it.copy(selectedAudioIndex = desired.catalogOrdinal) }
+        val state = _uiState.value
+        routeIntentState.applyCommittedTracks(
+            contentId = state.contentId,
+            committedAudioServerIndex = desired.catalogOrdinal,
+            committedSubtitleIdentity = state.committedSubtitleIdentity,
+            transactionFailed = false,
+            transactionActive = mobileSubtitleTransactions.hasActiveTransaction,
+        )
+        // The reducer's committed audio is what the next subtitle transaction
+        // stages and what teardown persists, so it has to move too -- updating
+        // the context alone left it stale and the choice got undone.
+        mobileSubtitleTransactions.commitLocallyAppliedAudio(desired.catalogOrdinal)
+        if (desired.explicit) persistDesiredAudio(desired.catalogOrdinal)
+    }
+
+    private var localAudioAttemptGeneration = 0L
+    private var localAudioAttemptCount = 0
+
+    private fun localAudioAttemptsFor(generation: Long): Int =
+        if (localAudioAttemptGeneration == generation) localAudioAttemptCount else 0
+
+    /** The local switch is not taking; let the server materialise the track. */
+    private fun replanForDesiredAudio(desired: DesiredAudio) {
+        val state = _uiState.value
+        mobileSubtitleTransactions.updatePlaybackContext(mobileSubtitleContext(state))
+        mobileSubtitleTransactions.selectAudio(desired.catalogOrdinal)
+    }
+
+    private fun persistDesiredAudio(catalogOrdinal: Int) {
+        val state = _uiState.value
+        val context = mobileSubtitleContext(state)
+        val scope = context.writeScope ?: return
+        viewModelScope.launch {
+            runCatching {
+                userItemStatePort.recordTrackSelection(
+                    scope = scope,
+                    contentId = context.contentId,
+                    fileId = context.mediaFileId,
+                    audioUpdate = mobileAudioTrackPersistenceUpdate(
+                        committedAudioTrackIndex = catalogOrdinal,
+                        audioTracks = context.audioTracks,
+                    ),
+                    // Untouched: this path changed audio only.
+                    subtitleUpdate = TrackSelectionFingerprintUpdate.Preserve,
+                )
+            }
+        }
     }
 
     // ---- Subtitle suite: search / download / AI translate -----------------------
@@ -3783,6 +3958,12 @@ class PlayerViewModel(
                 "tryLocalPlayback: serving ${media.displayName} (${media.sizeBytes}B) for content=$contentId (sidecar id=${sidecar.record.id})",
             )
         }
+
+        // Downloaded playback publishes the catalog and hardcodes ordinal 0, but
+        // Media3 still picks its own default from the file's tracks -- so the
+        // intent has to exist here too or a multi-audio download cannot be
+        // corrected.
+        if (_uiState.value.audioTracks.isNotEmpty()) setDesiredAudio(0, explicit = false)
         return published
     }
 
@@ -3823,3 +4004,6 @@ class PlayerViewModel(
         return serverId to profileId
     }
 }
+
+/** Snapshots to let a local audio switch take before asking the server. */
+private const val MAX_LOCAL_AUDIO_ATTEMPTS = 3

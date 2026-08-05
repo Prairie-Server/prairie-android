@@ -365,6 +365,42 @@ internal class MobileSubtitleTransactionAdapter(
         mutate(UpdateAudioPreference(audioTrackIndex), explicit = true)
     }
 
+    /**
+     * Records audio that was switched on the player, with no server replan.
+     *
+     * The reducer's committed audio is what a later subtitle transaction stages
+     * and what teardown persists, so a locally-applied switch that only updated
+     * UI would be undone: the next subtitle replan would request the track the
+     * viewer just moved away from, and final persistence would overwrite the
+     * choice with the stale one.
+     *
+     * Deliberately NOT a mutation — there is nothing to stage, the player is
+     * already on the track. While a transaction is in flight the value is
+     * queued instead, so it cannot race that transaction's own commit.
+     */
+    fun commitLocallyAppliedAudio(audioTrackIndex: Int) {
+        context = context?.copy(audioTrackIndex = audioTrackIndex)
+        if (commitInFlight) {
+            pendingLocalAudioCommit = audioTrackIndex
+            return
+        }
+        transition = transition.copy(
+            committed = transition.committed.copy(audioTrackIndex = audioTrackIndex),
+        )
+        publish()
+    }
+
+    /** Applied once an in-flight commit finishes; see [commitLocallyAppliedAudio]. */
+    private var pendingLocalAudioCommit: Int? = null
+
+    private fun drainPendingLocalAudioCommit() {
+        val queued = pendingLocalAudioCommit ?: return
+        pendingLocalAudioCommit = null
+        transition = transition.copy(
+            committed = transition.committed.copy(audioTrackIndex = queued),
+        )
+    }
+
     fun invalidate() {
         adoptionGeneration += 1
         contentGeneration += 1
@@ -699,6 +735,7 @@ internal class MobileSubtitleTransactionAdapter(
             stagedPort.commit(candidate)
         } catch (cancellation: CancellationException) {
             commitInFlight = false
+            drainPendingLocalAudioCommit()
             if (!currentCoroutineContext().isActive) throw cancellation
             ApiResult.NetworkError(cancellation)
         } catch (error: Exception) {
@@ -716,6 +753,7 @@ internal class MobileSubtitleTransactionAdapter(
                 val adoptionContext = context ?: run {
                     abandonCommittedPlayback(committed.data)
                     commitInFlight = false
+                    drainPendingLocalAudioCommit()
                     resetDuringCommit = false
                     return
                 }
@@ -762,6 +800,7 @@ internal class MobileSubtitleTransactionAdapter(
                     is AdoptionOutcome.Failed -> {
                         abandonCommittedPlayback(playback)
                         commitInFlight = false
+                        drainPendingLocalAudioCommit()
                         val message = "Subtitle playback adoption failed."
                         finishFailedCommit(requested.generation, message)
                         withContext(NonCancellable) {
@@ -779,6 +818,7 @@ internal class MobileSubtitleTransactionAdapter(
             }
             is ApiResult.Error -> {
                 commitInFlight = false
+                drainPendingLocalAudioCommit()
                 finishFailedCommit(
                     generation = requested.generation,
                     message = committed.message,
@@ -786,6 +826,7 @@ internal class MobileSubtitleTransactionAdapter(
             }
             is ApiResult.NetworkError -> {
                 commitInFlight = false
+                drainPendingLocalAudioCommit()
                 finishFailedCommit(
                     generation = requested.generation,
                     message = committed.exception.message ?: "Subtitle selection failed.",
@@ -816,6 +857,7 @@ internal class MobileSubtitleTransactionAdapter(
         refreshGeneration += 1
         failureMessage = null
         commitInFlight = false
+        drainPendingLocalAudioCommit()
         resetDuringCommit = false
         if (queuedMutations.isEmpty()) {
             if (transition.committed.identity.requiresLocalMountConfirmation()) {
@@ -837,6 +879,7 @@ internal class MobileSubtitleTransactionAdapter(
 
     private fun finishSupersededAdoption() {
         commitInFlight = false
+        drainPendingLocalAudioCommit()
         resetDuringCommit = false
         applyQueuedMutations()
     }
