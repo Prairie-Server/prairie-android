@@ -37,6 +37,18 @@ class PlaybackStartupStallDetector(
         playMethod: PlayMethod,
         startPositionMs: Long,
         nowMs: Long,
+        /**
+         * The decoder's rendered count AT MOUNT.
+         *
+         * Taken here rather than on the first sample, because sampling runs
+         * every 500ms and only while the screen is STARTED: a stream that
+         * renders before its first sample would otherwise have its own frames
+         * become the baseline, the detector would never recognise a first
+         * frame, and a perfectly healthy stream would run into the decoder
+         * deadline. Null when the player cannot be read, which leaves the
+         * lazy capture as the fallback it always was.
+         */
+        renderedOutputBufferCount: Int? = null,
     ) {
         if (this.sessionKey == sessionKey) return
         this.sessionKey = sessionKey
@@ -47,7 +59,7 @@ class PlaybackStartupStallDetector(
         // Re-baselined on arm. The counters are cumulative on the player, so
         // "greater than zero" would be satisfied instantly by the previous
         // attempt's frames when a player is reused.
-        this.renderedBaseline = null
+        this.renderedBaseline = renderedOutputBufferCount
         this.decoderStartupAtMs = null
         this.paused = false
         this.lastProgressPositionMs = this.startPositionMs

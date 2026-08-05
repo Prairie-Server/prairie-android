@@ -631,16 +631,23 @@ fun PlayerScreen(
         if (!isLocalMedia && uiState.sessionId != null) {
             PlaybackRuntimeCorrectionMetrics.reset()
             dvSanitizerReported = false
+            // See TvPlayerScreen: the baseline has to be taken at mount, not on
+            // the first sample, or a stream that renders quickly makes its own
+            // frames the baseline and never registers a first frame.
+            val renderedAtMount = (activePlayerHolder.player.value as? androidx.media3.exoplayer.ExoPlayer)
+                ?.videoDecoderCounters?.renderedOutputBufferCount
             startupStallDetector.onMounted(
                 sessionKey = "${uiState.sessionId}:$effectiveStreamUrl:${plan?.planId.orEmpty()}:" +
                     "${plan?.decisionTrace?.size ?: 0}:${uiState.mediaMountGeneration}",
                 playMethod = playMethod,
                 startPositionMs = mediaSpec.startPositionMs,
                 nowMs = SystemClock.elapsedRealtime(),
+                renderedOutputBufferCount = renderedAtMount,
             )
             postResumeStallDetector.onMounted(
                 "${uiState.sessionId}:$effectiveStreamUrl:${plan?.planId.orEmpty()}:" +
                     "${plan?.decisionTrace?.size ?: 0}:${uiState.mediaMountGeneration}",
+                renderedOutputBufferCount = renderedAtMount,
             )
         }
         backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)

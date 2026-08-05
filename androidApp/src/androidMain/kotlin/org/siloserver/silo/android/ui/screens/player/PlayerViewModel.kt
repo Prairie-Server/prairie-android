@@ -1191,7 +1191,8 @@ class PlayerViewModel(
                 title = watchDetail?.title ?: playbackState.title,
                 subtitle = watchDetail?.let { detail -> buildSubtitle(detail) } ?: playbackState.subtitle.orEmpty(),
                 artworkUrl = playbackState.artworkUrl,
-                sessionId = playbackState.sessionId,
+                sessionId = playbackState.sessionId
+                    ?.also { retainedOwnedSessionId = it },
                 playMethod = playbackState.playMethod,
                 playbackPlan = playbackState.playbackPlan,
                 requestHeaders = playbackState.requestHeaders,
@@ -2510,7 +2511,8 @@ class PlayerViewModel(
             current.copy(
                 error = null,
                 isBuffering = false,
-                sessionId = decision.session.sessionId,
+                sessionId = decision.session.sessionId
+                    .also { retainedOwnedSessionId = it },
                 playMethod = decision.session.playMethod,
                 playbackPlan = decision.session.playbackPlan,
                 delivery = decision.plan.delivery,
@@ -2722,7 +2724,8 @@ class PlayerViewModel(
         _uiState.update { current ->
             current.copy(
                 error = null,
-                sessionId = playback.sessionId,
+                sessionId = playback.sessionId
+                    ?.also { retainedOwnedSessionId = it },
                 playMethod = ready.session.playMethod,
                 playbackPlan = ready.session.playbackPlan,
                 delivery = ready.plan.delivery,

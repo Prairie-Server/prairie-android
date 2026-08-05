@@ -1543,16 +1543,24 @@ fun TvPlayerScreen(
         state.sessionId?.let { sessionId ->
             PlaybackRuntimeCorrectionMetrics.reset()
             dvSanitizerReported = false
+            // Read once, at mount. Counters are cumulative on the player and
+            // reset when a renderer is enabled rather than per app-level mount,
+            // so this value is what separates this attempt's frames from the
+            // previous one's.
+            val renderedAtMount = (activePlayerHolder.player.value as? androidx.media3.exoplayer.ExoPlayer)
+                ?.videoDecoderCounters?.renderedOutputBufferCount
             startupStallDetector.onMounted(
                 sessionKey = "$sessionId:$url:${plan?.planId.orEmpty()}:" +
                     "${plan?.decisionTrace?.size ?: 0}:${state.transportMountNonce}",
                 playMethod = method,
                 startPositionMs = mediaSpec.startPositionMs,
                 nowMs = SystemClock.elapsedRealtime(),
+                renderedOutputBufferCount = renderedAtMount,
             )
             postResumeStallDetector.onMounted(
                 "$sessionId:$url:${plan?.planId.orEmpty()}:" +
                     "${plan?.decisionTrace?.size ?: 0}:${state.transportMountNonce}",
+                renderedOutputBufferCount = renderedAtMount,
             )
         }
         backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)

@@ -30,11 +30,11 @@ class PostResumeVideoStallDetector(
     private var baselinePositionMs = 0L
     private var baselineRenderedCount = 0
 
-    fun onMounted(sessionKey: String) {
+    fun onMounted(sessionKey: String, renderedOutputBufferCount: Int? = null) {
         if (this.sessionKey == sessionKey) return
         this.sessionKey = sessionKey
         firstFrameRendered = false
-        renderedBaseline = null
+        renderedBaseline = renderedOutputBufferCount
         pausedAfterFirstFrame = false
         pausedDuringRecovery = false
         stage = Stage.IDLE
