@@ -8,31 +8,57 @@ import org.siloserver.silo.android.ui.screens.player.MobilePlayerRouteIntent
 import org.siloserver.silo.android.ui.screens.player.MobilePlayerRouteTarget
 import org.siloserver.silo.common.player.video.VideoPlayerRouteArgs
 
+/**
+ * The identity an external request is only meaningful against.
+ *
+ * External requests wait: a link can arrive before sign-in and sit through
+ * setup, login and profile selection, and the identity it was created for may
+ * not be the one active when it finally fires. Every route that means something
+ * different under a different server or profile has to say so and be re-checked
+ * at delivery, or it acts on whoever happens to be signed in by then.
+ */
+sealed interface ExternalRouteScope {
+    /** Meaningful under any identity — e.g. "open the Downloads tab". */
+    data object Unscoped : ExternalRouteScope
+
+    /**
+     * Valid only under this server and profile. Used by notifications (which
+     * are generated for one profile's inbox) and by content links (whose ids
+     * are server-local). Null components mean "was not signed in when this was
+     * created", which constrains nothing.
+     */
+    data class Identity(val serverId: String?, val profileId: String?) : ExternalRouteScope {
+        /**
+         * Each component constrains only if it was known. A link that arrived
+         * with a server but no profile yet — configured server, nobody signed
+         * in — must still deliver once a profile IS chosen; requiring the
+         * profile to still be null would drop exactly the link the user was
+         * signing in to open.
+         */
+        fun matches(serverId: String?, profileId: String?): Boolean =
+            (this.serverId == null || this.serverId == serverId) &&
+                (this.profileId == null || this.profileId == profileId)
+    }
+}
+
 /** A single external-navigation delivery, distinct even when its route repeats. */
 class ExternalRouteRequest internal constructor(
     val generation: Long,
     val route: String,
-    /**
-     * The server origin this request is only valid against, or null if it is
-     * server-agnostic.
-     *
-     * A pairing link can be queued while NO server is configured, then wait
-     * through setup and login. Whatever server the user ends up on may not be
-     * the one that issued the code, so the origin has to survive the wait and
-     * be re-checked at delivery — dropping it here is how a code ends up looked
-     * up against the wrong server.
-     */
-    val requiredServerOrigin: String? = null,
+    val scope: ExternalRouteScope = ExternalRouteScope.Unscoped,
 )
 
 internal class ExternalRouteRequestFactory {
     private var latestGeneration = 0L
 
-    fun create(route: String, requiredServerOrigin: String? = null): ExternalRouteRequest =
+    fun create(
+        route: String,
+        scope: ExternalRouteScope = ExternalRouteScope.Unscoped,
+    ): ExternalRouteRequest =
         ExternalRouteRequest(
             generation = ++latestGeneration,
             route = route,
-            requiredServerOrigin = requiredServerOrigin,
+            scope = scope,
         )
 }
 
@@ -168,10 +194,10 @@ internal suspend fun consumeExternalRouteOnce(
     currentDestinationRoutes: Flow<String?>,
     isAlreadyAtRoute: (String) -> Boolean = { false },
     /**
-     * Whether [ExternalRouteRequest.requiredServerOrigin] still matches the
-     * active server. Evaluated after the wait, not before it.
+     * Whether the request's [ExternalRouteScope] still matches the live
+     * identity. Evaluated AFTER the wait, not before it.
      */
-    isStillValidForActiveServer: suspend (String) -> Boolean = { true },
+    isStillValidForScope: suspend (ExternalRouteScope) -> Boolean = { true },
     navigate: (String) -> Unit,
     onConsumed: (ExternalRouteRequest) -> Unit,
 ) {
@@ -182,13 +208,11 @@ internal suspend fun consumeExternalRouteOnce(
     currentDestinationRoutes.first { currentRoute ->
         isPreAuthenticationTarget || currentRoute !in preAuthenticationDestinationRoutes
     }
-    val originStillValid = request.requiredServerOrigin
-        ?.let { origin -> isStillValidForActiveServer(origin) }
-        ?: true
-    if (originStillValid && !isAlreadyAtRoute(route)) {
+    val scopeStillValid = isStillValidForScope(request.scope)
+    if (scopeStillValid && !isAlreadyAtRoute(route)) {
         navigate(route)
     }
-    // Consumed either way: a request whose server no longer matches must not
+    // Consumed either way: a request whose identity no longer matches must not
     // sit in the queue waiting to fire at some later, equally wrong moment.
     onConsumed(request)
 }

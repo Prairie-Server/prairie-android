@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import org.siloserver.silo.android.ui.screens.auth.DevicePairingWrongServerScreen
+import org.siloserver.silo.android.ui.screens.auth.DevicePairingUnknownServerScreen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -115,6 +119,12 @@ fun AppNavigation(
     startDestination: String = Route.Login.route,
     pendingExternalRoute: ExternalRouteRequest? = null,
     onExternalRouteConsumed: (ExternalRouteRequest) -> Unit = {},
+    /**
+     * Re-queues [route] as a pending external request. Used when an action
+     * inside a destination is about to send the user through authentication,
+     * which clears the back stack and would otherwise lose that destination.
+     */
+    onRequeueExternalRoute: (String) -> Unit = {},
 ) {
     val tokenManager: TokenManager = koinInject()
     val serverRegistry: org.siloserver.silo.network.ServerRegistry = koinInject()
@@ -186,14 +196,22 @@ fun AppNavigation(
                     }
                 }
             },
-            isStillValidForActiveServer = { requiredOrigin ->
-                // The user may have configured a DIFFERENT server while this
-                // request waited through setup/login. A pairing code looked up
-                // against the wrong server is worse than not looked up at all.
-                deviceLoginOriginMatchesServer(
-                    requiredOrigin = requiredOrigin,
-                    activeServerUrl = serverRegistry.activeEntry.value?.url,
-                )
+            isStillValidForScope = { scope ->
+                // Checked AFTER the wait: the identity can move while a request
+                // sits through setup, login and profile selection.
+                when (scope) {
+                    ExternalRouteScope.Unscoped -> true
+                    is ExternalRouteScope.Identity -> {
+                        // One snapshot, for the same reason the capture side
+                        // takes one: separate getters can tear across a switch
+                        // and validate against an identity that never existed.
+                        val live = tokenManager.snapshotCurrentScope()
+                        scope.matches(
+                            serverId = live?.serverId,
+                            profileId = live?.profileId,
+                        )
+                    }
+                }
             },
             onConsumed = onExternalRouteConsumed,
         )
@@ -348,6 +366,11 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("serverOrigin") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
             // Deliberately NO navDeepLink registrations. While they existed,
             // Navigation matched the Activity's launch Intent itself when the
@@ -359,20 +382,114 @@ fun AppNavigation(
         ) { backStackEntry ->
             val token = backStackEntry.arguments?.getString("token")
             val code = backStackEntry.arguments?.getString("code")
-            DevicePairingScreen(
-                token = token,
-                code = code,
-                onDone = {
-                    if (!navController.popBackStack()) {
-                        navController.navigate(Route.Home.route) {
-                            popUpTo(0) { inclusive = true }
+            val requiredOrigin = backStackEntry.arguments?.getString("serverOrigin")
+            val knownServers by serverRegistry.entries.collectAsState()
+            val activeServer by serverRegistry.activeEntry.collectAsState()
+            val match = remember(requiredOrigin, activeServer, knownServers) {
+                deviceLoginServerMatch(
+                    requiredOrigin = requiredOrigin,
+                    activeServerUrl = activeServer?.url,
+                    entries = knownServers,
+                )
+            }
+            val pairingScope = rememberCoroutineScope()
+            when (val resolved = match) {
+                is DeviceLoginServerMatch.SwitchRequired ->
+                    DevicePairingWrongServerScreen(
+                        serverName = resolved.entry.displayName,
+                        onSwitch = {
+                            pairingScope.launch {
+                                serverRegistry.switchTo(resolved.entry.id)
+                                // Re-queue ONLY if the target server will send
+                                // the user through auth: that flow ends at
+                                // profile selection, whose popUpTo(0) wipes this
+                                // destination and the code would have to be
+                                // scanned again. Re-queueing unconditionally was
+                                // worse — with no sign-in needed the request just
+                                // waited for this screen to close and then
+                                // reopened it.
+                                val authRoute = pairingAuthRouteOrNull(
+                                    tokenManager = tokenManager,
+                                    activeEntryProfileId = serverRegistry.activeEntry.value
+                                        ?.profileId,
+                                )
+                                if (authRoute != null) {
+                                    onRequeueExternalRoute(
+                                        Route.PairDevice(
+                                            token = token,
+                                            code = code,
+                                            serverOrigin = requiredOrigin,
+                                        ).route,
+                                    )
+                                    // Requeueing alone left the user sitting on
+                                    // a pairing screen for a server they are not
+                                    // signed in to; the queued request only
+                                    // fires once something else takes them
+                                    // somewhere authenticated. Send them.
+                                    navController.navigate(authRoute) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
+                            }
+                        },
+                        onCancel = {
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Route.Home.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        },
+                    )
+                is DeviceLoginServerMatch.UnknownServer ->
+                    DevicePairingUnknownServerScreen(
+                        origin = resolved.origin,
+                        onAddServer = {
+                            // Adding a server always runs setup and login, which
+                            // clear this destination — so this one always
+                            // re-queues.
+                            onRequeueExternalRoute(
+                                Route.PairDevice(
+                                    token = token,
+                                    code = code,
+                                    serverOrigin = requiredOrigin,
+                                ).route,
+                            )
+                            navController.navigate(Route.ServerSetup.route)
+                        },
+                        onCancel = {
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Route.Home.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        },
+                    )
+                DeviceLoginServerMatch.Active -> DevicePairingScreen(
+                    token = token,
+                    code = code,
+                    onDone = {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Route.Home.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
                         }
-                    }
-                },
-                onSignIn = {
-                    navController.navigate(Route.Login.route)
-                },
-            )
+                    },
+                    onSignIn = {
+                        // Same preservation as the switch path: signing in ends
+                        // at profile selection, whose popUpTo(0) wipes this
+                        // destination, and the code would have to be scanned
+                        // again.
+                        onRequeueExternalRoute(
+                            Route.PairDevice(
+                                token = token,
+                                code = code,
+                                serverOrigin = requiredOrigin,
+                            ).route,
+                        )
+                        navController.navigate(Route.Login.route)
+                    },
+                )
+            }
         }
 
         // ---- Server list (multi-server management) ----
@@ -1054,4 +1171,21 @@ private fun NavHostController.isDisplayingExactPlayerRoute(
     if (!arguments.getString("roomId").isNullOrBlank()) return false
     val requestedTarget = playerRouteIntentOrNull(route) ?: return false
     return currentPlayerTarget?.let(requestedTarget::matches) == true
+}
+
+/**
+ * The route the newly active server must pass through before pairing is
+ * possible, or null when it can pair immediately.
+ *
+ * Same credential check `ServerListViewModel` uses to pick a switch
+ * destination, including its preference for the registry entry's profile id
+ * over the token manager's cached one.
+ */
+private suspend fun pairingAuthRouteOrNull(
+    tokenManager: TokenManager,
+    activeEntryProfileId: String?,
+): String? {
+    if (tokenManager.getAccessToken().isNullOrBlank()) return Route.Login.route
+    val profileId = activeEntryProfileId ?: tokenManager.getProfileId()
+    return if (profileId.isNullOrBlank()) Route.ProfileSelection.route else null
 }

@@ -39,12 +39,20 @@ sealed class Route(val route: String) {
     data class PairDevice(
         val token: String? = null,
         val code: String? = null,
+        /**
+         * Origin of the server that issued this pairing request, when the link
+         * named one. Carried so the screen can refuse — and explain — rather
+         * than looking the code up against whichever server is active.
+         */
+        val serverOrigin: String? = null,
     ) : Route(
         buildString {
             append("pair_device")
             val params = listOfNotNull(
                 token?.takeIf { it.isNotBlank() }?.let { "token=${Uri.encode(it)}" },
                 code?.takeIf { it.isNotBlank() }?.let { "code=${Uri.encode(it)}" },
+                serverOrigin?.takeIf { it.isNotBlank() }
+                    ?.let { "serverOrigin=${Uri.encode(it)}" },
             )
             if (params.isNotEmpty()) {
                 append("?")
@@ -53,7 +61,7 @@ sealed class Route(val route: String) {
         },
     ) {
         companion object {
-            const val ROUTE = "pair_device?token={token}&code={code}"
+            const val ROUTE = "pair_device?token={token}&code={code}&serverOrigin={serverOrigin}"
         }
     }
 

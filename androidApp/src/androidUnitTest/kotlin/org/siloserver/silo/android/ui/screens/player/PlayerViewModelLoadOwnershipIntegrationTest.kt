@@ -38,6 +38,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -104,7 +108,14 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private val dispatcher = UnconfinedTestDispatcher()
+    // StandardTestDispatcher, NOT Unconfined. Unconfined resumes continuations
+    // inline on whichever thread completed the suspending call, and reentrant
+    // resumptions land in that thread's internal unconfined event loop — a queue
+    // the test scheduler cannot reach. Waiting for such a continuation from
+    // another dispatcher was a genuine race: measured 2 failures in 6 idle runs.
+    // A standard dispatcher gives every continuation an explicit scheduler queue
+    // that `runTest` drains while the test body is suspended.
+    private val dispatcher = StandardTestDispatcher()
     private lateinit var db: SiloDatabase
 
     @BeforeTest
@@ -206,7 +217,13 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
                     message = "stale failure",
                 ),
             )
-            fixture.viewModel.awaitState { it.sessionId == "new-session" }
+            // Drain, do not wait on a predicate. `awaitState { sessionId ==
+            // "new-session" }` was already true the moment it was called, so it
+            // returned without the stale error having been handled at all — the
+            // assertions below then proved nothing. Draining the scheduler makes
+            // "the stale error was processed AND still did not overwrite" the
+            // thing actually under test.
+            advanceUntilIdle()
 
             val state = fixture.viewModel.uiState.value
             assertEquals("new", state.contentId)
@@ -610,10 +627,14 @@ private class DeferredNonCooperativeStarter : VideoPlaybackStarter {
 
     private val pending = mutableListOf<Pending>()
 
+    /** Replayable so a request that lands before the wait begins is still seen. */
+    private val requestCount = MutableStateFlow(0)
+
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult =
         suspendCoroutine { continuation ->
-            synchronized(pending) {
+            requestCount.value = synchronized(pending) {
                 pending += Pending(request, continuation)
+                pending.size
             }
         }
 
@@ -631,9 +652,7 @@ private class DeferredNonCooperativeStarter : VideoPlaybackStarter {
     }
 
     suspend fun awaitRequestCount(count: Int) {
-        awaitCondition {
-            synchronized(pending) { pending.size >= count }
-        }
+        awaitRealTime { requestCount.first { it >= count } }
     }
 }
 
@@ -646,6 +665,7 @@ private class RecordingPlaybackSessionManager(
 ) {
     private val stopped = mutableListOf<String>()
     private val stopActiveContexts = mutableListOf<Boolean>()
+    private val stoppedSignal = MutableStateFlow<Set<String>>(emptySet())
 
     val stoppedSessions: List<String>
         get() = synchronized(stopped) { stopped.toList() }
@@ -659,11 +679,12 @@ private class RecordingPlaybackSessionManager(
             stopped += sessionId
             stopActiveContexts += contextActive
         }
+        stoppedSignal.update { it + sessionId }
         return ApiResult.Success(Unit)
     }
 
     suspend fun awaitStopped(sessionId: String) {
-        awaitCondition { sessionId in stoppedSessions }
+        awaitRealTime { stoppedSignal.first { sessionId in it } }
     }
 }
 
@@ -822,18 +843,33 @@ private fun noOpClient(): HttpClient =
 private suspend fun PlayerViewModel.awaitState(
     predicate: (PlayerViewModel.PlayerUiState) -> Boolean,
 ) {
-    awaitCondition { predicate(uiState.value) }
+    awaitRealTime { uiState.first(predicate) }
 }
 
-private suspend fun awaitCondition(predicate: () -> Boolean) {
-    withContext(Dispatchers.Default.limitedParallelism(1)) {
-        withTimeout(5_000) {
-            while (!predicate()) {
-                delay(5)
-            }
-        }
+/**
+ * Runs [block] under a REAL, generous deadline.
+ *
+ * The deadline has to be real: this load path does unavoidable work on
+ * `Dispatchers.IO` before it ever reaches the fake starter — the offline
+ * preflight in `PlayerViewModel.tryLocalPlayback` and, beneath it,
+ * `LegacyDownloadImporter` both hard-code that dispatcher — and virtual time
+ * cannot advance a real thread. A purely virtual timeout raced straight past
+ * that work and failed every test in this class.
+ *
+ * What must NOT come back is polling. Waiters here suspend on a signal, so a
+ * result that arrives before the wait begins is still seen, and a waiter can no
+ * longer give up on work that simply had not been dispatched yet.
+ */
+private suspend fun <T> awaitRealTime(block: suspend () -> T): T =
+    withContext(Dispatchers.Default) {
+        // The deadline exists to turn a hang into a failure, not to police
+        // latency — a passing test signals in milliseconds and never waits.
+        // Five seconds was tight enough that a full-suite run, with dozens of
+        // Robolectric classes competing for the same JVM, could blow it while
+        // the work was merely slow. That looked exactly like the race this
+        // helper was written to remove, which is worse than useless.
+        withTimeout(30_000) { block() }
     }
-}
 
 private const val SERVER_ID = "server"
 private const val PROFILE_ID = "profile"

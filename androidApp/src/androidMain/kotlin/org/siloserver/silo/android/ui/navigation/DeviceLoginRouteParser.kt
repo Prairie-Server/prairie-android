@@ -20,12 +20,24 @@ internal fun deviceLoginPairRouteOrNull(rawUri: String?): String? {
 
     if (!uri.isDeviceLoginUri()) return null
 
+    // A device-SHAPED http(s) link whose origin cannot be read is not a usable
+    // pairing request. Letting it through produced a route with no
+    // `serverOrigin`, which downstream reads as "names no server" and pairs
+    // against whichever server is active — exactly what the origin check
+    // exists to stop.
+    val scope = deviceLoginScope(rawUri)
+    if (scope == DeviceLoginScope.Invalid) return null
+
     val params = uri.queryParameters()
     val token = params["token"]?.takeIf { it.isNotBlank() }
     val code = params["code"]?.takeIf { it.isNotBlank() }
     if (token == null && code == null) return null
 
-    return buildPairDeviceRoute(token = token, code = if (token == null) code else null)
+    return buildPairDeviceRoute(
+        token = token,
+        code = if (token == null) code else null,
+        serverOrigin = (scope as? DeviceLoginScope.Origin)?.origin,
+    )
 }
 
 /**
@@ -75,55 +87,26 @@ private fun URI.normalizedOrigin(): String? {
     return if (explicitPort != null) "$scheme://$host:$explicitPort" else "$scheme://$host"
 }
 
-/** Whether [requiredOrigin] is the origin of [activeServerUrl]. */
+/**
+ * Whether [requiredOrigin] is the origin of [activeServerUrl].
+ *
+ * BOTH sides are normalized. Comparing a caller-supplied origin verbatim made
+ * `https://h:443` a different server from `https://h`, so a valid link was
+ * refused.
+ */
 internal fun deviceLoginOriginMatchesServer(
     requiredOrigin: String,
     activeServerUrl: String?,
 ): Boolean {
+    val required = runCatching { URI(requiredOrigin) }.getOrNull()?.normalizedOrigin()
+        ?: return false
     val active = activeServerUrl
         ?.takeIf { it.isNotBlank() }
         ?.let { runCatching { URI(it) }.getOrNull() }
         ?.normalizedOrigin()
         ?: return false
-    return active == requiredOrigin
+    return active == required
 }
-
-/** The origin a device link requires, or null when it names no server. */
-internal fun deviceLoginRequiredOrigin(rawUri: String?): String? =
-    (deviceLoginScope(rawUri) as? DeviceLoginScope.Origin)?.origin
-
-/**
- * True when a device link may be acted on for the currently active server.
- *
- * An http(s) device link identifies the server that issued the pairing request,
- * but that origin used to be dropped on the floor: the code was then looked up
- * against whatever server happened to be active, which normally reports the
- * request as invalid or expired even though it is perfectly valid on the server
- * the user actually scanned. Approving against the wrong server is worse than
- * not approving, so a link naming a different origin is refused.
- *
- * With NO server configured yet there is nothing to contradict — the user is
- * about to set one up, and having just scanned a server's code they are
- * overwhelmingly likely to set up that one — so the link is allowed through the
- * normal setup/login gates rather than dropped on the floor.
- *
- * Pairing against a configured-but-INACTIVE server would mean switching the
- * active server from a link, which is a product decision rather than a parser
- * one. It is refused here; see the caller for the known gap that this refusal
- * is currently silent.
- */
-internal fun deviceLoginLinkIsForActiveServer(rawUri: String?, activeServerUrl: String?): Boolean =
-    when (val scope = deviceLoginScope(rawUri)) {
-        DeviceLoginScope.Unscoped -> true
-        DeviceLoginScope.Invalid -> false
-        is DeviceLoginScope.Origin -> {
-            val active = activeServerUrl
-                ?.takeIf { it.isNotBlank() }
-                ?.let { runCatching { URI(it) }.getOrNull() }
-                ?.normalizedOrigin()
-            active == null || active == scope.origin
-        }
-    }
 
 private fun URI.isDeviceLoginUri(): Boolean {
     val scheme = scheme?.lowercase()
@@ -153,11 +136,16 @@ private fun URI.queryParameters(): Map<String, String> =
 private fun String.urlDecode(): String =
     URLDecoder.decode(this, Charsets.UTF_8.name())
 
-private fun buildPairDeviceRoute(token: String?, code: String?): String = buildString {
+private fun buildPairDeviceRoute(
+    token: String?,
+    code: String?,
+    serverOrigin: String?,
+): String = buildString {
     append("pair_device")
     val params = listOfNotNull(
         token?.takeIf { it.isNotBlank() }?.let { "token=${it.routeEncode()}" },
         code?.takeIf { it.isNotBlank() }?.let { "code=${it.routeEncode()}" },
+        serverOrigin?.takeIf { it.isNotBlank() }?.let { "serverOrigin=${it.routeEncode()}" },
     )
     if (params.isNotEmpty()) {
         append("?")

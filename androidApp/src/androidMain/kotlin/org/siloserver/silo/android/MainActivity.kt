@@ -38,9 +38,9 @@ import org.siloserver.silo.android.ui.navigation.ExternalRouteRequestFactory
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.clearConsumedExternalRouteRequest
 import org.siloserver.silo.android.ui.navigation.contentDeepLinkRouteOrNull
-import org.siloserver.silo.android.ui.navigation.deviceLoginLinkIsForActiveServer
+import org.siloserver.silo.android.ui.navigation.ExternalRouteScope
+import org.siloserver.silo.android.ui.navigation.notificationExternalRouteOrNull
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
-import org.siloserver.silo.android.ui.navigation.deviceLoginRequiredOrigin
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
 import org.siloserver.silo.android.ui.navigation.inviteClaimRouteOrNull
 import org.siloserver.silo.android.ui.navigation.notificationNavigationRouteOrNull
@@ -90,6 +90,12 @@ class MainActivity : ComponentActivity() {
          */
         private const val EXTRA_EXTERNAL_ROUTE_CONSUMED =
             "org.siloserver.silo.EXTERNAL_ROUTE_CONSUMED"
+
+        /**
+         * Stands in for an active server whose identity could not be read, so a
+         * scope built from it matches nothing instead of everything.
+         */
+        private const val UNRESOLVED_IDENTITY = "silo:unresolved-identity"
 
         /** Saved-state key for [consumedExternalRoute]. */
         private const val STATE_CONSUMED_EXTERNAL_ROUTE =
@@ -141,31 +147,7 @@ class MainActivity : ComponentActivity() {
                 // Skip an Intent whose route was already delivered: it is only
                 // still here because the Activity retains it.
                 if (intent?.getBooleanExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, false) != true) {
-                    val activeServerUrl = get<ServerRegistry>(ServerRegistry::class.java)
-                        .activeEntry.value?.url
-                    val deviceRoute = deviceLoginPairRouteOrNull(intent?.dataString)
-                        ?.takeIf {
-                            deviceLoginLinkIsForActiveServer(intent?.dataString, activeServerUrl)
-                        }
-                    val externalRoute = notificationRouteOrNull(intent)
-                        ?: contentDeepLinkRouteOrNull(intent?.dataString)
-                        ?: deviceRoute
-                    externalRoute
-                        ?.takeIf { it != consumedExternalRoute }
-                        ?.let { route ->
-                            pendingExternalRouteRequests.value =
-                                externalRouteRequestFactory.create(
-                                    route = route,
-                                    // Only a device link is server-scoped, and it
-                                    // may wait here through setup/login onto a
-                                    // server that did not issue it.
-                                    requiredServerOrigin = if (route === deviceRoute) {
-                                        deviceLoginRequiredOrigin(intent?.dataString)
-                                    } else {
-                                        null
-                                    },
-                                )
-                        }
+                    queueExternalRouteFrom(intent)
                 }
                 launchAuthenticatedStartupWarmup(route)
             }
@@ -202,6 +184,15 @@ class MainActivity : ComponentActivity() {
                         AppNavigation(
                             startDestination = resolvedRoute,
                             pendingExternalRoute = pendingExternalRoute,
+                            onRequeueExternalRoute = { route ->
+                                // A fresh request: clear the consumed marker so
+                                // this re-delivery is not mistaken for the
+                                // already-followed original.
+                                consumedExternalRoute = null
+                                intent?.removeExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED)
+                                pendingExternalRouteRequests.value =
+                                    externalRouteRequestFactory.create(route)
+                            },
                             onExternalRouteConsumed = { consumedRequest ->
                                 // Record the delivery in two places. The Intent
                                 // extra covers in-process Activity recreation,
@@ -247,24 +238,7 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED)
         consumedExternalRoute = null
         setIntent(intent)
-        val activeServerUrl = get<ServerRegistry>(ServerRegistry::class.java)
-            .activeEntry.value?.url
-        val deviceRoute = deviceLoginPairRouteOrNull(intent.dataString)
-            ?.takeIf { deviceLoginLinkIsForActiveServer(intent.dataString, activeServerUrl) }
-        val route = deviceRoute
-            ?: inviteClaimRouteOrNull(intent.dataString)
-            ?: notificationRouteOrNull(intent)
-            ?: contentDeepLinkRouteOrNull(intent.dataString)
-        route?.let {
-            pendingExternalRouteRequests.value = externalRouteRequestFactory.create(
-                route = it,
-                requiredServerOrigin = if (it === deviceRoute) {
-                    deviceLoginRequiredOrigin(intent.dataString)
-                } else {
-                    null
-                },
-            )
-        }
+        lifecycleScope.launch { queueExternalRouteFrom(intent) }
     }
 
     /**
@@ -310,6 +284,94 @@ class MainActivity : ComponentActivity() {
         requestLegacyPublicDownloadPermission.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
     }
 
+
+    /**
+     * Parses an Intent into a pending external route, tagged with the identity
+     * it is only meaningful under.
+     *
+     * Everything that can wait through authentication has to declare its scope,
+     * because "wait" can mean days for a notification PendingIntent and several
+     * profile switches:
+     *  - a pairing link names its issuing SERVER ORIGIN;
+     *  - a notification was generated for one profile's inbox on one server, so
+     *    it carries the identity stamped on it at post time;
+     *  - a content link (`silo://item`, `silo://play`) carries no identity of
+     *    its own, but its ids are server-local — so it is pinned to whoever is
+     *    signed in when the link arrives. Arriving signed-out pins nothing,
+     *    which is what lets a link opened before login still work after it.
+     */
+    private suspend fun queueExternalRouteFrom(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, false) == true) return
+
+        // NOT gated on the active server. The route carries its issuing origin
+        // and the pairing destination refuses — and explains — a mismatch, with
+        // a switch action. Dropping it here was silent: the user scanned a code
+        // and nothing happened. A link whose origin cannot be read does not
+        // parse into a route at all.
+        val deviceRoute = deviceLoginPairRouteOrNull(intent?.dataString)
+        // Rejected outright unless it says whose it is — see
+        // [notificationExternalRouteOrNull].
+        val notification = notificationExternalRouteOrNull(
+            route = notificationRouteOrNull(intent),
+            serverId = intent?.getStringExtra(PushNotificationPresenter.EXTRA_SERVER_ID),
+            profileId = intent?.getStringExtra(PushNotificationPresenter.EXTRA_PROFILE_ID),
+        )
+        val notificationRoute = notification?.first
+        val contentRoute = contentDeepLinkRouteOrNull(intent?.dataString)
+        val inviteRoute = inviteClaimRouteOrNull(intent?.dataString)
+
+        val route = notificationRoute ?: contentRoute ?: deviceRoute ?: inviteRoute ?: return
+        if (route == consumedExternalRoute) return
+
+        val scope = when {
+            // Unscoped for DELIVERY: the pairing screen owns the server check,
+            // so the request must actually arrive for it to be explained.
+            route === deviceRoute -> ExternalRouteScope.Unscoped
+            // Non-null by construction: `route` is only this when `notification`
+            // produced it, and that requires a complete identity.
+            route === notificationRoute -> checkNotNull(notification).second
+            route === contentRoute -> currentIdentityScope()
+            // An invite claim carries its own target server and is designed to
+            // work before authentication, so it must NOT be pinned to the
+            // current identity.
+            else -> ExternalRouteScope.Unscoped
+        }
+
+        pendingExternalRouteRequests.value =
+            externalRouteRequestFactory.create(route = route, scope = scope)
+    }
+
+    /**
+     * One cohesive read of the live identity.
+     *
+     * Reading the server and profile through separate getters could tear across
+     * a switch — the cached server id from before it, the profile id from after
+     * — producing a hybrid identity that belongs to nobody, which then either
+     * consumes a valid one-shot route or weakens it with a null wildcard.
+     */
+    private suspend fun currentIdentityScope(): ExternalRouteScope {
+        val scope = get<TokenManager>(TokenManager::class.java).snapshotCurrentScope()
+        if (scope != null) {
+            return ExternalRouteScope.Identity(
+                serverId = scope.serverId,
+                profileId = scope.profileId,
+            )
+        }
+        // A null snapshot means "no active server" — nothing to pin to, and the
+        // link must survive setup and login. But it ALSO means "snapshotting
+        // failed" or "this manager does not model scopes", and turning those
+        // into a wildcard would quietly unpin a link that should have been
+        // pinned. Only an actually-absent server is allowed to be unpinned.
+        val registry = get<ServerRegistry>(ServerRegistry::class.java)
+        return if (registry.activeServerId.value == null) {
+            ExternalRouteScope.Identity(serverId = null, profileId = null)
+        } else {
+            // An active server we cannot describe: pin to something nothing
+            // matches rather than to everything.
+            ExternalRouteScope.Identity(serverId = UNRESOLVED_IDENTITY, profileId = null)
+        }
+    }
+
     private fun notificationRouteOrNull(intent: Intent?): String? =
         notificationNavigationRouteOrNull(
             intent?.getStringExtra(PushNotificationPresenter.EXTRA_NAV_ROUTE),
@@ -335,11 +397,6 @@ class MainActivity : ComponentActivity() {
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
 
-        // KNOWN GAP: a device link naming a configured-but-inactive server is
-        // refused silently — the user scans and nothing visible happens. Fixing
-        // that properly means a "this pairing request belongs to server X"
-        // surface with a switch action, which is a product decision.
-        //
         // NOTE: a device link is deliberately NOT returned as the start
         // destination. It used to be, which put Pair Device at the root of a
         // signed-out app: its "Sign In" pushed Login, and the successful login

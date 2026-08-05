@@ -364,6 +364,14 @@ class EncryptedTokenManagerImpl(
                 identityGeneration = identityTransitions.generation.value,
             )
         }
+        // Reconcile with the registry FIRST. The registry observer is
+        // asynchronous, so immediately after a `switchTo(B)` this cached id can
+        // still be A — and every guard that trusts the snapshot then decides
+        // against a server the app has already left. The token reads
+        // (getAccessToken/getRefreshToken/getProfileId) reconcile; the snapshot
+        // did not, which made it disagree with them. Note getCurrentServerId
+        // still reads the cache directly.
+        ensureCacheMatchesRegistryLocked()
         val serverId = activeServerId ?: return@withLock null
         // Resolve the URL for *this* serverId from the registry entries so the
         // snapshot is internally consistent. Do NOT fall back to activeEntry —

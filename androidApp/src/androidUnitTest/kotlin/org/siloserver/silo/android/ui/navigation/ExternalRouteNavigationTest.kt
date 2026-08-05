@@ -295,27 +295,30 @@ class ExternalRouteNavigationTest {
     )
 
     /**
-     * A pairing link can be queued with NO server configured and then wait
-     * through setup and login. Whatever server the user lands on may not be the
-     * one that issued the code, so the origin is re-checked at delivery — and a
-     * mismatch must not navigate.
+     * A notification PendingIntent can be tapped days after it was posted, and
+     * several profile switches later. Its route means something different — or
+     * nothing — under another identity, so the scope is re-checked at delivery
+     * and a mismatch must not navigate.
      */
     @Test
     fun aRequestWhoseServerNoLongerMatchesIsNotDelivered() = runTest {
         val request = ExternalRouteRequestFactory()
-            .create(route = "pair_device?code=ABCD", requiredServerOrigin = "https://server-b")
+            .create(
+                route = "inbox",
+                scope = ExternalRouteScope.Identity(serverId = "server-b", profileId = "kids"),
+            )
         var navigated: String? = null
         var consumed = 0
 
         consumeExternalRouteOnce(
             pendingExternalRoute = request,
             currentDestinationRoutes = flowOf("home"),
-            isStillValidForActiveServer = { false },
+            isStillValidForScope = { false },
             navigate = { navigated = it },
             onConsumed = { consumed++ },
         )
 
-        assertNull(navigated, "a code must never be looked up against the wrong server")
+        assertNull(navigated, "a notification must never act on a different profile's session")
         // Still consumed: leaving it queued would only let it fire later, at an
         // equally wrong moment.
         assertEquals(1, consumed)
@@ -324,19 +327,22 @@ class ExternalRouteNavigationTest {
     @Test
     fun aRequestWhoseServerStillMatchesIsDelivered() = runTest {
         val request = ExternalRouteRequestFactory()
-            .create(route = "pair_device?code=ABCD", requiredServerOrigin = "https://server-b")
+            .create(
+                route = "inbox",
+                scope = ExternalRouteScope.Identity(serverId = "server-b", profileId = "kids"),
+            )
         var navigated: String? = null
         var consumed = 0
 
         consumeExternalRouteOnce(
             pendingExternalRoute = request,
             currentDestinationRoutes = flowOf("home"),
-            isStillValidForActiveServer = { true },
+            isStillValidForScope = { true },
             navigate = { navigated = it },
             onConsumed = { consumed++ },
         )
 
-        assertEquals("pair_device?code=ABCD", navigated)
+        assertEquals("inbox", navigated)
         assertEquals(1, consumed)
     }
 
@@ -349,11 +355,55 @@ class ExternalRouteNavigationTest {
         consumeExternalRouteOnce(
             pendingExternalRoute = request,
             currentDestinationRoutes = flowOf("home"),
-            isStillValidForActiveServer = { error("must not be consulted for an unscoped route") },
+            isStillValidForScope = { scope ->
+                assertEquals(ExternalRouteScope.Unscoped, scope)
+                true
+            },
             navigate = { navigated = it },
             onConsumed = { },
         )
 
         assertEquals("item/abc", navigated)
+    }
+
+    // --- identity scope matching ---
+
+    /**
+     * A link that arrived with a server but no profile — configured server,
+     * nobody signed in — must still deliver once a profile IS chosen. Requiring
+     * the profile to still be null dropped exactly the link the user was
+     * signing in to open.
+     */
+    @Test
+    fun aScopeCapturedBeforeSignInStillMatchesAfterIt() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = null)
+
+        assertTrue(scope.matches(serverId = "server-a", profileId = "profile-1"))
+        assertTrue(scope.matches(serverId = "server-a", profileId = null))
+    }
+
+    @Test
+    fun aScopeDoesNotMatchAnotherServer() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = null)
+
+        assertFalse(scope.matches(serverId = "server-b", profileId = "profile-1"))
+    }
+
+    /** A fully-specified notification scope must match both components. */
+    @Test
+    fun aFullyPinnedScopeRequiresBothComponents() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = "kids")
+
+        assertTrue(scope.matches(serverId = "server-a", profileId = "kids"))
+        assertFalse(scope.matches(serverId = "server-a", profileId = "adults"))
+        assertFalse(scope.matches(serverId = "server-b", profileId = "kids"))
+    }
+
+    /** Nothing known constrains nothing — the signed-out arrival case. */
+    @Test
+    fun anEmptyScopeMatchesAnything() {
+        val scope = ExternalRouteScope.Identity(serverId = null, profileId = null)
+
+        assertTrue(scope.matches(serverId = "server-a", profileId = "kids"))
     }
 }
