@@ -178,18 +178,45 @@ internal fun PlayerViewModel.PlayerUiState.withPlaybackClock(clock: PlaybackCloc
         bufferedPosition = clock.bufferedPosition,
     )
 
+/**
+ * The audio ordinal to send the server, from the picker row that was chosen.
+ *
+ * Audio is addressed by ORDINAL into `audio_tracks`. Unlike subtitles, audio
+ * tracks carry no index on the wire — a probe of the server returns
+ * `{"title":"English DTS 5.1","language":"en","codec":"dts",...}` with no
+ * `index`, so [AudioTrack.index] deserialises to its `0` default on every row.
+ *
+ * This used to read `audioTracks.getOrNull(ordinal).index`, which therefore
+ * evaluated to 0 for every track: every explicit audio pick asked the server
+ * for track 0, so choosing the second language played the first.
+ */
+/**
+ * The durable fingerprint for a committed audio choice.
+ *
+ * [committedAudioTrackIndex] is an ORDINAL into [audioTracks]. Resolving it
+ * against `AudioTrack.index` matched nothing for any ordinal above zero -- the
+ * wire carries no audio index -- so the chosen track was silently never
+ * persisted and reopening the item lost it.
+ */
+internal fun mobileAudioTrackPersistenceUpdate(
+    committedAudioTrackIndex: Int?,
+    audioTracks: List<AudioTrack>,
+): TrackSelectionFingerprintUpdate = committedAudioTrackIndex
+    ?.let(audioTracks::getOrNull)
+    ?.let(::audioTrackFingerprint)
+    ?.let(TrackSelectionFingerprintUpdate::Set)
+    ?: TrackSelectionFingerprintUpdate.Preserve
+
 internal fun selectedServerAudioTrackIndex(
     selectedOrdinal: Int,
     audioTracks: List<AudioTrack>,
-): Int? = audioTracks.getOrNull(selectedOrdinal)?.index
+): Int? = selectedOrdinal.takeIf { it in audioTracks.indices }
 
+/** Inverse of [selectedServerAudioTrackIndex]: both are the same ordinal. */
 internal fun selectedAudioTrackOrdinal(
     selectedServerIndex: Int,
     audioTracks: List<AudioTrack>,
-): Int = audioTracks.indexOfFirst { it.index == selectedServerIndex }
-    .takeIf { it >= 0 }
-    ?: selectedServerIndex.takeIf { it in audioTracks.indices }
-    ?: 0
+): Int = selectedServerIndex.takeIf { it in audioTracks.indices } ?: 0
 
 private fun SubtitleIdentity.serverTrackIndexForMobile(): Int = when (this) {
     SubtitleIdentity.Off -> -1
@@ -437,14 +464,10 @@ class PlayerViewModel(
                 context: MobileSubtitlePlaybackContext,
             ): Boolean {
                 val writeScope = context.writeScope ?: return false
-                val audioFingerprint = committed.audioTrackIndex
-                    ?.let { serverIndex ->
-                        context.audioTracks.firstOrNull { it.index == serverIndex }
-                    }
-                    ?.let(::audioTrackFingerprint)
-                val audioUpdate = audioFingerprint
-                    ?.let(TrackSelectionFingerprintUpdate::Set)
-                    ?: TrackSelectionFingerprintUpdate.Preserve
+                val audioUpdate = mobileAudioTrackPersistenceUpdate(
+                    committedAudioTrackIndex = committed.audioTrackIndex,
+                    audioTracks = context.audioTracks,
+                )
                 return userItemStatePort.recordTrackSelection(
                     scope = writeScope,
                     contentId = context.contentId,
