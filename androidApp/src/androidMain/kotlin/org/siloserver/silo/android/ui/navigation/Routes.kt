@@ -1,6 +1,8 @@
 package org.siloserver.silo.android.ui.navigation
 
 import android.net.Uri
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import org.siloserver.silo.common.player.video.VideoPlayerRouteArgs
 
 /**
@@ -112,7 +114,11 @@ sealed class Route(val route: String) {
         val contentId: String,
         val seasonNumber: Int? = null,
     ) : Route(
-        if (seasonNumber != null) "item/$contentId?seasonNumber=$seasonNumber" else "item/$contentId"
+        if (seasonNumber != null) {
+            "item/${contentId.routeEncode()}?seasonNumber=$seasonNumber"
+        } else {
+            "item/${contentId.routeEncode()}"
+        }
     ) {
         companion object {
             const val ROUTE = "item/{contentId}?seasonNumber={seasonNumber}"
@@ -138,7 +144,11 @@ sealed class Route(val route: String) {
         val collectionId: String,
         val libraryId: Int? = null,
     ) : Route(
-        if (libraryId != null) "collection/$collectionId?libraryId=$libraryId" else "collection/$collectionId"
+        if (libraryId != null) {
+            "collection/${collectionId.routeEncode()}?libraryId=$libraryId"
+        } else {
+            "collection/${collectionId.routeEncode()}"
+        }
     ) {
         companion object {
             const val ROUTE = "collection/{collectionId}?libraryId={libraryId}"
@@ -158,7 +168,7 @@ sealed class Route(val route: String) {
         val roomId: String? = null,
     ) : Route(
         buildString {
-            append("player/$contentId")
+            append("player/${contentId.routeEncode()}")
             val queryParams = listOfNotNull(
                 fileId?.let { "fileId=$it" },
                 // normalizeQuality is a closed wire-value set, so no URI
@@ -199,7 +209,7 @@ sealed class Route(val route: String) {
         // resolves which part contains it; null resumes from the stored position.
         val startPosition: Double? = null,
     ) : Route(
-        "audiobook/$contentId" +
+        "audiobook/${contentId.routeEncode()}" +
             listOfNotNull(
                 fileId?.let { "fileId=$it" },
                 if (fromStart) "fromStart=true" else null,
@@ -218,7 +228,7 @@ sealed class Route(val route: String) {
 
     // --- Book reader (fullscreen, dispatches by BookFormat) ---
     data class BookReader(val contentId: String, val fileId: Int? = null) : Route(
-        "reader/$contentId" + fileId?.let { "?fileId=$it" }.orEmpty(),
+        "reader/${contentId.routeEncode()}" + fileId?.let { "?fileId=$it" }.orEmpty(),
     ) {
         companion object {
             const val ROUTE = "reader/{contentId}?fileId={fileId}"
@@ -247,3 +257,17 @@ sealed class Route(val route: String) {
     }
 
 }
+
+/**
+ * Percent-encode a value for use as a route path segment.
+ *
+ * Deliberately `java.net.URLEncoder` rather than `android.net.Uri.encode`:
+ * routes are built in plain JVM unit tests, where `android.net.Uri` is stubbed
+ * and silently returns null — a route would become "item/null" and the test
+ * would assert against nonsense. Mirrors the TV app's `routeEncode`.
+ *
+ * `URLEncoder` is form encoding, where a space becomes `+`; a path segment
+ * needs `%20`, hence the fixup.
+ */
+private fun String.routeEncode(): String =
+    URLEncoder.encode(this, StandardCharsets.UTF_8.toString()).replace("+", "%20")

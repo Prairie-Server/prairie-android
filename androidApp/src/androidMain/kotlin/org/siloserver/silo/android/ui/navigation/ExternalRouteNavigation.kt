@@ -1,5 +1,7 @@
 package org.siloserver.silo.android.ui.navigation
 
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import org.siloserver.silo.android.ui.screens.player.MobilePlayerRouteIntent
@@ -37,10 +39,16 @@ internal fun shouldReplaceCurrentPlayer(
 /** Parses the canonical in-app player route carried by an external request. */
 internal fun playerRouteIntentOrNull(route: String): MobilePlayerRouteIntent? {
     if (!route.startsWith("player/")) return null
+    // Route.Player percent-encodes the content id, so decode it back here —
+    // this value is compared against the live player's target, and an encoded
+    // id would never match a decoded one, making an already-showing player look
+    // like a different request and restart it.
     val contentId = route
         .substringAfter("player/")
         .substringBefore('?')
         .takeIf { it.isNotBlank() }
+        ?.let { runCatching { URLDecoder.decode(it.replace("+", "%2B"), StandardCharsets.UTF_8.name()) }.getOrNull() }
+        ?.takeIf { it.isNotBlank() }
         ?: return null
     val query = route
         .substringAfter('?', "")
