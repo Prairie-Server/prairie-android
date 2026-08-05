@@ -158,6 +158,8 @@ internal fun TvPlayerHud(
     subtitlePresentation: TvSubtitleHudPresentation,
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
+    committedLocalAudioOrdinal: Int? = null,
+    pendingLocalAudioOrdinal: Int? = null,
     videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
     onSelectVideoQuality: (String) -> Unit,
@@ -390,7 +392,11 @@ internal fun TvPlayerHud(
                         // made audio unswitchable for the whole session.
                         activeVersion = fileVersions.firstOrNull { it.fileId == selectedFileId }
                             ?: fileVersions.firstOrNull(),
-                        planAudioOrdinal = playbackPlan?.selectedTracks?.audioIndex,
+                        // A locally-confirmed choice is the viewer's answer;
+                        // the plan only names what the server last delivered.
+                        planAudioOrdinal = committedLocalAudioOrdinal
+                            ?: playbackPlan?.selectedTracks?.audioIndex,
+                        pendingLocalAudioOrdinal = pendingLocalAudioOrdinal,
                         onSelectAudio = onSelectAudio,
                         audioDelayMs = audioDelayMs,
                         audioDelayEnabled = audioDelayEnabled,
@@ -1168,6 +1174,7 @@ private fun HudAudioPane(
     audioTracks: List<PlayerTrackEntry>,
     activeVersion: org.siloserver.silo.model.catalog.FileVersion?,
     planAudioOrdinal: Int?,
+    pendingLocalAudioOrdinal: Int?,
     onSelectAudio: (Int) -> Unit,
     audioDelayMs: Int,
     audioDelayEnabled: Boolean,
@@ -1199,11 +1206,23 @@ private fun HudAudioPane(
                     // so a transcode showed "UND AAC Stereo" for what every
                     // other surface calls "English · DTS · 5.1". Media3 is only
                     // the fallback when there is no catalog audio metadata.
-                    value = formatting.audioSummaryForOrdinal(
-                        version = activeVersion,
-                        ordinal = effectiveOrdinal,
-                        tracks = catalogAudio,
-                    )
+                    //
+                    // A request in flight shows the requested track as pending
+                    // rather than as fact: the row must not claim Dutch before
+                    // the player confirms it actually switched.
+                    value = pendingLocalAudioOrdinal
+                        ?.let { pending ->
+                            formatting.audioSummaryForOrdinal(
+                                version = activeVersion,
+                                ordinal = pending,
+                                tracks = catalogAudio,
+                            )?.let { "$it …" }
+                        }
+                        ?: formatting.audioSummaryForOrdinal(
+                            version = activeVersion,
+                            ordinal = effectiveOrdinal,
+                            tracks = catalogAudio,
+                        )
                         ?: selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
                         ?: "Default",
                     // Gated on the CATALOG, not on what this stream delivered.

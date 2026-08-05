@@ -16,6 +16,8 @@ import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
 import org.siloserver.silo.common.player.PlaybackTeardownGate
+import org.siloserver.silo.common.player.video.MountedAudioTrack
+import org.siloserver.silo.common.player.video.matchMountedAudioTrack
 import org.siloserver.silo.common.player.FinalPlaybackPosition
 import org.siloserver.silo.common.player.FinalPlaybackPositionWriter
 import org.siloserver.silo.common.player.VideoSessionStartV3
@@ -125,6 +127,26 @@ import kotlinx.coroutines.withContext
  * [trackId] retains Media3's stable selector identity; [label] is presentation
  * metadata and [displayLabel] is the polished user-facing string.
  */
+/**
+ * A pending local audio switch: select [targetOrdinal] on the player, and on
+ * confirmation commit [catalogOrdinal] as the viewer's choice.
+ */
+data class TvLocalAudioSelection(
+    val generation: Long,
+    val catalogOrdinal: Int,
+    /** Media3 audio-group ordinal — what AudioTrackManager expects. */
+    val targetOrdinal: Int,
+)
+
+/** Reduced to the fields that can identify the track across index spaces. */
+internal fun PlayerTrackEntry.toMountedAudioTrack(): MountedAudioTrack = MountedAudioTrack(
+    ordinal = index,
+    language = language,
+    codecOrMime = codecOrMime,
+    channelCount = channelCount.takeIf { it > 0 },
+    label = displayLabel.ifBlank { label },
+)
+
 data class PlayerTrackEntry(
     val index: Int,
     val label: String,
@@ -938,6 +960,15 @@ class TvPlayerViewModel(
         // Track selection — populated by the screen from ExoPlayer's
         // `currentTracks` once playback starts.
         val audioTracks: List<PlayerTrackEntry> = emptyList(),
+        /**
+         * Catalog ordinal of a locally-confirmed audio choice — a track the
+         * mounted stream already carried, switched without a server replan.
+         * Outranks the plan for display and for later replan requests: the plan
+         * is server evidence, not the only truth about what the viewer chose.
+         */
+        val committedLocalAudioOrdinal: Int? = null,
+        /** In flight: requested locally, not yet confirmed by onTracksChanged. */
+        val pendingLocalAudioOrdinal: Int? = null,
         val subtitleTracks: List<PlayerTrackEntry> = emptyList(),
         val videoTracks: List<PlayerTrackEntry> = emptyList(),
         // Real per-format video quality variants (resolution/bitrate) flattened
@@ -2119,7 +2150,10 @@ class TvPlayerViewModel(
         val fileId = state.selectedFileId ?: state.mediaFileId ?: return
         val recoveryContentGeneration = contentLoadGeneration
         recoveryJob = viewModelScope.launch {
-            val selectedAudio = selectedServerAudioTrackIndex(
+            // Locally-confirmed choice first, same reason as the transaction
+            // context: the plan names the last track the server delivered, so
+            // a recovery replan would otherwise undo the viewer's pick.
+            val selectedAudio = state.committedLocalAudioOrdinal ?: selectedServerAudioTrackIndex(
                 selectedPlayerOrdinal = state.audioTracks.firstOrNull { it.isSelected }?.index,
                 catalogAudioTracks = state.fileVersions.firstOrNull { it.fileId == fileId }?.audioTracks,
                 currentPlanTrackIndex = state.playbackPlan?.selectedTracks?.audioIndex,
@@ -2497,6 +2531,110 @@ class TvPlayerViewModel(
      */
     fun onAudioSelectionCommitted() {
         manualAudioSelectionApplied = true
+    }
+
+    // ---- Local (no-replan) audio selection ---------------------------------
+
+    private var localAudioGeneration = 0L
+    private val _pendingLocalAudioSelection = MutableStateFlow<TvLocalAudioSelection?>(null)
+
+    /**
+     * A mounted audio track the screen should select on the player directly.
+     *
+     * The ViewModel has no player handle, and the request carries a generation
+     * so a stale acknowledgement from an older track callback cannot commit a
+     * newer choice — rapid Dutch -> English -> Dutch would otherwise collapse
+     * into indistinguishable values.
+     */
+    val pendingLocalAudioSelection: StateFlow<TvLocalAudioSelection?> =
+        _pendingLocalAudioSelection.asStateFlow()
+
+    private fun catalogAudioTracks(state: UiState): List<AudioTrack> = state.fileVersions
+        .firstOrNull { it.fileId == (state.selectedFileId ?: state.mediaFileId) }
+        ?.audioTracks
+        .orEmpty()
+
+    private fun requestLocalAudioSelection(catalogOrdinal: Int, target: MountedAudioTrack) {
+        // Already the selected track. Media3 emits no onTracksChanged for a
+        // no-op override, so waiting for confirmation would strand the row on
+        // its pending "…" forever — commit straight away instead.
+        if (_uiState.value.audioTracks.firstOrNull { it.isSelected }?.index == target.ordinal) {
+            commitLocalAudioSelection(catalogOrdinal)
+            return
+        }
+        localAudioGeneration += 1
+        _pendingLocalAudioSelection.value = TvLocalAudioSelection(
+            generation = localAudioGeneration,
+            catalogOrdinal = catalogOrdinal,
+            targetOrdinal = target.ordinal,
+        )
+        _uiState.update { it.copy(pendingLocalAudioOrdinal = catalogOrdinal) }
+    }
+
+    /**
+     * Confirms or re-applies a local audio choice against a fresh track list.
+     *
+     * Nothing is committed on request: `AudioTrackManager.selectAudioTrack`
+     * returns Unit and silently does nothing when it finds no matching group,
+     * so "we asked" is not evidence the renderer switched. Only a track
+     * snapshot showing the target selected counts.
+     */
+    private fun reconcileLocalAudioSelection(audio: List<PlayerTrackEntry>) {
+        val mounted = audio.map { it.toMountedAudioTrack() }
+        val selectedOrdinal = audio.firstOrNull { it.isSelected }?.index
+
+        val pending = _pendingLocalAudioSelection.value
+        if (pending != null) {
+            if (selectedOrdinal == pending.targetOrdinal) {
+                _pendingLocalAudioSelection.compareAndSet(pending, null)
+                commitLocalAudioSelection(pending.catalogOrdinal)
+            }
+            return
+        }
+
+        // A remount installs a new MediaTrackGroup, and the override was bound
+        // to the old one — so a confirmed choice has to be re-applied rather
+        // than assumed to survive.
+        val committed = _uiState.value.committedLocalAudioOrdinal ?: return
+        val catalog = catalogAudioTracks(_uiState.value)
+        val target = catalog.getOrNull(committed)
+            ?.let { matchMountedAudioTrack(it, mounted) }
+            ?: return
+        if (selectedOrdinal != target.ordinal) requestLocalAudioSelection(committed, target)
+    }
+
+    /** Media3 confirmed the switch: this is now the viewer's explicit choice. */
+    private fun commitLocalAudioSelection(catalogOrdinal: Int) {
+        _uiState.update {
+            it.copy(
+                committedLocalAudioOrdinal = catalogOrdinal,
+                pendingLocalAudioOrdinal = null,
+            )
+        }
+        onAudioSelectionCommitted()
+        persistLocalAudioSelection(catalogOrdinal)
+    }
+
+    private fun persistLocalAudioSelection(catalogOrdinal: Int) {
+        val state = _uiState.value
+        val context = subtitlePlaybackContext(state)
+        val scope = context.writeScope ?: return
+        val fileId = context.mediaFileId ?: return
+        viewModelScope.launch {
+            runCatching {
+                userItemStatePort.recordTrackSelection(
+                    scope = scope,
+                    contentId = context.contentId,
+                    fileId = fileId,
+                    audioUpdate = tvAudioTrackPersistenceUpdate(
+                        committedAudioTrackIndex = catalogOrdinal,
+                        audioTracks = context.audioTracks,
+                    ),
+                    // Untouched: this path changed audio only.
+                    subtitleUpdate = TrackSelectionFingerprintUpdate.Preserve,
+                )
+            }
+        }
     }
 
     fun onSubtitleFailureShown(shownId: Long) {
@@ -3288,6 +3426,7 @@ class TvPlayerViewModel(
      */
     fun onTracksChanged(audio: List<PlayerTrackEntry>, subtitle: List<PlayerTrackEntry>) {
         _uiState.update { it.copy(audioTracks = audio, subtitleTracks = subtitle) }
+        reconcileLocalAudioSelection(audio)
         resolveSubtitleRemountReselection(subtitle)
         // The detail-page explicit pick resolves FIRST so a resolved pick can
         // suppress the persisted/auto fallback (and an unresolvable one lets it
@@ -3316,6 +3455,7 @@ class TvPlayerViewModel(
                 videoTracks = video,
             )
         }
+        reconcileLocalAudioSelection(audio)
         resolveSubtitleRemountReselection(subtitle)
         // The detail-page explicit pick resolves FIRST so a resolved pick can
         // suppress the persisted/auto fallback (and an unresolvable one lets it
@@ -3486,11 +3626,22 @@ class TvPlayerViewModel(
      */
     fun selectAudioOption(catalogOrdinal: Int) {
         val state = _uiState.value
-        val catalog = state.fileVersions
-            .firstOrNull { it.fileId == (state.selectedFileId ?: state.mediaFileId) }
-            ?.audioTracks
-            .orEmpty()
+        val catalog = catalogAudioTracks(state)
         if (catalogOrdinal !in catalog.indices) return
+
+        // If the mounted stream already carries this track, switch it on the
+        // player. A replan would rebuild the whole session to deliver audio the
+        // viewer is already receiving -- and because audio selection only ever
+        // staged a replan, a direct-play stream carrying several audio tracks
+        // never actually switched: the plan moved, the renderer did not.
+        matchMountedAudioTrack(
+            catalog[catalogOrdinal],
+            state.audioTracks.map { it.toMountedAudioTrack() },
+        )?.let {
+            requestLocalAudioSelection(catalogOrdinal, it)
+            return
+        }
+
         // manualAudioSelectionApplied is deliberately NOT raised here: it is
         // raised on commit via CommittedSubtitle.audioPreferenceSpecified, so a
         // request that fails or rolls back never becomes an episode preference.
