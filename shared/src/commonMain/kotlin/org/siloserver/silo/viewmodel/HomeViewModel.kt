@@ -174,11 +174,20 @@ class HomeViewModel(
                 // local optimistic overlay applied.
                 if (
                     fullyResolved &&
+                    // A superseded fetch must not write its sections to the
+                    // cache either: the next cold start would serve them.
+                    generation == fetchGeneration &&
                     requestIdentityGeneration == identityTransitions.generation.value
                 ) {
                     homeCache.cacheHome(resolved, cacheWriteLease)
                 }
                 val overlaid = overlayLocalState(resolved)
+                // Checked AGAIN, after the cache write and the overlay. Both
+                // suspend, and a newer fetch can complete and publish during
+                // either — so a check taken before them proves only that this
+                // reply was current when it arrived, not that it still is when
+                // it finally writes.
+                if (generation != fetchGeneration) return
                 _uiState.update {
                     // Only replace what's shown when the fetch fully resolved (or there
                     // was nothing yet) — a partial refresh must not clobber a good Home.

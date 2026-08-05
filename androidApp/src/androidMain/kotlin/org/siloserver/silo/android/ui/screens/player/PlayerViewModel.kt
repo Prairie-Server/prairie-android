@@ -684,6 +684,16 @@ class PlayerViewModel(
     private var lifecycleObserverJob: Job? = null
     private var resolveNextEpisodeJob: Job? = null
     private val exitPrepared = AtomicBoolean(false)
+
+    /**
+     * The session this view model owns, kept past the point UI state is cleared.
+     *
+     * Teardown happens in two stages — onExit() then onCleared() — and the first
+     * clears sessionId. Reading ownership from UI state in the second therefore
+     * yields null, and null means "stop whatever is playing", which after a
+     * player-to-player navigation is somebody else's session.
+     */
+    private var retainedOwnedSessionId: String? = null
     private var finalPositionScope: PlaybackWriteScope? = null
     private val initialPlayerLoadGate = InitialPlayerLoadGate()
 
@@ -1609,7 +1619,8 @@ class PlayerViewModel(
                                 } + downloaded
                             current.copy(
                                 error = null,
-                                sessionId = decision.session.sessionId,
+                                sessionId = decision.session.sessionId
+                                    .also { retainedOwnedSessionId = it },
                                 playMethod = decision.session.playMethod,
                                 playbackPlan = decision.session.playbackPlan,
                                 delivery = decision.plan.delivery,
@@ -3536,10 +3547,15 @@ class PlayerViewModel(
         // one finishes tearing down, and an unqualified stop then kills the
         // playback the viewer is currently watching. TV already qualifies both
         // of its exits; phone did not.
-        val ownedSessionId = _uiState.value.sessionId
+        val ownedSessionId = _uiState.value.sessionId ?: retainedOwnedSessionId
+        retainedOwnedSessionId = ownedSessionId
         viewModelScope.launch {
             mobileSubtitleTransactions.persistCommittedSelectionAndFlush()
-            sessionLifecycle.stop(expectedSessionId = ownedSessionId)
+            // Never unqualified. A null expectedSessionId disables the ownership
+            // guard entirely, which is the opposite of what a missing token
+            // should mean — if we cannot say which session was ours, we have no
+            // business stopping anyone's.
+            ownedSessionId?.let { sessionLifecycle.stop(expectedSessionId = it) }
         }
         val state = _uiState.value
         val cid = state.contentId.takeIf { it.isNotBlank() }
@@ -3737,9 +3753,13 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
-        // Snapshot before anything below can clear UI state — onExit() runs
-        // first and this must still know which session was ours.
-        val clearedSessionId = _uiState.value.sessionId
+        // The RETAINED token, not the live state. An explicit back/remote exit
+        // calls onExit() before navigation, which clears sessionId — so by the
+        // time onCleared runs, a "snapshot" of UI state is already null, and a
+        // null token disables the ownership guard and stops whatever session is
+        // current. That is precisely the session a replacement screen may have
+        // just adopted.
+        val clearedSessionId = _uiState.value.sessionId ?: retainedOwnedSessionId
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
         loadOwners.invalidate()
@@ -3752,7 +3772,7 @@ class PlayerViewModel(
         // stopAsync() is app-scoped and de-duplicates against an in-flight stop.
         // Qualified for the same reason as the ordered stop above: by the time
         // onCleared runs, a replacement screen may already own playback.
-        sessionLifecycle.stopAsync(expectedSessionId = clearedSessionId)
+        clearedSessionId?.let { sessionLifecycle.stopAsync(expectedSessionId = it) }
         controlsHideJob?.cancel()
         introObserverJob?.cancel()
         lifecycleObserverJob?.cancel()

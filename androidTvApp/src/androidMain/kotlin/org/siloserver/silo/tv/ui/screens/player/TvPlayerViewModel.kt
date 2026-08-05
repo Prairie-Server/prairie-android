@@ -783,6 +783,11 @@ class TvPlayerViewModel(
      */
     private var manualAudioSelectionApplied = false
 
+    /** Monotonic across the screen's life, so no id is ever reused. */
+    private var subtitleFailureIdSeed = 0L
+
+    private fun nextSubtitleFailureId(): Long = ++subtitleFailureIdSeed
+
     /** Guards [startServerRecoveryFallback] against concurrent fallbacks racing the same session. */
     private var recoveryJob: Job? = null
 
@@ -1079,11 +1084,14 @@ class TvPlayerViewModel(
                     subtitleApplying = snapshot.subtitleApplying,
                     subtitleFailureMessage = snapshot.failureMessage,
                     subtitleFailureId = when {
-                        snapshot.failureMessage == null -> 0L
-                        // A new failure only when this is not the same one
-                        // already on screen, so a recomposition does not
-                        // re-announce it.
-                        state.subtitleFailureMessage == null -> state.subtitleFailureId + 1
+                        snapshot.failureMessage == null -> state.subtitleFailureId
+                        // Any failure that is not the one already on screen is a
+                        // new event. Requiring the previous slot to be empty
+                        // meant a second, different failure inherited the first
+                        // one's id and was therefore never shown — the effect
+                        // keys on the id alone.
+                        snapshot.failureMessage != state.subtitleFailureMessage ->
+                            nextSubtitleFailureId()
                         else -> state.subtitleFailureId
                     },
                     subtitleUrls = authoritativeTvSubtitleRows(
@@ -1615,10 +1623,17 @@ class TvPlayerViewModel(
         transportMountGate.beginLoad()
         introAutoSkipController.reset()
         manualSubtitleSelectionApplied = false
-        // A carried TRACK intent stays manual, otherwise the choice survives
-        // exactly one transition and reverts to AUTO on the next.
-        manualAudioSelectionApplied =
-            launchArgs.episodeSelectionHandoff?.audio?.mode == EpisodeAudioMode.TRACK
+        // Cleared here and raised only if the carried choice actually RESOLVES
+        // against this episode's tracks.
+        //
+        // Seeding it from the intent alone was wrong: resolveEpisodeAudioIntent
+        // deliberately returns null when nothing matches or the match is
+        // ambiguous, and that null means the server default plays. Marking it
+        // manual anyway made the next auto-advance capture that default as a
+        // deliberate choice — so one unresolvable episode turned a server
+        // default into a preference that then propagated for the rest of the
+        // series.
+        manualAudioSelectionApplied = false
         _uiState.update { it.copy(isBuffering = false) }
 
         _uiState.update {
@@ -1688,8 +1703,18 @@ class TvPlayerViewModel(
                             existingPendingInitialSubtitleIndex = pendingInitialSubtitleIndex,
                         )
                         pendingInitialSubtitleIndex = subtitleSelection.pendingInitialSubtitleIndex
-                        if (episodeSelectionHandoff != null && result.resolvedEpisodeSelection != null) {
+                        val resolvedSelection = result.resolvedEpisodeSelection
+                        if (episodeSelectionHandoff != null && resolvedSelection != null) {
                             pendingInitialSubtitleAttempts = 0
+                            // The carried audio choice counts as the viewer's
+                            // only once it RESOLVED to a real track here. A
+                            // TRACK intent that matched nothing leaves the
+                            // server default playing, and calling that manual
+                            // would hand it on to the next episode as though it
+                            // had been chosen.
+                            if (resolvedSelection.audioTrackIndex != null) {
+                                manualAudioSelectionApplied = true
+                            }
                         }
                         val localTrackSelection = result.fileId
                             ?.let { fileId -> userItemStatePort.localTrackSelection(contentId, fileId) }
@@ -2455,11 +2480,10 @@ class TvPlayerViewModel(
             // comparing strings would let an old acknowledgement clear a new
             // failure that merely said the same thing. Text is what the viewer
             // reads; it was never an identity.
-            if (it.subtitleFailureId == shownId) {
-                it.copy(subtitleFailureMessage = null, subtitleFailureId = 0L)
-            } else {
-                it
-            }
+            // The message clears; the id does NOT reset. Resetting the counter
+            // let a later re-emission of an old failure manufacture id 1 again
+            // and replay something already dismissed.
+            if (it.subtitleFailureId == shownId) it.copy(subtitleFailureMessage = null) else it
         }
     }
 
