@@ -73,7 +73,10 @@ class DelayAudioProcessor : BaseAudioProcessor() {
 
     fun getActiveDelayMs(): Int = activeDelayMs
 
+    private var bytesPerFrame: Int = 0
+
     override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat {
+        bytesPerFrame = inputAudioFormat.bytesPerFrame
         // Output format == input; we don't resample or rechannel.
         // bytesPerFrame already accounts for channelCount * sampleSize, so
         // bytesPerSecond is simply sampleRate * bytesPerFrame.
@@ -93,18 +96,34 @@ class DelayAudioProcessor : BaseAudioProcessor() {
     override fun queueInput(inputBuffer: ByteBuffer) {
         when {
             remainingHeadBytes > 0 -> {
-                // Positive delay: emit silence equal to remaining head bytes,
-                // then pass input through.
+                // Positive delay: emit ONLY silence until the head is paid off,
+                // leaving the input unconsumed so it is offered again.
+                //
+                // Emitting silence AND the input on the same pass was the bug:
+                // any delay longer than one decoder buffer produced
+                // silence, audio, silence, audio... — chopped, half-rate sound
+                // for the length of the offset, rather than a clean head delay.
+                // The old unit test used a single input buffer larger than the
+                // entire delay, so the streaming case it was meant to cover
+                // could not fail.
                 val inputLen = inputBuffer.remaining()
-                val silenceLen = minOf(remainingHeadBytes, inputLen)
-                val outBuffer = replaceOutputBuffer(silenceLen + inputLen)
+                if (inputLen == 0) return
+                // Frame-aligned: a partial frame of silence would shift every
+                // channel by a fraction of a sample.
+                val alignedRemaining = if (bytesPerFrame > 0) {
+                    remainingHeadBytes - (remainingHeadBytes % bytesPerFrame)
+                } else {
+                    remainingHeadBytes
+                }
+                val silenceLen = minOf(alignedRemaining.coerceAtLeast(0), inputLen)
+                if (silenceLen <= 0) {
+                    // Sub-frame remainder: drop it and start passing audio.
+                    remainingHeadBytes = 0
+                    return
+                }
+                val outBuffer = replaceOutputBuffer(silenceLen)
                 outBuffer.order(ByteOrder.nativeOrder())
-                // Emit silence.
-                val silenceBytes = ByteArray(silenceLen)  // zero-initialized
-                outBuffer.put(silenceBytes)
-                // Then emit input — via scratch to handle the self-aliased
-                // buffer case (see [scratch]).
-                copyThroughScratch(inputBuffer, outBuffer, inputLen)
+                outBuffer.put(ByteArray(silenceLen)) // zero-initialised
                 outBuffer.flip()
                 remainingHeadBytes -= silenceLen
             }

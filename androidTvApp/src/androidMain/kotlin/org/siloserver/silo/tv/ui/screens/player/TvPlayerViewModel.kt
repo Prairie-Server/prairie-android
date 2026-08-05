@@ -3785,12 +3785,21 @@ class TvPlayerViewModel(
             )
             when (val r = subtitlesRepository.download(request)) {
                 is ApiResult.Success -> {
-                    refreshSubtitles(
+                    val merged = refreshSubtitles(
                         autoSelectSubtitleId = r.data.subtitle.id,
                         source = TvSubtitleRefreshSource.Download,
                     )
                     _subtitleSearch.update {
-                        it.copy(downloadingResultId = null, completedNonce = it.completedNonce + 1)
+                        if (merged) {
+                            it.copy(downloadingResultId = null, completedNonce = it.completedNonce + 1)
+                        } else {
+                            // Downloaded on the server, but we could not list it
+                            // back — say so rather than closing as a success.
+                            it.copy(
+                                downloadingResultId = null,
+                                error = "Downloaded, but the subtitle list could not be refreshed.",
+                            )
+                        }
                     }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> _subtitleSearch.update {
@@ -3812,13 +3821,22 @@ class TvPlayerViewModel(
      * label so the rebuild preserves the user's choice (Media3 track-group
      * overrides don't survive a re-prepare — groups are new instances).
      */
+    /**
+     * Re-list subtitles after a download or AI job, returning whether it worked.
+     *
+     * It used to return Unit, so callers bumped completedNonce regardless — and
+     * both dialogs read that nonce as "the track merged and was selected" and
+     * dismissed themselves. A server-side job that succeeded followed by a
+     * failed list request therefore closed as a success with no new subtitle
+     * anywhere, which is indistinguishable from the feature not working.
+     */
     internal suspend fun refreshSubtitles(
         autoSelectSubtitleId: Int?,
         source: TvSubtitleRefreshSource = TvSubtitleRefreshSource.Realtime,
-    ) {
+    ): Boolean {
         val state = _uiState.value
-        val mediaFileId = state.mediaFileId ?: return
-        val sessionId = state.sessionId ?: return
+        val mediaFileId = state.mediaFileId ?: return false
+        val sessionId = state.sessionId ?: return false
         subtitleTransactions.updatePlaybackContext(subtitlePlaybackContext(state))
         val owner = subtitleTransactions.beginRefresh(source)
         val downloaded = try {
@@ -3827,7 +3845,7 @@ class TvPlayerViewModel(
             is ApiResult.Error -> {
                 Log.w(TAG, "refreshSubtitles failed: ${r.code} ${r.message}")
                 subtitleTransactions.completeRefreshFailure(owner, r.message)
-                return
+                return false
             }
             is ApiResult.NetworkError -> {
                 Log.w(TAG, "refreshSubtitles network error", r.exception)
@@ -3835,7 +3853,7 @@ class TvPlayerViewModel(
                     owner,
                     r.exception.message ?: "Subtitle refresh failed.",
                 )
-                return
+                return false
             }
             }
         } catch (cancellation: CancellationException) {
@@ -3848,7 +3866,12 @@ class TvPlayerViewModel(
             sessionId = sessionId,
             serverUrl = state.serverUrl,
         )
-        subtitleTransactions.applyRefresh(
+        // The adapter's answer, not an assumption. applyRefresh returns false
+        // when the refresh lost ownership before it could be applied — so a
+        // list request that SUCCEEDED but went stale in flight would otherwise
+        // still be reported as merged, and the dialog would close on a track
+        // that was never installed.
+        return subtitleTransactions.applyRefresh(
             owner = owner,
             subtitleTracks = downloadedRows,
             autoSelectDownloadId = autoSelectSubtitleId,
@@ -3930,12 +3953,20 @@ class TvPlayerViewModel(
             activeAiJobId = null
             when (outcome) {
                 is SubtitlesRepository.SubtitleJobOutcome.Completed -> {
-                    refreshSubtitles(
+                    val merged = refreshSubtitles(
                         autoSelectSubtitleId = outcome.resultSubtitleId,
                         source = TvSubtitleRefreshSource.AiCompletion,
                     )
                     _aiTranslate.update {
-                        it.copy(phase = AiJobPhase.Idle, completedNonce = it.completedNonce + 1)
+                        if (merged) {
+                            it.copy(phase = AiJobPhase.Idle, completedNonce = it.completedNonce + 1)
+                        } else {
+                            it.copy(
+                                phase = AiJobPhase.Failed(
+                                    "Translated, but the subtitle list could not be refreshed.",
+                                ),
+                            )
+                        }
                     }
                 }
                 is SubtitlesRepository.SubtitleJobOutcome.Failed -> _aiTranslate.update {
