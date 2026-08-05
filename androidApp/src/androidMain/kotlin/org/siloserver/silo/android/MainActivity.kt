@@ -38,7 +38,9 @@ import org.siloserver.silo.android.ui.navigation.ExternalRouteRequestFactory
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.clearConsumedExternalRouteRequest
 import org.siloserver.silo.android.ui.navigation.contentDeepLinkRouteOrNull
+import org.siloserver.silo.android.ui.navigation.deviceLoginLinkIsForActiveServer
 import org.siloserver.silo.android.ui.navigation.deviceLoginPairRouteOrNull
+import org.siloserver.silo.android.ui.navigation.deviceLoginRequiredOrigin
 import org.siloserver.silo.android.ui.navigation.hasLocalDownloadsForScope
 import org.siloserver.silo.android.ui.navigation.inviteClaimRouteOrNull
 import org.siloserver.silo.android.ui.navigation.notificationNavigationRouteOrNull
@@ -77,6 +79,21 @@ class MainActivity : ComponentActivity() {
         // start. Mirrors the TV-side flag in MainTvActivity.
         @Volatile
         private var hasShownColdSplash = false
+
+        /**
+         * Set on the launch Intent once its external route has been delivered.
+         * `putExtra` mutates the process-local Intent, which covers ordinary
+         * in-process Activity recreation but NOT process death — the system may
+         * rebuild the task from the original launch Intent, without this. The
+         * saved-state route below is what covers that case; this is the fast
+         * path.
+         */
+        private const val EXTRA_EXTERNAL_ROUTE_CONSUMED =
+            "org.siloserver.silo.EXTERNAL_ROUTE_CONSUMED"
+
+        /** Saved-state key for [consumedExternalRoute]. */
+        private const val STATE_CONSUMED_EXTERNAL_ROUTE =
+            "org.siloserver.silo.CONSUMED_EXTERNAL_ROUTE"
     }
 
     private val externalRouteRequestFactory = ExternalRouteRequestFactory()
@@ -84,6 +101,14 @@ class MainActivity : ComponentActivity() {
     // example while an existing top Activity is being resumed by onNewIntent).
     // A replay-free SharedFlow can silently drop exactly that warm delivery.
     private val pendingExternalRouteRequests = MutableStateFlow<ExternalRouteRequest?>(null)
+
+    /**
+     * The external route already delivered for the Intent this Activity was
+     * launched with, carried across process death in saved state so a restored
+     * task cannot replay a link the user already followed and navigated away
+     * from.
+     */
+    private var consumedExternalRoute: String? = null
 
     // POST_NOTIFICATIONS is required on Android 13+ for any notification —
     // download progress / completion notifications silently never appear
@@ -95,6 +120,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consumedExternalRoute = savedInstanceState?.getString(STATE_CONSUMED_EXTERNAL_ROUTE)
         enableEdgeToEdge()
         maybeRequestNotificationPermission()
         maybeRequestLegacyPublicDownloadPermission()
@@ -112,10 +138,35 @@ class MainActivity : ComponentActivity() {
                 // its target after auth instead of being silently dropped.
                 // The pending route is only consumed once the main graph is
                 // showing, so pre-auth starts just hold it.
-                (notificationRouteOrNull(intent) ?: contentDeepLinkRouteOrNull(intent?.dataString))
-                    ?.let { route ->
-                        pendingExternalRouteRequests.value = externalRouteRequestFactory.create(route)
-                    }
+                // Skip an Intent whose route was already delivered: it is only
+                // still here because the Activity retains it.
+                if (intent?.getBooleanExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, false) != true) {
+                    val activeServerUrl = get<ServerRegistry>(ServerRegistry::class.java)
+                        .activeEntry.value?.url
+                    val deviceRoute = deviceLoginPairRouteOrNull(intent?.dataString)
+                        ?.takeIf {
+                            deviceLoginLinkIsForActiveServer(intent?.dataString, activeServerUrl)
+                        }
+                    val externalRoute = notificationRouteOrNull(intent)
+                        ?: contentDeepLinkRouteOrNull(intent?.dataString)
+                        ?: deviceRoute
+                    externalRoute
+                        ?.takeIf { it != consumedExternalRoute }
+                        ?.let { route ->
+                            pendingExternalRouteRequests.value =
+                                externalRouteRequestFactory.create(
+                                    route = route,
+                                    // Only a device link is server-scoped, and it
+                                    // may wait here through setup/login onto a
+                                    // server that did not issue it.
+                                    requiredServerOrigin = if (route === deviceRoute) {
+                                        deviceLoginRequiredOrigin(intent?.dataString)
+                                    } else {
+                                        null
+                                    },
+                                )
+                        }
+                }
                 launchAuthenticatedStartupWarmup(route)
             }
 
@@ -152,6 +203,15 @@ class MainActivity : ComponentActivity() {
                             startDestination = resolvedRoute,
                             pendingExternalRoute = pendingExternalRoute,
                             onExternalRouteConsumed = { consumedRequest ->
+                                // Record the delivery in two places. The Intent
+                                // extra covers in-process Activity recreation,
+                                // which re-parses the retained Intent in
+                                // onCreate and would otherwise yank the user
+                                // back to a link they already followed. It is
+                                // process-local, so the saved-state route below
+                                // is what covers process death.
+                                intent?.putExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, true)
+                                consumedExternalRoute = consumedRequest.route
                                 pendingExternalRouteRequests.update { pendingRequest ->
                                     clearConsumedExternalRouteRequest(
                                         pendingRequest = pendingRequest,
@@ -175,14 +235,36 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        consumedExternalRoute?.let { outState.putString(STATE_CONSUMED_EXTERNAL_ROUTE, it) }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // A genuinely new Intent has not been consumed, whatever the old one
+        // carried.
+        intent.removeExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED)
+        consumedExternalRoute = null
         setIntent(intent)
-        val route = deviceLoginPairRouteOrNull(intent.dataString)
+        val activeServerUrl = get<ServerRegistry>(ServerRegistry::class.java)
+            .activeEntry.value?.url
+        val deviceRoute = deviceLoginPairRouteOrNull(intent.dataString)
+            ?.takeIf { deviceLoginLinkIsForActiveServer(intent.dataString, activeServerUrl) }
+        val route = deviceRoute
             ?: inviteClaimRouteOrNull(intent.dataString)
             ?: notificationRouteOrNull(intent)
             ?: contentDeepLinkRouteOrNull(intent.dataString)
-        route?.let { pendingExternalRouteRequests.value = externalRouteRequestFactory.create(it) }
+        route?.let {
+            pendingExternalRouteRequests.value = externalRouteRequestFactory.create(
+                route = it,
+                requiredServerOrigin = if (it === deviceRoute) {
+                    deviceLoginRequiredOrigin(intent.dataString)
+                } else {
+                    null
+                },
+            )
+        }
     }
 
     /**
@@ -250,10 +332,22 @@ class MainActivity : ComponentActivity() {
      *  - All set → `Home`
      */
     private suspend fun resolveStartDestination(): String {
-        deviceLoginPairRouteOrNull(intent?.dataString)?.let { return it }
-
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
+
+        // KNOWN GAP: a device link naming a configured-but-inactive server is
+        // refused silently — the user scans and nothing visible happens. Fixing
+        // that properly means a "this pairing request belongs to server X"
+        // surface with a switch action, which is a product decision.
+        //
+        // NOTE: a device link is deliberately NOT returned as the start
+        // destination. It used to be, which put Pair Device at the root of a
+        // signed-out app: its "Sign In" pushed Login, and the successful login
+        // then cleared the whole stack with popUpTo(0), losing the pairing
+        // request entirely. It is queued as a pending external route instead,
+        // so the normal server/token/profile gates run first and the pairing
+        // screen arrives on top of an authenticated stack — which also means
+        // its Back/Done has somewhere real to return to.
 
         val activeEntry = registry.activeEntry.value
             ?: return Route.ServerSetup.route

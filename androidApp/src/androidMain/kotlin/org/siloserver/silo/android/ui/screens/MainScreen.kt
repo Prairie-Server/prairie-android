@@ -40,6 +40,9 @@ import org.siloserver.silo.android.ui.navigation.LocalBottomChromeInset
 import org.siloserver.silo.android.ui.navigation.SiloBottomNavBar
 import org.siloserver.silo.android.ui.navigation.Route
 import org.siloserver.silo.android.ui.navigation.Tab
+import org.siloserver.silo.android.ui.navigation.tabForRoute
+import org.siloserver.silo.android.ui.navigation.tabSwitchNavOptions
+import org.siloserver.silo.android.ui.navigation.bottomMostTabRoute
 import org.siloserver.silo.android.ui.navigation.fallbackMobileTab
 import org.siloserver.silo.android.ui.navigation.scopedLocalDownloadBytes
 import org.siloserver.silo.android.ui.navigation.shouldShowDownloadsTab
@@ -190,15 +193,56 @@ fun MainScreen(
 
     // If the user is on a tab no longer supported by their libraries (or
     // Downloads disappears), move them to the nearest visible media tab.
+    // A tab that can no longer be shown must not be left on the stack: no entry
+    // at the bottom for Back to reveal (its own effect would bounce straight
+    // back, trapping the user), and no saved subtree for a later reappearance to
+    // restore into. This can only act while a tab is composed — with a detail
+    // page covering it, cleanup waits until Back returns here.
+    //
+    // Deliberately no saveState/restoreState on this path. Saving the vanishing
+    // tab and then restoring on the way to the replacement is self-defeating:
+    // restoreState is evaluated before launchSingleTop, so navigating to Home
+    // immediately restored the Downloads subtree that had just been popped.
     LaunchedEffect(currentTab, visibleTabs) {
-        if (currentTab !in visibleTabs) {
-            val fallback = fallbackMobileTab(visibleTabs, currentTab) ?: Tab.Home
-            navController.navigate(fallback.route) {
-                popUpTo(Route.Home.route) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
+        val anchorRoute = navController.bottomMostTabRoute()
+        val anchorTab = anchorRoute?.let(::tabForRoute)
+        val vanished = when {
+            currentTab !in visibleTabs -> currentTab
+            // The ANCHOR can vanish while the user is on some other tab. Nothing
+            // above it changed, so this is the only chance to notice.
+            anchorTab != null && anchorTab !in visibleTabs -> anchorTab
+            else -> null
+        } ?: return@LaunchedEffect
+
+        val target = if (vanished == currentTab) {
+            fallbackMobileTab(visibleTabs, currentTab) ?: Tab.Home
+        } else {
+            // Re-rooting onto the tab in use also destroys its entry, losing
+            // scroll position. Accepted: the alternative leaves an unreachable
+            // root that Back can surface.
+            currentTab
         }
+
+        navController.navigate(target.route) {
+            // Pop to the ANCHOR, not merely to the vanished tab. Popping just
+            // the vanished one leaves any other tab entries below it in place,
+            // and pushing the target then adds a SECOND copy of a tab already
+            // down there — the duplicate that makes the anchor ambiguous.
+            // Collapsing to the anchor first keeps at most one entry per tab,
+            // and launchSingleTop absorbs the case where the target IS the
+            // anchor.
+            if (vanished == anchorTab) {
+                popUpTo(vanished.route) { inclusive = true }
+            } else {
+                anchorRoute?.let { popUpTo(it) { inclusive = false } }
+            }
+            launchSingleTop = true
+        }
+        // Drop any subtree saved for it by an earlier ordinary tab switch —
+        // popping without saveState does not clear existing mappings, and a
+        // reappearing Downloads would otherwise restore a stale stack and land
+        // the user on a different tab entirely.
+        navController.clearBackStack(vanished.route)
     }
 
     LaunchedEffect(activeEntry?.id, activeEntry?.profileId, headerState.activeProfile?.id) {
@@ -251,9 +295,14 @@ fun MainScreen(
                             homeScrollToTopTick += 1
                         } else {
                             navController.navigate(tab.route) {
-                                popUpTo(Route.Home.route) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
+                                // Pop to the tab stack's live anchor, not a
+                                // hard-coded Home and not the graph's declared
+                                // start (which can name a tab that has since
+                                // been removed). Popping to a route that is not
+                                // on the stack pops nothing — every tab then
+                                // stacked, so Back walked back through
+                                // previously visited tabs instead of leaving.
+                                tabSwitchNavOptions(navController.bottomMostTabRoute())
                             }
                         }
                     },

@@ -22,6 +22,7 @@ import org.siloserver.silo.network.CleartextOriginNotApprovedException
 import org.siloserver.silo.network.DefaultWatchTogetherRealtimeClient
 import org.siloserver.silo.network.RoomRealtimeEvent
 import org.siloserver.silo.network.SiloJson
+import org.siloserver.silo.network.ProfileIdentity
 import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.network.TokenManagerImpl
 import org.siloserver.silo.network.canonicalHttpOrigin
@@ -313,6 +314,10 @@ class WatchTogetherRealtimeWebSocketTest {
         override suspend fun getAccessToken(): String = if (activeB) "ACCESS_B" else "ACCESS_A"
 
         override suspend fun getProfileId(): String = if (activeB) "profile-b" else "profile-a"
+
+        // See SiloAuthPluginPinTest: the delegated default would bypass these.
+        override suspend fun getProfileIdentity(): ProfileIdentity =
+            ProfileIdentity(getProfileId(), getProfileToken())
 
         override suspend fun getProfileToken(): String {
             val token = if (activeB) "PROFILE_B" else "PROFILE_A"

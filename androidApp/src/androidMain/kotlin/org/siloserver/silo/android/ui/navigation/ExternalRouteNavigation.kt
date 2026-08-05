@@ -12,15 +12,27 @@ import org.siloserver.silo.common.player.video.VideoPlayerRouteArgs
 class ExternalRouteRequest internal constructor(
     val generation: Long,
     val route: String,
+    /**
+     * The server origin this request is only valid against, or null if it is
+     * server-agnostic.
+     *
+     * A pairing link can be queued while NO server is configured, then wait
+     * through setup and login. Whatever server the user ends up on may not be
+     * the one that issued the code, so the origin has to survive the wait and
+     * be re-checked at delivery — dropping it here is how a code ends up looked
+     * up against the wrong server.
+     */
+    val requiredServerOrigin: String? = null,
 )
 
 internal class ExternalRouteRequestFactory {
     private var latestGeneration = 0L
 
-    fun create(route: String): ExternalRouteRequest =
+    fun create(route: String, requiredServerOrigin: String? = null): ExternalRouteRequest =
         ExternalRouteRequest(
             generation = ++latestGeneration,
             route = route,
+            requiredServerOrigin = requiredServerOrigin,
         )
 }
 
@@ -155,6 +167,11 @@ internal suspend fun consumeExternalRouteOnce(
     pendingExternalRoute: ExternalRouteRequest?,
     currentDestinationRoutes: Flow<String?>,
     isAlreadyAtRoute: (String) -> Boolean = { false },
+    /**
+     * Whether [ExternalRouteRequest.requiredServerOrigin] still matches the
+     * active server. Evaluated after the wait, not before it.
+     */
+    isStillValidForActiveServer: suspend (String) -> Boolean = { true },
     navigate: (String) -> Unit,
     onConsumed: (ExternalRouteRequest) -> Unit,
 ) {
@@ -165,8 +182,13 @@ internal suspend fun consumeExternalRouteOnce(
     currentDestinationRoutes.first { currentRoute ->
         isPreAuthenticationTarget || currentRoute !in preAuthenticationDestinationRoutes
     }
-    if (!isAlreadyAtRoute(route)) {
+    val originStillValid = request.requiredServerOrigin
+        ?.let { origin -> isStillValidForActiveServer(origin) }
+        ?: true
+    if (originStillValid && !isAlreadyAtRoute(route)) {
         navigate(route)
     }
+    // Consumed either way: a request whose server no longer matches must not
+    // sit in the queue waiting to fire at some later, equally wrong moment.
     onConsumed(request)
 }

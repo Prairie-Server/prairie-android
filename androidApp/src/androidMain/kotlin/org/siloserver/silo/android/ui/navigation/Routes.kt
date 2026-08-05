@@ -90,8 +90,11 @@ sealed class Route(val route: String) {
         }
     }
 
-    // Canonical tab routes — Home is the start destination and the bottom-nav /
-    // popUpTo anchor; Libraries and Recommendations back the other media tabs.
+    // Canonical tab routes. Home is the USUAL start destination, but not
+    // always: an offline launch with downloads starts on Downloads instead, so
+    // the bottom-nav popUpTo anchor is read from the live back stack
+    // ([bottomMostTabRoute]) rather than assumed to be Home. Libraries and
+    // Recommendations back the other media tabs.
     data object Home : Route("home")
     data object Libraries : Route("libraries")
     data object Recommendations : Route("recommendations")

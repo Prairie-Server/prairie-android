@@ -250,6 +250,14 @@ class EncryptedTokenManagerImpl(
         }
     }
 
+    override suspend fun getProfileIdentity(): ProfileIdentity = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        temporaryScope?.let { scope ->
+            return@withLock ProfileIdentity(scope.profileId, scope.profileToken)
+        }
+        ProfileIdentity(profileId, profileToken)
+    }
+
     /**
      * One lock, one preferences edit, so the PERSISTED id and token cannot
      * disagree even if the process dies immediately after. Concurrent readers

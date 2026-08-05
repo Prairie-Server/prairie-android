@@ -135,6 +135,13 @@ class TokenManagerImpl(
         }
     }
 
+    override suspend fun getProfileIdentity(): ProfileIdentity = mutex.withLock {
+        temporaryScope?.let { scope ->
+            return@withLock ProfileIdentity(scope.profileId, scope.profileToken)
+        }
+        ProfileIdentity(profileId, profileToken)
+    }
+
     /** Single lock so the stored pair is written together; see [TokenManager]. */
     override suspend fun setProfileIdentity(profileId: String?, profileToken: String?) {
         mutex.withLock {

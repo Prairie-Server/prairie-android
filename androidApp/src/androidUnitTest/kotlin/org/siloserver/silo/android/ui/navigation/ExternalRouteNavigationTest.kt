@@ -293,4 +293,67 @@ class ExternalRouteNavigationTest {
         subtitleTrackIndex = subtitleTrackIndex,
         resumePositionSeconds = resumePositionSeconds,
     )
+
+    /**
+     * A pairing link can be queued with NO server configured and then wait
+     * through setup and login. Whatever server the user lands on may not be the
+     * one that issued the code, so the origin is re-checked at delivery — and a
+     * mismatch must not navigate.
+     */
+    @Test
+    fun aRequestWhoseServerNoLongerMatchesIsNotDelivered() = runTest {
+        val request = ExternalRouteRequestFactory()
+            .create(route = "pair_device?code=ABCD", requiredServerOrigin = "https://server-b")
+        var navigated: String? = null
+        var consumed = 0
+
+        consumeExternalRouteOnce(
+            pendingExternalRoute = request,
+            currentDestinationRoutes = flowOf("home"),
+            isStillValidForActiveServer = { false },
+            navigate = { navigated = it },
+            onConsumed = { consumed++ },
+        )
+
+        assertNull(navigated, "a code must never be looked up against the wrong server")
+        // Still consumed: leaving it queued would only let it fire later, at an
+        // equally wrong moment.
+        assertEquals(1, consumed)
+    }
+
+    @Test
+    fun aRequestWhoseServerStillMatchesIsDelivered() = runTest {
+        val request = ExternalRouteRequestFactory()
+            .create(route = "pair_device?code=ABCD", requiredServerOrigin = "https://server-b")
+        var navigated: String? = null
+        var consumed = 0
+
+        consumeExternalRouteOnce(
+            pendingExternalRoute = request,
+            currentDestinationRoutes = flowOf("home"),
+            isStillValidForActiveServer = { true },
+            navigate = { navigated = it },
+            onConsumed = { consumed++ },
+        )
+
+        assertEquals("pair_device?code=ABCD", navigated)
+        assertEquals(1, consumed)
+    }
+
+    /** An unscoped request must not be gated on any server. */
+    @Test
+    fun anUnscopedRequestIgnoresTheServerCheck() = runTest {
+        val request = ExternalRouteRequestFactory().create(route = "item/abc")
+        var navigated: String? = null
+
+        consumeExternalRouteOnce(
+            pendingExternalRoute = request,
+            currentDestinationRoutes = flowOf("home"),
+            isStillValidForActiveServer = { error("must not be consulted for an unscoped route") },
+            navigate = { navigated = it },
+            onConsumed = { },
+        )
+
+        assertEquals("item/abc", navigated)
+    }
 }

@@ -117,6 +117,7 @@ fun AppNavigation(
     onExternalRouteConsumed: (ExternalRouteRequest) -> Unit = {},
 ) {
     val tokenManager: TokenManager = koinInject()
+    val serverRegistry: org.siloserver.silo.network.ServerRegistry = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val siloCastController: SiloCastController = koinInject()
     val diagnosticsViewModel = koinViewModel<DiagnosticsViewModel>()
@@ -162,16 +163,37 @@ fun AppNavigation(
                 )
             },
             navigate = { route ->
-                val replaceCurrentPlayer = shouldReplaceCurrentPlayer(
-                    currentDestinationRoute = navController.currentBackStackEntry?.destination?.route,
-                    targetRoute = route,
-                )
-                navController.navigate(route) {
-                    if (replaceCurrentPlayer) {
-                        popUpTo(Route.Player.ROUTE) { inclusive = true }
+                // An external link to a TAB (silo://downloads) must switch tabs,
+                // not push a second copy of that tab. A duplicate tab entry also
+                // makes the tab anchor ambiguous: popUpTo(route) resolves to the
+                // NEWEST match, so the older anchor entry would survive and Back
+                // could loop through a hidden tab.
+                if (tabForRoute(route) != null) {
+                    navController.navigate(route) {
+                        tabSwitchNavOptions(navController.bottomMostTabRoute())
                     }
-                    launchSingleTop = true
+                } else {
+                    val replaceCurrentPlayer = shouldReplaceCurrentPlayer(
+                        currentDestinationRoute = navController.currentBackStackEntry
+                            ?.destination?.route,
+                        targetRoute = route,
+                    )
+                    navController.navigate(route) {
+                        if (replaceCurrentPlayer) {
+                            popUpTo(Route.Player.ROUTE) { inclusive = true }
+                        }
+                        launchSingleTop = true
+                    }
                 }
+            },
+            isStillValidForActiveServer = { requiredOrigin ->
+                // The user may have configured a DIFFERENT server while this
+                // request waited through setup/login. A pairing code looked up
+                // against the wrong server is worse than not looked up at all.
+                deviceLoginOriginMatchesServer(
+                    requiredOrigin = requiredOrigin,
+                    activeServerUrl = serverRegistry.activeEntry.value?.url,
+                )
             },
             onConsumed = onExternalRouteConsumed,
         )
@@ -327,10 +349,13 @@ fun AppNavigation(
                     defaultValue = null
                 },
             ),
-            deepLinks = listOf(
-                navDeepLink { uriPattern = "silo://device?token={token}" },
-                navDeepLink { uriPattern = "silo://device?code={code}" },
-            ),
+            // Deliberately NO navDeepLink registrations. While they existed,
+            // Navigation matched the Activity's launch Intent itself when the
+            // graph was installed and landed Pair Device before any
+            // server/token/profile gate had run — the exact bypass
+            // MainActivity's pending-route queue exists to prevent. The
+            // manifest filter still delivers the Intent; MainActivity parses
+            // and queues it.
         ) { backStackEntry ->
             val token = backStackEntry.arguments?.getString("token")
             val code = backStackEntry.arguments?.getString("code")
@@ -458,6 +483,13 @@ fun AppNavigation(
                 LaunchedEffect(Unit) {
                     navController.navigate(Route.Home.route) {
                         popUpTo(legacyRoute) { inclusive = true }
+                        // A restored stack can already hold Home IMMEDIATELY
+                        // below the legacy entry; without this the redirect adds
+                        // a second one, and a duplicate tab route makes the tab
+                        // anchor ambiguous (popUpTo resolves to the newest
+                        // match). Home further down is not collapsed — this
+                        // checks the new top after the alias is popped.
+                        launchSingleTop = true
                     }
                 }
             }

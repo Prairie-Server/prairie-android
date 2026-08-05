@@ -112,8 +112,9 @@ class DefaultPlaybackRealtimeClient(
             close()
             return@callbackFlow
         }
-        val profileId = tokenManager.getProfileId()
-        val profileToken = tokenManager.getProfileToken()
+        val profileIdentity = tokenManager.getProfileIdentity()
+        val profileId = profileIdentity.profileId
+        val profileToken = profileIdentity.profileToken
         val url = buildString {
             append("/api/v1/playback/sessions/")
             append(sessionId.encodeURLParameter())

@@ -19,6 +19,8 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.navigation.NavHostController
+import androidx.navigation.NavOptionsBuilder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -59,6 +61,53 @@ enum class Tab(
         Icons.Outlined.Download,
         Icons.Filled.Download,
     ),
+}
+
+/**
+ * The tab destination sitting lowest on the back stack — the anchor tab
+ * switching pops to.
+ *
+ * Derived from the live stack rather than remembered: `MainScreen` is composed
+ * per tab destination, so a remembered anchor gave every tab its own copy, and
+ * the graph's declared start destination keeps naming a tab even after that tab
+ * is removed. Popping to a route that is not on the stack pops nothing, so
+ * every tab tap stacked and Back walked back through previously visited tabs.
+ *
+ * This finds the oldest tab entry deterministically; what needs care is turning
+ * it back into a route string, because `popUpTo(route)` resolves to the NEWEST
+ * matching entry. The result is therefore unambiguous only while a tab route
+ * appears at most once. Every path in this build that can add a tab entry keeps
+ * that true: tab switching and the disappearing-tab cleanup both collapse to
+ * the anchor before pushing, external tab links switch rather than push, and the
+ * legacy-route aliases pop themselves inclusively before navigating, so their
+ * `launchSingleTop` sees Home on top when Home sat immediately below them.
+ * Duplicate tab routes are otherwise unsupported — a back stack restored from an
+ * older build could arrive holding them, and this does not repair that, so older
+ * tab entries may be left underneath.
+ */
+internal fun NavHostController.bottomMostTabRoute(): String? {
+    val tabRoutes = Tab.entries.mapTo(mutableSetOf()) { it.route }
+    return currentBackStack.value
+        .firstOrNull { entry -> entry.destination.route in tabRoutes }
+        ?.destination
+        ?.route
+}
+
+/** The route's tab, if it is one. */
+internal fun tabForRoute(route: String): Tab? = Tab.entries.firstOrNull { it.route == route }
+
+/**
+ * Standard tab-switch options: replace the current tab rather than stack it,
+ * preserving each tab's own state.
+ *
+ * External links to a tab use these too, so `silo://downloads` behaves exactly
+ * like tapping Downloads — one definition of what entering a tab means, rather
+ * than two that drift.
+ */
+internal fun NavOptionsBuilder.tabSwitchNavOptions(anchorRoute: String?) {
+    anchorRoute?.let { popUpTo(it) { saveState = true } }
+    launchSingleTop = true
+    restoreState = true
 }
 
 /**

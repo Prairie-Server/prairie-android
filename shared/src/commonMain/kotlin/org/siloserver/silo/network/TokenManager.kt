@@ -19,6 +19,9 @@ data class TemporaryAuthScope(
             "profileToken=<redacted>, expiresAtEpochMs=$expiresAtEpochMs)"
 }
 
+/** A profile id and the token that proves it, read together. */
+data class ProfileIdentity(val profileId: String?, val profileToken: String?)
+
 /**
  * Manages JWT access and refresh tokens.
  * Implementation provided by Agent 2 in TokenManagerImpl.kt.
@@ -75,6 +78,26 @@ interface TokenManager {
     suspend fun setProfileId(profileId: String?)
     suspend fun getProfileToken(): String?
     suspend fun setProfileToken(token: String?)
+
+    /**
+     * Read the profile id and its token as ONE identity.
+     *
+     * [setProfileIdentity] makes the write atomic, but a reader taking the two
+     * getters separately can still interleave with a switch and pair the old id
+     * with the new token — sending headers that claim one profile while
+     * presenting another's proof, which is exactly what that write fixed.
+     * Anything assembling both into a request must use this.
+     *
+     * The default is the non-atomic pair so simple/test managers keep working;
+     * managers with real locking override it to read under one lock.
+     *
+     * A wrapper using `TokenManager by delegate` MUST override this too: Kotlin
+     * interface delegation forwards default methods to the delegate, so
+     * overriding only [getProfileId]/[getProfileToken] leaves this reading the
+     * delegate's identity instead — silently, with tests still green.
+     */
+    suspend fun getProfileIdentity(): ProfileIdentity =
+        ProfileIdentity(profileId = getProfileId(), profileToken = getProfileToken())
 
     /**
      * Commit a profile id and its matching profile token as ONE identity.

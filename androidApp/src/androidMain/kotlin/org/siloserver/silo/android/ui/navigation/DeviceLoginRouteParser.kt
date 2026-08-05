@@ -28,6 +28,103 @@ internal fun deviceLoginPairRouteOrNull(rawUri: String?): String? {
     return buildPairDeviceRoute(token = token, code = if (token == null) code else null)
 }
 
+/**
+ * What server, if any, a device link names.
+ *
+ * The three cases must stay distinct. Collapsing "names no server" and "names
+ * something unparseable" into one null meant a malformed link such as
+ * `https:///device?code=...` — which still satisfies the device-path check but
+ * has no host — was treated as unscoped and accepted against whichever server
+ * was active, which is the behaviour this guard exists to remove.
+ */
+internal sealed interface DeviceLoginScope {
+    /** An app-scheme link (`silo://device`): names no server. */
+    data object Unscoped : DeviceLoginScope
+
+    /** An http(s) link naming [origin], already normalized. */
+    data class Origin(val origin: String) : DeviceLoginScope
+
+    /** Not a device link, or an http(s) one whose origin cannot be read. */
+    data object Invalid : DeviceLoginScope
+}
+
+internal fun deviceLoginScope(rawUri: String?): DeviceLoginScope {
+    val uri = rawUri
+        ?.takeIf { it.isNotBlank() }
+        ?.let { runCatching { URI(it) }.getOrNull() }
+        ?: return DeviceLoginScope.Invalid
+    if (!uri.isDeviceLoginUri()) return DeviceLoginScope.Invalid
+    val scheme = uri.scheme?.lowercase() ?: return DeviceLoginScope.Invalid
+    if (scheme != "http" && scheme != "https") return DeviceLoginScope.Unscoped
+    return uri.normalizedOrigin()?.let(DeviceLoginScope::Origin) ?: DeviceLoginScope.Invalid
+}
+
+/**
+ * `scheme://host[:port]`, with the scheme's default port dropped so
+ * `https://silo.example` and `https://silo.example:443` compare equal.
+ */
+private fun URI.normalizedOrigin(): String? {
+    val scheme = scheme?.lowercase() ?: return null
+    val host = host?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+    val defaultPort = if (scheme == "https") 443 else 80
+    // URI reports -1 for "omitted". Anything else must be a real port: 0 is not
+    // a valid origin and must not quietly compare equal to the default one.
+    val port = port
+    if (port != -1 && port !in 1..65535) return null
+    val explicitPort = port.takeIf { it != -1 && it != defaultPort }
+    return if (explicitPort != null) "$scheme://$host:$explicitPort" else "$scheme://$host"
+}
+
+/** Whether [requiredOrigin] is the origin of [activeServerUrl]. */
+internal fun deviceLoginOriginMatchesServer(
+    requiredOrigin: String,
+    activeServerUrl: String?,
+): Boolean {
+    val active = activeServerUrl
+        ?.takeIf { it.isNotBlank() }
+        ?.let { runCatching { URI(it) }.getOrNull() }
+        ?.normalizedOrigin()
+        ?: return false
+    return active == requiredOrigin
+}
+
+/** The origin a device link requires, or null when it names no server. */
+internal fun deviceLoginRequiredOrigin(rawUri: String?): String? =
+    (deviceLoginScope(rawUri) as? DeviceLoginScope.Origin)?.origin
+
+/**
+ * True when a device link may be acted on for the currently active server.
+ *
+ * An http(s) device link identifies the server that issued the pairing request,
+ * but that origin used to be dropped on the floor: the code was then looked up
+ * against whatever server happened to be active, which normally reports the
+ * request as invalid or expired even though it is perfectly valid on the server
+ * the user actually scanned. Approving against the wrong server is worse than
+ * not approving, so a link naming a different origin is refused.
+ *
+ * With NO server configured yet there is nothing to contradict — the user is
+ * about to set one up, and having just scanned a server's code they are
+ * overwhelmingly likely to set up that one — so the link is allowed through the
+ * normal setup/login gates rather than dropped on the floor.
+ *
+ * Pairing against a configured-but-INACTIVE server would mean switching the
+ * active server from a link, which is a product decision rather than a parser
+ * one. It is refused here; see the caller for the known gap that this refusal
+ * is currently silent.
+ */
+internal fun deviceLoginLinkIsForActiveServer(rawUri: String?, activeServerUrl: String?): Boolean =
+    when (val scope = deviceLoginScope(rawUri)) {
+        DeviceLoginScope.Unscoped -> true
+        DeviceLoginScope.Invalid -> false
+        is DeviceLoginScope.Origin -> {
+            val active = activeServerUrl
+                ?.takeIf { it.isNotBlank() }
+                ?.let { runCatching { URI(it) }.getOrNull() }
+                ?.normalizedOrigin()
+            active == null || active == scope.origin
+        }
+    }
+
 private fun URI.isDeviceLoginUri(): Boolean {
     val scheme = scheme?.lowercase()
     return when (scheme) {
