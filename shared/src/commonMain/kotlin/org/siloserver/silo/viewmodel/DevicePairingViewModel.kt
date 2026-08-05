@@ -58,6 +58,11 @@ class DevicePairingViewModel(
     }
 
     fun onCodeChanged(value: String) {
+        // Retires any lookup in flight. Without this a late answer for the
+        // previous code repopulates the details after the viewer has typed a
+        // different one — showing them a device that is not the one they are
+        // being asked about.
+        lookupGeneration++
         _uiState.update {
             it.copy(
                 code = value.trim().uppercase(),
@@ -79,6 +84,8 @@ class DevicePairingViewModel(
      * authoritative event, so starting one retires any lookup already running.
      */
     private var lookupGeneration = 0
+    /** Which lookup generation raised [DevicePairingUiState.isLoading]. */
+    private var loadingOwner = 0
 
     fun lookup() {
         val current = _uiState.value
@@ -90,6 +97,7 @@ class DevicePairingViewModel(
         }
 
         val generation = ++lookupGeneration
+        loadingOwner = generation
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, completedStatus = null) }
             val lookupResult = repository.lookup(token = token, code = code)
@@ -97,7 +105,12 @@ class DevicePairingViewModel(
             // decision has superseded this answer. Clearing isLoading is still
             // this request's job, but nothing else it has to say is current.
             if (generation != lookupGeneration) {
-                _uiState.update { it.copy(isLoading = false) }
+                // Clear the loading flag only while this lookup still owns it.
+                // A newer lookup has raised it again for itself, and clearing
+                // it here would report that one as finished while it runs.
+                if (loadingOwner == generation) {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
                 return@launch
             }
             when (val result = lookupResult) {
@@ -142,8 +155,11 @@ class DevicePairingViewModel(
         }
 
         // Retires any lookup already running, before it can report back over
-        // the decision this is about to make.
+        // the decision this is about to make. The retired lookup will not clear
+        // its own loading flag once it no longer owns the generation, so drop
+        // it here — otherwise the screen shows a spinner nothing will finish.
         lookupGeneration++
+        _uiState.update { it.copy(isLoading = false) }
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, error = null, completedStatus = null) }
             val result = if (approve) {

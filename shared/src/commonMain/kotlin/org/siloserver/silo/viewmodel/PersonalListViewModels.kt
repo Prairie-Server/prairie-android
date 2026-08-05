@@ -113,7 +113,14 @@ abstract class PersonalListViewModel(
                 return@launch
             }
             when (val r = result) {
-                is ApiResult.Success -> _uiState.update {
+                is ApiResult.Success -> {
+                    // A refresh that publishes content has loaded once, whatever
+                    // the initial load did. Screens gate their resume re-fetch
+                    // on this flag, so leaving it false when a refresh overtakes
+                    // that load disables the resume refresh for the whole life
+                    // of the view model.
+                    hasLoadedOnce = true
+                    _uiState.update {
                     it.copy(
                         items = r.data.items,
                         hasMore = r.data.hasMore,
@@ -121,6 +128,7 @@ abstract class PersonalListViewModel(
                         isRefreshing = false,
                         error = null,
                     )
+                    }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> {
                     _uiState.update { it.copy(isRefreshing = false) }

@@ -449,6 +449,7 @@ private fun LibraryGrid(
     onOpenFilterPanel: () -> Unit = {},
     onClearFilters: () -> Unit = {},
 ) {
+    var attachedRestoreItemId by remember { mutableStateOf<String?>(null) }
     val nearEnd by remember(
         gridState,
         state.browseHasMore,
@@ -574,8 +575,20 @@ private fun LibraryGrid(
                         // previous binding, so a restoration gated on layout
                         // alone can request focus at the wrong card.
                         DisposableEffect(item.contentId) {
+                            attachedRestoreItemId = item.contentId
                             onRestoreRequesterAttached(item.contentId)
-                            onDispose { onRestoreRequesterAttached(null) }
+                            onDispose {
+                                // Only when this card is still the owner. When
+                                // the requester moves, the new card attaches
+                                // before the old one disposes, so an
+                                // unconditional clear wipes the live attachment
+                                // and the restoration is reported NotReady
+                                // against a requester that is in fact bound.
+                                if (attachedRestoreItemId == item.contentId) {
+                                    attachedRestoreItemId = null
+                                    onRestoreRequesterAttached(null)
+                                }
+                            }
                         }
                     }
                     TvMediaCard(

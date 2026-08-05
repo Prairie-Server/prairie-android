@@ -100,9 +100,9 @@ private val AddProfilePlusSize = 44.dp
 private val AddProfilePlusStrokeWidth = 2.dp
 private val ProfileUtilityChromeTop = 40.dp
 private val ProfileUtilityChromeEnd = 64.dp
-private val ProfileUtilityChangeServerWidth = 164.dp
-private val ProfileUtilityManageWidth = 104.dp
-private val ProfileUtilitySignOutWidth = 100.dp
+// The utility pills size to their own labels. Fixed widths clipped them:
+// "Sign Out" rendered as "Sign" at 100dp, and the label a control shows is the
+// one thing about it that cannot be allowed to be wrong.
 private val ProfileUtilityChipHeight = 28.dp
 private val ProfileHeaderTop = 92.dp
 private val ProfileGridWidth = 772.dp
@@ -164,7 +164,6 @@ fun TvProfileSelectionScreen(
                         label = if (state.isManageMode) "Done" else "Manage",
                         icon = Icons.Filled.Edit,
                         variant = TvPillVariant.Hollow,
-                        modifier = Modifier.width(ProfileUtilityManageWidth),
                         heightOverride = ProfileUtilityChipHeight,
                         horizontalPaddingOverride = 10.dp,
                         labelStyle = MaterialTheme.typography.labelMedium,
@@ -174,7 +173,6 @@ fun TvProfileSelectionScreen(
                         label = "Change Server",
                         icon = Icons.Filled.Dns,
                         variant = TvPillVariant.Hollow,
-                        modifier = Modifier.width(ProfileUtilityChangeServerWidth),
                         heightOverride = ProfileUtilityChipHeight,
                         horizontalPaddingOverride = 10.dp,
                         labelStyle = MaterialTheme.typography.labelMedium,
@@ -184,7 +182,6 @@ fun TvProfileSelectionScreen(
                         label = "Sign Out",
                         icon = Icons.Filled.Logout,
                         variant = TvPillVariant.Hollow,
-                        modifier = Modifier.width(ProfileUtilitySignOutWidth),
                         heightOverride = ProfileUtilityChipHeight,
                         horizontalPaddingOverride = 10.dp,
                         labelStyle = MaterialTheme.typography.labelMedium,
@@ -197,21 +194,14 @@ fun TvProfileSelectionScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        // The journey row adds 40dp above the legacy title band;
-                        // offset that addition so the title/grid keep their
-                        // established vertical footprint and utility chips stay
-                        // isolated in the top chrome.
+                        // No journey row here any more, so the title band sits
+                        // at its own top inset rather than offsetting one.
                         .padding(
-                            top = ProfileHeaderTop - 40.dp,
+                            top = ProfileHeaderTop,
                             start = Spacing.safeArea,
                             end = Spacing.safeArea,
                         ),
                 ) {
-                    AuroraJourneyProgress(
-                        currentStep = 3,
-                        modifier = Modifier.width(230.dp),
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "Who's watching?",
                         style = MaterialTheme.typography.displayLarge,

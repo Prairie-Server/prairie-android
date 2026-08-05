@@ -79,6 +79,17 @@ fun TvSkylineSectionFeed(
     sections: List<ResolvedSection>,
     onItemClick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * False while rows are still being hydrated.
+     *
+     * Without it a launch row that has not arrived yet is indistinguishable
+     * from one that is gone, and resolution settles on the nearest survivor —
+     * driving focus to a card the viewer never opened and retiring the real
+     * target on the way. The rows list cannot answer this itself: it is
+     * filtered to sections that already HAVE items, so an unhydrated
+     * placeholder is dropped before the adapter could mark it incomplete.
+     */
+    sectionsComplete: Boolean = true,
     focusRequest: Int = 0,
     detailReturnFocusRequest: Int = 0,
     /** Shell-owned requester for the card a detail page was launched from.
@@ -418,7 +429,11 @@ fun TvSkylineSectionFeed(
     val returnResolution: TvReturnResolution =
         remember(rows, returnTarget, detailReturnPending) {
             if (detailReturnPending) {
-                resolveTvReturnTarget(returnTarget, rows.toTvReturnSections())
+                resolveTvReturnTarget(
+                    target = returnTarget,
+                    sections = rows.toTvReturnSections(),
+                    sectionsComplete = sectionsComplete,
+                )
             } else {
                 TvReturnResolution.Empty
             }

@@ -94,6 +94,7 @@ fun TvHomeScreen(
             )
         else -> TvHomeContent(
             sections = visibleSections,
+            sectionsFullyResolved = state.sectionsFullyResolved,
             onItemClick = onItemClick,
             onSeeAll = onSeeAll,
             onOpenForYou = onOpenForYou,
@@ -175,9 +176,11 @@ private fun TvHomeContent(
     onToggleWatchlist: (String, Boolean) -> Unit = { _, _ -> },
     onDismissContinueWatching: (String, String) -> Unit = { _, _ -> },
     onDismissNextUp: (String, String) -> Unit = { _, _ -> },
+    sectionsFullyResolved: Boolean = true,
 ) {
     TvSkylineSectionFeed(
         sections = sections,
+        sectionsComplete = sectionsFullyResolved,
         onItemClick = onItemClick,
         focusRequest = focusRequest,
         detailReturnFocusRequest = detailReturnFocusRequest,
