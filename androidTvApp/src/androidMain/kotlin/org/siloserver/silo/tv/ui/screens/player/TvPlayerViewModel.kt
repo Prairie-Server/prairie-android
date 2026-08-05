@@ -15,6 +15,7 @@ import org.siloserver.silo.common.player.PlaybackAnalyticsListener
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
+import org.siloserver.silo.common.player.PlaybackTeardownGate
 import org.siloserver.silo.common.player.FinalPlaybackPosition
 import org.siloserver.silo.common.player.FinalPlaybackPositionWriter
 import org.siloserver.silo.common.player.VideoSessionStartV3
@@ -3128,6 +3129,10 @@ class TvPlayerViewModel(
                 _uiState.update {
                     it.copy(
                         showNextUp = true,
+                        // Up Next owns the screen: the HUD is rendered purely on
+                        // hudOpen, so leaving it set draws the tab row and panes
+                        // underneath the overlay.
+                        hudOpen = false,
                         nextUpVideoEnded = true,
                         nextUpCountdownSeconds = null,
                     )
@@ -3168,7 +3173,7 @@ class TvPlayerViewModel(
         nextUpCountdownJob?.cancel()
         nextUpCountdownJob = null
         _uiState.update {
-            it.copy(showNextUp = true, nextUpCountdownSeconds = null)
+            it.copy(showNextUp = true, hudOpen = false, nextUpCountdownSeconds = null)
         }
     }
 
@@ -3183,6 +3188,7 @@ class TvPlayerViewModel(
         _uiState.update {
             it.copy(
                 showNextUp = true,
+                hudOpen = false,
                 nextUpVideoEnded = videoEnded,
                 nextUpCountdownSeconds = if (autoCountdown) NEXT_UP_COUNTDOWN_SECONDS else null,
             )
@@ -4063,6 +4069,15 @@ class TvPlayerViewModel(
     private val exitSessionId: String?
         get() = _uiState.value.sessionId ?: lastAdoptedSessionId
 
+    /**
+     * Keeps this screen's lifecycle teardown to exactly one stop. Without it,
+     * [onCleared]'s deferred stop lands after the *next* episode's start has
+     * captured its ownership epoch, bumps stopEpoch, and gets that start
+     * rejected as "Playback start was superseded" — auto-advance dying on every
+     * episode transition.
+     */
+    private val lifecycleTeardown = PlaybackTeardownGate(sessionLifecycle)
+
     private fun prepareSessionExit() {
         contentLoadGeneration++
         episodeSelectionHandoffSlot.invalidate()
@@ -4109,7 +4124,7 @@ class TvPlayerViewModel(
         playbackMutationFence.invalidateAll()
         prepareSessionExit()
         subtitleTransactions.persistCommittedSelectionAndFlush()
-        sessionLifecycle.stop(expectedSessionId = exitSessionId)
+        lifecycleTeardown.stopOrdered(expectedSessionId = exitSessionId)
     }
 
     /** Ordinary Back/remote-stop path: snapshot locally and return to detail immediately. */
@@ -4151,7 +4166,7 @@ class TvPlayerViewModel(
         subtitlePersistenceReservation?.let(
             subtitleTransactions::requestDurableFinalPersistence,
         )
-        sessionLifecycle.stopAsync(expectedSessionId = exitSessionId)
+        lifecycleTeardown.stopDetached(expectedSessionId = exitSessionId)
     }
 
     fun onExit() {
@@ -4387,7 +4402,7 @@ class TvPlayerViewModel(
                 subtitleTransactions::requestDurableFinalPersistence,
             )
             playbackMutationFence.invalidateAll()
-            sessionLifecycle.stop(expectedSessionId = teardownSessionId)
+            lifecycleTeardown.stopDetached(expectedSessionId = teardownSessionId)
         }
         subtitleSnapshotSettlement.reset()
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null

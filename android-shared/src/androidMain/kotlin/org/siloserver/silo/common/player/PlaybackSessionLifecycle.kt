@@ -675,7 +675,19 @@ class PlaybackSessionLifecycle(
                     context = NonCancellable + Dispatchers.IO,
                     start = CoroutineStart.LAZY,
                 ) {
-                    stop(expectedSessionId)
+                    // This scope has a SupervisorJob but no
+                    // CoroutineExceptionHandler, and nothing joins this job for
+                    // its result, so an unexpected throw from stop() would
+                    // escape as an uncaught coroutine exception and take the
+                    // process down. Teardown failing is not worth a crash: the
+                    // server session expires on its own timeout.
+                    try {
+                        stop(expectedSessionId)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "async stop failed for $expectedSessionId", t)
+                    }
                 }.also {
                     pendingStopJob = it
                     pendingStopSessionId = expectedSessionId

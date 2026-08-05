@@ -1724,13 +1724,18 @@ fun TvPlayerScreen(
         state.showSubtitleMenu,
         state.showSubtitleStyleDialog,
         state.isScrubbing,
+        state.showNextUp,
     ) {
         // Never auto-hide mid-scrub: hiding the scrubber would tear down the
         // in-flight preview under the user. The timer re-arms once the scrub
         // commits or cancels (isScrubbing flips back to false).
+        //
+        // Up Next counts down for longer than this timer, and it is a
+        // focus-owning surface: letting the timer fire under it hides the
+        // controls and pulls focus to the root, off the primary action.
         if (state.showControls && !state.isPaused && !state.hudOpen &&
             !state.showSubtitleMenu && !state.showSubtitleStyleDialog &&
-            !state.isScrubbing
+            !state.isScrubbing && !state.showNextUp
         ) {
             delay(CONTROLS_AUTO_HIDE_MS)
             viewModel.setControlsVisible(false)
