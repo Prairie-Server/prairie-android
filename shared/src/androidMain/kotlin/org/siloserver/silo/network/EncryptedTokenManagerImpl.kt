@@ -250,6 +250,37 @@ class EncryptedTokenManagerImpl(
         }
     }
 
+    /**
+     * One lock, one preferences edit, so the PERSISTED id and token cannot
+     * disagree even if the process dies immediately after. Concurrent readers
+     * are a separate problem — see [TokenManager.setProfileIdentity].
+     *
+     * While a temporary overlay exists this refuses the write entirely rather
+     * than merging into it: remote-playback identity belongs to the overlay,
+     * and a partial merge is what produced the id/token mismatch in the first
+     * place.
+     */
+    override suspend fun setProfileIdentity(profileId: String?, profileToken: String?) {
+        mutex.withLock {
+            // A temporary overlay owns its own identity for the lifetime of a
+            // remote-playback handoff. Merging a profile commit into it is how
+            // you get the exact defect this method exists to prevent: writing
+            // the new profile id beside the overlay's old token. Leave it
+            // alone; the repository rejects the commit outright.
+            if (temporaryScope != null) return@withLock
+            val serverId = activeServerId ?: return
+            if (this.profileId == profileId && this.profileToken == profileToken) return
+            this.profileId = profileId
+            this.profileToken = profileToken
+            val idKey = serverScopedKey(serverId, KEY_PROFILE_ID)
+            val tokenKey = serverScopedKey(serverId, KEY_PROFILE_TOKEN)
+            prefs.edit().apply {
+                if (profileId == null) remove(idKey) else putString(idKey, profileId)
+                if (profileToken == null) remove(tokenKey) else putString(tokenKey, profileToken)
+            }.apply()
+        }
+    }
+
     override suspend fun getServerUrl(): String = mutex.withLock {
         temporaryScope?.serverUrl ?: registry.activeEntry.value?.url.orEmpty()
     }

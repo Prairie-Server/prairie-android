@@ -75,6 +75,27 @@ interface TokenManager {
     suspend fun setProfileId(profileId: String?)
     suspend fun getProfileToken(): String?
     suspend fun setProfileToken(token: String?)
+
+    /**
+     * Commit a profile id and its matching profile token as ONE identity.
+     *
+     * A profile token is bound server-side to a single profile id, so the two
+     * are one fact, not two. Writing them separately means a process death
+     * between the writes persists a mismatch that survives to the next launch.
+     *
+     * This makes the WRITE one operation. It does not make concurrent reads
+     * consistent: [getProfileId] and [getProfileToken] still take the lock
+     * separately, so a reader interleaving with a commit can pair an old id
+     * with a new token.
+     *
+     * The default is the non-atomic pair, which keeps simple/test managers
+     * working; managers with real durable storage override this to do it in a
+     * single lock and a single edit.
+     */
+    suspend fun setProfileIdentity(profileId: String?, profileToken: String?) {
+        setProfileId(profileId)
+        setProfileToken(profileToken)
+    }
     suspend fun getServerUrl(): String
     suspend fun setServerUrl(url: String)
 

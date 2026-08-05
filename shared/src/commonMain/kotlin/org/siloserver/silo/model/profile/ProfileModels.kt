@@ -93,3 +93,20 @@ data class VerifyPinResponse(
     @SerialName("profile_token") val profileToken: String? = null,
     @SerialName("expires_at") val expiresAt: String? = null
 )
+
+/**
+ * The profile token to commit for a successful PIN verification, or null if
+ * this response does not authorize entry.
+ *
+ * Fail closed on shape, not just on [VerifyPinResponse.valid]: the token is
+ * the artifact that proves the PIN was entered, and the server rejects
+ * management calls that cannot present one. Treating a bare `valid=true` with
+ * no token as success let the client enter a protected profile holding nothing
+ * to prove it — the failure then surfaced much later, as a confusing 403 on an
+ * unrelated action.
+ *
+ * Expiry is left to the server, which validates the token on every use; the
+ * client does not parse [VerifyPinResponse.expiresAt].
+ */
+fun VerifyPinResponse.authorizedProfileToken(): String? =
+    profileToken?.takeIf { valid && it.isNotBlank() }

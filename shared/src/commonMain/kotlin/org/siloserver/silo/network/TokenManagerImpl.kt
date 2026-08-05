@@ -135,6 +135,17 @@ class TokenManagerImpl(
         }
     }
 
+    /** Single lock so the stored pair is written together; see [TokenManager]. */
+    override suspend fun setProfileIdentity(profileId: String?, profileToken: String?) {
+        mutex.withLock {
+            // See EncryptedTokenManagerImpl: an overlay owns its identity, and
+            // merging a commit into it recreates the id/token mismatch.
+            if (temporaryScope != null) return@withLock
+            this.profileId = profileId
+            this.profileToken = profileToken
+        }
+    }
+
     override suspend fun getServerUrl(): String = mutex.withLock {
         temporaryScope?.serverUrl ?: serverUrl
     }
