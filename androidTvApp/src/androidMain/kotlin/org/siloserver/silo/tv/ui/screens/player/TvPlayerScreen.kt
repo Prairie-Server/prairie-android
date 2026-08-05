@@ -1315,11 +1315,8 @@ fun TvPlayerScreen(
                     }
                 }
                 override fun onRenderedFirstFrame() {
-                    // The detectors are NOT told a frame arrived. This callback
-                    // carries no identity, so one rendered by the outgoing
-                    // stream is indistinguishable from this one's — and keying
-                    // it off live state describes when it was delivered, not
-                    // what rendered it. They read their own counters instead.
+                    startupStallDetector.onFirstFrameRendered()
+                    postResumeStallDetector.onFirstFrameRendered()
                     viewModel.onFirstVideoFrameRendered()
                 }
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1543,24 +1540,16 @@ fun TvPlayerScreen(
         state.sessionId?.let { sessionId ->
             PlaybackRuntimeCorrectionMetrics.reset()
             dvSanitizerReported = false
-            // Read once, at mount. Counters are cumulative on the player and
-            // reset when a renderer is enabled rather than per app-level mount,
-            // so this value is what separates this attempt's frames from the
-            // previous one's.
-            val renderedAtMount = (activePlayerHolder.player.value as? androidx.media3.exoplayer.ExoPlayer)
-                ?.videoDecoderCounters?.renderedOutputBufferCount
             startupStallDetector.onMounted(
                 sessionKey = "$sessionId:$url:${plan?.planId.orEmpty()}:" +
                     "${plan?.decisionTrace?.size ?: 0}:${state.transportMountNonce}",
                 playMethod = method,
                 startPositionMs = mediaSpec.startPositionMs,
                 nowMs = SystemClock.elapsedRealtime(),
-                renderedOutputBufferCount = renderedAtMount,
             )
             postResumeStallDetector.onMounted(
                 "$sessionId:$url:${plan?.planId.orEmpty()}:" +
                     "${plan?.decisionTrace?.size ?: 0}:${state.transportMountNonce}",
-                renderedOutputBufferCount = renderedAtMount,
             )
         }
         backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)

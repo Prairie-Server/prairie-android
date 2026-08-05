@@ -22,7 +22,6 @@ class PostResumeVideoStallDetector(
 
     private var sessionKey: String? = null
     private var firstFrameRendered = false
-    private var renderedBaseline: Int? = null
     private var pausedAfterFirstFrame = false
     private var pausedDuringRecovery = false
     private var stage = Stage.IDLE
@@ -30,11 +29,10 @@ class PostResumeVideoStallDetector(
     private var baselinePositionMs = 0L
     private var baselineRenderedCount = 0
 
-    fun onMounted(sessionKey: String, renderedOutputBufferCount: Int? = null) {
+    fun onMounted(sessionKey: String) {
         if (this.sessionKey == sessionKey) return
         this.sessionKey = sessionKey
         firstFrameRendered = false
-        renderedBaseline = renderedOutputBufferCount
         pausedAfterFirstFrame = false
         pausedDuringRecovery = false
         stage = Stage.IDLE
@@ -44,20 +42,12 @@ class PostResumeVideoStallDetector(
     }
 
     /**
-     * Whether THIS attempt has rendered anything, from its own counters.
-     *
-     * Media3's onRenderedFirstFrame carries no identity, so it cannot say which
-     * stream rendered — a frame from the outgoing one would otherwise mark this
-     * attempt live before it had shown anything, disarming the very watchdog
-     * that exists to catch that. Counters are attributable by construction: a
-     * baseline is taken the first time this attempt is measured, and only
-     * growth beyond it counts.
+     * A frame rendered. Provenance unknown — see PlaybackStartupStallDetector
+     * for why neither a rebuilt key nor a counter baseline can supply it, and
+     * what the real fix is.
      */
-    private fun noteRenderedFrames(renderedOutputBufferCount: Int) {
-        val baseline = renderedBaseline ?: renderedOutputBufferCount.also {
-            renderedBaseline = it
-        }
-        if (renderedOutputBufferCount > baseline) firstFrameRendered = true
+    fun onFirstFrameRendered() {
+        firstFrameRendered = true
     }
 
     fun onIsPlayingChanged(
@@ -67,11 +57,7 @@ class PostResumeVideoStallDetector(
         currentPositionMs: Long,
         renderedOutputBufferCount: Int?,
     ) {
-        if (sessionKey != this.sessionKey) return
-        // Counted before the firstFrameRendered gate: this callback is one of
-        // the two places a count arrives, and the gate below depends on it.
-        renderedOutputBufferCount?.let(::noteRenderedFrames)
-        if (!firstFrameRendered || stage == Stage.EXHAUSTED) return
+        if (sessionKey != this.sessionKey || !firstFrameRendered || stage == Stage.EXHAUSTED) return
         if (!isPlaying) {
             if (stage == Stage.IDLE) {
                 pausedAfterFirstFrame = true
@@ -99,9 +85,7 @@ class PostResumeVideoStallDetector(
         durationMs: Long,
         renderedOutputBufferCount: Int?,
     ): Signal? {
-        if (sessionKey != this.sessionKey) return null
-        renderedOutputBufferCount?.let(::noteRenderedFrames)
-        if (renderedOutputBufferCount == null || stage == Stage.IDLE ||
+        if (sessionKey != this.sessionKey || renderedOutputBufferCount == null || stage == Stage.IDLE ||
             stage == Stage.EXHAUSTED
         ) return null
         if (!playWhenReady || !isPlaying || !isReady) return null

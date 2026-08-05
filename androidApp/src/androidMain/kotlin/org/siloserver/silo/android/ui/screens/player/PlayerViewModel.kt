@@ -950,6 +950,14 @@ class PlayerViewModel(
                 )) {
                     is VideoPlayerUiState.Ready -> {
                         unpublishedReadySessionId = playbackState.sessionId
+                        // Retained BEFORE the suspending UI application below.
+                        // The starter has already installed the lifecycle owner
+                        // and started its reporter by this point, so an exit
+                        // during that suspension would otherwise find neither a
+                        // published session nor a retained one — and skipping
+                        // teardown there strands the lifecycle and its reporter
+                        // running for a screen nobody is on.
+                        playbackState.sessionId?.let { retainedOwnedSessionId = it }
                         if (!ownsLoad(loadOwner)) {
                             stopStaleReadySession(playbackState.sessionId)
                             unpublishedReadySessionId = null
