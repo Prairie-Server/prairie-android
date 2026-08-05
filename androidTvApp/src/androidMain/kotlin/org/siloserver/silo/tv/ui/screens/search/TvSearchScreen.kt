@@ -65,6 +65,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -167,6 +168,18 @@ fun TvSearchScreen(
     val activeSearchFieldFocusRequester = searchFieldFocusRequester ?: internalSearchFieldFocusRequester
     val keyboardController = LocalSoftwareKeyboardController.current
     var hasEnteredSearch by rememberSaveable { mutableStateOf(false) }
+    var isKeyboardOpen by remember { mutableStateOf(false) }
+
+    // Back closes the keyboard rather than leaving the screen.
+    //
+    // Without this, Back from a raised keyboard fell through to the shell and
+    // popped Search entirely — so the only way to put the keyboard away was
+    // also the way out, and anyone reaching for the mic lost the screen instead.
+    BackHandler(enabled = isKeyboardOpen) {
+        isKeyboardOpen = false
+        keyboardController?.hide()
+        runCatching { activeSearchFieldFocusRequester.requestFocus() }
+    }
     val requestMediaType = state.mediaType.toRequestMediaType()
     val visibleRequestResults = requestState.results
         .filterTvRequestResults()
@@ -412,7 +425,6 @@ fun TvSearchScreen(
         searchGridState.animateScrollToItem(0)
         androidx.compose.runtime.withFrameNanos { }
         runCatching { activeSearchFieldFocusRequester.requestFocus() }
-        keyboardController?.show()
     }
     LaunchedEffect(
         pendingSearchFocus,
@@ -519,10 +531,7 @@ fun TvSearchScreen(
                     searchFieldFocusRequester = activeSearchFieldFocusRequester,
                     firstFilterChipFocusRequester = firstFilterChipFocusRequester,
                     firstContentFocusRequester = firstContentFocusRequester,
-                    onSearchFieldFocusChanged = { focused ->
-                        onSearchFieldFocusChanged(focused)
-                        if (focused) keyboardController?.show()
-                    },
+                    onSearchFieldFocusChanged = onSearchFieldFocusChanged,
                     onQueryChanged = viewModel::onQueryChanged,
                     onSearch = {
                         pendingSearchFocus = true
@@ -537,6 +546,8 @@ fun TvSearchScreen(
                     onMediaTypeChanged = viewModel::onMediaTypeChanged,
                     voiceSearch = voiceSearch,
                     voiceUnavailableMessage = voiceUnavailableMessage,
+                    isKeyboardOpen = isKeyboardOpen,
+                    onKeyboardOpenChanged = { isKeyboardOpen = it },
                 )
             },
             footer = {
@@ -720,8 +731,11 @@ private fun SearchStage(
     onMediaTypeChanged: (TvSearchMediaType) -> Unit,
     voiceSearch: TvVoiceSearchController,
     voiceUnavailableMessage: String?,
+    isKeyboardOpen: Boolean,
+    onKeyboardOpenChanged: (Boolean) -> Unit,
 ) {
     val voiceFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     val mediaTypes = availableMediaTypes
     val fieldShape = RoundedCornerShape(14.dp)
 
@@ -759,6 +773,15 @@ private fun SearchStage(
         OutlinedTextField(
             value = query,
             onValueChange = { onQueryChanged(it.take(TV_SEARCH_QUERY_MAX_LENGTH)) },
+            // Read-only until Select. This is what actually keeps the keyboard
+            // down — not withholding a show() call, which was the earlier
+            // mistake: Compose raises the IME itself whenever an editable field
+            // takes focus, so the only way to hold a focused field without a
+            // keyboard is for it not to be editable yet.
+            //
+            // Focus can then rest here harmlessly, the D-pad still belongs to
+            // the screen, and everything beside the field stays reachable.
+            readOnly = !isKeyboardOpen,
             singleLine = true,
             placeholder = {
                 Text(
@@ -789,26 +812,49 @@ private fun SearchStage(
                 // the search field onto the All/Movies/Series filters,
                 // regardless of whether result cards are also rendered below.
                 .focusRequester(searchFieldFocusRequester)
-                .onFocusChanged { onSearchFieldFocusChanged(it.isFocused) }
-                // LEFT reaches the mic, and it has to be taken in the PREVIEW
-                // phase to get there. Compose's text field consumes Left as
-                // cursor movement even when the caret cannot move, so both a
-                // plain key handler and a focusProperties destination lose the
-                // race — the key never becomes a focus move at all. Previewing
-                // it is the same mechanism the shell uses to claim Up.
+                .onFocusChanged { state ->
+                    onSearchFieldFocusChanged(state.isFocused)
+                    // Leaving the field puts it back to read-only, so returning
+                    // to it later does not silently raise the keyboard again.
+                    if (!state.isFocused && isKeyboardOpen) onKeyboardOpenChanged(false)
+                }
+                // Select opens the keyboard; focus alone does not.
                 //
-                // The cost is that Left no longer walks the caret. On a TV that
-                // is a fair trade: text arrives through the on-screen keyboard,
-                // which carries its own cursor keys, whereas the mic has no
-                // other way in.
+                // Raising it on focus is what made everything beside this field
+                // unreachable: the IME is a separate window that owns the
+                // D-pad, so with it up no key ever reaches this app and the mic
+                // to the left may as well not exist. Nothing an app can do wins
+                // that race — the earlier attempt to preview Left here was
+                // fighting a window that had already taken the event.
+                //
+                // With the keyboard closed the D-pad belongs to the screen
+                // again, and ordinary focus movement reaches the mic with no
+                // routing at all. Typing costs one Select first, which is the
+                // trade, and it is the one the Wholphin client makes.
                 .onPreviewKeyEvent { event ->
-                    if (voiceSearch.isAvailable &&
+                    val opensKeyboard = event.key == Key.DirectionCenter || event.key == Key.Enter
+                    when {
+                        event.type == KeyEventType.KeyUp && opensKeyboard && !isKeyboardOpen -> {
+                            onKeyboardOpenChanged(true)
+                            keyboardController?.show()
+                            true
+                        }
+                        // LEFT has to be taken from the field as well. Keeping
+                        // the keyboard down was necessary but not sufficient:
+                        // the text field still consumes Left as caret movement,
+                        // even read-only and even with nowhere for the caret to
+                        // go, so the key never becomes a focus move.
+                        //
+                        // Only while the keyboard is closed. Once it is open the
+                        // IME owns the D-pad and this never runs — and Left
+                        // genuinely should walk the caret then.
                         event.type == KeyEventType.KeyDown &&
-                        event.key == Key.DirectionLeft
-                    ) {
-                        runCatching { voiceFocusRequester.requestFocus() }.getOrDefault(false)
-                    } else {
-                        false
+                            event.key == Key.DirectionLeft &&
+                            !isKeyboardOpen &&
+                            voiceSearch.isAvailable -> {
+                            runCatching { voiceFocusRequester.requestFocus() }.getOrDefault(false)
+                        }
+                        else -> false
                     }
                 }
                 .focusProperties { down = firstFilterChipFocusRequester },
