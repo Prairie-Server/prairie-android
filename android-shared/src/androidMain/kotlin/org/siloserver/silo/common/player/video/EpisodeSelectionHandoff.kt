@@ -20,6 +20,123 @@ import org.siloserver.silo.playback.canonicalSubtitleLanguage
 data class EpisodeSelectionHandoff(
     val source: EpisodeSourceIntent? = null,
     val subtitle: EpisodeSubtitleIntent = EpisodeSubtitleIntent.auto(),
+    /**
+     * The audio the viewer chose, carried the same way subtitles are.
+     *
+     * Nothing carried audio before, so a household watching a dub or a
+     * commentary track was returned to the server default at every automatic
+     * episode change — a choice they had to make again all evening.
+     *
+     * Described by metadata rather than index for the same reason subtitles
+     * are: the next episode's track list is a different list, and position
+     * three in one file has nothing to do with position three in the next.
+     */
+    val audio: EpisodeAudioIntent = EpisodeAudioIntent.auto(),
+)
+
+@Serializable
+enum class EpisodeAudioMode { AUTO, TRACK }
+
+@Serializable
+data class EpisodeAudioIntent(
+    val mode: EpisodeAudioMode,
+    val language: String? = null,
+    val codecFamily: String? = null,
+    val channelCount: Int? = null,
+    val title: String? = null,
+) {
+    companion object {
+        fun auto() = EpisodeAudioIntent(EpisodeAudioMode.AUTO)
+    }
+}
+
+/**
+ * Pick the track in [candidates] that best answers [intent].
+ *
+ * Language is canonicalised first, because "eng" and "en" are the same choice
+ * spelled two ways and the catalog and the player disagree about which to use.
+ * Codec is reduced to a family for the same reason: the player reports MIME
+ * types like `audio/eac3` where the catalog says `eac3`.
+ *
+ * Title carries real weight rather than being decoration. A commentary track
+ * routinely shares language, codec AND channel count with the main mix, so
+ * those three cannot tell them apart — the name is the only thing that can.
+ *
+ * An unresolved tie returns null. Guessing between two tracks that both match
+ * everything known about the choice is how a viewer ends up in a director's
+ * commentary they never asked for, and the server default is a better answer
+ * than a coin toss.
+ */
+fun resolveEpisodeAudioIntent(
+    intent: EpisodeAudioIntent,
+    candidates: List<EpisodeAudioCandidate>,
+): Int? {
+    if (intent.mode != EpisodeAudioMode.TRACK) return null
+    if (candidates.isEmpty()) return null
+
+    val language = canonicalEpisodeLanguage(intent.language)
+    // A track with no language at all is still a choice a viewer made, so an
+    // intent without one narrows on the other fields rather than giving up.
+    var pool = if (language == null) {
+        candidates
+    } else {
+        candidates.filter { canonicalEpisodeLanguage(it.language) == language }
+    }
+    if (pool.isEmpty()) return null
+    if (pool.size == 1) return pool.single().index
+
+    val title = normalizedEpisodeToken(intent.title)
+    if (title != null) {
+        val byTitle = pool.filter { normalizedEpisodeToken(it.title) == title }
+        if (byTitle.size == 1) return byTitle.single().index
+        if (byTitle.isNotEmpty()) pool = byTitle
+    }
+
+    val codec = episodeAudioCodecFamily(intent.codecFamily)
+    if (codec != null) {
+        val byCodec = pool.filter { episodeAudioCodecFamily(it.codecFamily) == codec }
+        if (byCodec.size == 1) return byCodec.single().index
+        if (byCodec.isNotEmpty()) pool = byCodec
+    }
+
+    val channels = intent.channelCount
+    if (channels != null) {
+        val byChannels = pool.filter { it.channelCount == channels }
+        if (byChannels.size == 1) return byChannels.single().index
+        if (byChannels.isNotEmpty()) pool = byChannels
+    }
+
+    // Still ambiguous: say so rather than pick.
+    return pool.singleOrNull()?.index
+}
+
+/**
+ * The one canonicaliser, shared with subtitles.
+ *
+ * An earlier version here rolled its own and was wrong three ways: it ran the
+ * token through a normaliser that strips '-', so `en-US` became `enus` before
+ * any locale lookup; it passed three-letter codes straight through, so `fre`
+ * and `fra` never met; and `Locale.isO3Language` throws on unrecognised input,
+ * turning odd metadata into a failed playback start.
+ *
+ * canonicalSubtitleLanguage already handles all of that and treats `und` as
+ * absent. Audio and subtitles have no reason to disagree about what a language
+ * is.
+ */
+private fun canonicalEpisodeLanguage(raw: String?): String? =
+    canonicalSubtitleLanguage(raw)
+
+/** `audio/eac3` from the player and `eac3` from the catalog are one codec. */
+private fun episodeAudioCodecFamily(raw: String?): String? =
+    normalizedEpisodeToken(raw?.substringAfterLast('/'))
+
+data class EpisodeAudioCandidate(
+    val index: Int,
+    val language: String?,
+    val codecFamily: String?,
+    val channelCount: Int?,
+    /** Often the only thing separating a commentary track from the main mix. */
+    val title: String? = null,
 )
 
 @Serializable
@@ -60,6 +177,8 @@ data class ResolvedEpisodeSelection(
     val fileId: Int?,
     val subtitleTrackIndex: Int?,
     val subtitleIntentSpecified: Boolean,
+    /** Null keeps the server default, which is what AUTO means. */
+    val audioTrackIndex: Int? = null,
 )
 
 fun captureEpisodeSourceIntent(version: FileVersion?): EpisodeSourceIntent? {

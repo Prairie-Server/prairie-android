@@ -1117,6 +1117,18 @@ fun TvPlayerScreen(
         }
     }
 
+    // A subtitle or audio change that failed has to say so. Stage, validation,
+    // commit, rollback and mount failures all populated subtitleFailureMessage
+    // and nothing ever read it: "Applying…" simply vanished and the tick
+    // returned to the previous track, which is indistinguishable from the
+    // viewer having imagined pressing it. Audio replans share this adapter, so
+    // they were equally silent.
+    LaunchedEffect(state.subtitleFailureId) {
+        val message = state.subtitleFailureMessage ?: return@LaunchedEffect
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        viewModel.onSubtitleFailureShown(state.subtitleFailureId)
+    }
+
     // Surface transient Watch Together server rejections (e.g. a guest seek the
     // server refuses) as a brief Toast. These flow on the repo errors stream and
     // do NOT eject the user. Only collected while bound to a room.
@@ -1303,15 +1315,11 @@ fun TvPlayerScreen(
                     }
                 }
                 override fun onRenderedFirstFrame() {
-                    val live = viewModel.uiState.value
-                    val key = live.sessionId?.let { sessionId ->
-                        "$sessionId:${live.streamUrl}:${live.playbackPlan?.planId.orEmpty()}:" +
-                            "${live.playbackPlan?.decisionTrace?.size ?: 0}:${live.transportMountNonce}"
-                    }
-                    if (key != null) {
-                        startupStallDetector.onFirstFrameRendered(key)
-                        postResumeStallDetector.onFirstFrameRendered(key)
-                    }
+                    // The detectors are NOT told a frame arrived. This callback
+                    // carries no identity, so one rendered by the outgoing
+                    // stream is indistinguishable from this one's — and keying
+                    // it off live state describes when it was delivered, not
+                    // what rendered it. They read their own counters instead.
                     viewModel.onFirstVideoFrameRendered()
                 }
                 override fun onPlaybackStateChanged(playbackState: Int) {

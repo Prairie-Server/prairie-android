@@ -15,6 +15,9 @@ import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
 import org.siloserver.silo.common.player.video.EpisodeSubtitleIntent
 import org.siloserver.silo.common.player.video.ResolvedEpisodeSelection
 import org.siloserver.silo.common.player.video.resolveEpisodeSourceIntent
+import org.siloserver.silo.common.player.video.EpisodeAudioCandidate
+import org.siloserver.silo.common.player.video.EpisodeAudioIntent
+import org.siloserver.silo.common.player.video.resolveEpisodeAudioIntent
 import org.siloserver.silo.common.player.video.resolveEpisodeSubtitleIntent
 import org.siloserver.silo.common.player.video.resolvedPlaybackDelivery
 import org.siloserver.silo.common.player.video.shouldReachServerForPlayback
@@ -146,7 +149,13 @@ class TvVideoPlaybackStarter(
                     profileId = profileId,
                     capabilities = capabilities,
                     clientPlaybackContext = playbackContext,
-                    audioTrackIndex = request.audioTrackIndex,
+                    // An explicit request wins; otherwise the audio the viewer
+                    // chose in the previous episode travels here. Without this
+                    // the carry-over resolved a track and then threw it away,
+                    // and a dubbed household was returned to the server default
+                    // at every automatic transition.
+                    audioTrackIndex = request.audioTrackIndex
+                        ?: resolvedEpisodeSelection.audioTrackIndex,
                     subtitleTrackIndex = serverSubtitleTrackIndex,
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
@@ -365,10 +374,29 @@ fun resolveTvPlaybackStartSelection(
             plannedTracks = emptyList(),
         ),
     )
+    // Audio travels the same way subtitles do — by what the track IS, not where
+    // it sat. The next episode's list is a different list, so a remembered
+    // position would land on whatever happens to occupy it.
+    val resolvedAudioIndex = resolveEpisodeAudioIntent(
+        intent = episodeSelectionHandoff?.audio ?: EpisodeAudioIntent.auto(),
+        // track.index, not the list position. The server addresses audio by its
+        // own catalog index and the two are not the same number — the ordinal
+        // is only meaningful to whoever built the list.
+        candidates = selectedVersion.audioTracks.orEmpty().map { track ->
+            EpisodeAudioCandidate(
+                index = track.index,
+                language = track.language,
+                codecFamily = track.codec,
+                channelCount = track.channels?.takeIf { it > 0 },
+                title = track.title,
+            )
+        },
+    )
     return ResolvedEpisodeSelection(
         fileId = selectedVersion.fileId,
         subtitleTrackIndex = resolvedSubtitle.trackIndex,
         subtitleIntentSpecified = resolvedSubtitle.intentSpecified,
+        audioTrackIndex = resolvedAudioIndex,
     )
 }
 

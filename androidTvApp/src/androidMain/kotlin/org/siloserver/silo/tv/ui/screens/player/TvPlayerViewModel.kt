@@ -41,6 +41,8 @@ import org.siloserver.silo.common.player.seek.sourcePositionForPlayer
 import org.siloserver.silo.common.network.ServerReachabilityMonitor
 import org.siloserver.silo.common.player.video.VideoPlaybackSessionCoordinator
 import org.siloserver.silo.common.player.video.VideoPlaybackStartRequest
+import org.siloserver.silo.common.player.video.EpisodeAudioIntent
+import org.siloserver.silo.common.player.video.EpisodeAudioMode
 import org.siloserver.silo.common.player.video.EpisodeSelectionHandoff
 import org.siloserver.silo.common.player.video.EpisodeSubtitleIntent
 import org.siloserver.silo.common.player.video.EpisodeSubtitleMode
@@ -135,6 +137,28 @@ data class PlayerTrackEntry(
     val trackId: String? = null,
 )
 
+/**
+ * The server catalog index for the audio currently in force.
+ *
+ * UNRESOLVED — review says the plan index should win here and that preferring
+ * the Media3 ordinal is why audio reverts to the first language after a replan
+ * (a remuxed stream carrying only the chosen track reports ordinal zero). But
+ * PlayerTrackEntriesTest.replanSelectionMapsMedia3OrdinalToStableServerAudioIndex
+ * asserts the current order deliberately, and flipping it may break the case
+ * where Media3 auto-selects a track the plan does not know about, leaving the
+ * plan stale and the ordinal correct. Not changed until that is settled.
+ *
+ * The argument for the plan winning: A Media3 group ordinal is not an index into the server
+ * catalog, and after a remux or transcode the two stop agreeing entirely: a
+ * replacement stream carrying only the chosen track reports ordinal zero, so
+ * preferring the ordinal made the next replan ask for catalog track zero and
+ * the audio silently reverted to the first language. Opening subtitles or
+ * power-cycling a receiver was enough to trigger it.
+ *
+ * The ordinal is still the answer when there is no plan index — which is
+ * exactly what an explicit selection passes, since the viewer is choosing a
+ * track the plan does not yet know about.
+ */
 internal fun selectedServerAudioTrackIndex(
     selectedPlayerOrdinal: Int?,
     catalogAudioTracks: List<AudioTrack>?,
@@ -173,8 +197,26 @@ internal fun captureTvEpisodeSelectionHandoff(
     committedSubtitleIdentity: SubtitleIdentity,
     catalogSubtitles: List<PlayerSubtitleInfo>,
     hasExplicitSubtitleSelection: Boolean,
+    selectedAudioTrack: PlayerTrackEntry? = null,
+    hasExplicitAudioSelection: Boolean = false,
 ): EpisodeSelectionHandoff = EpisodeSelectionHandoff(
     source = captureEpisodeSourceIntent(activeVersion),
+    // Only an explicit choice travels. Carrying whatever the server happened to
+    // default to would pin that default onto every later episode, which looks
+    // identical to a preference the viewer never expressed.
+    audio = if (!hasExplicitAudioSelection || selectedAudioTrack == null) {
+        EpisodeAudioIntent.auto()
+    } else {
+        EpisodeAudioIntent(
+            mode = EpisodeAudioMode.TRACK,
+            language = selectedAudioTrack.language,
+            codecFamily = selectedAudioTrack.codecOrMime,
+            channelCount = selectedAudioTrack.channelCount.takeIf { it > 0 },
+            // The label is what tells a commentary track from the main mix when
+            // language, codec and channel count are identical.
+            title = selectedAudioTrack.label,
+        )
+    },
     subtitle = if (!hasExplicitSubtitleSelection) {
         org.siloserver.silo.common.player.video.EpisodeSubtitleIntent.auto()
     } else {
@@ -733,6 +775,13 @@ class TvPlayerViewModel(
     private var pendingPersistedSubtitleFingerprint: String? = null
     private var autoTextSubtitleSelectionAttempted = false
     private var manualSubtitleSelectionApplied = false
+    /**
+     * Whether the viewer picked the current audio track themselves.
+     *
+     * Only an explicit choice is carried into the next episode; a server
+     * default must not be pinned onto every later one.
+     */
+    private var manualAudioSelectionApplied = false
 
     /** Guards [startServerRecoveryFallback] against concurrent fallbacks racing the same session. */
     private var recoveryJob: Job? = null
@@ -890,6 +939,8 @@ class TvPlayerViewModel(
         val pendingSubtitleIdentity: SubtitleIdentity? = null,
         val subtitleApplying: Boolean = false,
         val subtitleFailureMessage: String? = null,
+        /** Distinguishes two failures that happen to read the same. */
+        val subtitleFailureId: Long = 0L,
         // Dialog visibility — owned here so HUD rows can request them and
         // the screen renders the Popups above the open HUD.
         val showSubtitleSearchDialog: Boolean = false,
@@ -982,6 +1033,11 @@ class TvPlayerViewModel(
                 committed: org.siloserver.silo.model.playback.CommittedSubtitle,
                 context: TvSubtitlePlaybackContext,
             ): Boolean {
+                // Only when AUDIO was what changed. Every commit carries the
+                // current audio index — a subtitle-only change included — so
+                // testing the index for non-null marked the server default as
+                // the viewer's choice after any successful subtitle change.
+                if (committed.audioPreferenceSpecified) onAudioSelectionCommitted()
                 val writeScope = context.writeScope ?: return false
                 return userItemStatePort.recordTrackSelection(
                     scope = writeScope,
@@ -1022,6 +1078,14 @@ class TvPlayerViewModel(
                     pendingSubtitleIdentity = snapshot.pendingIdentity,
                     subtitleApplying = snapshot.subtitleApplying,
                     subtitleFailureMessage = snapshot.failureMessage,
+                    subtitleFailureId = when {
+                        snapshot.failureMessage == null -> 0L
+                        // A new failure only when this is not the same one
+                        // already on screen, so a recomposition does not
+                        // re-announce it.
+                        state.subtitleFailureMessage == null -> state.subtitleFailureId + 1
+                        else -> state.subtitleFailureId
+                    },
                     subtitleUrls = authoritativeTvSubtitleRows(
                         snapshotRows = snapshot.subtitleTracks,
                         previousRows = state.subtitleUrls,
@@ -1551,6 +1615,10 @@ class TvPlayerViewModel(
         transportMountGate.beginLoad()
         introAutoSkipController.reset()
         manualSubtitleSelectionApplied = false
+        // A carried TRACK intent stays manual, otherwise the choice survives
+        // exactly one transition and reverts to AUTO on the next.
+        manualAudioSelectionApplied =
+            launchArgs.episodeSelectionHandoff?.audio?.mode == EpisodeAudioMode.TRACK
         _uiState.update { it.copy(isBuffering = false) }
 
         _uiState.update {
@@ -2361,6 +2429,40 @@ class TvPlayerViewModel(
      * frozen frame, no message, and no reason to think pressing anything would
      * help. Telemetry recorded this; nobody told the person watching.
      */
+    /**
+     * The screen has shown [TvPlayerViewModel.UiState.subtitleFailureMessage].
+     *
+     * Cleared on acknowledgement rather than on a timer so the same failure
+     * cannot be reported twice, and so a later failure with identical text
+     * still surfaces.
+     */
+    /**
+     * An audio change has committed, so it is now the viewer's choice.
+     *
+     * Set here rather than when the change was requested: staging, validation,
+     * adoption, mount and rollback can all fail, and a flag raised on intent
+     * would carry whatever track survived the failure into the next episode as
+     * though it had been chosen.
+     */
+    fun onAudioSelectionCommitted() {
+        manualAudioSelectionApplied = true
+    }
+
+    fun onSubtitleFailureShown(shownId: Long) {
+        _uiState.update {
+            // Acknowledged by ID, not by text. Two failures can carry the same
+            // words — a mount deadline reported twice reads identically — and
+            // comparing strings would let an old acknowledgement clear a new
+            // failure that merely said the same thing. Text is what the viewer
+            // reads; it was never an identity.
+            if (it.subtitleFailureId == shownId) {
+                it.copy(subtitleFailureMessage = null, subtitleFailureId = 0L)
+            } else {
+                it
+            }
+        }
+    }
+
     fun onPlaybackRecoveryExhausted() {
         _uiState.update {
             if (it.error != null) it else it.copy(
@@ -3107,6 +3209,8 @@ class TvPlayerViewModel(
             activeVersion = activeVersion,
             committedSubtitleIdentity = state.committedSubtitleIdentity,
             catalogSubtitles = state.subtitleUrls,
+            selectedAudioTrack = state.audioTracks.firstOrNull { it.isSelected },
+            hasExplicitAudioSelection = manualAudioSelectionApplied,
             hasExplicitSubtitleSelection = manualSubtitleSelectionApplied,
         )
         _playNextRequests.tryEmit(PlayNextRequest(next.contentId, nextAutoAdvanceCount, handoff))

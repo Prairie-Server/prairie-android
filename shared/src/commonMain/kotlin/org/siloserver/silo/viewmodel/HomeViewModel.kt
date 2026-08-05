@@ -76,6 +76,19 @@ class HomeViewModel(
     private var realtimeRefreshInFlight = false
 
     /**
+     * Bumped by every fetch, checked before any of them publishes.
+     *
+     * loadSections(), refresh() and refreshFromRealtime() can all be in flight
+     * at once — a resume observer fires while an initial load is still
+     * running — and each captures hadSections BEFORE its network call. Without
+     * ordering, an older partial response lands after a newer complete one,
+     * replaces good sections and marks them not fully resolved, which now also
+     * tells the TV's focus restoration to keep waiting for rows that already
+     * arrived.
+     */
+    private var fetchGeneration = 0
+
+    /**
      * Debounced realtime refetch: quiet (no spinner) and single-flight —
      * an in-flight realtime or manual refresh already delivers the fresh
      * sections, so overlapping signals are dropped rather than raced.
@@ -135,6 +148,7 @@ class HomeViewModel(
         val cacheWriteLease = HomeCacheWriteLease(requestIdentityGeneration)
         // Whether we already have something to show (cached or prior fetch) — if a
         // refresh fails we keep it rather than replacing it with a blocking error.
+        val generation = ++fetchGeneration
         val hadSections = _uiState.value.sections.isNotEmpty()
         when (val result = sectionRepository.getHomeSections()) {
             is ApiResult.Success -> {
@@ -149,6 +163,9 @@ class HomeViewModel(
                 val hydration = hydrateHomeSections(sections) { sectionId ->
                     sectionRepository.getHomeSectionItems(sectionId)
                 }
+                // Superseded while in flight: a newer fetch has already
+                // answered, so this reply describes a home nobody is looking at.
+                if (generation != fetchGeneration) return
                 val resolved = hydration.sections
                 // Don't persist a partially-resolved home over a good cached one.
                 val fullyResolved = hydration.fullyResolved
@@ -181,6 +198,8 @@ class HomeViewModel(
                 }
             }
             is ApiResult.Error -> {
+                // A superseded fetch's failure is not this home's failure.
+                if (generation != fetchGeneration) return
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -191,6 +210,7 @@ class HomeViewModel(
                 }
             }
             is ApiResult.NetworkError -> {
+                if (generation != fetchGeneration) return
                 _uiState.update {
                     it.copy(
                         isLoading = false,

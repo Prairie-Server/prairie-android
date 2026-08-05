@@ -185,7 +185,18 @@ class PlaybackStartupStallDetectorTest {
             bufferedPositionMs = 5_000,
             decoderInputBufferCount = 1,
         )
-        detector.onFirstFrameRendered("rendered")
+        // A rendered frame for THIS attempt is what disarms the deadline.
+        detector.sample(
+            sessionKey = "rendered",
+            nowMs = 150,
+            playWhenReady = true,
+            isPlaying = true,
+            isBuffering = false,
+            currentPositionMs = 100,
+            bufferedPositionMs = 5_000,
+            decoderInputBufferCount = 1,
+            decoderRenderedOutputBufferCount = 1,
+        )
         assertNull(
             detector.sample(
                 sessionKey = "rendered",
@@ -196,6 +207,7 @@ class PlaybackStartupStallDetectorTest {
                 currentPositionMs = 2_000,
                 bufferedPositionMs = 5_000,
                 decoderInputBufferCount = 10,
+                decoderRenderedOutputBufferCount = 1,
             ),
         )
     }
@@ -223,7 +235,6 @@ class PlaybackStartupStallDetectorTest {
             bufferedPositionMs = 5_000,
             decoderInputBufferCount = 1,
         )
-        detector.onFirstFrameRendered("attempt-a")
         // Still armed, because nothing has rendered for attempt-b.
         assertNotNull(
             detector.sample(
@@ -392,10 +403,27 @@ class PlaybackStartupStallDetectorTest {
         )
         detector.onMounted("session", PlayMethod.DIRECT, 0, 0)
         detector.sample("session", 100, true, true, false, 1_000, 5_000)
-        detector.onFirstFrameRendered("session")
+        // First frame is now evidenced by rendered-count growth rather than an
+        // unattributable callback.
+        detector.sample(
+            "session", 100, true, true, false, 1_000, 5_000,
+            decoderRenderedOutputBufferCount = 1,
+        )
 
-        assertNull(detector.sample("session", 900, true, false, true, 1_000, 6_000))
-        assertNotNull(detector.sample("session", 1_101, true, false, true, 1_000, 7_000))
+        // Rendered count held steady: it must not appear to go backwards, which
+        // would read as a fresh attempt rather than a frozen one.
+        assertNull(
+            detector.sample(
+                "session", 900, true, false, true, 1_000, 6_000,
+                decoderRenderedOutputBufferCount = 1,
+            ),
+        )
+        assertNotNull(
+            detector.sample(
+                "session", 1_101, true, false, true, 1_000, 7_000,
+                decoderRenderedOutputBufferCount = 1,
+            ),
+        )
     }
 
     @Test

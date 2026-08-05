@@ -39,6 +39,15 @@ data class CommittedSubtitle(
     val identity: SubtitleIdentity,
     val audioTrackIndex: Int? = null,
     val qualityPreference: String? = null,
+    /**
+     * Whether the AUDIO was what this commit changed.
+     *
+     * Every commit carries the current audio index, including one that only
+     * changed subtitles — so the index alone cannot say whether the viewer
+     * chose that audio or merely happens to be listening to it. Callers that
+     * persist an audio preference need the difference.
+     */
+    val audioPreferenceSpecified: Boolean = false,
 )
 
 data class PendingSubtitle(
@@ -171,7 +180,12 @@ private fun SubtitleTransitionState.select(identity: SubtitleIdentity): Subtitle
         )
     }
     if (identity.requiresClientMount()) {
-        val updated = CommittedSubtitle(identity, audioTrackIndex, qualityPreference)
+        val updated = CommittedSubtitle(
+            identity = identity,
+            audioTrackIndex = audioTrackIndex,
+            qualityPreference = qualityPreference,
+            audioPreferenceSpecified = pending?.audioPreferenceSpecified == true,
+        )
         return SubtitleTransitionResult(
             state = copy(
                 committed = updated,
@@ -244,6 +258,7 @@ private fun SubtitleTransitionState.validate(
         identity = latest.identity,
         audioTrackIndex = latest.audioTrackIndex,
         qualityPreference = latest.qualityPreference,
+        audioPreferenceSpecified = latest.audioPreferenceSpecified,
     )
     return SubtitleTransitionResult(
         state = copy(committed = updated, pending = null),

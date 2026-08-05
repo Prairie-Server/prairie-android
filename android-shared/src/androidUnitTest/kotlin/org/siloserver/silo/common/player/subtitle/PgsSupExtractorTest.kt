@@ -176,6 +176,64 @@ class PgsSupExtractorTest {
         }
     }
 
+    /**
+     * A caption declaring an enormous bitmap must never reach the parser.
+     *
+     * Media3 trusts these two 16-bit fields: it allocates IntArray(w * h) and
+     * an ARGB bitmap from them. 40000x40000 asks for 1.6 billion pixels — over
+     * 6 GB — from eleven bytes of input. Catching the failure afterwards is too
+     * late on a TV box, where the process simply disappears.
+     */
+    @Test
+    fun anObjectDeclaringAnUnreasonableBitmapIsRejected() {
+        val out = ByteArrayOutputStream()
+        out.writeSegment(pts90kHz = 90_000, type = SEGMENT_TYPE_PCS, payload = byteArrayOf(0xAA.toByte()))
+        out.writeSegment(
+            pts90kHz = 90_000,
+            type = PgsSupExtractor.SEGMENT_TYPE_OBJECT,
+            payload = objectSegment(width = 40_000, height = 40_000),
+        )
+        out.writeSegment(pts90kHz = 90_000, type = PgsSupExtractor.SEGMENT_TYPE_END, payload = ByteArray(0))
+
+        val factory = RecordingParserFactory()
+        val extractor = PgsSupExtractor(factory, { 0L }, pgsFormat())
+        extractor.init(FakeExtractorOutput())
+        drain(extractor, FakeExtractorInput.Builder().setData(out.toByteArray()).build())
+
+        assertEquals(0, factory.parsed.size)
+    }
+
+    /** A full-frame 1080p caption is legitimate and must still play. */
+    @Test
+    fun aFullFrameObjectIsAccepted() {
+        val out = ByteArrayOutputStream()
+        out.writeSegment(pts90kHz = 90_000, type = SEGMENT_TYPE_PCS, payload = byteArrayOf(0xAA.toByte()))
+        out.writeSegment(
+            pts90kHz = 90_000,
+            type = PgsSupExtractor.SEGMENT_TYPE_OBJECT,
+            payload = objectSegment(width = 1920, height = 1080),
+        )
+        out.writeSegment(pts90kHz = 90_000, type = PgsSupExtractor.SEGMENT_TYPE_END, payload = ByteArray(0))
+
+        val factory = RecordingParserFactory()
+        val extractor = PgsSupExtractor(factory, { 0L }, pgsFormat())
+        extractor.init(FakeExtractorOutput())
+        drain(extractor, FakeExtractorInput.Builder().setData(out.toByteArray()).build())
+
+        assertEquals(1, factory.parsed.size)
+    }
+
+    /** First-sequence ODS payload: id, version, descriptor, length, w, h. */
+    private fun objectSegment(width: Int, height: Int): ByteArray = byteArrayOf(
+        0x00, 0x01, // object id
+        0x00, // version
+        0x80.toByte(), // first sequence
+        0x00, 0x00, 0x10, // object data length (>= 4)
+        (width shr 8 and 0xFF).toByte(), (width and 0xFF).toByte(),
+        (height shr 8 and 0xFF).toByte(), (height and 0xFF).toByte(),
+        0x00, 0x00, // token RLE bytes
+    )
+
     /** Two display sets: PTS 1s and 3s, each one PCS segment then END. */
     private fun supStream(): ByteArray {
         val out = ByteArrayOutputStream()

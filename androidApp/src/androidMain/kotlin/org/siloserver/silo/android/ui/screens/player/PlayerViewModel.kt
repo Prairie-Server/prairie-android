@@ -3530,9 +3530,16 @@ class PlayerViewModel(
         loadJob = null
         mobileSubtitleTransactions.invalidate()
         mobileSubtitleTransactions.requestDurableFinalPersistence()
+        // Qualified by the session this view model actually owns. The lifecycle
+        // is process-scoped, and phone navigation REPLACES the player back-stack
+        // entry — so a new view model can adopt its session before the outgoing
+        // one finishes tearing down, and an unqualified stop then kills the
+        // playback the viewer is currently watching. TV already qualifies both
+        // of its exits; phone did not.
+        val ownedSessionId = _uiState.value.sessionId
         viewModelScope.launch {
             mobileSubtitleTransactions.persistCommittedSelectionAndFlush()
-            sessionLifecycle.stop()
+            sessionLifecycle.stop(expectedSessionId = ownedSessionId)
         }
         val state = _uiState.value
         val cid = state.contentId.takeIf { it.isNotBlank() }
@@ -3730,6 +3737,9 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        // Snapshot before anything below can clear UI state — onExit() runs
+        // first and this must still know which session was ours.
+        val clearedSessionId = _uiState.value.sessionId
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
         loadOwners.invalidate()
@@ -3740,7 +3750,9 @@ class PlayerViewModel(
         onExit()
         // viewModelScope is cancelling here, so onExit's ordered stop may not run.
         // stopAsync() is app-scoped and de-duplicates against an in-flight stop.
-        sessionLifecycle.stopAsync()
+        // Qualified for the same reason as the ordered stop above: by the time
+        // onCleared runs, a replacement screen may already own playback.
+        sessionLifecycle.stopAsync(expectedSessionId = clearedSessionId)
         controlsHideJob?.cancel()
         introObserverJob?.cancel()
         lifecycleObserverJob?.cancel()

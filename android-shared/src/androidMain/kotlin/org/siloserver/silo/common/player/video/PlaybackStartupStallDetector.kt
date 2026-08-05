@@ -44,6 +44,10 @@ class PlaybackStartupStallDetector(
         this.started = false
         this.signaled = false
         this.firstFrameRendered = false
+        // Re-baselined on arm. The counters are cumulative on the player, so
+        // "greater than zero" would be satisfied instantly by the previous
+        // attempt's frames when a player is reused.
+        this.renderedBaseline = null
         this.decoderStartupAtMs = null
         this.paused = false
         this.lastProgressPositionMs = this.startPositionMs
@@ -52,17 +56,20 @@ class PlaybackStartupStallDetector(
     }
 
     /**
-     * Attempt-qualified. An unqualified callback let a first frame queued by the
-     * PREVIOUS item arrive after a replan or episode change and disarm the new
-     * attempt's watchdog before it had rendered anything — leaving a black
-     * picture with no fallback, and diagnostics recording a first frame that
-     * never happened for this stream.
+     * Deliberately absent: there is no onFirstFrameRendered here.
+     *
+     * Media3's callback carries no identity, so a frame rendered by the
+     * OUTGOING stream could arrive after a replan and vouch for the incoming
+     * one — disarming its watchdog before it had rendered anything. Qualifying
+     * the callback with a key rebuilt from live state does not help, because
+     * that key describes the state at DELIVERY, not the item that rendered.
+     *
+     * The counters below answer the same question with evidence that belongs to
+     * this attempt by construction: a baseline is taken when the attempt is
+     * armed, and only growth beyond it counts. Nothing has to be trusted about
+     * where a callback came from, because no callback is consulted.
      */
-    fun onFirstFrameRendered(sessionKey: String) {
-        if (sessionKey != this.sessionKey) return
-        firstFrameRendered = true
-        decoderStartupAtMs = null
-    }
+    private var renderedBaseline: Int? = null
 
     fun sample(
         sessionKey: String,
@@ -81,7 +88,10 @@ class PlaybackStartupStallDetector(
 
         val decoderOutputCount = decoderRenderedOutputBufferCount +
             decoderSkippedOutputBufferCount + decoderDroppedBufferCount
-        if (!firstFrameRendered && decoderRenderedOutputBufferCount > 0) {
+        val baseline = renderedBaseline ?: decoderRenderedOutputBufferCount.also {
+            renderedBaseline = it
+        }
+        if (!firstFrameRendered && decoderRenderedOutputBufferCount > baseline) {
             firstFrameRendered = true
             decoderStartupAtMs = null
         }

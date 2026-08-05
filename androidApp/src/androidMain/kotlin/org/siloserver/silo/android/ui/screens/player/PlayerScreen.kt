@@ -775,15 +775,11 @@ fun PlayerScreen(
                 }
 
                 override fun onRenderedFirstFrame() {
-                    val live = viewModel.uiState.value
-                    val key = live.sessionId?.let { sessionId ->
-                        "$sessionId:${live.streamUrl}:${live.playbackPlan?.planId.orEmpty()}:" +
-                            "${live.playbackPlan?.decisionTrace?.size ?: 0}:${live.mediaMountGeneration}"
-                    }
-                    if (key != null) {
-                        startupStallDetector.onFirstFrameRendered(key)
-                        postResumeStallDetector.onFirstFrameRendered(key)
-                    }
+                    // The detectors are NOT told a frame arrived. This callback
+                    // carries no identity, so one rendered by the outgoing
+                    // stream is indistinguishable from this one's — and keying
+                    // it off live state describes when it was delivered, not
+                    // what rendered it. They read their own counters instead.
                     viewModel.onFirstVideoFrameRendered()
                 }
 
