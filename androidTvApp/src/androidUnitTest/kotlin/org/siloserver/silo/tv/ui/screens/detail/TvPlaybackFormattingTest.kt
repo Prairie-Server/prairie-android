@@ -47,6 +47,37 @@ class TvPlaybackFormattingTest {
         assertEquals("Auto - English", automaticTrackLabel("English"))
     }
 
+    // --- audioSummaryForServerIndex ---
+
+    /**
+     * Server indices are not list positions. Resolving by position is the bug
+     * that made a transcoded session label its audio from the delivered Media3
+     * track instead of the source catalog row.
+     */
+    @Test fun audioSummaryForServerIndex_resolvesByStableIndexNotPosition() {
+        val version = fileVersion(
+            audio = listOf(
+                AudioTrack(index = 3, language = "eng", codec = "dts", channels = 6),
+                AudioTrack(index = 7, language = "nld", codec = "aac", channels = 2),
+            ),
+        )
+
+        val first = TvPlaybackFormatting.audioSummaryForServerIndex(version, 3)
+        val second = TvPlaybackFormatting.audioSummaryForServerIndex(version, 7)
+
+        assertTrue(first != null && first.contains("English"), "got $first")
+        assertTrue(second != null && second.contains("Dutch"), "got $second")
+        // Position 1 holds server index 7; asking for index 1 must not match it.
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForServerIndex(version, 1))
+    }
+
+    @Test fun audioSummaryForServerIndex_nullWhenUnresolvable() {
+        val version = fileVersion(audio = listOf(AudioTrack(index = 3)))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForServerIndex(version, null))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForServerIndex(null, 3))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForServerIndex(fileVersion(), 3))
+    }
+
     // --- versionPickerLabels ---
 
     @Test fun versionPickerLabels_leaveDistinctLabelsAlone() {

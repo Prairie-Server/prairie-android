@@ -384,6 +384,15 @@ internal fun TvPlayerHud(
                     )
                     HudTab.Audio -> HudAudioPane(
                         audioTracks = audioTracks,
+                        // Source identity from the plan's stable server index,
+                        // so the row says what the file holds rather than what
+                        // a transcode happened to deliver.
+                        sourceAudioLabel = org.siloserver.silo.tv.ui.screens.detail
+                            .TvPlaybackFormatting.audioSummaryForServerIndex(
+                                version = fileVersions.firstOrNull { it.fileId == selectedFileId }
+                                    ?: fileVersions.firstOrNull(),
+                                serverAudioIndex = playbackPlan?.selectedTracks?.audioIndex,
+                            ),
                         onSelectAudio = onSelectAudio,
                         audioDelayMs = audioDelayMs,
                         audioDelayEnabled = audioDelayEnabled,
@@ -1159,6 +1168,7 @@ private fun HudClickChip(
 @Composable
 private fun HudAudioPane(
     audioTracks: List<PlayerTrackEntry>,
+    sourceAudioLabel: String?,
     onSelectAudio: (Int) -> Unit,
     audioDelayMs: Int,
     audioDelayEnabled: Boolean,
@@ -1178,9 +1188,14 @@ private fun HudAudioPane(
                 val selectedTrack = audioTracks.firstOrNull { it.isSelected }
                 HudFocusedSettingRow(
                     label = "Audio track",
-                    // Built labels ("English DTS 5.1") — raw Media3 labels echo
-                    // server identity strings or bare ISO codes.
-                    value = selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
+                    // Prefer the SOURCE identity the plan selected. The mounted
+                    // Media3 track describes the delivered representation, so a
+                    // transcode showed "UND AAC Stereo" for what the detail page
+                    // and every other surface call "English · DTS · 5.1".
+                    // Media3 is only the fallback, for when there is no plan
+                    // identity or no catalog audio metadata to resolve it with.
+                    value = sourceAudioLabel
+                        ?: selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
                         ?: "Default",
                     enabled = enabled && audioTracks.size > 1,
                     onActivate = {

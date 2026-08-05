@@ -259,6 +259,24 @@ object TvPlaybackFormatting {
 
     /** Pill-value summary. Mirrors tvOS `audioSummary`:
      *  "English · EAC3 · 5.1". */
+    /**
+     * Source-identity summary for the track the playback plan selected, looked
+     * up by the STABLE server [AudioTrack.index] — not a list ordinal, and not
+     * a Media3 group ordinal.
+     *
+     * The player HUD used to label this row from the mounted Media3 track,
+     * which describes what was *delivered*: a DTS 5.1 source transcoded to
+     * stereo AAC rendered as "UND AAC Stereo" while every other surface
+     * correctly said "English · DTS · 5.1".
+     */
+    fun audioSummaryForServerIndex(version: FileVersion?, serverAudioIndex: Int?): String? {
+        if (serverAudioIndex == null) return null
+        val tracks = version?.audioTracks ?: return null
+        val ordinal = tracks.indexOfFirst { it.index == serverAudioIndex }.takeIf { it >= 0 }
+            ?: return null
+        return audioSummary(tracks[ordinal], ordinal)
+    }
+
     private fun audioSummary(track: AudioTrack, ordinal: Int): String {
         val tokens = listOfNotNull(
             languageDisplayName(track.language),
