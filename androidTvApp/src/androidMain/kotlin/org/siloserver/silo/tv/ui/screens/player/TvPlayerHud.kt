@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -70,6 +71,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -712,6 +714,9 @@ private fun PaneColumn(
 @Composable
 private fun LabelValueRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // Fixed gap, weighted value — same reasoning as HudFocusedSettingRow: a
+        // lone weighted spacer collapses to 0dp once the two texts fill the row,
+        // which is how "SubtitlesArabic — SRT · Exter…" rendered.
         Text(
             text = label,
             color = MaterialTheme.colorScheme.onSurface,
@@ -720,8 +725,10 @@ private fun LabelValueRow(label: String, value: String) {
                 lineHeight = HudBodyLineHeight,
                 fontWeight = FontWeight.Medium,
             ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        Box(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = value,
             color = Color.White.copy(alpha = 0.7f),
@@ -731,6 +738,8 @@ private fun LabelValueRow(label: String, value: String) {
             ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
         )
     }
 }
@@ -895,13 +904,16 @@ private fun HudVideoPane(
                             onPresentPicker(
                                 HudPickerPresentation(
                                     title = "Version",
-                                    options = fileVersions.map { version ->
-                                        HudPickerOption(
-                                            id = version.fileId.toString(),
-                                            label = org.siloserver.silo.tv.ui.screens.detail
-                                                .TvPlaybackFormatting.versionShortLabel(version),
-                                        )
-                                    },
+                                    // Disambiguated as a set: two 4K DV files
+                                    // otherwise render as two identical rows.
+                                    options = org.siloserver.silo.tv.ui.screens.detail
+                                        .TvPlaybackFormatting.versionPickerLabels(fileVersions)
+                                        .mapIndexed { index, label ->
+                                            HudPickerOption(
+                                                id = fileVersions[index].fileId.toString(),
+                                                label = label,
+                                            )
+                                        },
                                     selectedId = (currentVersion?.fileId ?: -1).toString(),
                                     onSelect = { id ->
                                         id.toIntOrNull()?.let(onSelectFileVersion)
@@ -1454,22 +1466,14 @@ private fun HudSubtitlesPane(
         ) {
             HudSubtitlePreview(appearance = appearance)
 
-            HudFocusedSettingRow(
-                label = "No background",
-                value = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.None) "On" else "Off",
-                enabled = enabled,
-                leftFocusRequester = subtitleTrackFocus,
-                onActivate = {
-                    // Toggle: turning it back off restores the default Box
-                    // background (Apple parity) rather than staying stuck on None.
-                    val target = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.None) {
-                        SubtitleBackgroundStylePreset.Box
-                    } else {
-                        SubtitleBackgroundStylePreset.None
-                    }
-                    onAppearanceChanged(appearance.copy(backgroundStyle = target))
-                },
-            )
+            // There is deliberately no "No background" toggle here. It was a
+            // second control over backgroundStyle, which the Background picker
+            // in the left column already exposes as "No background" — and
+            // toggling it off could not know what the style had been, so it
+            // hard-coded Box and silently destroyed the user's choice
+            // (Drop Shadow -> On -> Off left you on Box, persisted immediately).
+            // tvOS has no such toggle either: TVPlayerInfoHUD offers a single
+            // Style picker plus a Background color row.
 
             // Color swatches stay inline — tvOS draws color swatches directly,
             // and a row→dialog of colors would lose the at-a-glance palette.
@@ -1792,7 +1796,11 @@ private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildLis
     videoDecoderName?.let { add("Video decoder" to it) }
     audioCodec?.let { add("Audio codec" to it) }
     audioDecoderName?.let { add("Audio decoder" to it) }
-    bitrateBps?.let { add("Bitrate" to formatBitrate(it)) }
+    // NOT the media bitrate: this is Media3's onBandwidthEstimate value, i.e.
+    // measured network throughput. Labelling it "Bitrate" read as a ~19 Mbps
+    // stream reporting 151.3 Mbps on a fast LAN, which is actively misleading
+    // in a panel whose whole job is diagnosing playback.
+    bitrateBps?.let { add("Estimated bandwidth" to formatBitrate(it)) }
     if (droppedFrames > 0) add("Dropped frames" to droppedFrames.toString())
     if (audioUnderruns > 0) add("Audio underruns" to audioUnderruns.toString())
 }
@@ -2007,6 +2015,14 @@ internal fun HudFocusedSettingRow(
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // A single weighted spacer used to be the only thing between label and
+        // value. Compose measures unweighted children first, so once the two
+        // texts filled the row that spacer resolved to 0dp and they abutted
+        // ("BackgroundNo background", "SubtitlesDanish — SRT · E…").
+        //
+        // Now the gap is fixed and unconditional, and the value region carries
+        // the weight: it still right-aligns, but it is the side that gives way
+        // and ellipsizes when the row is cramped.
         Text(
             text = label,
             color = labelColor,
@@ -2018,10 +2034,11 @@ internal fun HudFocusedSettingRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Box(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.width(12.dp))
         Row(
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.End),
         ) {
             if (colorHex != null) {
                 Box(
@@ -2032,6 +2049,10 @@ internal fun HudFocusedSettingRow(
                         .border(0.5.dp, Color.White.copy(alpha = 0.45f), CircleShape),
                 )
             }
+            // Weighted so the swatch and chevron are measured first and the
+            // value is what gives way. Unweighted, a long value consumes the
+            // width and squeezes the trailing chevron toward zero.
+            // fill = false keeps short values grouped against the right edge.
             Text(
                 text = value,
                 color = valueColor,
@@ -2042,6 +2063,7 @@ internal fun HudFocusedSettingRow(
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
             Icon(
                 imageVector = Icons.Filled.ChevronRight,

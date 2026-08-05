@@ -150,7 +150,10 @@ internal fun PlayerStatsSnapshot.mobileStatsRows(): List<Pair<String, String>> =
     videoDecoderName?.let { add("Video decoder" to it) }
     audioCodec?.let { add("Audio codec" to it) }
     audioDecoderName?.let { add("Audio decoder" to it) }
-    bitrateBps?.let { add("Bitrate" to formatStatsBitrate(it)) }
+    // Media3's onBandwidthEstimate value — measured network throughput, not the
+    // media bitrate. Labelling it "Bitrate" reads as a ~19 Mbps stream claiming
+    // 151 Mbps on a fast LAN.
+    bitrateBps?.let { add("Estimated bandwidth" to formatStatsBitrate(it)) }
     if (droppedFrames > 0) add("Dropped frames" to droppedFrames.toString())
     if (audioUnderruns > 0) add("Audio underruns" to audioUnderruns.toString())
 }

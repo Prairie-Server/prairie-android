@@ -96,6 +96,54 @@ object TvPlaybackFormatting {
         return if (tokens.isEmpty()) "Auto" else tokens.joinToString(" · ")
     }
 
+    /**
+     * Picker labels for a whole version list, disambiguated against each other.
+     *
+     * [versionShortLabel] is built from resolution + HDR/DV alone, so a title
+     * holding two 4K Dolby Vision files renders two identical "4K · DV" rows
+     * and the user cannot tell them apart. Selection still works (the option id
+     * is the unique fileId) — the list is just unreadable.
+     *
+     * Only colliding labels get a suffix, so the common single-version-per-tier
+     * case is untouched. Attributes are accumulated until the group's labels
+     * are actually distinct: no single attribute need be unique on its own, so
+     * e.g. {20GB HEVC, 20GB AV1, 40GB HEVC, 40GB AV1} separates on codec+size.
+     * Codec leads because it is a real playback/compatibility difference; size
+     * usually does the work when a remux and an encode share a codec.
+     */
+    fun versionPickerLabels(versions: List<FileVersion>): List<String> {
+        val base = versions.map { versionShortLabel(it) }
+        val colliding = base.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+        if (colliding.isEmpty()) return base
+
+        val suffixes = MutableList(versions.size) { "" }
+        for (label in colliding) {
+            val indexes = base.indices.filter { base[it] == label }
+            // Widen the attribute tuple until this group is separated, or until
+            // we run out of attributes and accept an honest duplicate.
+            for (depth in 1..VERSION_DISCRIMINATORS.size) {
+                val attempt = indexes.associateWith { index ->
+                    VERSION_DISCRIMINATORS.take(depth)
+                        .mapNotNull { it(versions[index]) }
+                        .joinToString(" · ")
+                }
+                indexes.forEach { suffixes[it] = attempt.getValue(it) }
+                if (attempt.values.toSet().size == indexes.size) break
+            }
+        }
+        return base.mapIndexed { index, label ->
+            val suffix = suffixes[index]
+            if (suffix.isBlank()) label else "$label · $suffix"
+        }
+    }
+
+    /** Attributes tried, in order, when version labels collide. */
+    private val VERSION_DISCRIMINATORS: List<(FileVersion) -> String?> = listOf(
+        { v -> v.codecVideo?.takeIf { it.isNotBlank() }?.uppercase(Locale.ROOT) },
+        { v -> formatFileSize(v.fileSize) },
+        { v -> v.container?.takeIf { it.isNotBlank() }?.uppercase(Locale.ROOT) },
+    )
+
     fun isDolbyVision(version: FileVersion): Boolean =
         DolbyVisionDetection.isDolbyVision(videoCodec = version.codecVideo) ||
             version.videoTracks.orEmpty().any { track ->
