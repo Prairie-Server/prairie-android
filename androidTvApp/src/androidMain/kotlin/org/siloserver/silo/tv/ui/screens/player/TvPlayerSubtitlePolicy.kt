@@ -243,8 +243,12 @@ internal fun tvAudioTrackPersistenceUpdate(
     committedAudioTrackIndex: Int?,
     audioTracks: List<AudioTrack>,
 ): TrackSelectionFingerprintUpdate =
+    // An ORDINAL into audioTracks: audio carries no index on the wire, so
+    // matching on AudioTrack.index found nothing for any ordinal above 0 and
+    // silently Preserved — the chosen track was never persisted, so reopening
+    // the item lost it.
     committedAudioTrackIndex
-        ?.let { selected -> audioTracks.singleOrNull { it.index == selected } }
+        ?.let(audioTracks::getOrNull)
         ?.let(::audioTrackFingerprint)
         ?.let(TrackSelectionFingerprintUpdate::Set)
         ?: TrackSelectionFingerprintUpdate.Preserve
@@ -272,10 +276,15 @@ internal fun resolveTvRemoteSubtitleIntent(
         ?.let(::tvSubtitleIdentity)
 }
 
+/**
+ * Remote `set_audio_track` carries an ordinal, and the server addresses audio
+ * by ordinal too, so this is an identity mapping guarded by range. It used to
+ * read `.index`, which audio never carries, so every remote pick requested 0.
+ */
 internal fun resolveTvRemoteAudioIntent(
     playerOrdinal: Int,
     audioTracks: List<AudioTrack>,
-): Int? = audioTracks.getOrNull(playerOrdinal)?.index
+): Int? = playerOrdinal.takeIf { it in audioTracks.indices }
 
 private fun PlayerSubtitleInfo.isDownloadedTvPolicyRow(): Boolean =
     downloadId != null ||

@@ -379,12 +379,12 @@ fun resolveTvPlaybackStartSelection(
     // position would land on whatever happens to occupy it.
     val resolvedAudioIndex = resolveEpisodeAudioIntent(
         intent = episodeSelectionHandoff?.audio ?: EpisodeAudioIntent.auto(),
-        // track.index, not the list position. The server addresses audio by its
-        // own catalog index and the two are not the same number — the ordinal
-        // is only meaningful to whoever built the list.
-        candidates = selectedVersion.audioTracks.orEmpty().map { track ->
+        // The list position IS the address. Audio tracks carry no index on the
+        // wire (subtitles do), so AudioTrack.index is its 0 default on every
+        // row: building candidates from it collapsed every one of them to 0.
+        candidates = selectedVersion.audioTracks.orEmpty().mapIndexed { ordinal, track ->
             EpisodeAudioCandidate(
-                index = track.index,
+                index = ordinal,
                 language = track.language,
                 codecFamily = track.codec,
                 channelCount = track.channels?.takeIf { it > 0 },

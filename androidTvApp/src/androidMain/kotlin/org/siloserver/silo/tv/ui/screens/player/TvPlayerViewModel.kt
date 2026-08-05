@@ -139,34 +139,45 @@ data class PlayerTrackEntry(
 )
 
 /**
- * The server catalog index for the audio currently in force.
+ * The audio the server considers in force, as an ORDINAL into
+ * [FileVersion.audioTracks].
  *
- * UNRESOLVED — review says the plan index should win here and that preferring
- * the Media3 ordinal is why audio reverts to the first language after a replan
- * (a remuxed stream carrying only the chosen track reports ordinal zero). But
- * PlayerTrackEntriesTest.replanSelectionMapsMedia3OrdinalToStableServerAudioIndex
- * asserts the current order deliberately, and flipping it may break the case
- * where Media3 auto-selects a track the plan does not know about, leaving the
- * plan stale and the ordinal correct. Not changed until that is settled.
+ * That ordinal is the server's actual contract for audio. Unlike subtitles,
+ * audio tracks carry NO index field on the wire — a probe of the running server
+ * returns `{"title":"English DTS 5.1","language":"en","codec":"dts",...}` with
+ * no `index`, while a subtitle in the same payload has `"index": 2`. So
+ * [AudioTrack.index] deserialises to its `0` default for every audio track and
+ * is not an identifier. `effective_audio_track_index` is likewise an ordinal.
  *
- * The argument for the plan winning: A Media3 group ordinal is not an index into the server
- * catalog, and after a remux or transcode the two stop agreeing entirely: a
- * replacement stream carrying only the chosen track reports ordinal zero, so
- * preferring the ordinal made the next replan ask for catalog track zero and
- * the audio silently reverted to the first language. Opening subtitles or
- * power-cycling a receiver was enough to trigger it.
+ * This previously read `catalogAudioTracks.getOrNull(ordinal)?.index`, which
+ * therefore evaluated to 0 for every track: every explicit audio pick asked the
+ * server for track 0, so choosing Dutch played English.
  *
- * The ordinal is still the answer when there is no plan index — which is
- * exactly what an explicit selection passes, since the viewer is choosing a
- * track the plan does not yet know about.
+ * The plan wins over the mounted Media3 ordinal. The plan carries the server's
+ * own selection, while a Media3 group ordinal describes only what THIS stream
+ * delivered — after a transcode the stream carries just the chosen track and
+ * reports ordinal zero, which is "first delivered group", not "catalog track
+ * zero". Preferring it made the next replan ask for track zero and silently
+ * reverted the audio to the first language.
+ *
+ * The Media3 ordinal survives as a fallback when there is no plan identity, and
+ * only when it is actually within the catalog's range. It is a guess: it holds
+ * just when delivered order matches catalog order.
  */
 internal fun selectedServerAudioTrackIndex(
     selectedPlayerOrdinal: Int?,
     catalogAudioTracks: List<AudioTrack>?,
     currentPlanTrackIndex: Int?,
-): Int? = selectedPlayerOrdinal
-    ?.let { catalogAudioTracks?.getOrNull(it)?.index }
-    ?: currentPlanTrackIndex
+): Int? {
+    val catalog = catalogAudioTracks.orEmpty()
+    // Validate the plan against the catalog when we have one: a stale
+    // plan/catalog pairing would otherwise forward an out-of-range ordinal.
+    // With no catalog to check against, the plan is still the best identity.
+    currentPlanTrackIndex?.let { plan ->
+        if (catalog.isEmpty() || plan in catalog.indices) return plan
+    }
+    return selectedPlayerOrdinal?.takeIf { it in catalog.indices }
+}
 
 private fun SubtitleIdentity.serverTrackIndexForTv(): Int = when (this) {
     SubtitleIdentity.Off -> -1
@@ -199,16 +210,29 @@ internal fun captureTvEpisodeSelectionHandoff(
     catalogSubtitles: List<PlayerSubtitleInfo>,
     hasExplicitSubtitleSelection: Boolean,
     selectedAudioTrack: PlayerTrackEntry? = null,
+    selectedCatalogAudio: AudioTrack? = null,
     hasExplicitAudioSelection: Boolean = false,
 ): EpisodeSelectionHandoff = EpisodeSelectionHandoff(
     source = captureEpisodeSourceIntent(activeVersion),
     // Only an explicit choice travels. Carrying whatever the server happened to
     // default to would pin that default onto every later episode, which looks
     // identical to a preference the viewer never expressed.
-    audio = if (!hasExplicitAudioSelection || selectedAudioTrack == null) {
-        EpisodeAudioIntent.auto()
-    } else {
-        EpisodeAudioIntent(
+    audio = when {
+        !hasExplicitAudioSelection -> EpisodeAudioIntent.auto()
+        // Prefer the SOURCE row the plan selected. The mounted Media3 track is
+        // the delivered representation, so a DTS 5.1 source transcoded to AAC
+        // stereo would hand the next episode "UND / AAC / 2ch" as the stated
+        // preference — and the resolver weighs title and codec heavily enough
+        // to then match the wrong track or give up and take the default.
+        selectedCatalogAudio != null -> EpisodeAudioIntent(
+            mode = EpisodeAudioMode.TRACK,
+            language = selectedCatalogAudio.language,
+            codecFamily = selectedCatalogAudio.codec,
+            channelCount = selectedCatalogAudio.channels?.takeIf { it > 0 },
+            title = selectedCatalogAudio.title,
+        )
+        // Legacy fallback: no catalog row to resolve against.
+        selectedAudioTrack != null -> EpisodeAudioIntent(
             mode = EpisodeAudioMode.TRACK,
             language = selectedAudioTrack.language,
             codecFamily = selectedAudioTrack.codecOrMime,
@@ -217,6 +241,7 @@ internal fun captureTvEpisodeSelectionHandoff(
             // language, codec and channel count are identical.
             title = selectedAudioTrack.label,
         )
+        else -> EpisodeAudioIntent.auto()
     },
     subtitle = if (!hasExplicitSubtitleSelection) {
         org.siloserver.silo.common.player.video.EpisodeSubtitleIntent.auto()
@@ -3240,6 +3265,9 @@ class TvPlayerViewModel(
             committedSubtitleIdentity = state.committedSubtitleIdentity,
             catalogSubtitles = state.subtitleUrls,
             selectedAudioTrack = state.audioTracks.firstOrNull { it.isSelected },
+            // The catalog row the plan selected, by ordinal — audio's contract.
+            selectedCatalogAudio = state.playbackPlan?.selectedTracks?.audioIndex
+                ?.let { activeVersion?.audioTracks?.getOrNull(it) },
             hasExplicitAudioSelection = manualAudioSelectionApplied,
             hasExplicitSubtitleSelection = manualSubtitleSelectionApplied,
         )
@@ -3448,18 +3476,27 @@ class TvPlayerViewModel(
         )
     }
 
-    fun selectAudioOption(index: Int) {
+    /**
+     * Selects audio by ORDINAL into the active version's `audio_tracks`, which
+     * is the server's contract for audio (see [selectedServerAudioTrackIndex]).
+     *
+     * The ordinal goes to the replan untouched. It used to be mapped through
+     * `AudioTrack.index`, a field the server never sends for audio, so every
+     * pick collapsed to 0.
+     */
+    fun selectAudioOption(catalogOrdinal: Int) {
         val state = _uiState.value
-        val selected = selectedServerAudioTrackIndex(
-            selectedPlayerOrdinal = index,
-            catalogAudioTracks = state.fileVersions
-                .firstOrNull { it.fileId == (state.selectedFileId ?: state.mediaFileId) }
-                ?.audioTracks,
-            currentPlanTrackIndex = null,
-        ) ?: return
+        val catalog = state.fileVersions
+            .firstOrNull { it.fileId == (state.selectedFileId ?: state.mediaFileId) }
+            ?.audioTracks
+            .orEmpty()
+        if (catalogOrdinal !in catalog.indices) return
+        // manualAudioSelectionApplied is deliberately NOT raised here: it is
+        // raised on commit via CommittedSubtitle.audioPreferenceSpecified, so a
+        // request that fails or rolls back never becomes an episode preference.
         playbackMutationFence.beginReplan()
         subtitleTransactions.updatePlaybackContext(subtitlePlaybackContext(state))
-        subtitleTransactions.selectAudio(selected)
+        subtitleTransactions.selectAudio(catalogOrdinal)
     }
 
     /**

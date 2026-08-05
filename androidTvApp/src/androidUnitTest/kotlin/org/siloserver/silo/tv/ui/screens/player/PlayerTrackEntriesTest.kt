@@ -17,12 +17,30 @@ import kotlin.test.assertTrue
 class PlayerTrackEntriesTest {
 
     @Test
-    fun replanSelectionMapsMedia3OrdinalToStableServerAudioIndex() {
-        val catalogTracks = listOf(AudioTrack(index = 1), AudioTrack(index = 5))
+    fun planOrdinalWinsOverTheMountedMedia3Ordinal() {
+        // Audio carries no server index, so these are ORDINALS throughout. The
+        // old code did catalogTracks.getOrNull(ordinal).index, which evaluated
+        // to 0 for every track: every explicit pick asked for track 0.
+        val catalogTracks = listOf(AudioTrack(language = "eng"), AudioTrack(language = "nld"))
 
-        assertEquals(5, selectedServerAudioTrackIndex(1, catalogTracks, currentPlanTrackIndex = 1))
-        assertEquals(1, selectedServerAudioTrackIndex(null, catalogTracks, currentPlanTrackIndex = 1))
-        assertEquals(1, selectedServerAudioTrackIndex(4, catalogTracks, currentPlanTrackIndex = 1))
+        // The transcode case: the delivered stream carries only the chosen
+        // track, so Media3 reports ordinal 0. The plan says 1 and must win, or
+        // the next replan reverts the audio to the first language.
+        assertEquals(1, selectedServerAudioTrackIndex(0, catalogTracks, currentPlanTrackIndex = 1))
+        assertEquals(0, selectedServerAudioTrackIndex(1, catalogTracks, currentPlanTrackIndex = 0))
+        assertEquals(0, selectedServerAudioTrackIndex(null, catalogTracks, currentPlanTrackIndex = 0))
+        assertEquals(1, selectedServerAudioTrackIndex(9, catalogTracks, currentPlanTrackIndex = 1))
+    }
+
+    @Test
+    fun withoutAPlanTheMountedOrdinalIsAGuardedFallback() {
+        val catalogTracks = listOf(AudioTrack(language = "eng"), AudioTrack(language = "nld"))
+
+        assertEquals(1, selectedServerAudioTrackIndex(1, catalogTracks, currentPlanTrackIndex = null))
+        // Out of the catalog's range is not a usable answer.
+        assertEquals(null, selectedServerAudioTrackIndex(9, catalogTracks, currentPlanTrackIndex = null))
+        assertEquals(null, selectedServerAudioTrackIndex(null, catalogTracks, currentPlanTrackIndex = null))
+        assertEquals(null, selectedServerAudioTrackIndex(0, emptyList(), currentPlanTrackIndex = null))
     }
 
     @Test
