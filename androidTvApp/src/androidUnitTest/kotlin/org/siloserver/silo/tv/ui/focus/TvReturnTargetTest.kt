@@ -671,4 +671,56 @@ class TvReturnTargetTest {
         val saved = with(saver) { scope.save(null) }
         assertEquals(null, saved?.let { saver.restore(it) })
     }
+
+    @Test
+    fun `a right-owner target with malformed fields restores as empty`() {
+        assertEquals(
+            null,
+            keyedTvReturnTargetSaver("browse")
+                .restore(listOf("browse", TvFlatSectionId, "q", "zero", 3)),
+        )
+        assertEquals(
+            null,
+            keyedTvReturnTargetSaver("browse")
+                .restore(listOf("browse", TvFlatSectionId, "q", 0, 3, "extra")),
+        )
+    }
+
+    @Test
+    fun `a saved boolean is discarded for a different owner or slot`() {
+        val saver = keyedBooleanSaver("home", slot = "pending")
+        val saved = with(saver) { SaverScope { true }.save(true) }
+
+        assertEquals(false, keyedBooleanSaver("library", slot = "pending").restore(saved!!))
+        assertEquals(false, keyedBooleanSaver("home", slot = "generation").restore(saved))
+        assertEquals(true, keyedBooleanSaver("home", slot = "pending").restore(saved))
+    }
+
+    @Test
+    fun `a right-owner boolean payload with the wrong type restores its default`() {
+        assertEquals(
+            false,
+            keyedBooleanSaver("home", slot = "pending")
+                .restore(listOf("home", "pending", 1)),
+        )
+    }
+
+    @Test
+    fun `a saved int is discarded for a different owner or slot`() {
+        val saver = keyedIntSaver("home", slot = "generation")
+        val saved = with(saver) { SaverScope { true }.save(7) }
+
+        assertEquals(0, keyedIntSaver("library", slot = "generation").restore(saved!!))
+        assertEquals(0, keyedIntSaver("home", slot = "pending").restore(saved))
+        assertEquals(7, keyedIntSaver("home", slot = "generation").restore(saved))
+    }
+
+    @Test
+    fun `a right-owner int payload with the wrong type restores its default`() {
+        assertEquals(
+            0,
+            keyedIntSaver("home", slot = "generation")
+                .restore(listOf("home", "generation", true)),
+        )
+    }
 }

@@ -59,6 +59,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -234,6 +237,35 @@ private fun TvDetailContent(
     // restore loop exits on it instead of re-requesting for a fixed window,
     // which held focus hostage on that card for ~a second after returning.
     val castRestoreFocused = remember { mutableStateOf(false) }
+    // Same treatment for More Like This. Returning from a related item only
+    // became reachable once item-detail navigation stopped reusing this entry;
+    // before that you never came back to this page, so the generic
+    // snap-to-hero below was the only outcome that existed.
+    //
+    // Stores the CONTENT ID, not the list index. After process death the saved
+    // index could outlive the list it indexed: the rail reloads over the
+    // network, so the index can arrive before the list does, and the reloaded
+    // list can come back in a different order — restoring focus to whichever
+    // title now happens to sit at that position.
+    var pendingSimilarContentId by rememberSaveable(detail.contentId) {
+        mutableStateOf<String?>(null)
+    }
+    // Paired with the id because the id alone is an ABA token: a newer request
+    // for the SAME content passes every ownership check the old coroutine
+    // makes, letting it clear or override the new one.
+    var pendingSimilarGeneration by rememberSaveable(detail.contentId) { mutableStateOf(0) }
+    val similarReturnFocus = remember { FocusRequester() }
+    val similarRestoreFocused = remember { mutableStateOf(false) }
+    // Bumped once the target resolves, so the row scrolls its own LazyRow to
+    // that card: a card outside the composed window leaves the requester
+    // unattached and every retry doomed.
+    var similarRestoreRequest by remember { mutableStateOf(0) }
+    // Resolved against the CURRENT list, so it simply stays -1 until the rail
+    // has loaded and becomes correct if the order changed.
+    val pendingSimilarIndex = pendingSimilarContentId?.let { pendingId ->
+        state.moreLikeThis.indexOfFirst { it.contentId == pendingId }
+    } ?: -1
+    val pendingSimilarIndexNow = rememberUpdatedState(pendingSimilarIndex)
     val firstSimilarFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -257,21 +289,93 @@ private fun TvDetailContent(
             // value alone: keep the pending window open (the rail's enter
             // targets the launch card while it is) across the pop transition,
             // re-requesting every couple of frames.
+            // Success comes ONLY from the rail's focus callback. Accumulating
+            // requestFocus()'s return value defeated the very rollback this
+            // loop exists to survive: one transient true skipped the Play
+            // fallback even though focus had bounced back off the redirect.
             var restored = false
             for (attempt in 0 until 40) {
                 if (castRestoreFocused.value) {
                     restored = true
                     break
                 }
-                restored = runCatching { castReturnFocus.requestFocus() }.getOrDefault(false) || restored
+                runCatching { castReturnFocus.requestFocus() }
                 withFrameNanos { }
                 withFrameNanos { }
             }
+            // The last attempt's request can land after the loop's final check,
+            // so re-read before giving up — otherwise Play immediately steals
+            // focus from a restore that actually succeeded.
+            if (!restored) restored = castRestoreFocused.value
             pendingCastFocusIndex = -1
-            if (restored) return@LaunchedEffect
+            if (restored) {
+                // Don't leave the other rail's requester armed.
+                pendingSimilarContentId = null
+                return@LaunchedEffect
+            }
         }
+        // A pending More Like This restore is owned by the effect below, which
+        // can outlive this one while it waits for the rail to load. It performs
+        // the hero fallback itself if the target never turns up.
+        if (pendingSimilarContentId != null) return@LaunchedEffect
         listState.scrollToItem(0)
         runCatching { playFocus.requestFocus() }
+    }
+
+    // Returning from a related item: land back on the card that opened it
+    // rather than snapping to the hero.
+    //
+    // Keyed on the CONTENT ID alone, deliberately. Keying it on the pending id
+    // as well fired this on the way OUT — the moment the click recorded it —
+    // so it spun its whole window against a page being navigated away from,
+    // cleared the pending id, and left nothing to restore on the way back.
+    // Content id only means it runs once per entry to this page, which is
+    // exactly when a restore is due.
+    LaunchedEffect(detail.contentId) {
+        // The exact request this coroutine owns. Every step below re-checks it,
+        // because clearing or replacing the pending id does NOT cancel this
+        // coroutine — without the token it could keep requesting focus for the
+        // rest of its window on behalf of a return nobody is waiting for.
+        val ownedContentId = pendingSimilarContentId ?: return@LaunchedEffect
+        val ownedGeneration = pendingSimilarGeneration
+        fun stillOwned() =
+            pendingSimilarContentId == ownedContentId &&
+                pendingSimilarGeneration == ownedGeneration
+
+        // Two different waits, on two different clocks.
+        //
+        // First the DATA. After process death the rail reloads over the network
+        // — debounced, then several requests — so the target may not exist yet.
+        // Counting frames for that was measuring the wrong thing entirely: a
+        // ~120-frame budget is one or two seconds depending on refresh rate,
+        // and a load finishing just past it silently became a hero fallback.
+        val result = restoreMoreLikeThisFocus(
+            awaitTarget = {
+                snapshotFlow { pendingSimilarIndexNow.value }.first { it >= 0 }
+            },
+            stillOwned = ::stillOwned,
+            // Once the target exists, ask the row to scroll it into its composed
+            // window before focus requests begin.
+            onTargetResolved = { similarRestoreRequest += 1 },
+            isTargetFocused = { similarRestoreFocused.value },
+            // The return value is not evidence: the row's enter redirect can
+            // roll an accepted request back. Only its focus callback counts.
+            requestTargetFocus = { runCatching { similarReturnFocus.requestFocus() } },
+            awaitFocusAttempt = {
+                withFrameNanos { }
+                withFrameNanos { }
+            },
+            // Never turned up, or focus kept rolling back — leave the viewer
+            // somewhere usable. The policy holds ownership across this
+            // suspension and re-checks it before requesting Play focus.
+            scrollToFallback = { listState.scrollToItem(0) },
+            requestFallbackFocus = { runCatching { playFocus.requestFocus() } },
+            dataTimeoutMillis = RESTORE_DATA_TIMEOUT_MS,
+            attachmentTimeoutMillis = RESTORE_ATTACH_TIMEOUT_MS,
+        )
+        if (result != TvSimilarFocusRestoreResult.Revoked && stillOwned()) {
+            pendingSimilarContentId = null
+        }
     }
 
     val isEpisodicType = detail.type in setOf("series", "season", "episode")
@@ -408,6 +512,21 @@ private fun TvDetailContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // A pending restore is a convenience, and the moment the viewer
+            // steers for themselves it stops being one. This is the only signal
+            // that a move was genuinely user-initiated — a focus-gain callback
+            // is not, because the rail's own enter redirect produces one.
+            // Returns false throughout: this observes, it never consumes.
+            .onPreviewKeyEvent { event ->
+                if (
+                    pendingSimilarContentId != null &&
+                    event.type == KeyEventType.KeyDown &&
+                    event.key in tvDirectionalKeys
+                ) {
+                    pendingSimilarContentId = null
+                }
+                false
+            }
             .background(MaterialTheme.colorScheme.background),
     ) {
         CompositionLocalProvider(LocalBringIntoViewSpec provides detailBringIntoViewSpec) {
@@ -641,6 +760,7 @@ private fun TvDetailContent(
                                     // actually fires — openPerson can no-op when
                                     // the person can't be resolved.
                                     viewModel.openPerson(member) { personId ->
+                                        pendingSimilarContentId = null
                                         pendingCastFocusIndex = index
                                         castRestoreFocused.value = false
                                         onOpenPerson(personId)
@@ -669,7 +789,40 @@ private fun TvDetailContent(
                                     title = "More Like This",
                                     showHeader = false,
                                     items = state.moreLikeThis,
-                                    onItemClick = onItemDetail,
+                                    onItemClick = { clickedContentId ->
+                                        pendingCastFocusIndex = -1
+                                        pendingSimilarGeneration += 1
+                                        pendingSimilarContentId = clickedContentId
+                                        similarRestoreFocused.value = false
+                                        onItemDetail(clickedContentId)
+                                    },
+                                    restoreFocusIndex = pendingSimilarIndex,
+                                    // Only while a return is pending, so ordinary
+                                    // re-entry stops being forced at the return
+                                    // target and goes back to the row restorer's
+                                    // own remembered card.
+                                    restoreFocusRequester = similarReturnFocus
+                                        .takeIf { pendingSimilarIndex >= 0 },
+                                    restoreFocusRequest = similarRestoreRequest
+                                        .takeIf { pendingSimilarIndex >= 0 } ?: 0,
+                                    onItemFocusedAtIndex = if (pendingSimilarIndex >= 0) {
+                                        { _, focusedIndex ->
+                                            // ONLY the target counts. Revoking
+                                            // when some other card gains focus
+                                            // was self-defeating: the row's own
+                                            // enter redirect lands on card 0
+                                            // first, so the restore cancelled
+                                            // itself on the way to card N.
+                                            // onFocusChanged carries no evidence
+                                            // that a move was user-initiated —
+                                            // the key handler on the root does.
+                                            if (focusedIndex == pendingSimilarIndex) {
+                                                similarRestoreFocused.value = true
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     style = TvRowStyle.Poster,
                                     horizontalPadding = Spacing.safeArea,
                                     rowTopPadding = 0.dp,
@@ -1787,3 +1940,34 @@ private suspend fun LazyListState.animateScrollToItemPaced(index: Int) {
         animateScrollToItem(index)
     }
 }
+
+/**
+ * Wall-clock budget for the More Like This rail to load a restore target.
+ *
+ * Deliberately short. Landing back on the card you came from is a nicety, and
+ * one that stops being welcome the moment the user has started doing something
+ * else — a restore that fires seconds later reads as the app yanking focus, not
+ * as helpfulness. Past this the ordinary hero fallback runs instead.
+ *
+ * Bounds the DATA wait only. Once the target resolves, focus attachment gets a
+ * further ~80 frames, so the whole restore can outlast this value.
+ */
+private const val RESTORE_DATA_TIMEOUT_MS = 1_500L
+
+/**
+ * Wall-clock ceiling on the focus-attachment retries.
+ *
+ * The retry budget is a frame count because attachment is a composition
+ * concern, but a frame count is not a duration — at 24Hz eighty frames is over
+ * three seconds, and with frame production paused it is unbounded. This caps
+ * how long the viewer can be fighting a restore for.
+ */
+private const val RESTORE_ATTACH_TIMEOUT_MS = 2_000L
+
+/** Direction keys that count as the viewer steering for themselves. */
+private val tvDirectionalKeys = setOf(
+    Key.DirectionUp,
+    Key.DirectionDown,
+    Key.DirectionLeft,
+    Key.DirectionRight,
+)

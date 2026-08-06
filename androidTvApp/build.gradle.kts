@@ -1,3 +1,6 @@
+import com.android.build.api.variant.HasHostTestsBuilder
+import com.android.build.api.variant.HostTestBuilder
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.multiplatform)
@@ -244,7 +247,11 @@ android {
 // task was ever reached.
 androidComponents {
     beforeVariants(selector().withBuildType("release")) { variant ->
-        variant.enableUnitTest = false
+        // Host-tests API rather than `variant.enableUnitTest`, which AGP 8.10.1
+        // deprecates and AGP 9.0 removes.
+        (variant as HasHostTestsBuilder)
+            .hostTests[HostTestBuilder.UNIT_TEST_TYPE]
+            ?.enable = false
     }
 }
 

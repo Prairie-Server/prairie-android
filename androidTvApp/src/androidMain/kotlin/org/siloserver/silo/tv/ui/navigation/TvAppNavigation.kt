@@ -881,6 +881,10 @@ fun TvAppNavigation(
                     )
                 },
                 onItemDetail = { itemContentId ->
+                    // The helper, not a bare navigate: a DIFFERENT related
+                    // item pushes — which is what makes the return
+                    // restoration reachable — while an exact repeat is
+                    // collapsed by argument, not by destination node.
                     navController.navigateToTvItemDetail(itemContentId)
                 },
                 // Season switching replaces the current detail entry so paging
