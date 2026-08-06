@@ -2136,18 +2136,10 @@ class TvPlayerViewModel(
                 ?.session
                 ?.sessionId
             if (!isActive || recoveryContentGeneration != contentLoadGeneration) {
-                abandonedSessionId?.let { sessionId ->
-                    // Detached from this cancelled scope on purpose: the whole
-                    // point is to run after the reason for abandoning.
-                    // NonCancellable: this runs precisely because the
-                    // surrounding work was cancelled, so it must not inherit
-                    // that cancellation and skip the release.
-                    viewModelScope.launch(NonCancellable) {
-                        runCatching {
-                            playbackSessionManager.abandonActiveVideoSession(sessionId)
-                        }
-                    }
-                }
+                // Released on the manager's own scope, which outlives this
+                // screen: the whole point is to run after the reason for
+                // abandoning, and this ViewModel's scope may already be gone.
+                abandonedSessionId?.let(playbackSessionManager::abandonActiveVideoSessionAsync)
             }
             coroutineContext.ensureActive()
             if (recoveryContentGeneration != contentLoadGeneration) return@launch
@@ -2448,21 +2440,6 @@ class TvPlayerViewModel(
     }
 
     /**
-     * Bounded recovery has given up and the picture is not coming back.
-     *
-     * The detector reports Failed exactly once and then goes quiet forever, so
-     * without surfacing it the viewer is left with advancing audio over a
-     * frozen frame, no message, and no reason to think pressing anything would
-     * help. Telemetry recorded this; nobody told the person watching.
-     */
-    /**
-     * The screen has shown [TvPlayerViewModel.UiState.subtitleFailureMessage].
-     *
-     * Cleared on acknowledgement rather than on a timer so the same failure
-     * cannot be reported twice, and so a later failure with identical text
-     * still surfaces.
-     */
-    /**
      * An audio change has committed, so it is now the viewer's choice.
      *
      * Set here rather than when the change was requested: staging, validation,
@@ -2474,6 +2451,13 @@ class TvPlayerViewModel(
         manualAudioSelectionApplied = true
     }
 
+    /**
+     * The screen has shown [TvPlayerViewModel.UiState.subtitleFailureMessage].
+     *
+     * Cleared on acknowledgement rather than on a timer so the same failure
+     * cannot be reported twice, and so a later failure with identical text
+     * still surfaces.
+     */
     fun onSubtitleFailureShown(shownId: Long) {
         _uiState.update {
             // Acknowledged by ID, not by text. Two failures can carry the same
@@ -2488,6 +2472,14 @@ class TvPlayerViewModel(
         }
     }
 
+    /**
+     * Bounded recovery has given up and the picture is not coming back.
+     *
+     * The detector reports Failed exactly once and then goes quiet forever, so
+     * without surfacing it the viewer is left with advancing audio over a
+     * frozen frame, no message, and no reason to think pressing anything would
+     * help. Telemetry recorded this; nobody told the person watching.
+     */
     fun onPlaybackRecoveryExhausted() {
         _uiState.update {
             if (it.error != null) it else it.copy(

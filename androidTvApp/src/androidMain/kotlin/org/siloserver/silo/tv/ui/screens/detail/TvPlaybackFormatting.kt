@@ -127,8 +127,13 @@ object TvPlaybackFormatting {
                         .mapNotNull { it(versions[index]) }
                         .joinToString(" · ")
                 }
-                indexes.forEach { suffixes[it] = attempt.getValue(it) }
-                if (attempt.values.toSet().size == indexes.size) break
+                val distinct = attempt.values.toSet().size
+                // Only keep a tuple that actually separates something. Now that
+                // the codec can be resolved from the video track, two identical
+                // versions would otherwise both gain the same suffix — a
+                // fabricated difference that distinguishes nothing.
+                if (distinct > 1) indexes.forEach { suffixes[it] = attempt.getValue(it) }
+                if (distinct == indexes.size) break
             }
         }
         return base.mapIndexed { index, label ->
@@ -139,7 +144,11 @@ object TvPlaybackFormatting {
 
     /** Attributes tried, in order, when version labels collide. */
     private val VERSION_DISCRIMINATORS: List<(FileVersion) -> String?> = listOf(
-        { v -> v.codecVideo?.takeIf { it.isNotBlank() }?.uppercase(Locale.ROOT) },
+        // Through resolvedVideoCodec, so a version whose codec lives only on its
+        // video track can still discriminate. Consulting codecVideo alone left
+        // two colliding versions sharing a label when the metadata to tell them
+        // apart was right there.
+        { v -> resolvedVideoCodec(v)?.uppercase(Locale.ROOT) },
         { v -> formatFileSize(v.fileSize) },
         { v -> v.container?.takeIf { it.isNotBlank() }?.uppercase(Locale.ROOT) },
     )
