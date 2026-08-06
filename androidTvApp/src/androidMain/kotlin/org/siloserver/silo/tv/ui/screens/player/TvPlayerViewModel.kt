@@ -124,15 +124,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Renderable audio or subtitle track pulled out of ExoPlayer's current
- * `Tracks` object. [index] is the ordinal position among groups of the same
- * type and is used as the index argument when calling
- * [org.siloserver.silo.common.player.AudioTrackManager.selectAudioTrack] or
- * [org.siloserver.silo.common.player.SubtitleManager.selectSubtitle].
- * [trackId] retains Media3's stable selector identity; [label] is presentation
- * metadata and [displayLabel] is the polished user-facing string.
- */
 /** Reduced to the fields that can identify the track across index spaces. */
 internal fun PlayerTrackEntry.toMountedAudioTrack(): MountedAudioTrack = MountedAudioTrack(
     ordinal = index,
@@ -142,6 +133,15 @@ internal fun PlayerTrackEntry.toMountedAudioTrack(): MountedAudioTrack = Mounted
     label = displayLabel.ifBlank { label },
 )
 
+/**
+ * Renderable audio or subtitle track pulled out of ExoPlayer's current
+ * `Tracks` object. [index] is the ordinal position among groups of the same
+ * type and is used as the index argument when calling
+ * [org.siloserver.silo.common.player.AudioTrackManager.selectAudioTrack] or
+ * [org.siloserver.silo.common.player.SubtitleManager.selectSubtitle].
+ * [trackId] retains Media3's stable selector identity; [label] is presentation
+ * metadata and [displayLabel] is the polished user-facing string.
+ */
 data class PlayerTrackEntry(
     val index: Int,
     val label: String,
@@ -958,15 +958,11 @@ class TvPlayerViewModel(
         // `currentTracks` once playback starts.
         val audioTracks: List<PlayerTrackEntry> = emptyList(),
         /**
-         * Catalog ordinal of a locally-confirmed audio choice — a track the
+         * Catalog ordinal of the audio the viewer wants — including a track the
          * mounted stream already carried, switched without a server replan.
-         * Outranks the plan for display and for later replan requests: the plan
-         * is server evidence, not the only truth about what the viewer chose.
-         */
-        /**
-         * Catalog ordinal of the audio the viewer wants. Outranks the plan for
-         * display and for later replan requests: the plan names what the server
-         * last delivered, not what was chosen.
+         * Outranks the plan for display, for later replan requests and for the
+         * next episode's handoff: the plan names what the server last
+         * delivered, not what was chosen.
          */
         val desiredAudioOrdinal: Int? = null,
         /** False while the player has not yet been shown on that track. */
@@ -1463,11 +1459,18 @@ class TvPlayerViewModel(
     private fun subtitlePlaybackContext(state: UiState): TvSubtitlePlaybackContext {
         val fileId = state.selectedFileId ?: state.mediaFileId ?: 0
         val version = state.fileVersions.firstOrNull { it.fileId == fileId }
-        val selectedAudio = selectedServerAudioTrackIndex(
-            selectedPlayerOrdinal = state.audioTracks.firstOrNull { it.isSelected }?.index,
-            catalogAudioTracks = version?.audioTracks,
-            currentPlanTrackIndex = state.playbackPlan?.selectedTracks?.audioIndex,
-        )
+        // The viewer's confirmed choice outranks the plan, exactly as the
+        // recovery replan already does. A direct-play local switch changes the
+        // mounted track without replanning, so the plan can still name the
+        // previous audio — and a subtitle, quality or output-route transaction
+        // built from it would replan the viewer straight back onto the track
+        // they had just switched away from.
+        val selectedAudio = state.desiredAudioOrdinal?.takeIf { state.desiredAudioConfirmed }
+            ?: selectedServerAudioTrackIndex(
+                selectedPlayerOrdinal = state.audioTracks.firstOrNull { it.isSelected }?.index,
+                catalogAudioTracks = version?.audioTracks,
+                currentPlanTrackIndex = state.playbackPlan?.selectedTracks?.audioIndex,
+            )
         val dolbyVision = DolbyVisionPolicy.Snapshot(
             dolbyVisionEnabled = dolbyVisionEnabled.value,
             preferProfile7HDR10Fallback = dvProfile7Hdr10Fallback.value,
@@ -2526,13 +2529,6 @@ class TvPlayerViewModel(
 
     private var desiredAudioGeneration = if (initialAudioTrackIndex != null) 1L else 0L
 
-    /**
-     * The backend's setMediaItem counter for the latest track snapshot.
-     *
-     * transportMountNonce tracks INTENDED primary mounts; a subtitle-refresh
-     * remount replaces the media item without moving it, so keying request
-     * identity on it missed exactly the remounts that invalidate an override.
-     */
     /** Monotonic; makes each local-selection request distinct for StateFlow. */
     private var localAudioAttempt = 0L
 
@@ -3526,9 +3522,16 @@ class TvPlayerViewModel(
             committedSubtitleIdentity = state.committedSubtitleIdentity,
             catalogSubtitles = state.subtitleUrls,
             selectedAudioTrack = state.audioTracks.firstOrNull { it.isSelected },
-            // The catalog row the plan selected, by ordinal — audio's contract.
-            selectedCatalogAudio = state.playbackPlan?.selectedTracks?.audioIndex
-                ?.let { activeVersion?.audioTracks?.getOrNull(it) },
+            // The catalog row by ordinal — audio's contract — but the viewer's
+            // CONFIRMED choice first. A direct-play local switch changes the
+            // mounted track without replanning, so the plan can still name the
+            // previous audio: reading it alone handed the next episode the
+            // track the viewer had just switched away from, while
+            // manualAudioSelectionApplied said a choice had been made.
+            selectedCatalogAudio = (
+                state.desiredAudioOrdinal?.takeIf { state.desiredAudioConfirmed }
+                    ?: state.playbackPlan?.selectedTracks?.audioIndex
+                )?.let { activeVersion?.audioTracks?.getOrNull(it) },
             hasExplicitAudioSelection = manualAudioSelectionApplied,
             hasExplicitSubtitleSelection = manualSubtitleSelectionApplied,
         )
