@@ -195,8 +195,9 @@ fun AppNavigation(
                     // and silently discard state the viewer expected back.
                     // Leaving that rarer case saved is the pre-existing
                     // behaviour; destroying history to fix it is worse.
-                    if (navController.currentBackStackEntry?.destination?.route ==
-                        Route.Player.ROUTE
+                    if (shouldPopPlayerBeforeExternalTab(
+                            navController.currentBackStackEntry?.destination?.route,
+                        )
                     ) {
                         navController.popBackStack(
                             route = Route.Player.ROUTE,
@@ -218,7 +219,7 @@ fun AppNavigation(
                     // external link to item B while item A's detail is showing
                     // reused A's entry and Back skipped A entirely — the same
                     // defect this branch fixes for in-app navigation.
-                    val sameItemDetail = isSameItemDetail(
+                    val useSingleTop = shouldLaunchExternalRouteSingleTop(
                         currentDestinationRoute = navController.currentBackStackEntry
                             ?.destination?.route,
                         currentContentId = navController.currentBackStackEntry
@@ -230,14 +231,10 @@ fun AppNavigation(
                         if (replaceCurrentPlayer) {
                             popUpTo(Route.Player.ROUTE) { inclusive = true }
                         }
-                        // Affirmative, not "everything except item". A route
-                        // carrying arguments identifies a specific thing, so
-                        // reusing the node collapses two different requests into
-                        // one — invite_claim with a different token being the
-                        // case that bit: a second invitation replaced the first
-                        // instead of getting its own entry.
-                        launchSingleTop = replaceCurrentPlayer || sameItemDetail ||
-                            !route.contains('?') && !route.contains('/')
+                        // Decided from the finite external-route producer set,
+                        // not punctuation. A route's spelling does not say
+                        // whether its arguments identify a distinct request.
+                        launchSingleTop = useSingleTop
                     }
                 }
             },

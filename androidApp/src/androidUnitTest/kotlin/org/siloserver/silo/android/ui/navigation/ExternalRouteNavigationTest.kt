@@ -169,6 +169,51 @@ class ExternalRouteNavigationTest {
     }
 
     @Test
+    fun externalTabOnlyPopsAPlayerThatIsOnTop() {
+        val playerAbsent = listOf(Route.Home.route, Route.ItemDetail.ROUTE)
+        val playerOnTop = listOf(Route.Home.route, Route.Player.ROUTE)
+        val playerBelowAnotherEntry = listOf(Route.Home.route, Route.Player.ROUTE, Route.ItemDetail.ROUTE)
+
+        assertFalse(shouldPopPlayerBeforeExternalTab(playerAbsent.lastOrNull()))
+        assertTrue(shouldPopPlayerBeforeExternalTab(playerOnTop.lastOrNull()))
+        // A player below an item entry is deliberately left in history: an
+        // inclusive pop to the player would also discard the item above it.
+        assertFalse(shouldPopPlayerBeforeExternalTab(playerBelowAnotherEntry.lastOrNull()))
+    }
+
+    @Test
+    fun externalSingleTopPolicyCoversEveryProducedRoute() {
+        val cases = listOf(
+            // Notification producers.
+            Triple(Route.Inbox.route, Route.Inbox.route, true),
+            Triple(Route.Home.route, Route.Inbox.route, false),
+            Triple(Route.ItemDetail.ROUTE, "item/movie-1", true),
+            Triple(Route.ItemDetail.ROUTE, "item/movie-2", false),
+            // Content-link producers. Downloads takes the separate tab path;
+            // item and player still exercise this policy.
+            Triple(Route.Home.route, "item/movie-1", false),
+            Triple(Route.Home.route, "player/movie-1", false),
+            Triple(Route.Player.ROUTE, "player/movie-1?quality=original", true),
+            // Device-login and invitation producers. Distinct argument sets
+            // must get distinct entries even though they share a graph node.
+            Triple(Route.PairDevice.ROUTE, "pair_device?code=123&serverOrigin=https%3A%2F%2Fa", false),
+            Triple(Route.InviteClaim.ROUTE, "invite_claim?server=https%3A%2F%2Fa&token=one", false),
+        )
+
+        cases.forEach { (currentRoute, targetRoute, expected) ->
+            assertEquals(
+                expected,
+                shouldLaunchExternalRouteSingleTop(
+                    currentDestinationRoute = currentRoute,
+                    currentContentId = if (currentRoute == Route.ItemDetail.ROUTE) "movie-1" else null,
+                    targetRoute = targetRoute,
+                ),
+                "$currentRoute -> $targetRoute",
+            )
+        }
+    }
+
+    @Test
     fun canonicalPlayerTargetParsesEveryPlaybackChoice() {
         assertEquals(
             MobilePlayerRouteIntent(

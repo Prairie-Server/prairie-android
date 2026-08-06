@@ -126,6 +126,11 @@ class TvProfileSelectionViewModel(
             // Manage-mode taps open edit, handled by the screen composable.
             return
         }
+        // Focus/Select can already be dispatched when a scope mismatch clears
+        // the grid. A null gridScope deliberately means no grid metadata, but
+        // it also disables the repository guard, so reject cards that are no
+        // longer part of the accepted grid.
+        if (_uiState.value.profiles.none { it.id == profile.id }) return
         // Bump before branching: ANY accepted selection supersedes a
         // verification still in flight, including choosing an unprotected
         // profile while a protected one is mid-verify.

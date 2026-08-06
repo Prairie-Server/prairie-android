@@ -133,6 +133,33 @@ internal fun shouldReplaceCurrentPlayer(
 ): Boolean =
     currentDestinationRoute == Route.Player.ROUTE && targetRoute.startsWith("player/")
 
+/**
+ * Whether an external tab switch may remove the player without also removing
+ * newer history above it. An inclusive route pop removes the target and every
+ * entry above it, so only the current player is a safe target.
+ */
+internal fun shouldPopPlayerBeforeExternalTab(currentDestinationRoute: String?): Boolean =
+    currentDestinationRoute == Route.Player.ROUTE
+
+/**
+ * Whether AndroidX may reuse the current destination node for [targetRoute].
+ *
+ * External requests currently produce only Inbox, item detail, player,
+ * pairing, invitation, and the Downloads tab (handled before this function).
+ * Inbox has no arguments. Item detail is reusable only for the same decoded
+ * content id. A player target is replaced explicitly when a player is on top.
+ * Pairing and invitation routes carry one-shot arguments, so each delivery
+ * must retain its own entry.
+ */
+internal fun shouldLaunchExternalRouteSingleTop(
+    currentDestinationRoute: String?,
+    currentContentId: String?,
+    targetRoute: String,
+): Boolean =
+    shouldReplaceCurrentPlayer(currentDestinationRoute, targetRoute) ||
+        isSameItemDetail(currentDestinationRoute, currentContentId, targetRoute) ||
+        (currentDestinationRoute == Route.Inbox.route && targetRoute == Route.Inbox.route)
+
 /** Parses the canonical in-app player route carried by an external request. */
 internal fun playerRouteIntentOrNull(route: String): MobilePlayerRouteIntent? {
     if (!route.startsWith("player/")) return null

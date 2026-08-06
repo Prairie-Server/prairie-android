@@ -50,11 +50,6 @@ class ProfileSelectionViewModel(
     }
 
     /**
-     * @param clearError false keeps an existing error banner (e.g. a failed
-     * delete's explanation) visible across the follow-up list refresh, which
-     * would otherwise silently swallow it.
-     */
-    /**
      * The identity the displayed grid was fetched under.
      *
      * Every selection is qualified with it, protected or not. Passing null for
@@ -65,6 +60,11 @@ class ProfileSelectionViewModel(
      */
     private var gridScope: AuthScopeSnapshot? = null
 
+    /**
+     * @param clearError false keeps an existing error banner (e.g. a failed
+     * delete's explanation) visible across the follow-up list refresh, which
+     * would otherwise silently swallow it.
+     */
     fun loadProfiles(clearError: Boolean = true) {
         val load = ++loadAttempt
         viewModelScope.launch {
@@ -133,6 +133,12 @@ class ProfileSelectionViewModel(
             // In manage mode, tapping opens edit -- handled by the screen composable.
             return
         }
+        // A click can already be queued when a scope mismatch clears the grid.
+        // gridScope is null then, and passing it through would disable the
+        // repository guard. Accept only profiles in the grid that is still
+        // displayed; use the id because refreshed model instances need not be
+        // referentially identical to the card's captured value.
+        if (_uiState.value.profiles.none { it.id == profile.id }) return
 
         // Bump before branching: ANY accepted selection supersedes a
         // verification still in flight, including picking an unprotected
