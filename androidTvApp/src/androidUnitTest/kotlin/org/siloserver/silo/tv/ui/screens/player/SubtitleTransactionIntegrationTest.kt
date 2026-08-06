@@ -790,7 +790,7 @@ class SubtitleTransactionIntegrationTest {
         suspend fun awaitReplans(count: Int) {
             while (replanBodies.size < count) {
                 withContext(Dispatchers.Default) {
-                    withTimeout(5_000) { replanEvents.receive() }
+                    withTimeout(AWAIT_POLL_TIMEOUT_MS) { replanEvents.receive() }
                 }
             }
         }
@@ -810,7 +810,7 @@ class SubtitleTransactionIntegrationTest {
         suspend fun awaitPersistence(count: Int) {
             while (persistence.size < count) {
                 withContext(Dispatchers.Default) {
-                    withTimeout(5_000) { persistenceEvents.receive() }
+                    withTimeout(AWAIT_POLL_TIMEOUT_MS) { persistenceEvents.receive() }
                 }
             }
         }
@@ -1073,3 +1073,13 @@ private object IntegrationTokenManager : TokenManager {
     override suspend fun signOutCurrentServer() {}
     override suspend fun snapshotCurrentScope(): AuthScopeSnapshot? = null
 }
+
+/**
+ * Wall-clock backstop for the awaits above.
+ *
+ * These wait on signals and spins whose progress depends on getting scheduled,
+ * while the deadline counts real seconds regardless — so on a loaded CI runner
+ * a merely-slow test failed as if it had raced. The deadline exists to turn a
+ * hang into a failure, not to police latency.
+ */
+private const val AWAIT_POLL_TIMEOUT_MS = 30_000L

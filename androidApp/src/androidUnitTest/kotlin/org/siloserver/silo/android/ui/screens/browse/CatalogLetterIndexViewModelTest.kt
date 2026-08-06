@@ -189,7 +189,7 @@ class CatalogLetterIndexViewModelTest {
      * change, not a test one.
      */
     private suspend fun awaitState(description: String = "expected state", predicate: () -> Boolean) {
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
+        withContext(Dispatchers.IO) {
             val deadline = withTimeoutOrNull(AwaitStateBudgetMillis) {
                 while (!predicate()) {
                     delay(10)
