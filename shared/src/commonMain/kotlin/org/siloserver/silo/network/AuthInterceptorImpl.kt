@@ -134,8 +134,11 @@ val SiloAuthPlugin = createClientPlugin("SiloAuthPlugin", ::SiloAuthConfig) {
         if (isRefreshRequest) return@onRequest
 
         val accessToken = tokenManager.getAccessToken()
-        val profileId = tokenManager.getProfileId()
-        val profileToken = tokenManager.getProfileToken()
+        // One read: taking these separately could pair the old profile id with
+        // the new profile's token across a switch.
+        val profileIdentity = tokenManager.getProfileIdentity()
+        val profileId = profileIdentity.profileId
+        val profileToken = profileIdentity.profileToken
         val activeServerIdAfter = tokenManager.getCurrentServerId()
         val activeServerUrlAfter = tokenManager.getServerUrl()
         if (

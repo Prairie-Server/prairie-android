@@ -169,6 +169,51 @@ class ExternalRouteNavigationTest {
     }
 
     @Test
+    fun externalTabOnlyPopsAPlayerThatIsOnTop() {
+        val playerAbsent = listOf(Route.Home.route, Route.ItemDetail.ROUTE)
+        val playerOnTop = listOf(Route.Home.route, Route.Player.ROUTE)
+        val playerBelowAnotherEntry = listOf(Route.Home.route, Route.Player.ROUTE, Route.ItemDetail.ROUTE)
+
+        assertFalse(shouldPopPlayerBeforeExternalTab(playerAbsent.lastOrNull()))
+        assertTrue(shouldPopPlayerBeforeExternalTab(playerOnTop.lastOrNull()))
+        // A player below an item entry is deliberately left in history: an
+        // inclusive pop to the player would also discard the item above it.
+        assertFalse(shouldPopPlayerBeforeExternalTab(playerBelowAnotherEntry.lastOrNull()))
+    }
+
+    @Test
+    fun externalSingleTopPolicyCoversEveryProducedRoute() {
+        val cases = listOf(
+            // Notification producers.
+            Triple(Route.Inbox.route, Route.Inbox.route, true),
+            Triple(Route.Home.route, Route.Inbox.route, false),
+            Triple(Route.ItemDetail.ROUTE, "item/movie-1", true),
+            Triple(Route.ItemDetail.ROUTE, "item/movie-2", false),
+            // Content-link producers. Downloads takes the separate tab path;
+            // item and player still exercise this policy.
+            Triple(Route.Home.route, "item/movie-1", false),
+            Triple(Route.Home.route, "player/movie-1", false),
+            Triple(Route.Player.ROUTE, "player/movie-1?quality=original", true),
+            // Device-login and invitation producers. Distinct argument sets
+            // must get distinct entries even though they share a graph node.
+            Triple(Route.PairDevice.ROUTE, "pair_device?code=123&serverOrigin=https%3A%2F%2Fa", false),
+            Triple(Route.InviteClaim.ROUTE, "invite_claim?server=https%3A%2F%2Fa&token=one", false),
+        )
+
+        cases.forEach { (currentRoute, targetRoute, expected) ->
+            assertEquals(
+                expected,
+                shouldLaunchExternalRouteSingleTop(
+                    currentDestinationRoute = currentRoute,
+                    currentContentId = if (currentRoute == Route.ItemDetail.ROUTE) "movie-1" else null,
+                    targetRoute = targetRoute,
+                ),
+                "$currentRoute -> $targetRoute",
+            )
+        }
+    }
+
+    @Test
     fun canonicalPlayerTargetParsesEveryPlaybackChoice() {
         assertEquals(
             MobilePlayerRouteIntent(
@@ -293,4 +338,185 @@ class ExternalRouteNavigationTest {
         subtitleTrackIndex = subtitleTrackIndex,
         resumePositionSeconds = resumePositionSeconds,
     )
+
+    /**
+     * A notification PendingIntent can be tapped days after it was posted, and
+     * several profile switches later. Its route means something different — or
+     * nothing — under another identity, so the scope is re-checked at delivery
+     * and a mismatch must not navigate.
+     */
+    @Test
+    fun aRequestWhoseServerNoLongerMatchesIsNotDelivered() = runTest {
+        val request = ExternalRouteRequestFactory()
+            .create(
+                route = "inbox",
+                scope = ExternalRouteScope.Identity(serverId = "server-b", profileId = "kids"),
+            )
+        var navigated: String? = null
+        var consumed = 0
+
+        consumeExternalRouteOnce(
+            pendingExternalRoute = request,
+            currentDestinationRoutes = flowOf("home"),
+            isStillValidForScope = { false },
+            navigate = { navigated = it },
+            onConsumed = { consumed++ },
+        )
+
+        assertNull(navigated, "a notification must never act on a different profile's session")
+        // Still consumed: leaving it queued would only let it fire later, at an
+        // equally wrong moment.
+        assertEquals(1, consumed)
+    }
+
+    @Test
+    fun aRequestWhoseServerStillMatchesIsDelivered() = runTest {
+        val request = ExternalRouteRequestFactory()
+            .create(
+                route = "inbox",
+                scope = ExternalRouteScope.Identity(serverId = "server-b", profileId = "kids"),
+            )
+        var navigated: String? = null
+        var consumed = 0
+
+        consumeExternalRouteOnce(
+            pendingExternalRoute = request,
+            currentDestinationRoutes = flowOf("home"),
+            isStillValidForScope = { true },
+            navigate = { navigated = it },
+            onConsumed = { consumed++ },
+        )
+
+        assertEquals("inbox", navigated)
+        assertEquals(1, consumed)
+    }
+
+    /** An unscoped request must not be gated on any server. */
+    @Test
+    fun anUnscopedRequestIgnoresTheServerCheck() = runTest {
+        val request = ExternalRouteRequestFactory().create(route = "item/abc")
+        var navigated: String? = null
+
+        consumeExternalRouteOnce(
+            pendingExternalRoute = request,
+            currentDestinationRoutes = flowOf("home"),
+            isStillValidForScope = { scope ->
+                assertEquals(ExternalRouteScope.Unscoped, scope)
+                true
+            },
+            navigate = { navigated = it },
+            onConsumed = { },
+        )
+
+        assertEquals("item/abc", navigated)
+    }
+
+    // --- identity scope matching ---
+
+    /**
+     * A link that arrived with a server but no profile — configured server,
+     * nobody signed in — must still deliver once a profile IS chosen. Requiring
+     * the profile to still be null dropped exactly the link the user was
+     * signing in to open.
+     */
+    @Test
+    fun aScopeCapturedBeforeSignInStillMatchesAfterIt() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = null)
+
+        assertTrue(scope.matches(serverId = "server-a", profileId = "profile-1", identityGeneration = null))
+        assertTrue(scope.matches(serverId = "server-a", profileId = null, identityGeneration = null))
+    }
+
+    @Test
+    fun aScopeDoesNotMatchAnotherServer() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = null)
+
+        assertFalse(scope.matches(serverId = "server-b", profileId = "profile-1", identityGeneration = null))
+    }
+
+    /** A fully-specified notification scope must match both components. */
+    @Test
+    fun aFullyPinnedScopeRequiresBothComponents() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = "kids")
+
+        assertTrue(scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = null))
+        assertFalse(scope.matches(serverId = "server-a", profileId = "adults", identityGeneration = null))
+        assertFalse(scope.matches(serverId = "server-b", profileId = "kids", identityGeneration = null))
+    }
+
+    /** Nothing known constrains nothing — the signed-out arrival case. */
+    @Test
+    fun anEmptyScopeMatchesAnything() {
+        val scope = ExternalRouteScope.Identity(serverId = null, profileId = null)
+
+        assertTrue(scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = null))
+    }
+    /**
+     * Signing out and back into the SAME account is a new session, and a route
+     * authored for the old one must not act on it. Ids alone cannot see that;
+     * only the generation can.
+     */
+    @Test
+    fun aScopePinnedToAGenerationDoesNotMatchALaterSession() {
+        val scope = ExternalRouteScope.Identity(
+            serverId = "server-a",
+            profileId = "kids",
+            identityGeneration = 7L,
+        )
+
+        assertTrue(
+            scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = 7L),
+        )
+        assertFalse(
+            scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = 8L),
+        )
+    }
+
+    /** An unknown generation constrains nothing, exactly like an unknown id. */
+    @Test
+    fun aScopeWithNoGenerationIgnoresIt() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = "kids")
+
+        assertTrue(
+            scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = 99L),
+        )
+    }
+    /**
+     * The defect this branch exists to fix, on the external-link path: a
+     * notification for item B while item A's detail is showing must not reuse
+     * A's entry, or Back skips A.
+     */
+    @Test
+    fun anExternalItemLinkIsSingleTopOnlyForTheSameItem() {
+        assertTrue(
+            isSameItemDetail(
+                currentDestinationRoute = Route.ItemDetail.ROUTE,
+                currentContentId = "movie-1",
+                targetRoute = "item/movie-1",
+            ),
+        )
+        assertFalse(
+            isSameItemDetail(
+                currentDestinationRoute = Route.ItemDetail.ROUTE,
+                currentContentId = "movie-1",
+                targetRoute = "item/movie-2",
+            ),
+        )
+        // Encoded ids must still compare equal to the decoded entry argument.
+        assertTrue(
+            isSameItemDetail(
+                currentDestinationRoute = Route.ItemDetail.ROUTE,
+                currentContentId = "tt 1/2",
+                targetRoute = "item/tt%201%2F2",
+            ),
+        )
+        // Not on a detail screen at all.
+        assertFalse(
+            isSameItemDetail(
+                currentDestinationRoute = Route.Player.ROUTE,
+                currentContentId = "movie-1",
+                targetRoute = "item/movie-1",
+            ),
+        )
+    }
 }

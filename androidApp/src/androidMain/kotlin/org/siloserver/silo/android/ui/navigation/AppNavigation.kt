@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import org.siloserver.silo.android.ui.screens.auth.DevicePairingWrongServerScreen
+import org.siloserver.silo.android.ui.screens.auth.DevicePairingUnknownServerScreen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -115,8 +119,15 @@ fun AppNavigation(
     startDestination: String = Route.Login.route,
     pendingExternalRoute: ExternalRouteRequest? = null,
     onExternalRouteConsumed: (ExternalRouteRequest) -> Unit = {},
+    /**
+     * Re-queues [route] as a pending external request. Used when an action
+     * inside a destination is about to send the user through authentication,
+     * which clears the back stack and would otherwise lose that destination.
+     */
+    onRequeueExternalRoute: (String) -> Unit = {},
 ) {
     val tokenManager: TokenManager = koinInject()
+    val serverRegistry: org.siloserver.silo.network.ServerRegistry = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val siloCastController: SiloCastController = koinInject()
     val diagnosticsViewModel = koinViewModel<DiagnosticsViewModel>()
@@ -162,15 +173,87 @@ fun AppNavigation(
                 )
             },
             navigate = { route ->
-                val replaceCurrentPlayer = shouldReplaceCurrentPlayer(
-                    currentDestinationRoute = navController.currentBackStackEntry?.destination?.route,
-                    targetRoute = route,
-                )
-                navController.navigate(route) {
-                    if (replaceCurrentPlayer) {
-                        popUpTo(Route.Player.ROUTE) { inclusive = true }
+                // An external link to a TAB (silo://downloads) must switch tabs,
+                // not push a second copy of that tab. A duplicate tab entry also
+                // makes the tab anchor ambiguous: popUpTo(route) resolves to the
+                // NEWEST match, so the older anchor entry would survive and Back
+                // could loop through a hidden tab.
+                if (tabForRoute(route) != null) {
+                    // Tear the player down BEFORE the tab switch, and without
+                    // saving it. tabSwitchNavOptions saves state so a tab keeps
+                    // its stack, which is right for a tab — but a saved player
+                    // entry keeps its ViewModelStore alive, so onCleared never
+                    // runs and the playback session it owns is never stopped.
+                    // The save is also keyed to the LOWEST popped destination,
+                    // so a later clearBackStack on the player route would not
+                    // even find it. Popping first means the player's teardown
+                    // runs the ordinary way.
+                    // ONLY when the player is the current destination. An
+                    // inclusive pop also removes everything above its target,
+                    // so a player sitting BELOW other entries — an external
+                    // item link pushed over it, say — would take those with it
+                    // and silently discard state the viewer expected back.
+                    // Leaving that rarer case saved is the pre-existing
+                    // behaviour; destroying history to fix it is worse.
+                    if (shouldPopPlayerBeforeExternalTab(
+                            navController.currentBackStackEntry?.destination?.route,
+                        )
+                    ) {
+                        navController.popBackStack(
+                            route = Route.Player.ROUTE,
+                            inclusive = true,
+                            saveState = false,
+                        )
                     }
-                    launchSingleTop = true
+                    navController.navigate(route) {
+                        tabSwitchNavOptions(navController.bottomMostTabRoute())
+                    }
+                } else {
+                    val replaceCurrentPlayer = shouldReplaceCurrentPlayer(
+                        currentDestinationRoute = navController.currentBackStackEntry
+                            ?.destination?.route,
+                        targetRoute = route,
+                    )
+                    // Single-top only when the arguments agree it really is the
+                    // same screen. AndroidX matches the destination NODE, so an
+                    // external link to item B while item A's detail is showing
+                    // reused A's entry and Back skipped A entirely — the same
+                    // defect this branch fixes for in-app navigation.
+                    val useSingleTop = shouldLaunchExternalRouteSingleTop(
+                        currentDestinationRoute = navController.currentBackStackEntry
+                            ?.destination?.route,
+                        currentContentId = navController.currentBackStackEntry
+                            ?.arguments
+                            ?.getString("contentId"),
+                        targetRoute = route,
+                    )
+                    navController.navigate(route) {
+                        if (replaceCurrentPlayer) {
+                            popUpTo(Route.Player.ROUTE) { inclusive = true }
+                        }
+                        // Decided from the finite external-route producer set,
+                        // not punctuation. A route's spelling does not say
+                        // whether its arguments identify a distinct request.
+                        launchSingleTop = useSingleTop
+                    }
+                }
+            },
+            isStillValidForScope = { scope ->
+                // Checked AFTER the wait: the identity can move while a request
+                // sits through setup, login and profile selection.
+                when (scope) {
+                    ExternalRouteScope.Unscoped -> true
+                    is ExternalRouteScope.Identity -> {
+                        // One snapshot, for the same reason the capture side
+                        // takes one: separate getters can tear across a switch
+                        // and validate against an identity that never existed.
+                        val live = tokenManager.snapshotCurrentScope()
+                        scope.matches(
+                            serverId = live?.serverId,
+                            profileId = live?.profileId,
+                            identityGeneration = live?.identityGeneration,
+                        )
+                    }
                 }
             },
             onConsumed = onExternalRouteConsumed,
@@ -326,28 +409,130 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("serverOrigin") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
-            deepLinks = listOf(
-                navDeepLink { uriPattern = "silo://device?token={token}" },
-                navDeepLink { uriPattern = "silo://device?code={code}" },
-            ),
+            // Deliberately NO navDeepLink registrations. While they existed,
+            // Navigation matched the Activity's launch Intent itself when the
+            // graph was installed and landed Pair Device before any
+            // server/token/profile gate had run — the exact bypass
+            // MainActivity's pending-route queue exists to prevent. The
+            // manifest filter still delivers the Intent; MainActivity parses
+            // and queues it.
         ) { backStackEntry ->
             val token = backStackEntry.arguments?.getString("token")
             val code = backStackEntry.arguments?.getString("code")
-            DevicePairingScreen(
-                token = token,
-                code = code,
-                onDone = {
-                    if (!navController.popBackStack()) {
-                        navController.navigate(Route.Home.route) {
-                            popUpTo(0) { inclusive = true }
+            val requiredOrigin = backStackEntry.arguments?.getString("serverOrigin")
+            val knownServers by serverRegistry.entries.collectAsState()
+            val activeServer by serverRegistry.activeEntry.collectAsState()
+            val match = remember(requiredOrigin, activeServer, knownServers) {
+                deviceLoginServerMatch(
+                    requiredOrigin = requiredOrigin,
+                    activeServerUrl = activeServer?.url,
+                    entries = knownServers,
+                )
+            }
+            val pairingScope = rememberCoroutineScope()
+            when (val resolved = match) {
+                is DeviceLoginServerMatch.SwitchRequired ->
+                    DevicePairingWrongServerScreen(
+                        serverName = resolved.entry.displayName,
+                        onSwitch = {
+                            pairingScope.launch {
+                                serverRegistry.switchTo(resolved.entry.id)
+                                // Re-queue ONLY if the target server will send
+                                // the user through auth: that flow ends at
+                                // profile selection, whose popUpTo(0) wipes this
+                                // destination and the code would have to be
+                                // scanned again. Re-queueing unconditionally was
+                                // worse — with no sign-in needed the request just
+                                // waited for this screen to close and then
+                                // reopened it.
+                                val authRoute = pairingAuthRouteOrNull(
+                                    tokenManager = tokenManager,
+                                    activeEntryProfileId = serverRegistry.activeEntry.value
+                                        ?.profileId,
+                                )
+                                if (authRoute != null) {
+                                    onRequeueExternalRoute(
+                                        Route.PairDevice(
+                                            token = token,
+                                            code = code,
+                                            serverOrigin = requiredOrigin,
+                                        ).route,
+                                    )
+                                    // Requeueing alone left the user sitting on
+                                    // a pairing screen for a server they are not
+                                    // signed in to; the queued request only
+                                    // fires once something else takes them
+                                    // somewhere authenticated. Send them.
+                                    navController.navigate(authRoute) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
+                            }
+                        },
+                        onCancel = {
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Route.Home.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        },
+                    )
+                is DeviceLoginServerMatch.UnknownServer ->
+                    DevicePairingUnknownServerScreen(
+                        origin = resolved.origin,
+                        onAddServer = {
+                            // Adding a server always runs setup and login, which
+                            // clear this destination — so this one always
+                            // re-queues.
+                            onRequeueExternalRoute(
+                                Route.PairDevice(
+                                    token = token,
+                                    code = code,
+                                    serverOrigin = requiredOrigin,
+                                ).route,
+                            )
+                            navController.navigate(Route.ServerSetup.route)
+                        },
+                        onCancel = {
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Route.Home.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        },
+                    )
+                DeviceLoginServerMatch.Active -> DevicePairingScreen(
+                    token = token,
+                    code = code,
+                    onDone = {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Route.Home.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
                         }
-                    }
-                },
-                onSignIn = {
-                    navController.navigate(Route.Login.route)
-                },
-            )
+                    },
+                    onSignIn = {
+                        // Same preservation as the switch path: signing in ends
+                        // at profile selection, whose popUpTo(0) wipes this
+                        // destination, and the code would have to be scanned
+                        // again.
+                        onRequeueExternalRoute(
+                            Route.PairDevice(
+                                token = token,
+                                code = code,
+                                serverOrigin = requiredOrigin,
+                            ).route,
+                        )
+                        navController.navigate(Route.Login.route)
+                    },
+                )
+            }
         }
 
         // ---- Server list (multi-server management) ----
@@ -458,6 +643,13 @@ fun AppNavigation(
                 LaunchedEffect(Unit) {
                     navController.navigate(Route.Home.route) {
                         popUpTo(legacyRoute) { inclusive = true }
+                        // A restored stack can already hold Home IMMEDIATELY
+                        // below the legacy entry; without this the redirect adds
+                        // a second one, and a duplicate tab route makes the tab
+                        // anchor ambiguous (popUpTo resolves to the newest
+                        // match). Home further down is not collapsed — this
+                        // checks the new top after the alias is popped.
+                        launchSingleTop = true
                     }
                 }
             }
@@ -1022,4 +1214,21 @@ private fun NavHostController.isDisplayingExactPlayerRoute(
     if (!arguments.getString("roomId").isNullOrBlank()) return false
     val requestedTarget = playerRouteIntentOrNull(route) ?: return false
     return currentPlayerTarget?.let(requestedTarget::matches) == true
+}
+
+/**
+ * The route the newly active server must pass through before pairing is
+ * possible, or null when it can pair immediately.
+ *
+ * Same credential check `ServerListViewModel` uses to pick a switch
+ * destination, including its preference for the registry entry's profile id
+ * over the token manager's cached one.
+ */
+private suspend fun pairingAuthRouteOrNull(
+    tokenManager: TokenManager,
+    activeEntryProfileId: String?,
+): String? {
+    if (tokenManager.getAccessToken().isNullOrBlank()) return Route.Login.route
+    val profileId = activeEntryProfileId ?: tokenManager.getProfileId()
+    return if (profileId.isNullOrBlank()) Route.ProfileSelection.route else null
 }

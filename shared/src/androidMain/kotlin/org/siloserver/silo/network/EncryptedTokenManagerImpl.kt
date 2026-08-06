@@ -250,6 +250,45 @@ class EncryptedTokenManagerImpl(
         }
     }
 
+    override suspend fun getProfileIdentity(): ProfileIdentity = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        temporaryScope?.let { scope ->
+            return@withLock ProfileIdentity(scope.profileId, scope.profileToken)
+        }
+        ProfileIdentity(profileId, profileToken)
+    }
+
+    /**
+     * One lock, one preferences edit, so the PERSISTED id and token cannot
+     * disagree even if the process dies immediately after. Concurrent readers
+     * are a separate problem — see [TokenManager.setProfileIdentity].
+     *
+     * While a temporary overlay exists this refuses the write entirely rather
+     * than merging into it: remote-playback identity belongs to the overlay,
+     * and a partial merge is what produced the id/token mismatch in the first
+     * place.
+     */
+    override suspend fun setProfileIdentity(profileId: String?, profileToken: String?) {
+        mutex.withLock {
+            // A temporary overlay owns its own identity for the lifetime of a
+            // remote-playback handoff. Merging a profile commit into it is how
+            // you get the exact defect this method exists to prevent: writing
+            // the new profile id beside the overlay's old token. Leave it
+            // alone; the repository rejects the commit outright.
+            if (temporaryScope != null) return@withLock
+            val serverId = activeServerId ?: return
+            if (this.profileId == profileId && this.profileToken == profileToken) return
+            this.profileId = profileId
+            this.profileToken = profileToken
+            val idKey = serverScopedKey(serverId, KEY_PROFILE_ID)
+            val tokenKey = serverScopedKey(serverId, KEY_PROFILE_TOKEN)
+            prefs.edit().apply {
+                if (profileId == null) remove(idKey) else putString(idKey, profileId)
+                if (profileToken == null) remove(tokenKey) else putString(tokenKey, profileToken)
+            }.apply()
+        }
+    }
+
     override suspend fun getServerUrl(): String = mutex.withLock {
         temporaryScope?.serverUrl ?: registry.activeEntry.value?.url.orEmpty()
     }
@@ -325,6 +364,14 @@ class EncryptedTokenManagerImpl(
                 identityGeneration = identityTransitions.generation.value,
             )
         }
+        // Reconcile with the registry FIRST. The registry observer is
+        // asynchronous, so immediately after a `switchTo(B)` this cached id can
+        // still be A — and every guard that trusts the snapshot then decides
+        // against a server the app has already left. The token reads
+        // (getAccessToken/getRefreshToken/getProfileId) reconcile; the snapshot
+        // did not, which made it disagree with them. Note getCurrentServerId
+        // still reads the cache directly.
+        ensureCacheMatchesRegistryLocked()
         val serverId = activeServerId ?: return@withLock null
         // Resolve the URL for *this* serverId from the registry entries so the
         // snapshot is internally consistent. Do NOT fall back to activeEntry —
