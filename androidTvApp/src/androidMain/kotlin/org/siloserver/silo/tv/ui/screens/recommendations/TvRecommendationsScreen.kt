@@ -1,5 +1,6 @@
 package org.siloserver.silo.tv.ui.screens.recommendations
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -67,6 +68,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+
+private const val TvForYouFocusTag = "TvForYouFocus"
 
 private val RecommendationsFilterBandHeight = 52.dp
 
@@ -297,7 +300,29 @@ fun TvRecommendationsScreen(
             },
         )
         if (result == ForYouReturnFocusResult.Exhausted) {
-            requestFocusSafely { forYouFocusRequester.requestFocus() }
+            // The card could not be reached, so focus has no owner at this
+            // point. A single unchecked request here was the whole recovery,
+            // and when it came back Rejected or Disposed nothing retried and
+            // nothing logged - the screen simply stopped answering the D-pad.
+            // requestFocusSafely converts the "not initialized" throw into a
+            // value, so the failure was silent as well as unhandled.
+            //
+            // Retry across frames the way the no-target path above does, then
+            // fall back through the filter row. Those pills are composed for
+            // the lifetime of the screen, so one of them can always take focus
+            // even when the feed has not settled.
+            if (!claimForYouFallbackFocus(
+                    attempts = TvFrameRelocationMaxAttempts,
+                    awaitFrame = { withFrameNanos { } },
+                    candidates = listOf(
+                        { forYouFocusRequester.requestFocus() },
+                        { watchlistFocusRequester.requestFocus() },
+                        { favoritesFocusRequester.requestFocus() },
+                    ),
+                )
+            ) {
+                Log.w(TvForYouFocusTag, "detail return left For You without focus")
+            }
         }
         latestOnDetailReturnFocusConsumed(detailReturnFocusRequest)
     }

@@ -182,3 +182,28 @@ internal fun shouldBridgeRecommendationsDown(
     showingRecommendations: Boolean,
     hasVisibleRecommendations: Boolean,
 ): Boolean = showingRecommendations && hasVisibleRecommendations
+
+/**
+ * Last-resort focus claim for a detail return that could not reach its card.
+ *
+ * Tries each candidate in turn, once per frame, until one takes focus. A
+ * rejected or disposed candidate is not terminal — the row it belongs to may
+ * simply not be attached yet on the frame we asked.
+ *
+ * Returns whether anything ended up with focus. Callers are expected to act on
+ * `false`: leaving focus unowned is what makes the screen stop answering the
+ * D-pad, and it is silent unless someone says so.
+ */
+internal suspend fun claimForYouFallbackFocus(
+    attempts: Int,
+    awaitFrame: suspend () -> Unit,
+    candidates: List<() -> Boolean>,
+): Boolean {
+    repeat(attempts) {
+        awaitFrame()
+        for (candidate in candidates) {
+            if (requestFocusSafely(candidate) == FocusRequestOutcome.Handled) return true
+        }
+    }
+    return false
+}
