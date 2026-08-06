@@ -4788,7 +4788,6 @@ class TvPlayerViewModel(
 
     override fun onCleared() {
         episodeSelectionHandoffSlot.invalidate()
-        val teardownSessionId = exitSessionId
         val subtitlePersistenceReservation =
             subtitleTransactions.reserveDurableFinalPersistence()
         subtitleTransactions.invalidateAndSettleAsync(restoreUi = false) {
@@ -4796,12 +4795,18 @@ class TvPlayerViewModel(
                 subtitleTransactions::requestDurableFinalPersistence,
             )
             playbackMutationFence.invalidateAll()
-            // Never unqualified. A null expectedSessionId disables the
+            // Read AFTER settlement, not snapshotted before it. Settlement can
+            // roll a subtitle publication back, and that rollback returns
+            // ownership to the predecessor — so a value captured before this
+            // callback names the discarded replacement, and the predecessor is
+            // left running with the one-shot gate already consumed.
+            //
+            // Never unqualified either. A null expectedSessionId disables the
             // lifecycle's ownership guard entirely, and this callback is
             // deliberately delayed behind subtitle settlement — long enough for
             // a newer screen to have adopted its own session. A screen that
             // never owned one has nothing to tear down.
-            teardownSessionId?.let { lifecycleTeardown.stopDetached(expectedSessionId = it) }
+            exitSessionId?.let { lifecycleTeardown.stopDetached(expectedSessionId = it) }
         }
         subtitleSnapshotSettlement.reset()
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
