@@ -384,6 +384,22 @@ class SiloPlayerFactory(
         preferredTextLanguage: String? = null,
         hdrEnabled: Boolean = true,
     ) {
+        // ExoPlayer resolves a track reselection by seeking the current media
+        // period. With no media period — idle, empty timeline, or torn down
+        // while this was in flight — that path dereferences a null holder and
+        // kills playback outright:
+        //
+        //   NullPointerException: MediaPeriodHolder.info
+        //     at ExoPlayerImplInternal.seekToCurrentPosition
+        //     at ExoPlayerImplInternal.reselectTracksInternalAndSeek
+        //
+        // Capability changes are exactly what lands here at the wrong moment:
+        // an HDMI route drop fires this while the screen is being left, so the
+        // player is already past the point of having anything to reselect.
+        // Presets are re-applied on the next construction anyway, so skipping
+        // costs nothing.
+        if (shouldSkipTrackReselection(player.playbackState, player.currentTimeline.isEmpty)) return
+
         val base = player.trackSelectionParameters
         val next = if (isTv) {
             TrackSelectionPresets.buildTvParameters(
@@ -718,3 +734,17 @@ internal fun mediaItemMimeType(
         PlayMethod.DIRECT -> videoContainerMimeType(container)
     }
 }
+
+/**
+ * Whether a track reselection must be withheld from the player.
+ *
+ * ExoPlayer applies a reselection by seeking the current media period. With no
+ * media period — idle, or an empty timeline — that seek dereferences a null
+ * holder and ends playback with an ExoPlaybackException rather than being a
+ * no-op. Capability changes (HDMI hot-plug, audio route loss) can fire while a
+ * player is being torn down, which is exactly that window.
+ *
+ * Kept separate from the player so the rule can be tested without a Context.
+ */
+internal fun shouldSkipTrackReselection(playbackState: Int, timelineEmpty: Boolean): Boolean =
+    playbackState == Player.STATE_IDLE || timelineEmpty
