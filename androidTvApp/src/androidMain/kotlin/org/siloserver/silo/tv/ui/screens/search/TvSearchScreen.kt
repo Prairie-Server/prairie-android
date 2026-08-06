@@ -22,11 +22,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Mic
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -201,33 +196,6 @@ fun TvSearchScreen(
     val hasContentFocusTarget = state.items.isNotEmpty() ||
         visibleRequestResults.isNotEmpty() ||
         state.error != null
-
-    // A spoken query is a submitted query. It goes through exactly the path a
-    // typed one does — including handing focus to the results afterwards,
-    // which is the whole point of speaking: nobody dictates a title in order
-    // to then be left on the search field.
-    var voiceUnavailableMessage by remember { mutableStateOf<String?>(null) }
-    val voiceSearch = rememberTvVoiceSearch(
-        prompt = "Speak a title",
-        onResult = { spoken ->
-            // The same cap typing obeys. A noisy recognition can run long, and
-            // the field's own limit does not apply to text that never went
-            // through it.
-            val query = spoken.take(TV_SEARCH_QUERY_MAX_LENGTH)
-            voiceUnavailableMessage = null
-            viewModel.onQueryChanged(query)
-            pendingSearchFocus = true
-            if (requestsEnabled && query.length >= 2) {
-                requestSearchViewModel.onMediaTypeChanged(requestMediaType)
-                requestSearchViewModel.onQueryChanged(query)
-                requestSearchViewModel.search()
-            }
-            viewModel.submitSearch()
-        },
-        onUnavailable = {
-            voiceUnavailableMessage = "Voice search isn't available on this device."
-        },
-    )
 
     LaunchedEffect(requestsEnabled, state.query, requestMediaType) {
         val query = state.query.trim()
@@ -544,8 +512,6 @@ fun TvSearchScreen(
                         viewModel.submitSearch()
                     },
                     onMediaTypeChanged = viewModel::onMediaTypeChanged,
-                    voiceSearch = voiceSearch,
-                    voiceUnavailableMessage = voiceUnavailableMessage,
                     isKeyboardOpen = isKeyboardOpen,
                     onKeyboardOpenChanged = { isKeyboardOpen = it },
                 )
@@ -729,12 +695,9 @@ private fun SearchStage(
     onQueryChanged: (String) -> Unit,
     onSearch: () -> Unit,
     onMediaTypeChanged: (TvSearchMediaType) -> Unit,
-    voiceSearch: TvVoiceSearchController,
-    voiceUnavailableMessage: String?,
     isKeyboardOpen: Boolean,
     onKeyboardOpenChanged: (Boolean) -> Unit,
 ) {
-    val voiceFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val mediaTypes = availableMediaTypes
     val fieldShape = RoundedCornerShape(14.dp)
@@ -754,22 +717,6 @@ private fun SearchStage(
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-        // Hidden outright when nothing can service it, rather than shown and
-        // inert: a mic that does nothing when pressed is worse than no mic.
-        if (voiceSearch.isAvailable) {
-            TvVoiceSearchButton(
-                onClick = voiceSearch::start,
-                modifier = Modifier
-                    .focusRequester(voiceFocusRequester)
-                    // RIGHT is stated rather than left to geometry, because the
-                    // route INTO this button comes from below and the way back
-                    // out has to be certain.
-                    .focusProperties {
-                        right = searchFieldFocusRequester
-                        down = firstFilterChipFocusRequester
-                    },
-            )
-        }
         OutlinedTextField(
             value = query,
             onValueChange = { onQueryChanged(it.take(TV_SEARCH_QUERY_MAX_LENGTH)) },
@@ -839,21 +786,6 @@ private fun SearchStage(
                             keyboardController?.show()
                             true
                         }
-                        // LEFT has to be taken from the field as well. Keeping
-                        // the keyboard down was necessary but not sufficient:
-                        // the text field still consumes Left as caret movement,
-                        // even read-only and even with nowhere for the caret to
-                        // go, so the key never becomes a focus move.
-                        //
-                        // Only while the keyboard is closed. Once it is open the
-                        // IME owns the D-pad and this never runs — and Left
-                        // genuinely should walk the caret then.
-                        event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionLeft &&
-                            !isKeyboardOpen &&
-                            voiceSearch.isAvailable -> {
-                            runCatching { voiceFocusRequester.requestFocus() }.getOrDefault(false)
-                        }
                         else -> false
                     }
                 }
@@ -865,14 +797,6 @@ private fun SearchStage(
                 unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
             ),
         )
-        }
-
-        voiceUnavailableMessage?.let { message ->
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.72f),
-            )
         }
 
         LazyRow(
@@ -1100,43 +1024,3 @@ private const val TvSearchReturnMaxStandDowns: Int = 4
 /** Focus must hold the card this long to count as arrived rather than passing. */
 private const val TvSearchReturnSettleMillis: Long = 120L
 
-/**
- * The mic beside the search field.
- *
- * Deliberately a peer of the field rather than an icon inside it: a trailing
- * icon in a text field is not focusable, and on a remote a control you cannot
- * reach with the D-pad may as well not exist.
- */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvVoiceSearchButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    Surface(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        shape = ClickableSurfaceDefaults.shape(CircleShape),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.055f),
-            focusedContainerColor = Color.White,
-            contentColor = Color.White,
-            focusedContentColor = Color.Black,
-        ),
-        modifier = modifier.size(52.dp),
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            M3Icon(
-                imageVector = Icons.Filled.Mic,
-                contentDescription = "Search by voice",
-                tint = if (isFocused) Color.Black else Color.White.copy(alpha = 0.82f),
-                modifier = Modifier.size(24.dp),
-            )
-        }
-    }
-}
