@@ -825,15 +825,32 @@ private suspend fun PlayerViewModel.awaitState(
     awaitCondition { predicate(uiState.value) }
 }
 
+/**
+ * Polls [predicate] off the test scheduler, on a dispatcher that cannot be
+ * starved.
+ *
+ * The deadline is wall-clock, so it has to outlast the machine being busy. This
+ * used to poll on a single-parallelism slice of [Dispatchers.Default], which is
+ * sized to CPU count and fully subscribed when the Gradle suite runs its
+ * modules in parallel — the polling coroutine got almost no time while the
+ * timeout kept counting real seconds, and the test failed on a loaded machine
+ * while passing alone. [Dispatchers.IO] is elastic, so the poll keeps running
+ * under load.
+ *
+ * The timeout is a backstop against a genuine hang, not an assertion about
+ * latency, so it is generous. A real hang still fails, just later.
+ */
 private suspend fun awaitCondition(predicate: () -> Boolean) {
-    withContext(Dispatchers.Default.limitedParallelism(1)) {
-        withTimeout(5_000) {
+    withContext(Dispatchers.IO) {
+        withTimeout(AWAIT_CONDITION_TIMEOUT_MS) {
             while (!predicate()) {
                 delay(5)
             }
         }
     }
 }
+
+private const val AWAIT_CONDITION_TIMEOUT_MS = 30_000L
 
 private const val SERVER_ID = "server"
 private const val PROFILE_ID = "profile"
