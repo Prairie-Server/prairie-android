@@ -99,6 +99,7 @@ import org.siloserver.silo.repository.SubtitlesRepository
 import org.siloserver.silo.repository.port.PlaybackWriteScope
 import org.siloserver.silo.repository.port.TrackSelectionFingerprintUpdate
 import org.siloserver.silo.tv.ui.screens.detail.TvDetailTrackSelectionSession
+import kotlin.math.ceil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -1043,9 +1044,13 @@ class TvPlayerViewModel(
         // mini-player pane beside the next-episode panel — in place of the idle
         // controls. `nextUpVideoEnded` distinguishes "almost finished" (credits
         // reached, still playing) from "end of playback" (stream ended).
-        // `nextUpCountdownSeconds` drives the auto-play CountdownRing: non-null
-        // counts down to 0 and then plays the next episode; null means no
-        // countdown (auto-play off, pass-out gate hit, or no next episode).
+        // `nextUpCountdownSeconds` drives the auto-play CountdownRing; null
+        // means no countdown (auto-play off, pass-out gate hit, or no next
+        // episode). A card raised at end-of-playback counts a wall clock down
+        // to 0 and then plays the next episode. A card raised at the credits
+        // marker instead mirrors the remaining playback time, so reaching 0
+        // means "the stream should be over" — it waits for the player to say
+        // so rather than cutting the tail off.
         val showNextUp: Boolean = false,
         val nextUpVideoEnded: Boolean = false,
         val nextUpCountdownSeconds: Int? = null,
@@ -1933,6 +1938,7 @@ class TvPlayerViewModel(
                                 showNextUp = false,
                                 nextUpVideoEnded = false,
                                 nextUpCountdownSeconds = null,
+                                nextUpCountdownTotalSeconds = NEXT_UP_COUNTDOWN_SECONDS,
                                 // T11: clear the subtitle-refresh nonce on every
                                 // fresh mount. It is bumped once per post-download
                                 // refresh; without this reset a later backend
@@ -2196,18 +2202,10 @@ class TvPlayerViewModel(
                 ?.session
                 ?.sessionId
             if (!isActive || recoveryContentGeneration != contentLoadGeneration) {
-                abandonedSessionId?.let { sessionId ->
-                    // Detached from this cancelled scope on purpose: the whole
-                    // point is to run after the reason for abandoning.
-                    // NonCancellable: this runs precisely because the
-                    // surrounding work was cancelled, so it must not inherit
-                    // that cancellation and skip the release.
-                    viewModelScope.launch(NonCancellable) {
-                        runCatching {
-                            playbackSessionManager.abandonActiveVideoSession(sessionId)
-                        }
-                    }
-                }
+                // Released on the manager's own scope, which outlives this
+                // screen: the whole point is to run after the reason for
+                // abandoning, and this ViewModel's scope may already be gone.
+                abandonedSessionId?.let(playbackSessionManager::abandonActiveVideoSessionAsync)
             }
             coroutineContext.ensureActive()
             if (recoveryContentGeneration != contentLoadGeneration) return@launch
@@ -2508,21 +2506,6 @@ class TvPlayerViewModel(
     }
 
     /**
-     * Bounded recovery has given up and the picture is not coming back.
-     *
-     * The detector reports Failed exactly once and then goes quiet forever, so
-     * without surfacing it the viewer is left with advancing audio over a
-     * frozen frame, no message, and no reason to think pressing anything would
-     * help. Telemetry recorded this; nobody told the person watching.
-     */
-    /**
-     * The screen has shown [TvPlayerViewModel.UiState.subtitleFailureMessage].
-     *
-     * Cleared on acknowledgement rather than on a timer so the same failure
-     * cannot be reported twice, and so a later failure with identical text
-     * still surfaces.
-     */
-    /**
      * An audio change has committed, so it is now the viewer's choice.
      *
      * Set here rather than when the change was requested: staging, validation,
@@ -2707,6 +2690,13 @@ class TvPlayerViewModel(
         }
     }
 
+    /**
+     * The screen has shown [TvPlayerViewModel.UiState.subtitleFailureMessage].
+     *
+     * Cleared on acknowledgement rather than on a timer so the same failure
+     * cannot be reported twice, and so a later failure with identical text
+     * still surfaces.
+     */
     fun onSubtitleFailureShown(shownId: Long) {
         _uiState.update {
             // Acknowledged by ID, not by text. Two failures can carry the same
@@ -2721,6 +2711,14 @@ class TvPlayerViewModel(
         }
     }
 
+    /**
+     * Bounded recovery has given up and the picture is not coming back.
+     *
+     * The detector reports Failed exactly once and then goes quiet forever, so
+     * without surfacing it the viewer is left with advancing audio over a
+     * frozen frame, no message, and no reason to think pressing anything would
+     * help. Telemetry recorded this; nobody told the person watching.
+     */
     fun onPlaybackRecoveryExhausted() {
         _uiState.update {
             if (it.error != null) it else it.copy(
@@ -3427,13 +3425,26 @@ class TvPlayerViewModel(
         val threshold = passOutThreshold.value
         val passOutGated = threshold > 0 && autoAdvanceCount >= threshold
         val autoCountdown = autoPlayNextEnabled.value && !passOutGated
+        val current = _uiState.value
+        // Pre-end commits anchor the countdown to the remaining playback time
+        // (see startNextUpCountdown); only an at-end commit uses the wall clock.
+        val initialCountdown = when {
+            !autoCountdown -> null
+            videoEnded -> NEXT_UP_COUNTDOWN_SECONDS
+            else -> ceil((current.duration - current.position).coerceAtLeast(0.0)).toInt()
+        }
 
         _uiState.update {
             it.copy(
                 showNextUp = true,
                 hudOpen = false,
                 nextUpVideoEnded = videoEnded,
-                nextUpCountdownSeconds = if (autoCountdown) NEXT_UP_COUNTDOWN_SECONDS else null,
+                nextUpCountdownSeconds = initialCountdown,
+                // The ring draws remaining/total, so a pre-end countdown longer
+                // than the wall-clock default has to carry its own total or the
+                // ring renders past full.
+                nextUpCountdownTotalSeconds = initialCountdown?.coerceAtLeast(1)
+                    ?: NEXT_UP_COUNTDOWN_SECONDS,
             )
         }
         if (autoCountdown) startNextUpCountdown()
@@ -3442,20 +3453,52 @@ class TvPlayerViewModel(
     private fun startNextUpCountdown() {
         nextUpCountdownJob?.cancel()
         nextUpCountdownJob = viewModelScope.launch {
-            var remaining = NEXT_UP_COUNTDOWN_SECONDS
-            while (remaining > 0) {
+            // Two anchors, matching phone and tvOS:
+            //  - Card committed BEFORE the end (credits crossing): the countdown
+            //    mirrors the remaining playback time, so it freezes on pause,
+            //    grows on a backward seek, and the advance fires only once the
+            //    player reports the stream ended. A fixed wall clock here cut off
+            //    the final scene of anything whose credits marker sits more than
+            //    ten seconds from the actual end.
+            //  - Card committed AT the end (stream ended with no earlier
+            //    crossing): there is no playback left to anchor to, so a short
+            //    wall-clock countdown gives the viewer a window to cancel.
+            val startedAtEnd = _uiState.value.nextUpVideoEnded
+            var wallRemaining = NEXT_UP_COUNTDOWN_SECONDS
+            while (true) {
                 delay(1_000)
-                remaining -= 1
+                // Bail if something dismissed the overlay underneath us.
+                if (!_uiState.value.showNextUp) return@launch
+                val remaining = if (startedAtEnd) {
+                    wallRemaining -= 1
+                    wallRemaining.coerceAtLeast(0)
+                } else {
+                    val state = _uiState.value
+                    ceil((state.duration - state.position).coerceAtLeast(0.0)).toInt()
+                }
                 _uiState.update {
-                    // Bail if something dismissed the overlay underneath us.
-                    if (!it.showNextUp) it else it.copy(nextUpCountdownSeconds = remaining)
+                    if (!it.showNextUp) {
+                        it
+                    } else {
+                        it.copy(
+                            nextUpCountdownSeconds = remaining,
+                            // A backward seek can push the remaining time past
+                            // where the ring started; grow the total with it.
+                            nextUpCountdownTotalSeconds =
+                                maxOf(it.nextUpCountdownTotalSeconds, remaining, 1),
+                        )
+                    }
                 }
                 if (!_uiState.value.showNextUp) return@launch
+                val playbackEnded =
+                    if (startedAtEnd) wallRemaining <= 0 else _uiState.value.nextUpVideoEnded
+                if (!playbackEnded) continue
+                // Automatic countdown-expiry advance: increment the pass-out streak
+                // so a long unattended binge eventually trips the "still watching?"
+                // gate. An explicit Play Now (below) resets the streak instead.
+                advanceToNextEpisode(nextAutoAdvanceCount = autoAdvanceCount + 1)
+                return@launch
             }
-            // Automatic countdown-expiry advance: increment the pass-out streak
-            // so a long unattended binge eventually trips the "still watching?"
-            // gate. An explicit Play Now (below) resets the streak instead.
-            advanceToNextEpisode(nextAutoAdvanceCount = autoAdvanceCount + 1)
         }
     }
 

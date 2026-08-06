@@ -109,7 +109,15 @@ class HomeViewModel(
         viewModelScope.launch {
             // Stale-while-revalidate: serve the cached home instantly (offline-
             // capable), then refresh from the network below.
+            // Captured BEFORE the cached read, which suspends: a refresh can
+            // start and publish fresh sections while we are in there, and
+            // overlaying the cache on top would put stale rows back on screen.
+            val bootstrapGeneration = fetchGeneration
             val cached = homeCache.getCachedHome()
+            if (fetchGeneration != bootstrapGeneration) {
+                fetchSections()
+                return@launch
+            }
             if (cached != null && cached.sections.isNotEmpty()) {
                 val overlaid = overlayLocalState(cached.sections)
                 _uiState.update { it.copy(isLoading = false, sections = overlaid, error = null) }
@@ -123,8 +131,14 @@ class HomeViewModel(
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
-            fetchSections()
-            _uiState.update { it.copy(isRefreshing = false) }
+            val generation = fetchSections()
+            // Only the newest fetch may clear the flag. A superseded refresh
+            // clearing it hides the spinner while a newer fetch is still
+            // running, and re-opens refreshFromRealtime's single-flight gate so
+            // it fires a redundant request.
+            if (generation == fetchGeneration) {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 
@@ -143,7 +157,11 @@ class HomeViewModel(
         )
     }
 
-    private suspend fun fetchSections() {
+    /**
+     * Runs one home fetch and returns the generation it ran as, so callers can
+     * tell whether their own work is still the newest before acting on it.
+     */
+    private suspend fun fetchSections(): Int {
         val requestIdentityGeneration = identityTransitions.generation.value
         val cacheWriteLease = HomeCacheWriteLease(requestIdentityGeneration)
         // Whether we already have something to show (cached or prior fetch) — if a
@@ -165,7 +183,7 @@ class HomeViewModel(
                 }
                 // Superseded while in flight: a newer fetch has already
                 // answered, so this reply describes a home nobody is looking at.
-                if (generation != fetchGeneration) return
+                if (generation != fetchGeneration) return generation
                 val resolved = hydration.sections
                 // Don't persist a partially-resolved home over a good cached one.
                 val fullyResolved = hydration.fullyResolved
@@ -187,7 +205,7 @@ class HomeViewModel(
                 // either — so a check taken before them proves only that this
                 // reply was current when it arrived, not that it still is when
                 // it finally writes.
-                if (generation != fetchGeneration) return
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     // Only replace what's shown when the fetch fully resolved (or there
                     // was nothing yet) — a partial refresh must not clobber a good Home.
@@ -208,7 +226,7 @@ class HomeViewModel(
             }
             is ApiResult.Error -> {
                 // A superseded fetch's failure is not this home's failure.
-                if (generation != fetchGeneration) return
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -219,7 +237,7 @@ class HomeViewModel(
                 }
             }
             is ApiResult.NetworkError -> {
-                if (generation != fetchGeneration) return
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -228,6 +246,7 @@ class HomeViewModel(
                 }
             }
         }
+        return generation
     }
 
     // -- Card context-menu actions --

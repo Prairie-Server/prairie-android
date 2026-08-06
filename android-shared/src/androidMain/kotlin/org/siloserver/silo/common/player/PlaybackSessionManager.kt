@@ -1025,6 +1025,42 @@ open class PlaybackSessionManager(
         return disowned
     }
 
+    /**
+     * Fire-and-forget abandonment on the manager's own scope.
+     *
+     * Callers reach this exactly when their own scope is being torn down, which
+     * rules out doing the work inline. `viewModelScope.launch(NonCancellable)`
+     * looks like the answer and does run, but it severs the parent link to
+     * produce an untracked coroutine nothing can await or observe failures
+     * from. This scope already outlives any screen and is what the
+     * committed-session cleanup uses, so a release belongs here rather than in
+     * a ViewModel on its way out.
+     *
+     * Only stops the session while the manager still owns it. The unconditional
+     * variant stops even when it failed to disown, and [stopSession]'s
+     * predecessor branch then clears a newer pending publication and stops its
+     * replacement — a real hazard once the release is dispatched rather than
+     * inline, because the window widens. When ownership has moved on, the id is
+     * recorded as an orphan and the next drain stops it with a plain repository
+     * call that cannot disturb whoever owns playback now.
+     */
+    fun abandonActiveVideoSessionAsync(sessionId: String) {
+        sessionCleanupScope.launch {
+            runCatching {
+                val disowned = videoAttemptMutex.withLock {
+                    val active = activeVideoAttempt.get()
+                    if (active?.sessionId != sessionId) {
+                        orphanedSessionIds += sessionId
+                        false
+                    } else {
+                        activeVideoAttempt.compareAndSet(active, null)
+                    }
+                }
+                if (disowned) stopSession(sessionId)
+            }
+        }
+    }
+
     suspend fun rollbackUnpublishedVideoSession(sessionId: String): Boolean {
         val rollback = videoAttemptMutex.withLock {
             rollbackPendingPublicationLocked(sessionId)

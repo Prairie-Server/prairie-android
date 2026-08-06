@@ -44,9 +44,17 @@ class PlaybackStartupStallDetector(
         this.started = false
         this.signaled = false
         this.firstFrameRendered = false
-        // Re-baselined on arm. The counters are cumulative on the player, so
-        // "greater than zero" would be satisfied instantly by the previous
-        // attempt's frames when a player is reused.
+        // Only the startup deadline is cleared here — this is NOT a counter
+        // baseline, despite the shape of the check in sample(). Taking one was
+        // tried and reverted: Media3 creates fresh DecoderCounters when a
+        // renderer is enabled, so a baseline captured at mount can be compared
+        // against a counter that restarted at zero, and a healthy stream then
+        // looks frozen until it has rendered as many frames again. That trades
+        // a rare missed freeze for a common invented one. The residual — a
+        // reused player whose cumulative count makes the first sample look like
+        // this attempt already rendered — is accepted, and the real fix is
+        // AnalyticsListener.onRenderedFirstFrame(EventTime) carried through a
+        // mount key, which needs hardware to validate.
         this.decoderStartupAtMs = null
         this.paused = false
         this.lastProgressPositionMs = this.startPositionMs

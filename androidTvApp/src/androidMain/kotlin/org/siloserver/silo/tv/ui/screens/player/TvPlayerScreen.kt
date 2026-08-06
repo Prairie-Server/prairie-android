@@ -2673,8 +2673,10 @@ private fun TvRoomIndicator(
  * next-episode panel on the right: an "Up Next" / "Playing Next" eyebrow,
  * series-context-free episode metadata ("S·E · title" + overview), a Play Now
  * primary button, a Keep Watching dismiss button, a Back button, an auto-play
- * countdown ring (counts to zero then plays the next episode), and finished /
- * loading states when no next episode is available.
+ * countdown ring (a card raised at the end counts a wall clock to zero and then
+ * plays the next episode; one raised at the credits marker mirrors the
+ * remaining playback time and waits for the stream to actually end), and
+ * finished / loading states when no next episode is available.
  *
  * Replaces the old "Still watching?" dialog as the sole end-of-playback
  * surface; the pass-out gate now manifests as the overlay appearing WITHOUT a
