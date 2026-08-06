@@ -230,6 +230,7 @@ fun TvPlayerScreen(
     // subtitle -1 = Off). Audio goes to the server session start; subtitle is
     // applied client-side once the player's tracks land.
     initialAudioTrackIndex: Int? = null,
+    initialAudioPickedThisSession: Boolean = false,
     initialSubtitleTrackIndex: Int? = null,
     // Consecutive auto-advance count (pass-out protection); 0 = manual start.
     autoAdvanceCount: Int = 0,
@@ -255,6 +256,7 @@ fun TvPlayerScreen(
                     roomId = roomId,
                     resumePositionOverride = resumePositionOverride,
                     initialAudioTrackIndex = initialAudioTrackIndex,
+                    initialAudioPickedThisSession = initialAudioPickedThisSession,
                     initialSubtitleTrackIndex = initialSubtitleTrackIndex,
                     autoAdvanceCount = autoAdvanceCount,
                     episodeSelectionHandoff = episodeSelectionHandoff,
@@ -1497,6 +1499,26 @@ fun TvPlayerScreen(
     }
 
     // Prepare the player when a stream URL becomes available.
+    // Applies a local audio switch: the track is already in the mounted stream,
+    // so it only needs selecting on the player. The ViewModel does not commit
+    // on the strength of this call -- AudioTrackManager returns Unit and does
+    // nothing silently if the group is gone -- it waits for onTracksChanged to
+    // show the target selected.
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        viewModel.pendingLocalAudioSelection.collect { request ->
+            request ?: return@collect
+            backend.selectAudioTrack(
+                VideoPlayerTrackEntry(
+                    index = request.targetOrdinal,
+                    label = "",
+                    language = null,
+                    isSelected = true,
+                ),
+            )
+        }
+    }
+
     LaunchedEffect(
         videoBackend,
         state.sessionId,
@@ -1961,6 +1983,8 @@ fun TvPlayerScreen(
                             subtitlePresentation = subtitlePresentation,
                             stats = state.stats,
                             playbackPlan = state.playbackPlan,
+                            desiredAudioOrdinal = state.desiredAudioOrdinal,
+                            desiredAudioConfirmed = state.desiredAudioConfirmed,
                             videoFillMode = state.videoFillMode,
                             onSelectAudio = viewModel::selectAudioOption,
                             onSelectVideoQuality = { id ->

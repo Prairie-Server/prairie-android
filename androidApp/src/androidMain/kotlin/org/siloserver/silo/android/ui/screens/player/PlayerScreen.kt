@@ -70,6 +70,8 @@ import org.siloserver.silo.common.pip.SiloPictureInPicturePlaybackState
 import org.siloserver.silo.common.pip.SiloPictureInPictureSurface
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendFactory
 import org.siloserver.silo.common.player.backend.VideoPlaybackBackendRequest
+import org.siloserver.silo.common.player.video.mountedAudioTracks
+import org.siloserver.silo.common.player.video.selectedMountedAudioOrdinal
 import org.siloserver.silo.common.player.video.PlaybackStartupStallDetector
 import org.siloserver.silo.common.player.video.PlaybackRuntimeCorrectionMetrics
 import org.siloserver.silo.common.player.video.PostResumeVideoStallDetector
@@ -341,6 +343,24 @@ fun PlayerScreen(
             backendFactory.create(
                 player = player,
                 request = VideoPlaybackBackendRequest(),
+            )
+        }
+    }
+
+    // Applies a local audio switch. The ViewModel does not commit on this call:
+    // AudioTrackManager returns Unit and does nothing silently when the group is
+    // absent, so it waits for a snapshot showing the target selected.
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        viewModel.pendingLocalAudioSelection.collect { request ->
+            request ?: return@collect
+            backend.selectAudioTrack(
+                VideoPlayerTrackEntry(
+                    index = request.targetOrdinal,
+                    label = "",
+                    language = null,
+                    isSelected = true,
+                ),
             )
         }
     }
@@ -828,6 +848,13 @@ fun PlayerScreen(
                 }
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                    // Audio was never published here, so a direct-play file with
+                    // several audio tracks could show the chosen row while the
+                    // renderer stayed on Media3's default.
+                    viewModel.onMountedAudioChanged(
+                        mounted = mountedAudioTracks(tracks),
+                        selectedOrdinal = selectedMountedAudioOrdinal(tracks),
+                    )
                     // Re-apply the subtitle selection once track groups resolve:
                     // after the subtitle-refresh rebuild the selection effect has
                     // already fired (against the OLD tracks), so without this the

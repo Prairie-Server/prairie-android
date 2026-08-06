@@ -415,7 +415,7 @@ class MobileSubtitleAutoSelectionTest {
         assertEquals(
             MobileSubtitleAutoSelection.Select(1),
             resolveMobileAutoSubtitleSelection(
-                audioTracks = listOf(audio(index = 0, language = "ja")),
+                audioTracks = listOf(audio(language = "ja")),
                 selectedAudioIndex = 0,
                 subtitles = subtitles,
                 preferredLanguage = "en",
@@ -434,7 +434,7 @@ class MobileSubtitleAutoSelectionTest {
         assertEquals(
             MobileSubtitleAutoSelection.Select(0),
             resolveMobileAutoSubtitleSelection(
-                audioTracks = listOf(audio(index = 0, language = "ja")),
+                audioTracks = listOf(audio(language = "ja")),
                 selectedAudioIndex = 0,
                 subtitles = subtitles,
                 preferredLanguage = "en",
@@ -454,7 +454,7 @@ class MobileSubtitleAutoSelectionTest {
         assertEquals(
             MobileSubtitleAutoSelection.Select(0),
             resolveMobileAutoSubtitleSelection(
-                audioTracks = listOf(audio(index = 0, language = "ja")),
+                audioTracks = listOf(audio(language = "ja")),
                 selectedAudioIndex = 0,
                 subtitles = subtitles,
                 preferredLanguage = "en",
@@ -469,8 +469,11 @@ class MobileSubtitleAutoSelectionTest {
         assertEquals(
             MobileSubtitleAutoSelection.Disable,
             resolveMobileAutoSubtitleSelection(
-                audioTracks = listOf(audio(index = 2, language = "eng")),
-                selectedAudioIndex = 2,
+                // selectedAudioIndex is an ORDINAL. The wire sends no audio
+                // index, so a fixture keying on one tested a shape that cannot
+                // occur; two rows make the ordinal meaningful.
+                audioTracks = listOf(audio(language = "nld"), audio(language = "eng")),
+                selectedAudioIndex = 1,
                 subtitles = listOf(subtitle(index = 1, label = "English", language = "en")),
                 preferredLanguage = "en",
                 subtitleMode = "auto",
@@ -489,8 +492,11 @@ class MobileSubtitleAutoSelectionTest {
         assertEquals(
             MobileSubtitleAutoSelection.Select(1),
             resolveMobileAutoSubtitleSelection(
-                audioTracks = listOf(audio(index = 2, language = "eng")),
-                selectedAudioIndex = 2,
+                // selectedAudioIndex is an ORDINAL. The wire sends no audio
+                // index, so a fixture keying on one tested a shape that cannot
+                // occur; two rows make the ordinal meaningful.
+                audioTracks = listOf(audio(language = "nld"), audio(language = "eng")),
+                selectedAudioIndex = 1,
                 subtitles = subtitles,
                 preferredLanguage = "en",
                 subtitleMode = "auto",
@@ -504,7 +510,7 @@ class MobileSubtitleAutoSelectionTest {
         assertEquals(
             MobileSubtitleAutoSelection.Select(0),
             resolveMobileAutoSubtitleSelection(
-                audioTracks = listOf(audio(index = 0, language = "en")),
+                audioTracks = listOf(audio(language = "en")),
                 selectedAudioIndex = 0,
                 subtitles = listOf(subtitle(index = 1, label = "English", language = "en")),
                 preferredLanguage = "en",
@@ -583,9 +589,8 @@ class MobileSubtitleAutoSelectionTest {
         )
 
     private fun audio(
-        index: Int,
         language: String?,
-    ): AudioTrack = AudioTrack(index = index, language = language)
+    ): AudioTrack = AudioTrack(language = language)
 
     private fun subtitle(
         index: Int,

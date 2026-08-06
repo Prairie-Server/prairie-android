@@ -47,6 +47,78 @@ class TvPlaybackFormattingTest {
         assertEquals("Auto - English", automaticTrackLabel("English"))
     }
 
+    // --- catalog audio, keyed by ordinal ---
+
+    /**
+     * Audio is addressed by ORDINAL. The server sends no `index` for audio
+     * tracks (subtitles get one), so [AudioTrack.index] is its `0` default on
+     * every row: keying on it collapsed both tracks of a two-track file onto
+     * the first, and the picker rendered the Dutch track with the English label.
+     */
+    @Test fun audioSummaryForOrdinal_distinguishesTracksThatShareTheDefaultIndex() {
+        val version = fileVersion(
+            audio = listOf(
+                AudioTrack(language = "eng", codec = "dts", channels = 6),
+                AudioTrack(language = "nld", codec = "aac", channels = 2),
+            ),
+        )
+        assertEquals(0, version.audioTracks!![0].index, "the wire carries no audio index")
+        assertEquals(0, version.audioTracks!![1].index)
+
+        val first = TvPlaybackFormatting.audioSummaryForOrdinal(version, 0)
+        val second = TvPlaybackFormatting.audioSummaryForOrdinal(version, 1)
+
+        assertTrue(first != null && first.contains("English"), "got $first")
+        assertTrue(second != null && second.contains("Dutch"), "got $second")
+        assertTrue(first != second, "identical indices must not collapse the rows")
+    }
+
+    @Test fun audioSummaryForOrdinal_nullWhenUnresolvable() {
+        val version = fileVersion(audio = listOf(AudioTrack(language = "eng")))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(version, null))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(version, 1))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(null, 0))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(fileVersion(), 0))
+    }
+
+    @Test fun effectiveAudioOrdinal_prefersPlanThenServerEffectiveThenDefault() {
+        val tracks = listOf(
+            AudioTrack(language = "eng"),
+            AudioTrack(language = "nld", isDefault = true),
+        )
+
+        assertEquals(0, TvPlaybackFormatting.effectiveAudioOrdinal(tracks, planOrdinal = 0))
+        // Out of range must not be echoed back.
+        assertEquals(1, TvPlaybackFormatting.effectiveAudioOrdinal(tracks, planOrdinal = 9))
+        assertEquals(
+            0,
+            TvPlaybackFormatting.effectiveAudioOrdinal(
+                tracks,
+                planOrdinal = null,
+                version = fileVersion(audio = tracks, effectiveAudioIndex = 0),
+            ),
+            "the server's effective ordinal outranks the default flag",
+        )
+        assertEquals(1, TvPlaybackFormatting.effectiveAudioOrdinal(tracks, planOrdinal = null))
+        assertEquals(null, TvPlaybackFormatting.effectiveAudioOrdinal(emptyList(), 0))
+    }
+
+    /** Title is often all that separates two otherwise identical mixes. */
+    @Test fun audioChoiceLabelForOrdinal_keepsTitleAndDefault() {
+        val tracks = listOf(
+            AudioTrack(language = "eng", codec = "aac", channels = 2, title = "Main", isDefault = true),
+            AudioTrack(language = "eng", codec = "aac", channels = 2, title = "Director Commentary"),
+        )
+
+        val main = TvPlaybackFormatting.audioChoiceLabelForOrdinal(tracks, 0)
+        val commentary = TvPlaybackFormatting.audioChoiceLabelForOrdinal(tracks, 1)
+
+        assertTrue(main != commentary, "identical summaries must stay distinguishable: $main / $commentary")
+        assertTrue(commentary!!.contains("Director Commentary"), "got $commentary")
+        assertTrue(main!!.contains("Default"), "got $main")
+        assertEquals(null, TvPlaybackFormatting.audioChoiceLabelForOrdinal(tracks, 2))
+    }
+
     // --- versionPickerLabels ---
 
     @Test fun versionPickerLabels_leaveDistinctLabelsAlone() {

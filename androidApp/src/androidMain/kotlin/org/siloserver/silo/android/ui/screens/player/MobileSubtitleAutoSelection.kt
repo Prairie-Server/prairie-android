@@ -229,9 +229,10 @@ internal fun resolveMobileAutoSubtitleSelection(
         return MobileSubtitleAutoSelection.NoChange
     }
 
-    val selectedAudioLanguage = audioTracks
-        .firstOrNull { it.index == selectedAudioIndex }
-        ?: audioTracks.getOrNull(selectedAudioIndex)
+    // An ORDINAL into audioTracks: audio carries no index on the wire, so the
+    // index search that used to come first matched nothing above row zero and
+    // only worked because of the ordinal fallback behind it.
+    val selectedAudioLanguage = audioTracks.getOrNull(selectedAudioIndex)
     val selectedAudioMatches = canonicalSubtitleLanguage(selectedAudioLanguage?.language) == targetLanguage
 
     if (mode == "auto" && selectedAudioMatches) {

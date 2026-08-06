@@ -29,6 +29,7 @@ fun tvPlayDestinationFor(
     fileId: Int?,
     resumePositionSeconds: Double?,
     audioTrackIndex: Int? = null,
+    audioPickedThisSession: Boolean = false,
     subtitleTrackIndex: Int? = null,
     quality: String? = null,
 ): String =
@@ -46,6 +47,7 @@ fun tvPlayDestinationFor(
             quality = quality,
             resumePositionSeconds = resumePositionSeconds,
             audioTrackIndex = audioTrackIndex,
+            audioPickedThisSession = audioPickedThisSession,
             subtitleTrackIndex = subtitleTrackIndex,
         ).route
     }

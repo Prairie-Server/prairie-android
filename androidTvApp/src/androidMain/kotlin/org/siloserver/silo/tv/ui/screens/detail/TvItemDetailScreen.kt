@@ -136,7 +136,7 @@ import org.koin.core.parameter.parametersOf
 fun TvItemDetailScreen(
     contentId: String,
     seasonNumber: Int? = null,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onItemDetailReplace: (contentId: String) -> Unit = onItemDetail,
     onSeriesClick: (seriesId: String) -> Unit,
@@ -210,7 +210,7 @@ private fun TvDetailContent(
     detail: ItemDetail,
     state: TvItemDetailUiState,
     viewModel: TvItemDetailViewModel,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onItemDetailReplace: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
@@ -489,6 +489,7 @@ private fun TvDetailContent(
                                         detail.contentId,
                                         null,
                                         state.selectedAudioIndex,
+                                        state.audioPickedThisSession,
                                         state.selectedSubtitleIndex,
                                         detail.type,
                                         track.startOffsetSeconds,
@@ -715,6 +716,7 @@ private fun TvDetailContent(
                                 detail.contentId,
                                 null,
                                 state.selectedAudioIndex,
+                                state.audioPickedThisSession,
                                 state.selectedSubtitleIndex,
                                 detail.type,
                                 chapter.startSeconds,
@@ -736,7 +738,7 @@ private fun HeroActionRow(
     viewModel: TvItemDetailViewModel,
     playFocus: FocusRequester,
     selectorFocus: FocusRequester,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchTogether: (RoomSnapshot) -> Unit,
@@ -812,6 +814,10 @@ private fun HeroActionRow(
         // version, keeping Play and the UI in agreement.
         ?.takeIf { fileId -> selectorVersions.any { it.fileId == fileId } }
     val selectorAudioIndex = if (isSeriesOrSeason) state.selectedNextUpAudioIndex else state.selectedAudioIndex
+    // Provenance has to follow the same branch as the ordinal: a fresh next-up
+    // pick was otherwise reported using the unrelated container-level flag.
+    val selectorAudioPicked =
+        if (isSeriesOrSeason) state.nextUpAudioPickedThisSession else state.audioPickedThisSession
     val selectorSubtitleIndex =
         if (isSeriesOrSeason) state.selectedNextUpSubtitleIndex else state.selectedSubtitleIndex
     val selectorLastFileId = if (isSeriesOrSeason) {
@@ -887,7 +893,7 @@ private fun HeroActionRow(
                         playLaunchPending = true
                         onPlay(
                             playContentId, playFileId,
-                            selectorAudioIndex, selectorSubtitleIndex,
+                            selectorAudioIndex, selectorAudioPicked, selectorSubtitleIndex,
                             playType, resumePosition,
                         )
                     }
@@ -906,7 +912,7 @@ private fun HeroActionRow(
                             playLaunchPending = true
                             onPlay(
                                 playContentId, playFileId,
-                                selectorAudioIndex, selectorSubtitleIndex,
+                                selectorAudioIndex, selectorAudioPicked, selectorSubtitleIndex,
                                 playType, 0.0,
                             )
                         }

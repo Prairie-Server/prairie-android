@@ -642,7 +642,7 @@ fun TvAppNavigation(
                 // actually binds to that version instead of always defaulting
                 // to the server's first listed file (which for multi-version
                 // titles is often the lower-resolution encode).
-                onPlay = { playContentId, fileId, audioTrackIndex, subtitleTrackIndex, itemType, resumePositionSeconds ->
+                onPlay = { playContentId, fileId, audioTrackIndex, audioPicked, subtitleTrackIndex, itemType, resumePositionSeconds ->
                     navController.navigate(
                         tvPlayDestinationFor(
                             itemType = itemType,
@@ -650,6 +650,7 @@ fun TvAppNavigation(
                             fileId = fileId,
                             resumePositionSeconds = resumePositionSeconds,
                             audioTrackIndex = audioTrackIndex,
+                            audioPickedThisSession = audioPicked,
                             subtitleTrackIndex = subtitleTrackIndex,
                         ),
                     ) {
@@ -776,6 +777,14 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                // Declared rather than left to inference so a restored back
+                // stack has a defined value: it decides whether the choice
+                // carries to the next episode.
+                navArgument(TvRoute.Player.ARG_AUDIO_PICKED) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(TvRoute.Player.ARG_SUBTITLE_TRACK_INDEX) {
                     type = NavType.StringType
                     nullable = true
@@ -811,6 +820,8 @@ fun TvAppNavigation(
             val audioTrackIndex = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_AUDIO_TRACK_INDEX)
                 ?.toIntOrNull()
+            val audioPickedThisSession = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_AUDIO_PICKED) == "true"
             val subtitleTrackIndex = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_SUBTITLE_TRACK_INDEX)
                 ?.toIntOrNull()
@@ -840,6 +851,7 @@ fun TvAppNavigation(
                 roomId = roomId,
                 resumePositionOverride = resumePositionOverride,
                 initialAudioTrackIndex = audioTrackIndex,
+                initialAudioPickedThisSession = audioPickedThisSession,
                 initialSubtitleTrackIndex = subtitleTrackIndex,
                 autoAdvanceCount = autoAdvanceCount,
                 episodeSelectionHandoff = episodeSelectionHandoff,

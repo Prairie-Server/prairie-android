@@ -268,6 +268,64 @@ object TvPlaybackFormatting {
 
     /** Pill-value summary. Mirrors tvOS `audioSummary`:
      *  "English · EAC3 · 5.1". */
+    /**
+     * Source-identity summary for the audio the playback plan selected, keyed
+     * by ORDINAL into `audio_tracks` — the server's contract for audio.
+     *
+     * Deliberately NOT keyed on [AudioTrack.index]: the server sends no index
+     * for audio tracks (subtitles do get one), so that field is `0` for every
+     * row and cannot identify anything.
+     *
+     * The player HUD used to label this row from the mounted Media3 track,
+     * which describes what was *delivered*: a DTS 5.1 source transcoded to
+     * stereo AAC rendered as "UND AAC Stereo" while every other surface
+     * correctly said "English · DTS · 5.1".
+     */
+    fun audioSummaryForOrdinal(
+        version: FileVersion?,
+        ordinal: Int?,
+        tracks: List<AudioTrack>? = null,
+    ): String? {
+        if (ordinal == null) return null
+        val rows = tracks?.takeIf { it.isNotEmpty() } ?: version?.audioTracks ?: return null
+        val track = rows.getOrNull(ordinal) ?: return null
+        return audioSummary(track, ordinal)
+    }
+
+    /**
+     * Picker-row label. Keeps a meaningful title and the Default marker, which
+     * [audioSummaryForOrdinal] drops: two English AAC stereo tracks named "Main"
+     * and "Director Commentary" summarise identically, and the title is often
+     * the only thing that separates them.
+     */
+    fun audioChoiceLabelForOrdinal(tracks: List<AudioTrack>, ordinal: Int): String? {
+        val track = tracks.getOrNull(ordinal) ?: return null
+        val summary = audioSummary(track, ordinal)
+        // Keyed off the RENDERED summary, not audioTitle: an untitled-language
+        // track falls back to its title for audioTitle, which then rejected the
+        // qualifier and dropped the only thing naming it ("Director Commentary"
+        // with no language rendered as bare "AAC · Stereo").
+        val qualifier = usefulAudioTitle(track.title)?.takeIf { !summary.contains(it) }
+        return buildString {
+            append(summary)
+            if (qualifier != null) append(" · ").append(qualifier)
+            if (track.isDefault) append(" · Default")
+        }
+    }
+
+    /**
+     * The catalog ordinal playback will actually use: the plan's selection when
+     * it is in range, else the server's effective ordinal, else the default
+     * flag, else the first row. Without this the HUD shows nothing checked
+     * whenever the plan carries no audio index.
+     */
+    fun effectiveAudioOrdinal(tracks: List<AudioTrack>, planOrdinal: Int?, version: FileVersion? = null): Int? {
+        if (tracks.isEmpty()) return null
+        planOrdinal?.takeIf { it in tracks.indices }?.let { return it }
+        version?.effectiveAudioTrackIndex?.takeIf { it in tracks.indices }?.let { return it }
+        return tracks.indexOfFirst { it.isDefault }.takeIf { it >= 0 } ?: 0
+    }
+
     private fun audioSummary(track: AudioTrack, ordinal: Int): String {
         val tokens = listOfNotNull(
             languageDisplayName(track.language),

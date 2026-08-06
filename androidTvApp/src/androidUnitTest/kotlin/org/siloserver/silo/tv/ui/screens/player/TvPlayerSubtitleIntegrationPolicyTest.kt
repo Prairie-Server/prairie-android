@@ -22,15 +22,19 @@ class TvPlayerSubtitleIntegrationPolicyTest {
 
     @Test
     fun `resolved audio during subtitle persistence writes the exact fingerprint`() {
-        val selected = AudioTrack(index = 7, language = "ja", codec = "ac3")
+        // The committed value is an ORDINAL. Resolving it against
+        // AudioTrack.index matched nothing above 0, so the chosen track was
+        // silently never persisted and reopening the item lost it.
+        val english = AudioTrack(language = "en", codec = "aac")
+        val japanese = AudioTrack(language = "ja", codec = "ac3")
 
         val update = tvAudioTrackPersistenceUpdate(
-            committedAudioTrackIndex = 7,
-            audioTracks = listOf(selected),
+            committedAudioTrackIndex = 1,
+            audioTracks = listOf(english, japanese),
         )
 
         assertEquals(
-            TrackSelectionFingerprintUpdate.Set(audioTrackFingerprint(selected)),
+            TrackSelectionFingerprintUpdate.Set(audioTrackFingerprint(japanese)),
             update,
         )
     }
@@ -172,16 +176,18 @@ class TvPlayerSubtitleIntegrationPolicyTest {
     }
 
     @Test
-    fun `T92 remote audio intent resolves the stable server index for the adapter`() {
-        val identity = resolveTvRemoteAudioIntent(
-            playerOrdinal = 1,
-            audioTracks = listOf(
-                AudioTrack(index = 3, language = "en", codec = "aac"),
-                AudioTrack(index = 9, language = "ja", codec = "ac3"),
-            ),
+    fun `T92 remote audio intent resolves the catalog ordinal for the adapter`() {
+        // Audio is addressed by ORDINAL — the wire carries no audio index, so
+        // AudioTrack.index is its 0 default and reading it made every remote
+        // pick request track 0.
+        val audioTracks = listOf(
+            AudioTrack(language = "en", codec = "aac"),
+            AudioTrack(language = "ja", codec = "ac3"),
         )
 
-        assertEquals(9, identity)
+        assertEquals(1, resolveTvRemoteAudioIntent(playerOrdinal = 1, audioTracks = audioTracks))
+        assertEquals(0, resolveTvRemoteAudioIntent(playerOrdinal = 0, audioTracks = audioTracks))
+        assertEquals(null, resolveTvRemoteAudioIntent(playerOrdinal = 5, audioTracks = audioTracks))
     }
 
     @Test

@@ -89,6 +89,13 @@ sealed class TvRoute(val route: String) {
         val resumePositionSeconds: Double? = null,
         /** Pre-selected audio track index (0-based) chosen on the detail screen. */
         val audioTrackIndex: Int? = null,
+        /**
+         * True when [audioTrackIndex] is a pick the viewer made this session,
+         * false when it is a durable value seeded onto the detail screen. The
+         * ordinal alone cannot tell them apart, and the difference decides
+         * whether the choice carries to the next episode.
+         */
+        val audioPickedThisSession: Boolean = false,
         /** Pre-selected subtitle track index (0-based; -1 = Off). */
         val subtitleTrackIndex: Int? = null,
         /** Consecutive auto-advance count for pass-out protection (0 = manual start). */
@@ -105,6 +112,7 @@ sealed class TvRoute(val route: String) {
                 }
                 if (roomId != null) add("roomId=${roomId.routeEncode()}")
                 if (audioTrackIndex != null) add("audioTrackIndex=$audioTrackIndex")
+                if (audioPickedThisSession) add("audioPicked=true")
                 if (subtitleTrackIndex != null) add("subtitleTrackIndex=$subtitleTrackIndex")
                 if (autoAdvanceCount > 0) add("autoAdvanceCount=$autoAdvanceCount")
                 episodeSelectionHandoffNonce
@@ -119,7 +127,8 @@ sealed class TvRoute(val route: String) {
     ) {
         companion object {
             const val ROUTE = "player/{contentId}?fileId={fileId}&quality={quality}&roomId={roomId}" +
-                "&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}" +
+                "&audioTrackIndex={audioTrackIndex}&audioPicked={audioPicked}" +
+                "&subtitleTrackIndex={subtitleTrackIndex}" +
                 "&autoAdvanceCount={autoAdvanceCount}&resumePosition={resumePosition}" +
                 "&episodeSelectionHandoffNonce={episodeSelectionHandoffNonce}"
             const val ARG_CONTENT_ID = "contentId"
@@ -127,6 +136,7 @@ sealed class TvRoute(val route: String) {
             const val ARG_QUALITY = "quality"
             const val ARG_ROOM_ID = "roomId"
             const val ARG_AUDIO_TRACK_INDEX = "audioTrackIndex"
+            const val ARG_AUDIO_PICKED = "audioPicked"
             const val ARG_SUBTITLE_TRACK_INDEX = "subtitleTrackIndex"
             const val ARG_AUTO_ADVANCE_COUNT = "autoAdvanceCount"
             const val ARG_RESUME_POSITION = VideoPlayerRouteArgs.RESUME_POSITION

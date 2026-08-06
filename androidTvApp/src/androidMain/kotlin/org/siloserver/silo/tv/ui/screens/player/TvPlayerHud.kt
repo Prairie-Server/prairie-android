@@ -158,6 +158,8 @@ internal fun TvPlayerHud(
     subtitlePresentation: TvSubtitleHudPresentation,
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
+    desiredAudioOrdinal: Int? = null,
+    desiredAudioConfirmed: Boolean = false,
     videoFillMode: VideoFillMode,
     onSelectAudio: (Int) -> Unit,
     onSelectVideoQuality: (String) -> Unit,
@@ -384,6 +386,19 @@ internal fun TvPlayerHud(
                     )
                     HudTab.Audio -> HudAudioPane(
                         audioTracks = audioTracks,
+                        // The catalog decides WHICH tracks exist. Media3 only
+                        // shows what this stream delivered, which a transcode
+                        // collapses to one -- that disabled the row outright and
+                        // made audio unswitchable for the whole session.
+                        activeVersion = fileVersions.firstOrNull { it.fileId == selectedFileId }
+                            ?: fileVersions.firstOrNull(),
+                        // A locally-confirmed choice is the viewer's answer;
+                        // the plan only names what the server last delivered.
+                        planAudioOrdinal = desiredAudioOrdinal
+                            ?: playbackPlan?.selectedTracks?.audioIndex,
+                        // Only an unconfirmed intent renders as pending.
+                        pendingLocalAudioOrdinal = desiredAudioOrdinal
+                            ?.takeUnless { desiredAudioConfirmed },
                         onSelectAudio = onSelectAudio,
                         audioDelayMs = audioDelayMs,
                         audioDelayEnabled = audioDelayEnabled,
@@ -1159,6 +1174,9 @@ private fun HudClickChip(
 @Composable
 private fun HudAudioPane(
     audioTracks: List<PlayerTrackEntry>,
+    activeVersion: org.siloserver.silo.model.catalog.FileVersion?,
+    planAudioOrdinal: Int?,
+    pendingLocalAudioOrdinal: Int?,
     onSelectAudio: (Int) -> Unit,
     audioDelayMs: Int,
     audioDelayEnabled: Boolean,
@@ -1176,24 +1194,56 @@ private fun HudAudioPane(
         PaneColumn("Track") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val selectedTrack = audioTracks.firstOrNull { it.isSelected }
+                val catalogAudio = activeVersion?.audioTracks.orEmpty()
+                val formatting = org.siloserver.silo.tv.ui.screens.detail.TvPlaybackFormatting
+                val effectiveOrdinal = formatting.effectiveAudioOrdinal(
+                    tracks = catalogAudio,
+                    planOrdinal = planAudioOrdinal,
+                    version = activeVersion,
+                )
                 HudFocusedSettingRow(
                     label = "Audio track",
-                    // Built labels ("English DTS 5.1") — raw Media3 labels echo
-                    // server identity strings or bare ISO codes.
-                    value = selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
+                    // SOURCE identity, from the catalog row the plan selected.
+                    // The mounted Media3 track is the delivered representation,
+                    // so a transcode showed "UND AAC Stereo" for what every
+                    // other surface calls "English · DTS · 5.1". Media3 is only
+                    // the fallback when there is no catalog audio metadata.
+                    //
+                    // A request in flight shows the requested track as pending
+                    // rather than as fact: the row must not claim Dutch before
+                    // the player confirms it actually switched.
+                    value = pendingLocalAudioOrdinal
+                        ?.let { pending ->
+                            formatting.audioSummaryForOrdinal(
+                                version = activeVersion,
+                                ordinal = pending,
+                                tracks = catalogAudio,
+                            )?.let { "$it …" }
+                        }
+                        ?: formatting.audioSummaryForOrdinal(
+                            version = activeVersion,
+                            ordinal = effectiveOrdinal,
+                            tracks = catalogAudio,
+                        )
+                        ?: selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
                         ?: "Default",
-                    enabled = enabled && audioTracks.size > 1,
+                    // Gated on the CATALOG, not on what this stream delivered.
+                    enabled = enabled && catalogAudio.size > 1,
                     onActivate = {
                         onPresentPicker(
                             HudPickerPresentation(
                                 title = "Audio Track",
-                                options = audioTracks.mapIndexed { idx, track ->
+                                // Ids are catalog ordinals, the server's audio
+                                // contract, so an undelivered row stays
+                                // selectable and survives the round trip.
+                                options = catalogAudio.indices.map { ordinal ->
                                     HudPickerOption(
-                                        id = track.index.toString(),
-                                        label = audioChoiceLabel(track, idx),
+                                        id = ordinal.toString(),
+                                        label = formatting.audioChoiceLabelForOrdinal(catalogAudio, ordinal)
+                                            ?: "Track ${ordinal + 1}",
                                     )
                                 },
-                                selectedId = (selectedTrack?.index ?: 0).toString(),
+                                selectedId = effectiveOrdinal?.toString().orEmpty(),
                                 onSelect = { id -> id.toIntOrNull()?.let(onSelectAudio) },
                             ),
                         )
