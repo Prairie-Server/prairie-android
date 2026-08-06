@@ -61,7 +61,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -350,73 +349,33 @@ private fun TvDetailContent(
         // Counting frames for that was measuring the wrong thing entirely: a
         // ~120-frame budget is one or two seconds depending on refresh rate,
         // and a load finishing just past it silently became a hero fallback.
-        val resolved = withTimeoutOrNull(RESTORE_DATA_TIMEOUT_MS) {
-            snapshotFlow { pendingSimilarIndexNow.value }.first { it >= 0 }
-        }
-
-        var restored = false
-        if (resolved != null && stillOwned()) {
-            // Now the target exists, so scroll the row to it — a card outside
-            // the composed window leaves the requester unattached.
-            similarRestoreRequest += 1
-            // Only NOW are frames the right clock: this waits for composition
-            // and focus attachment. As in the cast branch the return value is
-            // not evidence, since requestFocus() can report success and then
-            // roll back across the row's enter redirect.
-            // ~80 frames (40 attempts, two waits each) AND a wall-clock cap.
-            // Frames are the right clock for composition and attachment, but
-            // they are not a duration: if frame production pauses or starves,
-            // eighty of them is unbounded real time and the viewer would be
-            // fighting a restore that never gives up. The frame count decides
-            // how many attempts are reasonable; the deadline decides how long
-            // the viewer can be made to wait for them.
-            var revoked = false
-            withTimeoutOrNull(RESTORE_ATTACH_TIMEOUT_MS) {
-                for (attempt in 0 until 40) {
-                    if (similarRestoreFocused.value) {
-                        restored = true
-                        break
-                    }
-                    // Re-checked every attempt, not just at the end: ownership
-                    // can be revoked mid-loop — by a newer request, or by the
-                    // viewer pressing a direction key — and continuing to
-                    // request focus after that is fighting them for it.
-                    if (!stillOwned()) {
-                        revoked = true
-                        break
-                    }
-                    runCatching { similarReturnFocus.requestFocus() }
-                    withFrameNanos { }
-                    withFrameNanos { }
-                }
-            }
-            // Revocation must abandon the whole restore, including the Play
-            // fallback below: the viewer has taken focus somewhere themselves.
-            if (revoked) return@LaunchedEffect
-            // As above: count a success that landed on the final attempt.
-            if (!restored) restored = similarRestoreFocused.value
-        }
-
-        if (!stillOwned()) return@LaunchedEffect
-        if (restored) {
+        val result = restoreMoreLikeThisFocus(
+            awaitTarget = {
+                snapshotFlow { pendingSimilarIndexNow.value }.first { it >= 0 }
+            },
+            stillOwned = ::stillOwned,
+            // Once the target exists, ask the row to scroll it into its composed
+            // window before focus requests begin.
+            onTargetResolved = { similarRestoreRequest += 1 },
+            isTargetFocused = { similarRestoreFocused.value },
+            // The return value is not evidence: the row's enter redirect can
+            // roll an accepted request back. Only its focus callback counts.
+            requestTargetFocus = { runCatching { similarReturnFocus.requestFocus() } },
+            awaitFocusAttempt = {
+                withFrameNanos { }
+                withFrameNanos { }
+            },
+            // Never turned up, or focus kept rolling back — leave the viewer
+            // somewhere usable. The policy holds ownership across this
+            // suspension and re-checks it before requesting Play focus.
+            scrollToFallback = { listState.scrollToItem(0) },
+            requestFallbackFocus = { runCatching { playFocus.requestFocus() } },
+            dataTimeoutMillis = RESTORE_DATA_TIMEOUT_MS,
+            attachmentTimeoutMillis = RESTORE_ATTACH_TIMEOUT_MS,
+        )
+        if (result != TvSimilarFocusRestoreResult.Revoked && stillOwned()) {
             pendingSimilarContentId = null
-            return@LaunchedEffect
         }
-        // Never turned up, or focus kept rolling back — leave the user somewhere
-        // usable rather than with nothing focused. Hold the token ACROSS the
-        // scroll: it suspends, and releasing ownership first meant this could
-        // move focus on behalf of a request that had already been superseded.
-        listState.scrollToItem(0)
-        if (!stillOwned()) return@LaunchedEffect
-        // scrollToItem suspends, and the target can gain focus while it does.
-        // Checking only ownership here would let Play steal a restore that had
-        // just succeeded.
-        if (similarRestoreFocused.value) {
-            pendingSimilarContentId = null
-            return@LaunchedEffect
-        }
-        runCatching { playFocus.requestFocus() }
-        pendingSimilarContentId = null
     }
 
     val isEpisodicType = detail.type in setOf("series", "season", "episode")

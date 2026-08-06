@@ -662,12 +662,13 @@ fun TvAppNavigation(
                     }
                 },
                 onItemDetail = { itemContentId ->
-                    // launchSingleTop suppresses the exact double-tap dupe; a
-                    // distinct related item (always a different contentId) still
-                    // pushes normally.
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
-                        launchSingleTop = true
-                    }
+                    // Do not use launchSingleTop here. AndroidX matches the
+                    // ItemDetail destination node, not its contentId argument,
+                    // so A -> related B would reuse A's entry and leave no A
+                    // for Back to reveal. The broader exact-repeat helper lives
+                    // on #175; this branch only needs distinct related details
+                    // to push so its return restoration is actually reachable.
+                    navController.navigate(TvRoute.ItemDetail(itemContentId).route)
                 },
                 // Season switching replaces the current detail entry so paging
                 // through seasons never stacks pages — one Back returns to the

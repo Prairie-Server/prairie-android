@@ -533,12 +533,6 @@ private suspend fun awaitFlatPageSettled(
 }
 
 /**
- * [TvReturnTargetSaver], partitioned by the surface that saved it.
- *
- * A target restored under a different key is discarded rather than adopted:
- * it describes somewhere the viewer was in another list entirely.
- */
-/**
  * Saves [value] alongside the surface that owns it, and refuses a restored
  * payload belonging to a different one.
  *
@@ -581,9 +575,8 @@ internal fun keyedTvReturnTargetSaver(resetToken: String): Saver<TvReturnTarget?
             } ?: listOf(resetToken)
         },
         restore = { saved ->
-            @Suppress("UNCHECKED_CAST")
             val values = saved as? List<*>
-            if (values == null || values.size < 5 || values[0] != resetToken) {
+            if (values == null || values.size != 5 || values[0] != resetToken) {
                 null
             } else {
                 // Safe casts throughout: a right-owner, wrong-shape payload
