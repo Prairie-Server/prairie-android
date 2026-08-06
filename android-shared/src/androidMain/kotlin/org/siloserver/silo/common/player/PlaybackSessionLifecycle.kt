@@ -101,6 +101,15 @@ class PlaybackSessionLifecycle(
 
     private data class ActiveSessionSnapshot(
         val state: SessionState,
+        /**
+         * The ownership token as it stood, captured rather than derived.
+         *
+         * [SessionState] carries a session id only while Active, but
+         * Reconnecting and Failed deliberately keep owning theirs — so
+         * reconstructing the token from the restored state alone erases
+         * ownership exactly for the states that exist to survive an outage.
+         */
+        val lastAdoptedSessionId: String?,
         val notice: PlayerNotice?,
         val lastStartParams: StartParams?,
         val lastReportedPosition: Double?,
@@ -366,6 +375,7 @@ class PlaybackSessionLifecycle(
     private fun captureActiveSessionSnapshot(): ActiveSessionSnapshot =
         ActiveSessionSnapshot(
             state = _state.value,
+            lastAdoptedSessionId = lastAdoptedSessionId,
             notice = _notice.value,
             lastStartParams = lastStartParams,
             lastReportedPosition = lastReportedPosition,
@@ -393,14 +403,15 @@ class PlaybackSessionLifecycle(
         renewMissingSessionWithLegacyStart = snapshot.renewMissingSessionWithLegacyStart
         diagnosticsRecording = snapshot.diagnosticsRecording
         _notice.value = snapshot.notice
-        // A rollback to the predecessor hands ownership back to that session —
-        // and a rollback to a snapshot that owned nothing has to CLEAR the
-        // token, not leave it. Assigning only in the Active case meant rolling
-        // back a first deferred adoption (predecessor Idle/Loading) left this
-        // naming the discarded replacement, so the ownership guard would then
-        // authorise a stop for a session no longer owned and refuse the one
-        // that is.
-        lastAdoptedSessionId = (snapshot.state as? SessionState.Active)?.session?.sessionId
+        // Restore the token the snapshot captured, rather than deriving it from
+        // the restored state. Deriving gets both ends wrong: reading it only
+        // from Active leaves a rolled-back first deferred adoption naming the
+        // discarded replacement, while clearing everything that is not Active
+        // erases ownership for Reconnecting and Failed — which hold a session
+        // precisely so an outage does not lose it. A predecessor restored as
+        // Reconnecting would then have no id for stop() to name, and its
+        // transcode would run until the server expired it.
+        lastAdoptedSessionId = snapshot.lastAdoptedSessionId
         _state.value = snapshot.state
         if (
             restartReporter &&

@@ -198,9 +198,11 @@ open class PlaybackSessionManager(
      * paths, counted rather than flagged.
      *
      * Two callers can legitimately be releasing the same id — a queued release
-     * and an orphan drain that selected it before the queue existed — and a
-     * plain set would let the first to finish clear the marker while the second
-     * is still running, re-opening the double-stop it exists to prevent.
+     * and an orphan drain that selected it before the queue existed. The count
+     * keeps the marker honest for that overlap, so the first to finish cannot
+     * clear protection while the second is still running. It does NOT prevent
+     * the duplicate request itself: the second stop still goes out, which is
+     * tolerable only because stopping an already-stopped session is harmless.
      *
      * Not a register of every stop in the manager: committed-session cleanup and
      * the direct retaining-stop helpers issue their own unmarked stops, so this
@@ -1362,7 +1364,15 @@ open class PlaybackSessionManager(
                 // Including the cancellation return above: a marker left behind
                 // would hide this session from every future drain.
                 withContext(NonCancellable) {
-                    videoAttemptMutex.withLock { clearReleaseInFlightLocked(sessionId) }
+                    videoAttemptMutex.withLock {
+                        clearReleaseInFlightLocked(sessionId)
+                        // Re-trim here too. Trimming skips in-flight ids, so
+                        // whichever release path clears the last marker has to
+                        // re-apply the cap — otherwise a burst drained from here
+                        // leaves the ledger over its bound until some unrelated
+                        // future orphan happens to trigger a trim.
+                        trimOrphanedSessionsLocked()
+                    }
                 }
             }
         }
@@ -1440,12 +1450,9 @@ open class PlaybackSessionManager(
      * registered on the same path because it costs nothing.
      */
     private fun stopRetainingFailureLocked(sessionId: String) {
-        // Registration is the part that must happen here, synchronously, under
-        // the caller's lock — it is what makes the id survivable.
-        rememberOrphanedSessionLocked(sessionId)
-        // The stop itself is queued rather than issued. Requests time out at
-        // 60s, and awaiting one while holding videoAttemptMutex would serialise
-        // every start, replan, content reset and staged commit behind a dying
+        // The stop is queued rather than issued. Requests time out at 60s, and
+        // awaiting one while holding videoAttemptMutex would serialise every
+        // start, replan, content reset and staged commit behind a dying
         // session's teardown. [drainPendingOwnershipReleases] runs it once the
         // lock is released, still awaited by the caller that queued it.
         //
@@ -1454,7 +1461,15 @@ open class PlaybackSessionManager(
         // work: the queuing caller then returns before its own stop ran, while
         // an unrelated caller — which queued nothing — blocks for a full network
         // timeout on someone else's teardown.
+        //
+        // Queued BEFORE registering, because rememberOrphanedSessionLocked
+        // trims and trimming protects only ids already queued or in flight —
+        // so with a full ledger of protected entries this session could be the
+        // one evictable entry and get dropped before its stop had even started.
         pendingOwnershipReleases += currentReleaseClaim to sessionId
+        // Registration is what makes the id survivable: if the queued stop
+        // fails, this is the record the next content reset retries from.
+        rememberOrphanedSessionLocked(sessionId)
     }
 
     /**
