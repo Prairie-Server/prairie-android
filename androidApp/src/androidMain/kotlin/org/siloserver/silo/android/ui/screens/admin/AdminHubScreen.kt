@@ -119,7 +119,7 @@ private fun HubRow(
 }
 
 @Composable
-private fun NotAuthorized(modifier: Modifier = Modifier) {
+internal fun NotAuthorized(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
             "You are not authorized to view this page.",

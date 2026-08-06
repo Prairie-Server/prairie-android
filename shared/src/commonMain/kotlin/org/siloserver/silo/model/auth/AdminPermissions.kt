@@ -10,10 +10,22 @@ const val ADMIN_ROLE = "admin"
  * `isActingAdmin(user, profile)`): the account role must be admin AND the
  * active household profile must be the primary (owner) profile.
  *
- * A null [profile] is treated as "not yet resolved" and does NOT block an
- * admin user — the active profile may not be loaded when the gate is first
- * evaluated, and every admin route is still gated server-side (defense in
- * depth). A null [user] is never acting-admin.
+ * Fails CLOSED on an unresolved profile. A null [profile] used to be read as
+ * "not yet loaded" and granted admin to an admin account, on the reasoning that
+ * the surface is gated server-side anyway. But the account role is the same on
+ * every profile in the household, so the profile is the ONLY thing separating
+ * the owner from a child profile — and every path that could not resolve it
+ * showed the admin surface on profiles that must never see it. A settings load
+ * that merely failed was enough.
+ *
+ * Withholding it is recoverable in a way showing it wrongly is not — but only
+ * because the call sites retry a profile that has not resolved. They are NOT
+ * reactive: nothing here observes the profile, so a caller that evaluates this
+ * once and never asks again will hold a false answer for its own lifetime. Any
+ * new call site has to retry or observe, or it will hide the surface from a
+ * genuine owner.
+ *
+ * A null [user] is never acting-admin.
  */
 fun isActingAdmin(user: User?, profile: Profile?): Boolean =
-    user?.role == ADMIN_ROLE && (profile == null || profile.isPrimary)
+    user?.role == ADMIN_ROLE && profile?.isPrimary == true

@@ -17,6 +17,7 @@ import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.NotificationsRepository
 import org.siloserver.silo.repository.ProfileRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -155,7 +156,21 @@ class SettingsViewModel(
             // The profile still supplies identity (name, role) for the admin
             // gate; its preference columns no longer feed this screen — those
             // are resolved canonically below.
-            when (val profileResult = profileRepository.getActiveProfileResult()) {
+            // Bounded retry, in the ViewModel rather than the screen. The admin
+            // gate fails closed on an unresolved profile, so a transient
+            // failure would otherwise hide the Admin row from a genuine owner
+            // for the life of this ViewModel. Bounded because the far more
+            // common reason for "no admin row" is simply not being an admin,
+            // and an unbounded retry would hammer the API for every ordinary
+            // user forever.
+            var profileResult = profileRepository.getActiveProfileResult()
+            var attempt = 1
+            while (profileResult !is ApiResult.Success && attempt < PROFILE_RESOLVE_ATTEMPTS) {
+                delay(PROFILE_RESOLVE_RETRY_MS)
+                profileResult = profileRepository.getActiveProfileResult()
+                attempt += 1
+            }
+            when (profileResult) {
                 is ApiResult.Success -> {
                     val profile = profileResult.data
                     _uiState.update {
@@ -165,8 +180,13 @@ class SettingsViewModel(
                     }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> {
-                    // Active profile unresolved — fall back to the user role
-                    // only (a null profile does not block an admin per the gate).
+                    // Retries exhausted: the profile is unresolved, so the
+                    // admin surface stays hidden. The account role is the same
+                    // on every profile in the household, and without the
+                    // profile there is nothing to tell the owner from a child.
+                    // This branch is why the bug was reachable — a settings
+                    // load that merely failed used to reveal Admin on any
+                    // profile. It reappears next time Settings is opened.
                     _uiState.update {
                         it.copy(isAdminVisible = shouldShowClientAdminSurface(isActingAdmin(it.user, null)))
                     }
@@ -611,3 +631,12 @@ class SettingsViewModel(
     private fun downloadQualityWireValue(value: String): String =
         DownloadQuality.entries.firstOrNull { it.label == value }?.wire ?: DownloadQuality.Original.wire
 }
+
+/**
+ * How many times the profile lookup is retried before the admin gate settles.
+ *
+ * Small on purpose. The overwhelmingly common reason for no admin row is not
+ * being an admin, so this must not become a retry loop for every ordinary user.
+ */
+private const val PROFILE_RESOLVE_ATTEMPTS = 3
+private const val PROFILE_RESOLVE_RETRY_MS = 400L

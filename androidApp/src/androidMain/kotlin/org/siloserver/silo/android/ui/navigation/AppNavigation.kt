@@ -1066,9 +1066,14 @@ fun AppNavigation(
             )
         }
         composable(Route.Admin.route) {
-            org.siloserver.silo.android.ui.screens.admin.AdminStatsScreen(
-                onBackClick = { navController.popBackStack() },
-            )
+            // Gated at the destination as well as the entry: the route stays
+            // registered, so restored navigation reaches it directly and the
+            // stats screen calls the admin API the moment it composes.
+            org.siloserver.silo.android.ui.screens.admin.AdminRouteGate {
+                org.siloserver.silo.android.ui.screens.admin.AdminStatsScreen(
+                    onBackClick = { navController.popBackStack() },
+                )
+            }
         }
         composable(Route.Watchlist.route) {
             WatchlistScreen(
