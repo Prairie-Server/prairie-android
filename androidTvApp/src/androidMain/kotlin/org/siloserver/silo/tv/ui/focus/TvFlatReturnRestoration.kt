@@ -538,6 +538,26 @@ private suspend fun awaitFlatPageSettled(
  * A target restored under a different key is discarded rather than adopted:
  * it describes somewhere the viewer was in another list entirely.
  */
+/**
+ * Saves [value] alongside the surface that owns it, and refuses a restored
+ * payload belonging to a different one.
+ *
+ * `rememberSaveable(key)` resets when a running composition observes a changed
+ * input, but it does NOT validate a value RESTORED after process death against
+ * that input — so a process coming back on a different surface first would
+ * adopt the previous surface's state as its own. Same reasoning as
+ * [keyedTvReturnTargetSaver]; this is the scalar case.
+ */
+internal fun <T : Any> keyedValueSaver(resetToken: String, default: T): Saver<T, Any> =
+    listSaver(
+        save = { value -> listOf(resetToken, value) },
+        restore = { saved ->
+            @Suppress("UNCHECKED_CAST")
+            val values = saved as List<Any>
+            if (values.size < 2 || values[0] != resetToken) default else values[1] as T
+        },
+    )
+
 internal fun keyedTvReturnTargetSaver(resetToken: String): Saver<TvReturnTarget?, Any> =
     listSaver(
         save = { target ->

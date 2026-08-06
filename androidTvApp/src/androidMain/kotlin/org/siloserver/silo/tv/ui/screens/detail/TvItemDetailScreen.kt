@@ -363,21 +363,36 @@ private fun TvDetailContent(
             // and focus attachment. As in the cast branch the return value is
             // not evidence, since requestFocus() can report success and then
             // roll back across the row's enter redirect.
-            // ~80 frames (40 attempts, two waits each).
-            for (attempt in 0 until 40) {
-                if (similarRestoreFocused.value) {
-                    restored = true
-                    break
+            // ~80 frames (40 attempts, two waits each) AND a wall-clock cap.
+            // Frames are the right clock for composition and attachment, but
+            // they are not a duration: if frame production pauses or starves,
+            // eighty of them is unbounded real time and the viewer would be
+            // fighting a restore that never gives up. The frame count decides
+            // how many attempts are reasonable; the deadline decides how long
+            // the viewer can be made to wait for them.
+            var revoked = false
+            withTimeoutOrNull(RESTORE_ATTACH_TIMEOUT_MS) {
+                for (attempt in 0 until 40) {
+                    if (similarRestoreFocused.value) {
+                        restored = true
+                        break
+                    }
+                    // Re-checked every attempt, not just at the end: ownership
+                    // can be revoked mid-loop — by a newer request, or by the
+                    // viewer pressing a direction key — and continuing to
+                    // request focus after that is fighting them for it.
+                    if (!stillOwned()) {
+                        revoked = true
+                        break
+                    }
+                    runCatching { similarReturnFocus.requestFocus() }
+                    withFrameNanos { }
+                    withFrameNanos { }
                 }
-                // Re-checked every attempt, not just at the end: ownership can
-                // be revoked mid-loop — by a newer request, or by the viewer
-                // pressing a direction key — and continuing to request focus
-                // after that is fighting them for it.
-                if (!stillOwned()) return@LaunchedEffect
-                runCatching { similarReturnFocus.requestFocus() }
-                withFrameNanos { }
-                withFrameNanos { }
             }
+            // Revocation must abandon the whole restore, including the Play
+            // fallback below: the viewer has taken focus somewhere themselves.
+            if (revoked) return@LaunchedEffect
             // As above: count a success that landed on the final attempt.
             if (!restored) restored = similarRestoreFocused.value
         }
@@ -1979,6 +1994,16 @@ private suspend fun LazyListState.animateScrollToItemPaced(index: Int) {
  * further ~80 frames, so the whole restore can outlast this value.
  */
 private const val RESTORE_DATA_TIMEOUT_MS = 1_500L
+
+/**
+ * Wall-clock ceiling on the focus-attachment retries.
+ *
+ * The retry budget is a frame count because attachment is a composition
+ * concern, but a frame count is not a duration — at 24Hz eighty frames is over
+ * three seconds, and with frame production paused it is unbounded. This caps
+ * how long the viewer can be fighting a restore for.
+ */
+private const val RESTORE_ATTACH_TIMEOUT_MS = 2_000L
 
 /** Direction keys that count as the viewer steering for themselves. */
 private val tvDirectionalKeys = setOf(
