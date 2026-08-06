@@ -525,15 +525,19 @@ fun TvMainShell(
         // an admin" when laura is a household profile on an admin account.
         // That is the caption a viewer actually sees and the reason this was
         // reported. Show the role only where it is exercisable, which is the
-        // primary profile; anyone else gets the account username, which is
-        // true of them without implying powers they do not have.
+        // primary profile. A non-owner profile gets NOTHING here — falling back
+        // to the account username just captions laura's profile with the
+        // owner's name, which conflates the two all over again. Profile name
+        // and server is all a household profile needs to see.
         //
         // Cosmetic in the sense that no permission hangs on it — the surface
         // gate is isActingAdmin below — but it is the part that misleads.
-        val roleLabel = user?.role?.takeIf { it.isNotBlank() }
-            ?.takeIf { activeProfile?.isPrimary == true }
-            ?.replaceFirstChar { it.uppercase() }
-        val subtitle = roleLabel ?: user?.username.orEmpty()
+        val subtitle = if (activeProfile?.isPrimary == true) {
+            user?.role?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
+                ?: user?.username.orEmpty()
+        } else {
+            ""
+        }
         val avatarUrl = activeProfile?.avatar
             ?.takeIf(::isImageAvatar)
             ?.let { resolveAvatarUrl(activeServerEntry?.url.orEmpty(), it) }
