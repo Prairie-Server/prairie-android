@@ -548,13 +548,28 @@ private suspend fun awaitFlatPageSettled(
  * adopt the previous surface's state as its own. Same reasoning as
  * [keyedTvReturnTargetSaver]; this is the scalar case.
  */
-internal fun <T : Any> keyedValueSaver(resetToken: String, default: T): Saver<T, Any> =
+internal fun keyedBooleanSaver(resetToken: String, slot: String): Saver<Boolean, Any> =
     listSaver(
-        save = { value -> listOf(resetToken, value) },
+        save = { value -> listOf(resetToken, slot, value) },
         restore = { saved ->
-            @Suppress("UNCHECKED_CAST")
-            val values = saved as List<Any>
-            if (values.size < 2 || values[0] != resetToken) default else values[1] as T
+            val values = saved as? List<*> ?: return@listSaver false
+            val owned = values.size == 3 && values[0] == resetToken && values[1] == slot
+            // Typed, not cast. An erased `as T` validates against Any, so a
+            // payload with the right owner and the wrong type passes here and
+            // fails later where Compose reads it — a crash during restoration
+            // rather than a value we can reject. The slot name is carried too:
+            // the owner token alone cannot tell one scalar slot from another.
+            if (owned) values[2] as? Boolean ?: false else false
+        },
+    )
+
+internal fun keyedIntSaver(resetToken: String, slot: String): Saver<Int, Any> =
+    listSaver(
+        save = { value -> listOf(resetToken, slot, value) },
+        restore = { saved ->
+            val values = saved as? List<*> ?: return@listSaver 0
+            val owned = values.size == 3 && values[0] == resetToken && values[1] == slot
+            if (owned) values[2] as? Int ?: 0 else 0
         },
     )
 
@@ -567,16 +582,29 @@ internal fun keyedTvReturnTargetSaver(resetToken: String): Saver<TvReturnTarget?
         },
         restore = { saved ->
             @Suppress("UNCHECKED_CAST")
-            val values = saved as List<Any>
-            if (values.size < 5 || values[0] != resetToken) {
+            val values = saved as? List<*>
+            if (values == null || values.size < 5 || values[0] != resetToken) {
                 null
             } else {
-                TvReturnTarget(
-                    sectionId = values[1] as String,
-                    itemId = values[2] as String,
-                    sectionIndex = values[3] as Int,
-                    itemIndex = values[4] as Int,
-                )
+                // Safe casts throughout: a right-owner, wrong-shape payload
+                // should restore as "nothing to return to", not throw and take
+                // the screen down during restoration.
+                val sectionId = values[1] as? String
+                val itemId = values[2] as? String
+                val sectionIndex = values[3] as? Int
+                val itemIndex = values[4] as? Int
+                if (sectionId == null || itemId == null ||
+                    sectionIndex == null || itemIndex == null
+                ) {
+                    null
+                } else {
+                    TvReturnTarget(
+                        sectionId = sectionId,
+                        itemId = itemId,
+                        sectionIndex = sectionIndex,
+                        itemIndex = itemIndex,
+                    )
+                }
             }
         },
     )

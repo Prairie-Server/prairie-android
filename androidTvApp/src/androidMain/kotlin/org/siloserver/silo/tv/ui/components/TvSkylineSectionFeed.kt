@@ -50,7 +50,8 @@ import org.siloserver.silo.model.section.ResolvedSection
 import org.siloserver.silo.tv.ui.focus.TvReturnResolution
 import org.siloserver.silo.tv.ui.focus.TvReturnTarget
 import org.siloserver.silo.tv.ui.focus.keyedTvReturnTargetSaver
-import org.siloserver.silo.tv.ui.focus.keyedValueSaver
+import org.siloserver.silo.tv.ui.focus.keyedBooleanSaver
+import org.siloserver.silo.tv.ui.focus.keyedIntSaver
 import org.siloserver.silo.tv.ui.focus.resolveTvReturnTarget
 import org.siloserver.silo.tv.ui.focus.toTvReturnSections
 import org.siloserver.silo.model.section.SectionItem
@@ -194,7 +195,7 @@ fun TvSkylineSectionFeed(
     // attachments (and the row restorer's enter-fallback redirect they imply).
     var detailReturnPending by rememberSaveable(
         surfaceKey,
-        stateSaver = keyedValueSaver(surfaceKey, false),
+        stateSaver = keyedBooleanSaver(surfaceKey, slot = "detailReturnPending"),
     ) { mutableStateOf(false) }
     // True while a ladder is actively driving focus back to the launch card.
     //
@@ -216,7 +217,7 @@ fun TvSkylineSectionFeed(
     // only just started.
     var returnGeneration by rememberSaveable(
         surfaceKey,
-        stateSaver = keyedValueSaver(surfaceKey, 0),
+        stateSaver = keyedIntSaver(surfaceKey, slot = "returnGeneration"),
     ) { mutableIntStateOf(0) }
     // Bumped when a ladder starts, so the row scrolls its own LazyRow to the
     // resolved card. Without it the card can sit outside the composed
