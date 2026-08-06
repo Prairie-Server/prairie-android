@@ -14,7 +14,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.ui.focus.FocusRequester
+import org.siloserver.silo.tv.ui.focus.rememberTvFlatReturnRestoration
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -39,16 +41,32 @@ fun TvCollectionDetailScreen(
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val gridState = rememberLazyGridState()
 
     BackHandler(enabled = true) { onBack() }
 
-    val firstItemFocusRequester = remember { FocusRequester() }
-    var initialFocusRequested by remember { mutableStateOf(false) }
-    LaunchedEffect(state.items.firstOrNull()?.contentId) {
-        if (initialFocusRequested || state.items.isEmpty()) return@LaunchedEffect
-        runCatching { firstItemFocusRequester.requestFocus() }
-        initialFocusRequested = true
-    }
+    val restoreItemFocusRequester = remember { FocusRequester() }
+    // Returns land on the card the viewer opened, not the top of the
+    // collection. This also covers first entry, where no target is recorded and
+    // the resolution is the first item — the same place the plain initial focus
+    // put it.
+    //
+    // Not quite the same lifecycle, though: the old adapter re-armed whenever
+    // the first item's identity changed, whereas this runs once. Harmless here,
+    // because loading only appends pages so the first item does not move, but a
+    // surface that replaces its contents in place would need the difference
+    // thought about rather than assumed.
+    val restoration = rememberTvFlatReturnRestoration(
+        itemIds = state.items.map { it.contentId },
+        hasMore = state.hasMore,
+        isLoadingMore = state.isLoadingMore,
+        errorMessage = state.error,
+        surfaceKey = collectionId,
+        onLoadMore = viewModel::loadMore,
+        scrollToItem = { itemIndex -> gridState.scrollToItem(itemIndex) },
+        requestFocus = restoreItemFocusRequester::requestFocus,
+        onRestored = {},
+    )
 
     Column(
         modifier = Modifier
@@ -74,9 +92,25 @@ fun TvCollectionDetailScreen(
                 items = state.items,
                 isLoading = state.isLoadingMore,
                 hasMore = state.hasMore,
-                onItemClick = onItemClick,
+                onItemClick = { contentId ->
+                    restoration.onItemClicked(
+                        itemId = contentId,
+                        index = state.items.indexOfFirst { it.contentId == contentId },
+                    )
+                    onItemClick(contentId)
+                },
                 onLoadMore = viewModel::loadMore,
-                firstItemFocusRequester = firstItemFocusRequester,
+                gridState = gridState,
+                restoreItemIndex = restoration.requesterItemIndex,
+                restoreItemFocusRequester = restoreItemFocusRequester,
+                onRestoreRequesterAttached = restoration::onRequesterAttached,
+                onItemFocusedAtIndex = { item, index, focused ->
+                    if (focused) {
+                    restoration.onItemFocused(item.contentId, index)
+                } else {
+                    restoration.onItemFocusLost(item.contentId)
+                }
+                },
                 emptyState = {
                     TvCatalogEmptyState(message = "This collection is empty.")
                 },

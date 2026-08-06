@@ -29,13 +29,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.focus.tvModalFocusBoundary
+import org.siloserver.silo.tv.ui.focus.rememberTvContentInitialFocus
 import org.siloserver.silo.tv.ui.theme.Spacing
 
 /**
  * Bottom-anchored slide-up filter sheet for the library detail screen.
  * Mirrors the tvOS TVLibraryFilterSheet pattern: a 60%-height surface
- * with Genre / Year / Sort / Alphabet sections, focus-trapped, Back to
- * dismiss.
+ * with Genre / Year / Sort / Alphabet sections, Back to dismiss.
+ *
+ * The sheet is a modal focus owner: D-pad movement cannot leave it for the
+ * page still composed behind the scrim. Callers are responsible for handing
+ * focus back to the control that opened it, via TvRestoreFocusOnModalDismiss —
+ * the sheet cannot do that itself because its exit animation outlives its own
+ * dismissal.
  *
  * Sections are slotted by the caller via [content] so this component
  * stays generic; the library detail screen composes the actual filter
@@ -82,11 +89,13 @@ fun TvFilterSheet(
                     .align(Alignment.BottomStart),
             ) {
                 val focusRequester = remember { FocusRequester() }
-                LaunchedEffect(visible) {
-                    if (visible) {
-                        runCatching { focusRequester.requestFocus() }
-                    }
-                }
+                // The sheet slides in, so the first request lands before its
+                // controls are placed. Retry until focus is actually observed
+                // inside the sheet rather than firing once and hoping.
+                val sheetFocus = rememberTvContentInitialFocus(
+                    target = focusRequester,
+                    contentKey = visible.takeIf { it },
+                )
 
                 BackHandler(enabled = visible, onBack = onDismiss)
 
@@ -99,7 +108,8 @@ fun TvFilterSheet(
                             horizontal = Spacing.safeArea,
                             vertical = Spacing.xl,
                         )
-                        .focusGroup()
+                        .then(sheetFocus)
+                        .tvModalFocusBoundary()
                         .focusRequester(focusRequester),
                     verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                 ) {

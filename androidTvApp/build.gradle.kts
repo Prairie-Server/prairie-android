@@ -232,9 +232,23 @@ android {
     }
 }
 
+// The Robolectric suites need the test ComponentActivity in the merged
+// manifest, and that dependency is deliberately debug-only so it can never
+// reach the release APK. The consequence is that those same tests cannot run
+// against the release variant at all — they fail resolving the activity rather
+// than telling you anything about release.
+//
+// Running them once, on debug, is the whole of their value: unit tests are not
+// minified, so the release variant exercises no different code. This was found
+// by a flaky test in another module aborting `gradlew test` before the release
+// task was ever reached.
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.enableUnitTest = false
+    }
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
-    // Robolectric's createComposeRule needs the test ComponentActivity in the
-    // manifest. debug-only: it never reaches the release APK.
     debugImplementation(libs.compose.ui.test.manifest)
 }

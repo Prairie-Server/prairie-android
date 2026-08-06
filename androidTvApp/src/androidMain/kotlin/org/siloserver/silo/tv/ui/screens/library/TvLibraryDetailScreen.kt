@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -38,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import org.siloserver.silo.tv.ui.focus.rememberTvFlatReturnRestoration
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -286,14 +288,14 @@ private fun RecommendedTab(
 /** Which browse overlay panel is open over the grid (tvOS `TVBrowsePanel`). */
 private enum class TvBrowsePanel { Sort, Filter }
 
-internal fun restoredLibraryFocusIndex(savedIndex: Int, itemCount: Int): Int? =
-    if (itemCount <= 0) null else savedIndex.coerceIn(0, itemCount - 1)
-
-internal fun restoredLibraryLazyGridIndex(
-    savedIndex: Int,
-    itemCount: Int,
-    headerCount: Int,
-): Int? = restoredLibraryFocusIndex(savedIndex, itemCount)?.plus(headerCount.coerceAtLeast(0))
+/**
+ * The LazyGrid position of the [itemIndex]th card.
+ *
+ * Headers occupy full-span slots ahead of the cards, so the grid's own index
+ * runs ahead of the item index by however many are showing.
+ */
+internal fun libraryLazyGridIndex(itemIndex: Int, headerCount: Int): Int =
+    itemIndex.coerceAtLeast(0) + headerCount.coerceAtLeast(0)
 
 @Composable
 private fun LibraryTab(
@@ -315,8 +317,6 @@ private fun LibraryTab(
 ) {
     val restoredGridItemFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
-    var lastFocusedItemIndex by rememberSaveable(state.selectedTab) { mutableStateOf(0) }
-    var initialFocusRequested by remember { mutableStateOf(false) }
     var openPanel by remember { mutableStateOf<TvBrowsePanel?>(null) }
     val gridHeaderCount = listOf(
         showBrowseControls,
@@ -324,20 +324,23 @@ private fun LibraryTab(
         state.selectedAudiobookGroup != null && onClearAudiobookGroup != null,
     ).count { it }
 
-    LaunchedEffect(state.selectedTab, state.browseItems.isNotEmpty(), gridHeaderCount) {
-        if (initialFocusRequested || state.browseItems.isEmpty()) return@LaunchedEffect
-        kotlinx.coroutines.delay(120)
-        val restoreIndex = restoredLibraryFocusIndex(lastFocusedItemIndex, state.browseItems.size) ?: 0
-        val lazyGridIndex = restoredLibraryLazyGridIndex(
-            savedIndex = restoreIndex,
-            itemCount = state.browseItems.size,
-            headerCount = gridHeaderCount,
-        ) ?: 0
-        gridState.scrollToItem(lazyGridIndex)
-        runCatching { restoredGridItemFocusRequester.requestFocus() }
-        onInitialContentFocus()
-        initialFocusRequested = true
-    }
+    val restoration = rememberTvFlatReturnRestoration(
+        itemIds = state.browseItems.map { it.contentId },
+        hasMore = state.browseHasMore,
+        isLoadingMore = state.browseLoadingMore,
+        errorMessage = state.browseError,
+        surfaceKey = state.selectedTab.name,
+        onLoadMore = onLoadMore,
+        // Headers occupy full-span slots ahead of the cards, so the grid's own
+        // index runs ahead of the item index by however many are showing.
+        scrollToItem = { itemIndex ->
+            gridState.scrollToItem(
+                libraryLazyGridIndex(itemIndex = itemIndex, headerCount = gridHeaderCount),
+            )
+        },
+        requestFocus = restoredGridItemFocusRequester::requestFocus,
+        onRestored = onInitialContentFocus,
+    )
 
     if (state.browseError != null && state.browseItems.isEmpty()) {
         TvErrorScreen(
@@ -358,12 +361,27 @@ private fun LibraryTab(
         Box(modifier = Modifier.weight(1f)) {
             LibraryGrid(
                 state = state,
-                onItemClick = onItemClick,
+                onItemClick = { contentId ->
+                    restoration.onItemClicked(
+                        itemId = contentId,
+                        index = state.browseItems.indexOfFirst { it.contentId == contentId },
+                    )
+                    onItemClick(contentId)
+                },
                 onLoadMore = onLoadMore,
                 gridState = gridState,
                 restoredItemFocusRequester = restoredGridItemFocusRequester,
-                restoredItemIndex = restoredLibraryFocusIndex(lastFocusedItemIndex, state.browseItems.size),
-                onItemFocused = { lastFocusedItemIndex = it },
+                restoredItemIndex = restoration.requesterItemIndex,
+                onRestoreRequesterAttached = restoration::onRequesterAttached,
+                onItemFocused = { index, focused ->
+                    state.browseItems.getOrNull(index)?.let { item ->
+                        if (focused) {
+                            restoration.onItemFocused(item.contentId, index)
+                        } else {
+                            restoration.onItemFocusLost(item.contentId)
+                        }
+                    }
+                },
                 showGenreChips = showGenreChips,
                 onGenreChanged = onGenreChanged,
                 onClearAudiobookGroup = onClearAudiobookGroup,
@@ -417,7 +435,12 @@ private fun LibraryGrid(
     gridState: LazyGridState,
     restoredItemFocusRequester: FocusRequester,
     restoredItemIndex: Int?,
-    onItemFocused: (Int) -> Unit,
+    onRestoreRequesterAttached: (String?) -> Unit,
+    /**
+     * Both edges. Gain alone makes the caller's record of what holds focus
+     * sticky, and the restoration reads that record as CURRENT focus.
+     */
+    onItemFocused: (index: Int, focused: Boolean) -> Unit,
     showGenreChips: Boolean,
     onGenreChanged: (String?) -> Unit,
     onClearAudiobookGroup: (() -> Unit)?,
@@ -426,6 +449,7 @@ private fun LibraryGrid(
     onOpenFilterPanel: () -> Unit = {},
     onClearFilters: () -> Unit = {},
 ) {
+    var attachedRestoreItemId by remember { mutableStateOf<String?>(null) }
     val nearEnd by remember(
         gridState,
         state.browseHasMore,
@@ -543,6 +567,30 @@ private fun LibraryGrid(
                     contentType = { _, item -> item.type },
                 ) { index, item ->
                     val (actions, userState) = org.siloserver.silo.tv.ui.components.rememberTvBrowseItemCardActions(item)
+                    if (index == restoredItemIndex) {
+                        // Report which identity the restore requester is
+                        // actually bound to, once composition has applied.
+                        // "The slot is visible" does not prove that: a card can
+                        // be laid out while the modifier still carries the
+                        // previous binding, so a restoration gated on layout
+                        // alone can request focus at the wrong card.
+                        DisposableEffect(item.contentId) {
+                            attachedRestoreItemId = item.contentId
+                            onRestoreRequesterAttached(item.contentId)
+                            onDispose {
+                                // Only when this card is still the owner. When
+                                // the requester moves, the new card attaches
+                                // before the old one disposes, so an
+                                // unconditional clear wipes the live attachment
+                                // and the restoration is reported NotReady
+                                // against a requester that is in fact bound.
+                                if (attachedRestoreItemId == item.contentId) {
+                                    attachedRestoreItemId = null
+                                    onRestoreRequesterAttached(null)
+                                }
+                            }
+                        }
+                    }
                     TvMediaCard(
                         title = item.title,
                         posterUrl = item.posterUrl,
@@ -556,7 +604,7 @@ private fun LibraryGrid(
                         focusRequester = restoredItemFocusRequester.takeIf { index == restoredItemIndex },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .onFocusChanged { if (it.hasFocus) onItemFocused(index) },
+                            .onFocusChanged { onItemFocused(index, it.hasFocus) },
                         overlay = org.siloserver.silo.overlays.OverlayDataExtractor.fromBrowseItem(item),
                         actions = actions,
                     )

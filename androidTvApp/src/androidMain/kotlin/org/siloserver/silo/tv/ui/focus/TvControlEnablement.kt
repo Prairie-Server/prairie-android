@@ -42,8 +42,29 @@ internal data class TvControlState(
     }
 }
 
-/** Keeps transiently gated controls focusable while exposing truthful accessibility state. */
+/**
+ * Wire a [TvControlState] to a control: focus participation and truthful
+ * accessibility state.
+ *
+ * Passing `focusable` to a TV component's `enabled` parameter does NOT achieve
+ * the focus half, which is the trap this exists to close. `tvClickable` — the
+ * shared basis of TV Material's clickable `Surface` and therefore of `Button`
+ * — calls `focusable()` with its *default* `enabled = true` and never forwards
+ * the component's own `enabled`; that flag reaches only the D-pad-enter handler
+ * and the semantics block. A disabled TV button is consequently still a focus
+ * stop: it just refuses to activate. (Verified against the tv-material 1.0.1
+ * bytecode, not inferred from the API shape.)
+ *
+ * So structural exclusion has to be asked for explicitly, and on the control's
+ * own modifier chain ahead of the component's internal focusable — which is
+ * where a `modifier` parameter lands.
+ *
+ * Every call site predating this used [TvControlState.transient], where
+ * `focusable` is always true, so the promise was never tested. It is kept here
+ * rather than at each call site so it cannot be forgotten again.
+ */
 internal fun Modifier.tvControlSemantics(controlState: TvControlState): Modifier =
-    semantics {
-        if (!controlState.actionable) disabled()
-    }
+    tvFocusSuppressed(!controlState.focusable)
+        .semantics {
+            if (!controlState.actionable) disabled()
+        }

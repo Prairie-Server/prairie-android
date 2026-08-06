@@ -25,6 +25,18 @@ data class HomeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val sections: List<ResolvedSection> = emptyList(),
+    /**
+     * Whether [sections] is the whole picture, or rows are still arriving.
+     *
+     * Surfaces that restore focus by identity need this: while hydration is
+     * still filling rows, a launch row can simply be absent, and "absent" has
+     * to mean "not here YET" rather than "gone" — otherwise focus is driven to
+     * the nearest survivor, which is a card the viewer never opened.
+     *
+     * Defaults true because a caller that does not know is describing a
+     * finished list; only a partial publish sets it false.
+     */
+    val sectionsFullyResolved: Boolean = true,
     val error: String? = null,
 )
 
@@ -154,8 +166,16 @@ class HomeViewModel(
                     // Only replace what's shown when the fetch fully resolved (or there
                     // was nothing yet) — a partial refresh must not clobber a good Home.
                     if (fullyResolved || !hadSections) {
-                        it.copy(isLoading = false, sections = overlaid, error = null)
+                        it.copy(
+                            isLoading = false,
+                            sections = overlaid,
+                            error = null,
+                            sectionsFullyResolved = fullyResolved,
+                        )
                     } else {
+                        // The partial result is discarded and the previous, good
+                        // sections stay on screen — so the flag keeps describing
+                        // THOSE, which were complete when they were published.
                         it.copy(isLoading = false, error = null)
                     }
                 }

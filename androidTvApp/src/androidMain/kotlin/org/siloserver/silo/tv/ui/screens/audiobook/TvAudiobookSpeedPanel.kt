@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -46,11 +45,16 @@ fun TvAudiobookSpeedPanel(
     onSelectSpeed: (Float) -> Unit,
     onSetDefault: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    onFocusAcquisitionFailed: () -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
-    TvAudiobookOverlayScaffold(title = "Speed", modifier = modifier) {
+    TvAudiobookOverlayScaffold(
+        title = "Speed",
+        initialFocus = focusRequester,
+        modifier = modifier,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
+    ) {
         // Fine adjust grabs initial focus so ◀/▶ work immediately.
         SpeedFineAdjustRow(
             speed = currentSpeed,

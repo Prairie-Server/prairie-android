@@ -18,13 +18,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -35,19 +42,91 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.siloserver.silo.tv.ui.focus.TvFocusAcquisitionBudgetMillis
+import org.siloserver.silo.tv.ui.focus.TvFocusRelocationBudgetMillis
+import org.siloserver.silo.tv.ui.focus.TvObservedFocusResult
+import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
+
+private const val TvAudiobookPanelFocusRetryDelayMillis = 60L
+
+private val TvAudiobookPanelFocusMaxAttempts =
+    (TvFocusAcquisitionBudgetMillis / TvAudiobookPanelFocusRetryDelayMillis).toInt()
+
+/**
+ * Confirming that a traversal landed is a relocation, not an acquisition: focus
+ * has already moved and we are only waiting to see where. The short budget is
+ * the right one — a long wait here just delays the fail-open.
+ */
+private val TvAudiobookPanelFocusConfirmAttempts =
+    (TvFocusRelocationBudgetMillis / TvAudiobookPanelFocusRetryDelayMillis).toInt()
 
 /**
  * Right-aligned full-screen overlay panel over a dimming scrim, shared by the
  * chapters / speed / sleep audiobook panels (spec §4.9 — focusable overlays,
  * not phone bottom sheets). Back is handled by the host screen.
+ *
+ * Acquisition lives here rather than in each panel because every panel needs it
+ * and the ones that hand-rolled it got it wrong in the same way: a single
+ * unobserved `requestFocus()`, some of them fired before the target row had
+ * been laid out. A rejected request was indistinguishable from a successful
+ * one, so the panel opened with focus still on the transport pill behind the
+ * scrim — and the containment below cannot help with focus that never entered.
+ *
+ * [initialFocus] is required, not optional: a panel with nothing focusable in
+ * it cannot own focus, and while it is open the covered player is suppressed,
+ * so "no focus target" means a dead D-pad rather than a cosmetic problem.
+ *
+ * [onAcquisitionFailed] is the escape hatch for when that still does not work.
+ * Acquisition is retried until observed, but "retried until observed" is not
+ * the same as "guaranteed", and the shared dialog adapter's last resort — ask
+ * the focus system to enter the overlay by traversal — returns a Boolean that
+ * can be false, with nothing left to try. Suppressing the player behind an
+ * overlay that then fails to take focus is strictly worse than the escape bug
+ * this replaces, so the failure is reported instead of swallowed and the host
+ * hands the player back.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun TvAudiobookOverlayScaffold(
     title: String,
+    initialFocus: FocusRequester,
     modifier: Modifier = Modifier,
+    onAcquisitionFailed: () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    var panelHasFocus by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(initialFocus) {
+        val result = requestFocusUntilObserved(
+            maxAttempts = TvAudiobookPanelFocusMaxAttempts,
+            awaitAttempt = { delay(TvAudiobookPanelFocusRetryDelayMillis) },
+            requestFocus = initialFocus::requestFocus,
+            isFocused = { panelHasFocus },
+        )
+        if (result == TvObservedFocusResult.Focused || panelHasFocus) return@LaunchedEffect
+
+        // Traversal, in case the named row never became focusable but something
+        // else in the panel did. `exit` cancels searches *leaving* the group and
+        // does not block entering it.
+        //
+        // A true return is not success. `moveFocus` is a global directional
+        // move: it reports that focus moved, not that it moved into this panel.
+        // Observed panel focus is the criterion for the request above, and
+        // abandoning it here would be how a "focus went somewhere else entirely"
+        // outcome gets recorded as a win while the player stays suppressed. So
+        // the move is confirmed the same way, and an unconfirmed move is a
+        // failure like any other.
+        val entered = runCatching { focusManager.moveFocus(FocusDirection.Enter) }.getOrDefault(false)
+        if (entered) {
+            repeat(TvAudiobookPanelFocusConfirmAttempts) {
+                delay(TvAudiobookPanelFocusRetryDelayMillis)
+                if (panelHasFocus) return@LaunchedEffect
+            }
+        }
+        if (!panelHasFocus) onAcquisitionFailed()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -65,6 +144,7 @@ internal fun TvAudiobookOverlayScaffold(
                 // stays open. Same recipe as the player HUD picker.
                 .focusGroup()
                 .focusProperties { exit = { FocusRequester.Cancel } }
+                .onFocusChanged { panelHasFocus = it.hasFocus }
                 .padding(horizontal = 18.dp, vertical = 22.dp),
         ) {
             Text(text = title, style = MaterialTheme.typography.titleLarge, color = Color.White)

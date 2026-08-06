@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -26,12 +25,20 @@ fun TvAudiobookSkipIntervalPanel(
     onSelectSkipBack: (Int) -> Unit,
     onSelectSkipForward: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    onFocusAcquisitionFailed: () -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
-    val focusValue = skipBackSeconds
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    // A persisted interval outside the allowed set would attach the requester to
+    // no row at all, leaving the panel with nothing to acquire.
+    val focusValue = skipBackSeconds.takeIf { it in AudiobookSettingsStore.ALLOWED_SKIP }
+        ?: AudiobookSettingsStore.ALLOWED_SKIP.first()
 
-    TvAudiobookOverlayScaffold(title = "Skip interval", modifier = modifier) {
+    TvAudiobookOverlayScaffold(
+        title = "Skip interval",
+        initialFocus = focusRequester,
+        modifier = modifier,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
+    ) {
         SectionLabel("Skip back")
         AudiobookSettingsStore.ALLOWED_SKIP.forEach { seconds ->
             TvAudiobookOverlayRow(
