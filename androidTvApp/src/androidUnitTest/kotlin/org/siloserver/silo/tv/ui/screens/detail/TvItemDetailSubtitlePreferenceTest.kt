@@ -167,7 +167,7 @@ class TvItemDetailSubtitlePreferenceTest {
         viewModel: TvItemDetailViewModel,
         predicate: (TvItemDetailUiState) -> Boolean,
     ) {
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
+        withContext(Dispatchers.IO) {
             withTimeout(30_000) {
                 while (!predicate(viewModel.uiState.value)) {
                     delay(10)
