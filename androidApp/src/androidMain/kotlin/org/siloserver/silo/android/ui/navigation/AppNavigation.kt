@@ -179,6 +179,20 @@ fun AppNavigation(
                 // NEWEST match, so the older anchor entry would survive and Back
                 // could loop through a hidden tab.
                 if (tabForRoute(route) != null) {
+                    // Tear the player down BEFORE the tab switch, and without
+                    // saving it. tabSwitchNavOptions saves state so a tab keeps
+                    // its stack, which is right for a tab — but a saved player
+                    // entry keeps its ViewModelStore alive, so onCleared never
+                    // runs and the playback session it owns is never stopped.
+                    // The save is also keyed to the LOWEST popped destination,
+                    // so a later clearBackStack on the player route would not
+                    // even find it. Popping first means the player's teardown
+                    // runs the ordinary way.
+                    navController.popBackStack(
+                        route = Route.Player.ROUTE,
+                        inclusive = true,
+                        saveState = false,
+                    )
                     navController.navigate(route) {
                         tabSwitchNavOptions(navController.bottomMostTabRoute())
                     }
@@ -188,11 +202,25 @@ fun AppNavigation(
                             ?.destination?.route,
                         targetRoute = route,
                     )
+                    // Single-top only when the arguments agree it really is the
+                    // same screen. AndroidX matches the destination NODE, so an
+                    // external link to item B while item A's detail is showing
+                    // reused A's entry and Back skipped A entirely — the same
+                    // defect this branch fixes for in-app navigation.
+                    val sameItemDetail = isSameItemDetail(
+                        currentDestinationRoute = navController.currentBackStackEntry
+                            ?.destination?.route,
+                        currentContentId = navController.currentBackStackEntry
+                            ?.arguments
+                            ?.getString("contentId"),
+                        targetRoute = route,
+                    )
                     navController.navigate(route) {
                         if (replaceCurrentPlayer) {
                             popUpTo(Route.Player.ROUTE) { inclusive = true }
                         }
-                        launchSingleTop = true
+                        launchSingleTop = replaceCurrentPlayer || sameItemDetail ||
+                            !route.startsWith("item/")
                     }
                 }
             },
@@ -209,6 +237,7 @@ fun AppNavigation(
                         scope.matches(
                             serverId = live?.serverId,
                             profileId = live?.profileId,
+                            identityGeneration = live?.identityGeneration,
                         )
                     }
                 }

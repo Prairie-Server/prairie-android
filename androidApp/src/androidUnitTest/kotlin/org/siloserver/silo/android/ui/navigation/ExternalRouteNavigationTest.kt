@@ -378,15 +378,15 @@ class ExternalRouteNavigationTest {
     fun aScopeCapturedBeforeSignInStillMatchesAfterIt() {
         val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = null)
 
-        assertTrue(scope.matches(serverId = "server-a", profileId = "profile-1"))
-        assertTrue(scope.matches(serverId = "server-a", profileId = null))
+        assertTrue(scope.matches(serverId = "server-a", profileId = "profile-1", identityGeneration = null))
+        assertTrue(scope.matches(serverId = "server-a", profileId = null, identityGeneration = null))
     }
 
     @Test
     fun aScopeDoesNotMatchAnotherServer() {
         val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = null)
 
-        assertFalse(scope.matches(serverId = "server-b", profileId = "profile-1"))
+        assertFalse(scope.matches(serverId = "server-b", profileId = "profile-1", identityGeneration = null))
     }
 
     /** A fully-specified notification scope must match both components. */
@@ -394,9 +394,9 @@ class ExternalRouteNavigationTest {
     fun aFullyPinnedScopeRequiresBothComponents() {
         val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = "kids")
 
-        assertTrue(scope.matches(serverId = "server-a", profileId = "kids"))
-        assertFalse(scope.matches(serverId = "server-a", profileId = "adults"))
-        assertFalse(scope.matches(serverId = "server-b", profileId = "kids"))
+        assertTrue(scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = null))
+        assertFalse(scope.matches(serverId = "server-a", profileId = "adults", identityGeneration = null))
+        assertFalse(scope.matches(serverId = "server-b", profileId = "kids", identityGeneration = null))
     }
 
     /** Nothing known constrains nothing — the signed-out arrival case. */
@@ -404,6 +404,74 @@ class ExternalRouteNavigationTest {
     fun anEmptyScopeMatchesAnything() {
         val scope = ExternalRouteScope.Identity(serverId = null, profileId = null)
 
-        assertTrue(scope.matches(serverId = "server-a", profileId = "kids"))
+        assertTrue(scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = null))
+    }
+    /**
+     * Signing out and back into the SAME account is a new session, and a route
+     * authored for the old one must not act on it. Ids alone cannot see that;
+     * only the generation can.
+     */
+    @Test
+    fun aScopePinnedToAGenerationDoesNotMatchALaterSession() {
+        val scope = ExternalRouteScope.Identity(
+            serverId = "server-a",
+            profileId = "kids",
+            identityGeneration = 7L,
+        )
+
+        assertTrue(
+            scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = 7L),
+        )
+        assertFalse(
+            scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = 8L),
+        )
+    }
+
+    /** An unknown generation constrains nothing, exactly like an unknown id. */
+    @Test
+    fun aScopeWithNoGenerationIgnoresIt() {
+        val scope = ExternalRouteScope.Identity(serverId = "server-a", profileId = "kids")
+
+        assertTrue(
+            scope.matches(serverId = "server-a", profileId = "kids", identityGeneration = 99L),
+        )
+    }
+    /**
+     * The defect this branch exists to fix, on the external-link path: a
+     * notification for item B while item A's detail is showing must not reuse
+     * A's entry, or Back skips A.
+     */
+    @Test
+    fun anExternalItemLinkIsSingleTopOnlyForTheSameItem() {
+        assertTrue(
+            isSameItemDetail(
+                currentDestinationRoute = Route.ItemDetail.ROUTE,
+                currentContentId = "movie-1",
+                targetRoute = "item/movie-1",
+            ),
+        )
+        assertFalse(
+            isSameItemDetail(
+                currentDestinationRoute = Route.ItemDetail.ROUTE,
+                currentContentId = "movie-1",
+                targetRoute = "item/movie-2",
+            ),
+        )
+        // Encoded ids must still compare equal to the decoded entry argument.
+        assertTrue(
+            isSameItemDetail(
+                currentDestinationRoute = Route.ItemDetail.ROUTE,
+                currentContentId = "tt 1/2",
+                targetRoute = "item/tt%201%2F2",
+            ),
+        )
+        // Not on a detail screen at all.
+        assertFalse(
+            isSameItemDetail(
+                currentDestinationRoute = Route.Player.ROUTE,
+                currentContentId = "movie-1",
+                targetRoute = "item/movie-1",
+            ),
+        )
     }
 }

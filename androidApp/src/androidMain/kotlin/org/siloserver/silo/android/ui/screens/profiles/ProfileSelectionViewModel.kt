@@ -54,6 +54,17 @@ class ProfileSelectionViewModel(
      * delete's explanation) visible across the follow-up list refresh, which
      * would otherwise silently swallow it.
      */
+    /**
+     * The identity the displayed grid was fetched under.
+     *
+     * Every selection is qualified with it, protected or not. Passing null for
+     * unprotected picks disabled the guard for exactly the case with no PIN
+     * round trip to re-establish scope — so if another account became active
+     * between the grid being accepted and the commit entering the barrier, one
+     * account's profile id was written into the other's token slot.
+     */
+    private var gridScope: AuthScopeSnapshot? = null
+
     fun loadProfiles(clearError: Boolean = true) {
         val load = ++loadAttempt
         viewModelScope.launch {
@@ -71,6 +82,8 @@ class ProfileSelectionViewModel(
                 _uiState.update { it.copy(isLoading = false, profiles = emptyList()) }
                 return@launch
             }
+            // The grid the viewer is about to pick from belongs to this scope.
+            gridScope = scope
 
             when (result) {
                 is ApiResult.Success -> {
@@ -126,7 +139,10 @@ class ProfileSelectionViewModel(
                 )
             }
         } else {
-            selectProfile(profile.id)
+            // Qualified by the grid's scope. An unprotected pick has no PIN
+            // round trip to re-establish identity, so without this it was the
+            // one path that committed unguarded.
+            selectProfile(profile.id, expectedScope = gridScope)
         }
     }
 

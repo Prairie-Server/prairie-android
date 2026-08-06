@@ -27,17 +27,39 @@ sealed interface ExternalRouteScope {
      * are server-local). Null components mean "was not signed in when this was
      * created", which constrains nothing.
      */
-    data class Identity(val serverId: String?, val profileId: String?) : ExternalRouteScope {
+    data class Identity(
+        val serverId: String?,
+        val profileId: String?,
+        /**
+         * The identity generation this route was created under.
+         *
+         * Ids alone cannot tell "still the same session" from "signed out and
+         * back into the same account", nor A -> B -> A. Both re-authenticate,
+         * and a route authored for the earlier session should not act on the
+         * later one. Null means the generation was unknown at creation and
+         * constrains nothing, same as the ids.
+         */
+        val identityGeneration: Long? = null,
+    ) : ExternalRouteScope {
         /**
          * Each component constrains only if it was known. A link that arrived
          * with a server but no profile yet — configured server, nobody signed
          * in — must still deliver once a profile IS chosen; requiring the
          * profile to still be null would drop exactly the link the user was
          * signing in to open.
+         *
+         * The generation is deliberately NOT credentialEpoch: that moves on
+         * ordinary token writes, and pinning to it would kill legitimate routes
+         * after a routine refresh.
          */
-        fun matches(serverId: String?, profileId: String?): Boolean =
+        fun matches(
+            serverId: String?,
+            profileId: String?,
+            identityGeneration: Long?,
+        ): Boolean =
             (this.serverId == null || this.serverId == serverId) &&
-                (this.profileId == null || this.profileId == profileId)
+                (this.profileId == null || this.profileId == profileId) &&
+                (this.identityGeneration == null || this.identityGeneration == identityGeneration)
     }
 }
 
@@ -67,6 +89,37 @@ internal fun clearConsumedExternalRouteRequest(
     consumedRequest: ExternalRouteRequest,
 ): ExternalRouteRequest? =
     if (pendingRequest?.generation == consumedRequest.generation) null else pendingRequest
+
+/**
+ * True when [targetRoute] is the item detail already on top.
+ *
+ * launchSingleTop matches the destination NODE, not its arguments, so an
+ * external link to item B while item A's detail is showing reuses A's entry —
+ * and its ViewModelStore — leaving Back to skip A entirely. Single-top is only
+ * correct here when the arguments say it really is the same screen.
+ */
+internal fun isSameItemDetail(
+    currentDestinationRoute: String?,
+    currentContentId: String?,
+    targetRoute: String,
+): Boolean {
+    if (currentDestinationRoute != Route.ItemDetail.ROUTE) return false
+    if (!targetRoute.startsWith("item/")) return false
+    val targetContentId = targetRoute
+        .substringAfter("item/")
+        .substringBefore('?')
+        .takeIf { it.isNotBlank() }
+        // Same decode as the player intent: the route percent-encodes the id,
+        // and an encoded id never equals the decoded one held by the entry.
+        ?.let {
+            runCatching {
+                URLDecoder.decode(it.replace("+", "%2B"), StandardCharsets.UTF_8.name())
+            }.getOrNull()
+        }
+        ?.takeIf { it.isNotBlank() }
+        ?: return false
+    return targetContentId == currentContentId
+}
 
 internal fun shouldReplaceCurrentPlayer(
     currentDestinationRoute: String?,

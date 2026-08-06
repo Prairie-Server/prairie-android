@@ -355,6 +355,7 @@ class MainActivity : ComponentActivity() {
             return ExternalRouteScope.Identity(
                 serverId = scope.serverId,
                 profileId = scope.profileId,
+                identityGeneration = scope.identityGeneration,
             )
         }
         // A null snapshot means "no active server" — nothing to pin to, and the
