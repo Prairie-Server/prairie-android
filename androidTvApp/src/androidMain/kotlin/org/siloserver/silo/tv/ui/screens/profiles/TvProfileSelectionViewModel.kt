@@ -73,13 +73,18 @@ class TvProfileSelectionViewModel(
             // superseded it, or the identity it was fetched under is gone.
             if (load != loadAttempt) return@launch
             if (!profileRepository.identityScopeUnchanged(scope)) {
+                // The displayed grid is gone, so its scope must go with it.
+                gridScope = null
                 _uiState.update { it.copy(isLoading = false, profiles = emptyList()) }
                 return@launch
             }
-            // The grid the viewer is about to pick from belongs to this scope.
-            gridScope = scope
             when (val result = listed) {
                 is ApiResult.Success -> {
+                    // The scope moves with the grid, and ONLY with it. See the
+                    // phone ViewModel: assigning it before the result meant a
+                    // failed reload under a NEW identity left the OLD grid
+                    // qualified by the NEW scope.
+                    gridScope = scope
                     _uiState.update {
                         it.copy(isLoading = false, profiles = result.data)
                     }

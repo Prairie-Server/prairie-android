@@ -38,6 +38,12 @@ sealed interface ExternalRouteScope {
          * and a route authored for the earlier session should not act on the
          * later one. Null means the generation was unknown at creation and
          * constrains nothing, same as the ids.
+         *
+         * Set for routes captured in-process. NOT set for notifications: the
+         * counter restarts at zero in every process, so persisting it into a
+         * PendingIntent would refuse a legitimate notification tapped after the
+         * app was killed. Notifications therefore keep only server+profile
+         * pinning — see [notificationExternalRouteOrNull].
          */
         val identityGeneration: Long? = null,
     ) : ExternalRouteScope {

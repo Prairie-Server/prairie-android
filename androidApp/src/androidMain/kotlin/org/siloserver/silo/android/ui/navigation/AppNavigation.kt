@@ -188,11 +188,22 @@ fun AppNavigation(
                     // so a later clearBackStack on the player route would not
                     // even find it. Popping first means the player's teardown
                     // runs the ordinary way.
-                    navController.popBackStack(
-                        route = Route.Player.ROUTE,
-                        inclusive = true,
-                        saveState = false,
-                    )
+                    // ONLY when the player is the current destination. An
+                    // inclusive pop also removes everything above its target,
+                    // so a player sitting BELOW other entries — an external
+                    // item link pushed over it, say — would take those with it
+                    // and silently discard state the viewer expected back.
+                    // Leaving that rarer case saved is the pre-existing
+                    // behaviour; destroying history to fix it is worse.
+                    if (navController.currentBackStackEntry?.destination?.route ==
+                        Route.Player.ROUTE
+                    ) {
+                        navController.popBackStack(
+                            route = Route.Player.ROUTE,
+                            inclusive = true,
+                            saveState = false,
+                        )
+                    }
                     navController.navigate(route) {
                         tabSwitchNavOptions(navController.bottomMostTabRoute())
                     }
@@ -219,8 +230,14 @@ fun AppNavigation(
                         if (replaceCurrentPlayer) {
                             popUpTo(Route.Player.ROUTE) { inclusive = true }
                         }
+                        // Affirmative, not "everything except item". A route
+                        // carrying arguments identifies a specific thing, so
+                        // reusing the node collapses two different requests into
+                        // one — invite_claim with a different token being the
+                        // case that bit: a second invitation replaced the first
+                        // instead of getting its own entry.
                         launchSingleTop = replaceCurrentPlayer || sameItemDetail ||
-                            !route.startsWith("item/")
+                            !route.contains('?') && !route.contains('/')
                     }
                 }
             },

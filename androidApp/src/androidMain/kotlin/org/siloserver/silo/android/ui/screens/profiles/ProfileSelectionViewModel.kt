@@ -79,14 +79,23 @@ class ProfileSelectionViewModel(
             // pick a profile from a session the app no longer holds.
             if (load != loadAttempt) return@launch
             if (!profileRepository.identityScopeUnchanged(scope)) {
+                // The displayed grid is gone, so its scope must go with it.
+                // Leaving a scope behind for an empty grid is stale metadata
+                // that a later selection could be qualified against.
+                gridScope = null
                 _uiState.update { it.copy(isLoading = false, profiles = emptyList()) }
                 return@launch
             }
-            // The grid the viewer is about to pick from belongs to this scope.
-            gridScope = scope
 
             when (result) {
                 is ApiResult.Success -> {
+                    // The scope moves with the grid, and ONLY with it. Assigning
+                    // it before this point meant a reload that failed under a
+                    // NEW identity left the OLD grid on screen qualified by the
+                    // NEW scope — so picking a profile from the old session was
+                    // accepted as belonging to the new one. That is worse than
+                    // the unguarded commit this was meant to fix.
+                    gridScope = scope
                     _uiState.update {
                         it.copy(isLoading = false, profiles = result.data, activeProfileId = activeId)
                     }
