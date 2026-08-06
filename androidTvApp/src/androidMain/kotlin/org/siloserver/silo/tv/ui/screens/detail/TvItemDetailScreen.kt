@@ -251,6 +251,10 @@ private fun TvDetailContent(
     var pendingSimilarContentId by rememberSaveable(detail.contentId) {
         mutableStateOf<String?>(null)
     }
+    // Paired with the id because the id alone is an ABA token: a newer request
+    // for the SAME content passes every ownership check the old coroutine
+    // makes, letting it clear or override the new one.
+    var pendingSimilarGeneration by rememberSaveable(detail.contentId) { mutableStateOf(0) }
     val similarReturnFocus = remember { FocusRequester() }
     val similarRestoreFocused = remember { mutableStateOf(false) }
     // Bumped once the target resolves, so the row scrolls its own LazyRow to
@@ -334,6 +338,10 @@ private fun TvDetailContent(
         // coroutine — without the token it could keep requesting focus for the
         // rest of its window on behalf of a return nobody is waiting for.
         val ownedContentId = pendingSimilarContentId ?: return@LaunchedEffect
+        val ownedGeneration = pendingSimilarGeneration
+        fun stillOwned() =
+            pendingSimilarContentId == ownedContentId &&
+                pendingSimilarGeneration == ownedGeneration
 
         // Two different waits, on two different clocks.
         //
@@ -347,7 +355,7 @@ private fun TvDetailContent(
         }
 
         var restored = false
-        if (resolved != null && pendingSimilarContentId == ownedContentId) {
+        if (resolved != null && stillOwned()) {
             // Now the target exists, so scroll the row to it — a card outside
             // the composed window leaves the requester unattached.
             similarRestoreRequest += 1
@@ -361,10 +369,11 @@ private fun TvDetailContent(
                     restored = true
                     break
                 }
-                // Re-checked every attempt, not just at the end: the user can
-                // move during this window, and revoking mid-loop is the
-                // difference between giving up and fighting them for focus.
-                if (pendingSimilarContentId != ownedContentId) return@LaunchedEffect
+                // Re-checked every attempt, not just at the end: ownership can
+                // be revoked mid-loop — by a newer request, or by the viewer
+                // pressing a direction key — and continuing to request focus
+                // after that is fighting them for it.
+                if (!stillOwned()) return@LaunchedEffect
                 runCatching { similarReturnFocus.requestFocus() }
                 withFrameNanos { }
                 withFrameNanos { }
@@ -373,7 +382,7 @@ private fun TvDetailContent(
             if (!restored) restored = similarRestoreFocused.value
         }
 
-        if (pendingSimilarContentId != ownedContentId) return@LaunchedEffect
+        if (!stillOwned()) return@LaunchedEffect
         if (restored) {
             pendingSimilarContentId = null
             return@LaunchedEffect
@@ -383,7 +392,14 @@ private fun TvDetailContent(
         // scroll: it suspends, and releasing ownership first meant this could
         // move focus on behalf of a request that had already been superseded.
         listState.scrollToItem(0)
-        if (pendingSimilarContentId != ownedContentId) return@LaunchedEffect
+        if (!stillOwned()) return@LaunchedEffect
+        // scrollToItem suspends, and the target can gain focus while it does.
+        // Checking only ownership here would let Play steal a restore that had
+        // just succeeded.
+        if (similarRestoreFocused.value) {
+            pendingSimilarContentId = null
+            return@LaunchedEffect
+        }
         runCatching { playFocus.requestFocus() }
         pendingSimilarContentId = null
     }
@@ -522,6 +538,21 @@ private fun TvDetailContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // A pending restore is a convenience, and the moment the viewer
+            // steers for themselves it stops being one. This is the only signal
+            // that a move was genuinely user-initiated — a focus-gain callback
+            // is not, because the rail's own enter redirect produces one.
+            // Returns false throughout: this observes, it never consumes.
+            .onPreviewKeyEvent { event ->
+                if (
+                    pendingSimilarContentId != null &&
+                    event.type == KeyEventType.KeyDown &&
+                    event.key in tvDirectionalKeys
+                ) {
+                    pendingSimilarContentId = null
+                }
+                false
+            }
             .background(MaterialTheme.colorScheme.background),
     ) {
         CompositionLocalProvider(LocalBringIntoViewSpec provides detailBringIntoViewSpec) {
@@ -786,6 +817,7 @@ private fun TvDetailContent(
                                     items = state.moreLikeThis,
                                     onItemClick = { clickedContentId ->
                                         pendingCastFocusIndex = -1
+                                        pendingSimilarGeneration += 1
                                         pendingSimilarContentId = clickedContentId
                                         similarRestoreFocused.value = false
                                         onItemDetail(clickedContentId)
@@ -805,12 +837,11 @@ private fun TvDetailContent(
                                             // when some other card gains focus
                                             // was self-defeating: the row's own
                                             // enter redirect lands on card 0
-                                            // first, so our restore cancelled
+                                            // first, so the restore cancelled
                                             // itself on the way to card N.
                                             // onFocusChanged carries no evidence
-                                            // that a move was user-initiated;
-                                            // the short data window below is
-                                            // what bounds surprising the user.
+                                            // that a move was user-initiated —
+                                            // the key handler on the root does.
                                             if (focusedIndex == pendingSimilarIndex) {
                                                 similarRestoreFocused.value = true
                                             }
@@ -1948,3 +1979,11 @@ private suspend fun LazyListState.animateScrollToItemPaced(index: Int) {
  * further ~80 frames, so the whole restore can outlast this value.
  */
 private const val RESTORE_DATA_TIMEOUT_MS = 1_500L
+
+/** Direction keys that count as the viewer steering for themselves. */
+private val tvDirectionalKeys = setOf(
+    Key.DirectionUp,
+    Key.DirectionDown,
+    Key.DirectionLeft,
+    Key.DirectionRight,
+)
