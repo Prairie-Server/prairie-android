@@ -422,7 +422,16 @@ open class PlaybackSessionManager(
                             planAttemptId = planAttemptId,
                         )
                         videoAttemptMutex.withLock { activeVideoAttempt.set(active) }
-                        leasedSessionId = null
+                        // The lease STAYS ARMED across the nested replan. Being
+                        // installed as the active attempt is not the same as
+                        // being findable: nothing outside this call has the id
+                        // yet, and the replan below suspends — on
+                        // finishContentReset, then on its own mutex — before it
+                        // reaches any cancellation-safe cleanup of its own. A
+                        // cancellation in that window used to leave the session
+                        // installed, unknown to every caller, and running until
+                        // the server expired it. The branches after the replan
+                        // clear or re-arm it once its fate is decided.
                         PassthroughSuppressionRegistry.beginAttempt(active.planAttemptKey)
                         finishContentReset()
                         val replanResult = replanActiveVideoSession(
@@ -453,9 +462,10 @@ open class PlaybackSessionManager(
                                     }
                                 }
                             }
-                            // Re-armed: the lock above just took this id back off
-                            // the manager, so until the stop completes nobody
-                            // else can find it.
+                            // The lock above decided this id's fate. Either it
+                            // was abandoned — in which case the lease names it
+                            // until the stop is acknowledged — or it is the
+                            // published replacement and the manager owns it.
                             leasedSessionId = abandonedSessionId
                             val stopped = abandonedSessionId
                                 ?.let { playbackRepository.stopPlayback(it) }
@@ -475,6 +485,14 @@ open class PlaybackSessionManager(
                                     playbackRepository.stopPlayback(validated.sessionId)
                                 if (stopped.isStopDischarged()) leasedSessionId = null
                             }
+                        } else {
+                            // Replan succeeded and published through the manager.
+                            // The base id is either the committed attempt or was
+                            // stopped by the replan itself; either way this call
+                            // is no longer answerable for it, and leaving the
+                            // lease armed would have the finally stop a session
+                            // that is playing.
+                            leasedSessionId = null
                         }
                         replanResult
                     }
@@ -1545,9 +1563,11 @@ open class PlaybackSessionManager(
 
     private fun trimOrphanedSessionsLocked() {
         while (orphanedSessionIds.size > MAX_RETAINED_ORPHANED_SESSIONS) {
-            // Never evict an id someone is mid-way through releasing: its
-            // release removes the entry on discharge, and dropping it here would
-            // forfeit the retry for a stop that may still be about to fail.
+            // Never evict an id whose release this manager is tracking — the
+            // queued and in-flight sets. Committed-session cleanup and the
+            // direct retaining-stop helpers issue unmarked stops, so this is not
+            // protection against every release in flight, only the ones the
+            // queue knows about.
             // When everything over the cap is mid-release there is nothing
             // safe to drop, so the set stays over its bound until one of those
             // releases completes and re-runs this.
