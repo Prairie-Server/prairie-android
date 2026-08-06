@@ -35,6 +35,7 @@ import org.siloserver.silo.network.TokenManager
 import org.siloserver.silo.repository.PlaybackRepository
 import java.util.IdentityHashMap
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -180,7 +181,42 @@ open class PlaybackSessionManager(
     private val activeVideoAttempt = AtomicReference<ActiveVideoAttempt?>()
     private val stagedVideoReplans =
         IdentityHashMap<StagedVideoReplan, PreparedStagedVideoReplan>()
-    private val orphanedSessionIds = mutableSetOf<String>()
+    // Insertion-ordered so the bound in [rememberOrphanedSessionLocked] evicts
+    // the oldest unconfirmed session rather than an arbitrary one.
+    private val orphanedSessionIds = LinkedHashSet<String>()
+
+    /**
+     * Sessions registered as orphans under [videoAttemptMutex] whose stop still
+     * has to be issued, each tagged with the release claim of the lock holder
+     * that queued it. Guarded by that same mutex; drained immediately after it
+     * is released. See [stopRetainingFailureLocked].
+     */
+    private val pendingOwnershipReleases = mutableListOf<Pair<Long, String>>()
+
+    /**
+     * Sessions whose stop is in flight via the queued-release or orphan-drain
+     * paths, counted rather than flagged.
+     *
+     * Two callers can legitimately be releasing the same id — a queued release
+     * and an orphan drain that selected it before the queue existed — and a
+     * plain set would let the first to finish clear the marker while the second
+     * is still running, re-opening the double-stop it exists to prevent.
+     *
+     * Not a register of every stop in the manager: committed-session cleanup and
+     * the direct retaining-stop helpers issue their own unmarked stops, so this
+     * excludes duplicates between the two paths that consult it, not globally.
+     * Guarded by [videoAttemptMutex].
+     */
+    private val releasesInFlight = mutableMapOf<String, Int>()
+
+    private val releaseClaims = AtomicLong()
+
+    /**
+     * The claim of whoever currently holds [videoAttemptMutex]. Only read and
+     * written under that lock, which is what makes a plain field safe here —
+     * exactly one coroutine can be inside the lock at a time.
+     */
+    private var currentReleaseClaim = 0L
     private var pendingVideoPublication: PendingVideoPublication? = null
     private var contentResetInProgress = false
 
@@ -191,10 +227,16 @@ open class PlaybackSessionManager(
             videoAttemptMutex.lock()
             val pending = pendingVideoPublication
             if (pending == null) {
+                val claim = releaseClaims.incrementAndGet()
+                currentReleaseClaim = claim
                 try {
                     return block()
                 } finally {
                     videoAttemptMutex.unlock()
+                    // After the unlock, deliberately: the block may have queued
+                    // stops for sessions it discarded, and issuing them under
+                    // the lock would hold every other caller behind network I/O.
+                    drainPendingOwnershipReleases(claim)
                 }
             }
             videoAttemptMutex.unlock()
@@ -225,6 +267,34 @@ open class PlaybackSessionManager(
         subtitleFidelityPreference: SubtitleFidelityPreference = SubtitleFidelityPreference.PRESERVE,
         deferPublication: Boolean = false,
     ): ApiResult<VideoSessionStartV3> = contentStartMutex.withLock {
+        /**
+         * The session this call is currently answerable for.
+         *
+         * Once the server responds it has allocated a session, but every branch
+         * below still suspends — acquiring [videoAttemptMutex], emitting a route
+         * event, issuing its own stop — before that id is either published into
+         * [activeVideoAttempt] or stopped. A cancellation in that window leaves
+         * the id owned by nobody: the manager never published it, and the
+         * callers never learn it, because they only see an id when this function
+         * returns. The transcode then runs on until the server's own expiry,
+         * holding a stream slot; a retry can produce a second session for the
+         * same screen, or fail outright as "too many streams".
+         *
+         * So: arm this the moment the response decodes, and clear it only where
+         * responsibility genuinely moves — to the manager on publication, or to
+         * a stop the *server acknowledged*. A branch that takes ownership back
+         * (the replan error path) re-arms it. The finally releases whatever is
+         * still held, uncancellably.
+         *
+         * Scope: this covers ids allocated by *this* call. The internal replan
+         * reached from the ReplanRequired branch allocates its own candidates
+         * and clears `activeVideoAttempt` before its own suspending cleanup;
+         * those windows are held by [stopRetainingFailureLocked] instead, which
+         * is the same register-before-stop discipline expressed against the
+         * manager's orphan set because those paths already hold
+         * [videoAttemptMutex].
+         */
+        var leasedSessionId: String? = null
         try {
             beginContentReset()
             val predecessorForPublication = videoAttemptMutex.withLock {
@@ -263,6 +333,7 @@ open class PlaybackSessionManager(
             return@withLock when (val result = playbackRepository.startPlaybackV3(request)) {
                 is ApiResult.Success -> when (val validated = result.data.validateForMedia3()) {
                     is PlaybackV3Validation.Playable -> {
+                        leasedSessionId = validated.sessionId
                         val planAttemptId = UUID.randomUUID().toString()
                         val active = newActiveAttempt(
                             request = request,
@@ -279,6 +350,9 @@ open class PlaybackSessionManager(
                                 deferPublication = deferPublication,
                             )
                         }
+                        // Published: the manager owns this id now, so teardown
+                        // is its problem rather than this call's.
+                        leasedSessionId = null
                         PassthroughSuppressionRegistry.beginAttempt(active.planAttemptKey)
                         reportActiveVideoEvent("plan_selected", network.asRouteDiagnostics())
                         ApiResult.Success(
@@ -292,6 +366,8 @@ open class PlaybackSessionManager(
                         )
                     }
                     is PlaybackV3Validation.Terminal -> {
+                        leasedSessionId =
+                            result.data.playbackPlan?.sessionId ?: result.data.sessionId
                         if (!deferPublication) {
                             videoAttemptMutex.withLock {
                                 activeVideoAttempt.set(null)
@@ -306,25 +382,34 @@ open class PlaybackSessionManager(
                                 outputRouteGeneration = request.outputRouteGeneration,
                             ),
                         )
-                        (result.data.playbackPlan?.sessionId ?: result.data.sessionId)
+                        // Only a stop the server acknowledged discharges the
+                        // lease. An Error/NetworkError does not throw, so
+                        // clearing on the call alone would drop the session on
+                        // exactly the failure the lease exists to survive.
+                        val stopped = (result.data.playbackPlan?.sessionId ?: result.data.sessionId)
                             ?.let { playbackRepository.stopPlayback(it) }
+                        if (stopped.isStopDischarged()) leasedSessionId = null
                         ApiResult.Success(
                             VideoSessionStartV3.Terminal(validated.reason, validated.message, validated.retryable),
                         )
                     }
                     is PlaybackV3Validation.Incompatible -> {
+                        leasedSessionId = validated.allocatedSessionId
                         if (!deferPublication) {
                             videoAttemptMutex.withLock {
                                 activeVideoAttempt.set(null)
                             }
                         }
-                        validated.allocatedSessionId?.let { playbackRepository.stopPlayback(it) }
+                        val stopped = validated.allocatedSessionId
+                            ?.let { playbackRepository.stopPlayback(it) }
+                        if (stopped.isStopDischarged()) leasedSessionId = null
                         ApiResult.Success(VideoSessionStartV3.ServerUpgradeRequired)
                     }
                     is PlaybackV3Validation.ReplanRequired -> {
                         // Decode stale engine enums, but never execute them. Preserve
                         // the allocated session and give the v3 planner exactly one
                         // opportunity to replace the route with a Media3 plan.
+                        leasedSessionId = validated.sessionId
                         val planAttemptId = UUID.randomUUID().toString()
                         val active = newActiveAttempt(
                             request = request,
@@ -335,6 +420,7 @@ open class PlaybackSessionManager(
                             planAttemptId = planAttemptId,
                         )
                         videoAttemptMutex.withLock { activeVideoAttempt.set(active) }
+                        leasedSessionId = null
                         PassthroughSuppressionRegistry.beginAttempt(active.planAttemptKey)
                         finishContentReset()
                         val replanResult = replanActiveVideoSession(
@@ -365,7 +451,13 @@ open class PlaybackSessionManager(
                                     }
                                 }
                             }
-                            abandonedSessionId?.let { playbackRepository.stopPlayback(it) }
+                            // Re-armed: the lock above just took this id back off
+                            // the manager, so until the stop completes nobody
+                            // else can find it.
+                            leasedSessionId = abandonedSessionId
+                            val stopped = abandonedSessionId
+                                ?.let { playbackRepository.stopPlayback(it) }
+                            if (stopped.isStopDischarged()) leasedSessionId = null
                         } else if (
                             replanResult is ApiResult.Error ||
                             replanResult is ApiResult.NetworkError
@@ -374,7 +466,12 @@ open class PlaybackSessionManager(
                                 activeVideoAttempt.compareAndSet(active, null)
                             }
                             if (cleared) {
-                                playbackRepository.stopPlayback(validated.sessionId)
+                                // Same reasoning as the deferred branch: the CAS
+                                // above removed the manager's only reference.
+                                leasedSessionId = validated.sessionId
+                                val stopped =
+                                    playbackRepository.stopPlayback(validated.sessionId)
+                                if (stopped.isStopDischarged()) leasedSessionId = null
                             }
                         }
                         replanResult
@@ -385,6 +482,14 @@ open class PlaybackSessionManager(
             }
         } finally {
             finishContentReset()
+            // NonCancellable because this runs precisely when the surrounding
+            // work was cancelled. Failures stay queued in orphanedSessionIds so
+            // the next content reset drains them.
+            leasedSessionId?.let { orphan ->
+                withContext(NonCancellable) {
+                    stopSessionsRetainingFailures(listOf(orphan))
+                }
+            }
         }
     }
 
@@ -915,7 +1020,24 @@ open class PlaybackSessionManager(
     suspend fun commitStagedVideoReplan(
         staged: StagedVideoReplan,
         deferPublication: Boolean = false,
+    ): ApiResult<VideoSessionStartV3.Ready> {
+        val claim = releaseClaims.incrementAndGet()
+        return try {
+            commitStagedVideoReplanLocked(staged, deferPublication, claim)
+        } finally {
+            // Same contract as withSettledVideoAttempt: stops queued while the
+            // lock was held are issued once it is released, and this awaits only
+            // the ones this call queued.
+            drainPendingOwnershipReleases(claim)
+        }
+    }
+
+    private suspend fun commitStagedVideoReplanLocked(
+        staged: StagedVideoReplan,
+        deferPublication: Boolean,
+        claim: Long,
     ): ApiResult<VideoSessionStartV3.Ready> = videoAttemptMutex.withLock {
+        currentReleaseClaim = claim
         val prepared = stagedVideoReplans.remove(staged)
             ?: return@withLock stagedVideoReplanUnavailable()
         val active = activeVideoAttempt.get()
@@ -945,7 +1067,9 @@ open class PlaybackSessionManager(
 
         // This is the commit point. Everything after it is best-effort,
         // non-blocking bookkeeping: callers must always receive the committed
-        // candidate once manager ownership has moved to [next].
+        // candidate once manager ownership has moved to [next]. A commit that
+        // reaches here has queued no release, so the caller's drain finds
+        // nothing of its own and returns without waiting.
         activeVideoAttempt.set(next)
         if (deferPublication) {
             pendingVideoPublication = PendingVideoPublication(
@@ -972,7 +1096,7 @@ open class PlaybackSessionManager(
             pendingVideoPublication = null
             val predecessorSessionId = pending.predecessor?.sessionId
                 ?.takeIf { it != sessionId }
-            predecessorSessionId?.let { orphanedSessionIds += it }
+            predecessorSessionId?.let { rememberOrphanedSessionLocked(it) }
             pending.settled.complete(Unit)
             true to predecessorSessionId
         } ?: return false
@@ -1026,39 +1150,51 @@ open class PlaybackSessionManager(
     }
 
     /**
-     * Fire-and-forget abandonment on the manager's own scope.
+     * Fire-and-forget [abandonActiveVideoSession] on the manager's own scope.
      *
      * Callers reach this exactly when their own scope is being torn down, which
      * rules out doing the work inline. `viewModelScope.launch(NonCancellable)`
      * looks like the answer and does run, but it severs the parent link to
-     * produce an untracked coroutine nothing can await or observe failures
-     * from. This scope already outlives any screen and is what the
-     * committed-session cleanup uses, so a release belongs here rather than in
-     * a ViewModel on its way out.
-     *
-     * Only stops the session while the manager still owns it. The unconditional
-     * variant stops even when it failed to disown, and [stopSession]'s
-     * predecessor branch then clears a newer pending publication and stops its
-     * replacement — a real hazard once the release is dispatched rather than
-     * inline, because the window widens. When ownership has moved on, the id is
-     * recorded as an orphan and the next drain stops it with a plain repository
-     * call that cannot disturb whoever owns playback now.
+     * produce an untracked coroutine nothing can await or observe failures from
+     * — the pattern the coroutines documentation warns against. The manager's
+     * cleanup scope already outlives any screen and is what the committed-session
+     * cleanup path uses, so ownership of a release belongs there rather than in
+     * a ViewModel that is on its way out.
      */
     fun abandonActiveVideoSessionAsync(sessionId: String) {
         sessionCleanupScope.launch {
-            runCatching {
-                val disowned = videoAttemptMutex.withLock {
-                    val active = activeVideoAttempt.get()
-                    if (active?.sessionId != sessionId) {
-                        orphanedSessionIds += sessionId
-                        false
-                    } else {
-                        activeVideoAttempt.compareAndSet(active, null)
-                    }
-                }
-                if (disowned) stopSession(sessionId)
+            runCatching { abandonActiveVideoSessionIfCurrent(sessionId) }
+        }
+    }
+
+    /**
+     * [abandonActiveVideoSession], but only while this session is still the one
+     * the manager holds.
+     *
+     * The unconditional variant stops the session even when it failed to disown
+     * it, and [stopSession]'s predecessor branch then clears a *newer* pending
+     * publication and stops its replacement. Running abandonment on a dispatched
+     * scope widens that window enough to matter: a stale result scheduled for
+     * release can land after a newer deferred publication has installed itself
+     * with this id as its predecessor, and tear the new one down.
+     *
+     * When ownership has already moved on, the id is recorded as an orphan
+     * instead. The drain stops it with a plain repository call that cannot
+     * disturb whoever owns playback now.
+     */
+    suspend fun abandonActiveVideoSessionIfCurrent(sessionId: String): Boolean {
+        val disowned = videoAttemptMutex.withLock {
+            val active = activeVideoAttempt.get()
+            if (active?.sessionId != sessionId) {
+                rememberOrphanedSessionLocked(sessionId)
+                false
+            } else {
+                activeVideoAttempt.compareAndSet(active, null)
             }
         }
+        if (!disowned) return false
+        stopSession(sessionId)
+        return true
     }
 
     suspend fun rollbackUnpublishedVideoSession(sessionId: String): Boolean {
@@ -1155,7 +1291,7 @@ open class PlaybackSessionManager(
         activeSessionId: String,
     ) {
         if (oldSessionId == activeSessionId) return
-        orphanedSessionIds += oldSessionId
+        rememberOrphanedSessionLocked(oldSessionId)
         scheduleRegisteredCommittedSessionCleanup(
             oldSessionId = oldSessionId,
             activeSessionId = activeSessionId,
@@ -1178,7 +1314,7 @@ open class PlaybackSessionManager(
                     } catch (_: Throwable) {
                         null
                     }
-                    if (result is ApiResult.Success) {
+                    if (result.isStopDischarged()) {
                         stopped = true
                         break
                     }
@@ -1193,21 +1329,40 @@ open class PlaybackSessionManager(
     }
 
     private suspend fun drainOrphanedSessions(protectedSessionIds: Set<String>) {
+        // Claim the ids under the lock, marking them in flight in the same
+        // critical section. Filtering alone only holds for the instant of the
+        // snapshot — the stops below run unlocked, and without a marker another
+        // drain could select the same session and stop it concurrently.
         val orphanIds = videoAttemptMutex.withLock {
             val live = setOfNotNull(activeVideoAttempt.get()?.sessionId)
-            orphanedSessionIds.filterNot { it in protectedSessionIds || it in live }
+            orphanedSessionIds.filterNot {
+                it in protectedSessionIds ||
+                    it in live ||
+                    // A queued release already owns this one, and its own drain
+                    // will remove it on discharge.
+                    it in releasesInFlight ||
+                    pendingOwnershipReleases.any { pending -> pending.second == it }
+            }.onEach { markReleaseInFlightLocked(it) }
         }
         orphanIds.forEach { sessionId ->
-            val result = try {
-                playbackRepository.stopPlayback(sessionId)
-            } catch (_: CancellationException) {
-                return@forEach
-            } catch (_: Throwable) {
-                null
-            }
-            if (result is ApiResult.Success) {
-                videoAttemptMutex.withLock {
-                    orphanedSessionIds -= sessionId
+            try {
+                val result = try {
+                    playbackRepository.stopPlayback(sessionId)
+                } catch (_: CancellationException) {
+                    return@forEach
+                } catch (_: Throwable) {
+                    null
+                }
+                if (result.isStopDischarged()) {
+                    videoAttemptMutex.withLock {
+                        orphanedSessionIds -= sessionId
+                    }
+                }
+            } finally {
+                // Including the cancellation return above: a marker left behind
+                // would hide this session from every future drain.
+                withContext(NonCancellable) {
+                    videoAttemptMutex.withLock { clearReleaseInFlightLocked(sessionId) }
                 }
             }
         }
@@ -1217,7 +1372,7 @@ open class PlaybackSessionManager(
         val uniqueSessionIds = sessionIds.distinct()
         if (uniqueSessionIds.isEmpty()) return
         videoAttemptMutex.withLock {
-            orphanedSessionIds += uniqueSessionIds
+            uniqueSessionIds.forEach { rememberOrphanedSessionLocked(it) }
         }
         uniqueSessionIds.forEach { sessionId ->
             val result = try {
@@ -1225,7 +1380,7 @@ open class PlaybackSessionManager(
             } catch (_: Throwable) {
                 null
             }
-            if (result is ApiResult.Success) {
+            if (result.isStopDischarged()) {
                 videoAttemptMutex.withLock {
                     orphanedSessionIds -= sessionId
                 }
@@ -1245,7 +1400,7 @@ open class PlaybackSessionManager(
                     stagedVideoReplans.keys.none {
                         it.candidateSessionId == candidateSessionId
                     }
-            }?.also { orphanedSessionIds += it }
+            }?.also { rememberOrphanedSessionLocked(it) }
         }
         if (candidateSessionId == null) return
 
@@ -1255,7 +1410,7 @@ open class PlaybackSessionManager(
             } catch (_: Throwable) {
                 null
             }
-            if (result is ApiResult.Success) {
+            if (result.isStopDischarged()) {
                 videoAttemptMutex.withLock {
                     orphanedSessionIds -= candidateSessionId
                 }
@@ -1269,6 +1424,138 @@ open class PlaybackSessionManager(
         message = "The staged playback replan was already consumed or no longer matches the active content.",
     )
 
+    /**
+     * Stops a session this caller is discarding, keeping a record of it until
+     * the server confirms it is gone. Caller must hold [videoAttemptMutex].
+     *
+     * Some callers reach here having already cleared `activeVideoAttempt` or
+     * removed the staged handle, and for those the id exists nowhere else in the
+     * process from that moment until the server replies. A bare suspending stop
+     * there is cancellable — and these run from ViewModel recovery jobs that
+     * exit, content replacement and teardown all cancel — so the id would simply
+     * be lost and the transcode would hold its stream slot until the server's
+     * own expiry. Registering first makes the worst case a retry on the next
+     * content reset rather than an orphan nobody remembers. Callers that have
+     * not given up ownership (a rejected validation candidate, say) are
+     * registered on the same path because it costs nothing.
+     */
+    private fun stopRetainingFailureLocked(sessionId: String) {
+        // Registration is the part that must happen here, synchronously, under
+        // the caller's lock — it is what makes the id survivable.
+        rememberOrphanedSessionLocked(sessionId)
+        // The stop itself is queued rather than issued. Requests time out at
+        // 60s, and awaiting one while holding videoAttemptMutex would serialise
+        // every start, replan, content reset and staged commit behind a dying
+        // session's teardown. [drainPendingOwnershipReleases] runs it once the
+        // lock is released, still awaited by the caller that queued it.
+        //
+        // Tagged with the claim of the lock holder that queued it. Without that
+        // tag one shared queue lets any concurrent drain take another caller's
+        // work: the queuing caller then returns before its own stop ran, while
+        // an unrelated caller — which queued nothing — blocks for a full network
+        // timeout on someone else's teardown.
+        pendingOwnershipReleases += currentReleaseClaim to sessionId
+    }
+
+    /**
+     * Issues the stops [stopRetainingFailureLocked] queued under [claim]. Must
+     * be called with [videoAttemptMutex] NOT held.
+     *
+     * NonCancellable throughout: these sessions are already registered as
+     * orphans and unreferenced anywhere else, and the callers reaching here are
+     * frequently being cancelled. Anything that fails stays registered for the
+     * next content reset to drain — unless the ledger is at its cap and the
+     * entry has already been evicted, in which case that session falls back to
+     * the server's own expiry.
+     */
+    private suspend fun drainPendingOwnershipReleases(claim: Long) {
+        withContext(NonCancellable) {
+            while (true) {
+                val sessionId = videoAttemptMutex.withLock {
+                    val index = pendingOwnershipReleases.indexOfFirst { it.first == claim }
+                    if (index < 0) {
+                        null
+                    } else {
+                        pendingOwnershipReleases.removeAt(index).second.also {
+                            // Visible to drainOrphanedSessions for as long as the
+                            // stop is in flight, so a concurrent content reset
+                            // does not issue a second stop for the same session.
+                            markReleaseInFlightLocked(it)
+                        }
+                    }
+                } ?: return@withContext
+                val result = try {
+                    playbackRepository.stopPlayback(sessionId)
+                } catch (_: Throwable) {
+                    null
+                }
+                videoAttemptMutex.withLock {
+                    clearReleaseInFlightLocked(sessionId)
+                    if (result.isStopDischarged()) {
+                        orphanedSessionIds -= sessionId
+                    }
+                    // The cap can only skip entries that were mid-release, so
+                    // re-apply it once one finishes; otherwise a burst of
+                    // concurrent releases leaves the ledger permanently over
+                    // its bound with nothing to bring it back down.
+                    trimOrphanedSessionsLocked()
+                }
+            }
+        }
+    }
+
+    /**
+     * Records a session whose stop has not been confirmed, oldest evicted first.
+     *
+     * The ledger has to be bounded. Only a discharged stop removes an entry, so
+     * a server that keeps failing this call — while playback keeps producing new
+     * sessions — would otherwise grow it without limit and make every later
+     * content reset retry an ever-larger collection. Dropping the oldest entry
+     * costs that session its explicit stop and falls back to the server's own
+     * expiry, which is exactly what happens today when a stop never succeeds.
+     */
+    private fun markReleaseInFlightLocked(sessionId: String) {
+        releasesInFlight[sessionId] = (releasesInFlight[sessionId] ?: 0) + 1
+    }
+
+    private fun clearReleaseInFlightLocked(sessionId: String) {
+        val remaining = (releasesInFlight[sessionId] ?: 0) - 1
+        if (remaining > 0) releasesInFlight[sessionId] = remaining else releasesInFlight -= sessionId
+    }
+
+    private fun rememberOrphanedSessionLocked(sessionId: String) {
+        orphanedSessionIds += sessionId
+        trimOrphanedSessionsLocked()
+    }
+
+    private fun trimOrphanedSessionsLocked() {
+        while (orphanedSessionIds.size > MAX_RETAINED_ORPHANED_SESSIONS) {
+            // Never evict an id someone is mid-way through releasing: its
+            // release removes the entry on discharge, and dropping it here would
+            // forfeit the retry for a stop that may still be about to fail.
+            // When everything over the cap is mid-release there is nothing
+            // safe to drop, so the set stays over its bound until one of those
+            // releases completes and re-runs this.
+            val oldest = orphanedSessionIds.firstOrNull {
+                it !in releasesInFlight &&
+                    pendingOwnershipReleases.none { pending -> pending.second == it }
+            } ?: break
+            orphanedSessionIds -= oldest
+        }
+    }
+
+    /**
+     * True once the server owes us nothing more for this session.
+     *
+     * A typed session-missing 404 counts: the session is already gone, and
+     * treating that as a failure would keep the id in [orphanedSessionIds]
+     * forever and retry it on every single drain. A bare 404 does not — routing,
+     * proxy and compatibility 404s prove nothing about the session, so this uses
+     * the same predicate the rest of the manager uses for absence.
+     */
+    private fun ApiResult<Unit>?.isStopDischarged(): Boolean =
+        this is ApiResult.Success || this?.isPlaybackSessionMissingError() == true
+
     private suspend fun stopCandidateSessionIfUnowned(
         activeSessionId: String?,
         candidateSessionId: String?,
@@ -1280,7 +1567,7 @@ open class PlaybackSessionManager(
         ) {
             return
         }
-        playbackRepository.stopPlayback(candidateSessionId)
+        stopRetainingFailureLocked(candidateSessionId)
     }
 
     private suspend fun stopCandidateSessionsIfUnowned(
@@ -1297,7 +1584,9 @@ open class PlaybackSessionManager(
         stopActiveSession: Boolean,
     ) {
         if (stopActiveSession) {
-            playbackRepository.stopPlayback(activeSessionId)
+            // Ownership was cleared immediately above, so this is the same
+            // register-before-stop case as the candidates below.
+            stopRetainingFailureLocked(activeSessionId)
         }
         candidateSessionIds.filterNotNull().distinct()
             .filter { it != activeSessionId }
@@ -2081,6 +2370,15 @@ open class PlaybackSessionManager(
         private const val COMMITTED_SESSION_CLEANUP_ATTEMPTS = 2
 
         /**
+         * Ceiling on unconfirmed orphaned sessions kept for retry.
+         *
+         * Generous relative to how many sessions one viewing session produces,
+         * so it only bites when stops are persistently failing — the case where
+         * retrying an unbounded backlog on every content reset is pure cost.
+         */
+        private const val MAX_RETAINED_ORPHANED_SESSIONS = 64
+
+        /**
          * How long a content reset waits for a deferred publication to settle
          * before rolling it back itself. Comfortably above the 30s local-mount
          * wait a legitimate subtitle commit can take, so this only fires for a
@@ -2209,11 +2507,11 @@ open class PlaybackSessionManager(
                 stopSessionsRetainingFailures(candidateSessionIds)
                 if (sessionId != null) {
                     videoAttemptMutex.withLock {
-                        orphanedSessionIds += sessionId
+                        rememberOrphanedSessionLocked(sessionId)
                     }
                     try {
                         result = playbackRepository.stopPlayback(sessionId)
-                        if (result is ApiResult.Success) {
+                        if (result.isStopDischarged()) {
                             videoAttemptMutex.withLock {
                                 orphanedSessionIds -= sessionId
                             }

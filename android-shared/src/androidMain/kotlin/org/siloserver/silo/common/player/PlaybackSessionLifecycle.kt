@@ -393,8 +393,14 @@ class PlaybackSessionLifecycle(
         renewMissingSessionWithLegacyStart = snapshot.renewMissingSessionWithLegacyStart
         diagnosticsRecording = snapshot.diagnosticsRecording
         _notice.value = snapshot.notice
-        // A rollback to the predecessor hands ownership back to that session.
-        (snapshot.state as? SessionState.Active)?.let { lastAdoptedSessionId = it.session.sessionId }
+        // A rollback to the predecessor hands ownership back to that session —
+        // and a rollback to a snapshot that owned nothing has to CLEAR the
+        // token, not leave it. Assigning only in the Active case meant rolling
+        // back a first deferred adoption (predecessor Idle/Loading) left this
+        // naming the discarded replacement, so the ownership guard would then
+        // authorise a stop for a session no longer owned and refuse the one
+        // that is.
+        lastAdoptedSessionId = (snapshot.state as? SessionState.Active)?.session?.sessionId
         _state.value = snapshot.state
         if (
             restartReporter &&

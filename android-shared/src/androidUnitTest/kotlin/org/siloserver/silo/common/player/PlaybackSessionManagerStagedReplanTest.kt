@@ -70,7 +70,9 @@ class PlaybackSessionManagerStagedReplanTest {
             .substringAfter("suspend fun confirmVideoSessionPublication(")
             .substringBefore("suspend fun rollbackUnpublishedVideoSession(")
 
-        val orphanRegistration = confirmation.indexOf("orphanedSessionIds +=")
+        // Every insertion goes through the bounded helper now, so the ledger
+        // cannot grow without limit when stops keep failing.
+        val orphanRegistration = confirmation.indexOf("rememberOrphanedSessionLocked(")
         val waiterRelease = confirmation.indexOf("pending.settled.complete(Unit)")
         val registeredCleanup = confirmation.indexOf(
             "scheduleRegisteredCommittedSessionCleanup(",
