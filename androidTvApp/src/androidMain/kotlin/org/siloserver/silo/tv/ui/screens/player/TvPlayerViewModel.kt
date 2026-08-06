@@ -2535,6 +2535,7 @@ class TvPlayerViewModel(
             positionSec = positionSec,
             durationSec = _uiState.value.duration,
             isPaused = _uiState.value.isPaused,
+            expectedSessionId = _uiState.value.sessionId,
         )
 
         // Track B: durably record (local resume + outbox sync) for both streaming

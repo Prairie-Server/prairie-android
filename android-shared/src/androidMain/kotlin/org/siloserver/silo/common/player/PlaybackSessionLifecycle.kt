@@ -544,7 +544,30 @@ class PlaybackSessionLifecycle(
      * Push a position update from the player. Non-suspend — the actual server
      * report happens on the internal 10s debounce loop (see [PROGRESS_REPORT_INTERVAL_MS]).
      */
-    fun reportPosition(positionSec: Double, durationSec: Double, isPaused: Boolean) {
+    fun reportPosition(
+        positionSec: Double,
+        durationSec: Double,
+        isPaused: Boolean,
+        /**
+         * The session the caller believes produced this sample; null when the
+         * caller owns none, as downloaded and local playback do not.
+         *
+         * These fields are process-global and the reporter loop pairs them with
+         * whichever session is current when it next fires — so a final callback
+         * from an outgoing player, arriving after the next screen has adopted,
+         * would otherwise flush the previous episode's position under the new
+         * episode's id. That is the "resume jumped to the last episode's time"
+         * shape.
+         *
+         * Note that null is NOT "skip the check": both exit paths clear the UI
+         * session id while player callbacks are still draining, so treating null
+         * as permission is exactly the hole this closes. A caller with no
+         * session may only write these fields while the lifecycle owns none
+         * either.
+         */
+        expectedSessionId: String?,
+    ) {
+        if (expectedSessionId != lastAdoptedSessionId) return
         if (positionSec.isFinite() && positionSec >= 0) {
             lastReportedPosition = positionSec
         }

@@ -2022,6 +2022,7 @@ class PlayerViewModel(
             positionSec = positionSec,
             durationSec = _uiState.value.duration,
             isPaused = _uiState.value.isPaused,
+            expectedSessionId = _uiState.value.sessionId,
         )
 
         // Track B: durably record the position (local resume + outbox sync) for
