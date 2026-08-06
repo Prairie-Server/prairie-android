@@ -63,9 +63,9 @@ sealed class TvRoute(val route: String) {
     data class ItemDetail(val contentId: String, val seasonNumber: Int? = null) :
         TvRoute(
             if (seasonNumber != null) {
-                "item/$contentId?seasonNumber=$seasonNumber"
+                "item/${contentId.routeEncode()}?seasonNumber=$seasonNumber"
             } else {
-                "item/$contentId"
+                "item/${contentId.routeEncode()}"
             },
         ) {
         companion object {
@@ -104,7 +104,7 @@ sealed class TvRoute(val route: String) {
         val episodeSelectionHandoffNonce: String? = null,
     ) : TvRoute(
         buildString {
-            append("player/$contentId")
+            append("player/${contentId.routeEncode()}")
             val query = buildList {
                 if (fileId != null) add("fileId=$fileId")
                 VideoPlayerRouteArgs.normalizeQuality(quality)?.let { value ->
@@ -155,7 +155,7 @@ sealed class TvRoute(val route: String) {
         val startPositionSeconds: Double? = null,
     ) : TvRoute(
         buildString {
-            append("audiobook/$contentId")
+            append("audiobook/${contentId.routeEncode()}")
             val query = buildList {
                 if (fileId != null) add("fileId=$fileId")
                 VideoPlayerRouteArgs.encodeResumePosition(startPositionSeconds)?.let { value ->

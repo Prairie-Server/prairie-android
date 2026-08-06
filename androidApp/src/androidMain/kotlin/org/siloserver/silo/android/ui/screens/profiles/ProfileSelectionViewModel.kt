@@ -3,7 +3,10 @@ package org.siloserver.silo.android.ui.screens.profiles
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.siloserver.silo.model.profile.Profile
+import org.siloserver.silo.model.profile.authorizedProfileToken
 import org.siloserver.silo.network.ApiResult
+import org.siloserver.silo.network.AuthScopeSnapshot
+import org.siloserver.silo.repository.ProfileCommitResult
 import org.siloserver.silo.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,9 +39,26 @@ class ProfileSelectionViewModel(
     private val _uiState = MutableStateFlow(ProfileSelectionUiState())
     val uiState: StateFlow<ProfileSelectionUiState> = _uiState.asStateFlow()
 
+    /** Monotonic generation for PIN verification; see [onPinEntered]. */
+    private var pinAttempt: Int = 0
+
+    /** Monotonic generation for profile-list loads; see [loadProfiles]. */
+    private var loadAttempt: Int = 0
+
     init {
         loadProfiles()
     }
+
+    /**
+     * The identity the displayed grid was fetched under.
+     *
+     * Every selection is qualified with it, protected or not. Passing null for
+     * unprotected picks disabled the guard for exactly the case with no PIN
+     * round trip to re-establish scope — so if another account became active
+     * between the grid being accepted and the commit entering the barrier, one
+     * account's profile id was written into the other's token slot.
+     */
+    private var gridScope: AuthScopeSnapshot? = null
 
     /**
      * @param clearError false keeps an existing error banner (e.g. a failed
@@ -46,12 +66,36 @@ class ProfileSelectionViewModel(
      * would otherwise silently swallow it.
      */
     fun loadProfiles(clearError: Boolean = true) {
+        val load = ++loadAttempt
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = if (clearError) null else it.error) }
 
+            val scope = profileRepository.captureIdentityScope()
             val activeId = profileRepository.getActiveProfileId()
-            when (val result = profileRepository.listProfiles()) {
+            val result = profileRepository.listProfiles()
+            // Two separate reasons to drop this response: a newer load
+            // superseded it, or the identity it was fetched under is gone.
+            // The second is the one that matters — a stale grid lets the user
+            // pick a profile from a session the app no longer holds.
+            if (load != loadAttempt) return@launch
+            if (!profileRepository.identityScopeUnchanged(scope)) {
+                // The displayed grid is gone, so its scope must go with it.
+                // Leaving a scope behind for an empty grid is stale metadata
+                // that a later selection could be qualified against.
+                gridScope = null
+                _uiState.update { it.copy(isLoading = false, profiles = emptyList()) }
+                return@launch
+            }
+
+            when (result) {
                 is ApiResult.Success -> {
+                    // The scope moves with the grid, and ONLY with it. Assigning
+                    // it before this point meant a reload that failed under a
+                    // NEW identity left the OLD grid on screen qualified by the
+                    // NEW scope — so picking a profile from the old session was
+                    // accepted as belonging to the new one. That is worse than
+                    // the unguarded commit this was meant to fix.
+                    gridScope = scope
                     _uiState.update {
                         it.copy(isLoading = false, profiles = result.data, activeProfileId = activeId)
                     }
@@ -89,6 +133,17 @@ class ProfileSelectionViewModel(
             // In manage mode, tapping opens edit -- handled by the screen composable.
             return
         }
+        // A click can already be queued when a scope mismatch clears the grid.
+        // gridScope is null then, and passing it through would disable the
+        // repository guard. Accept only profiles in the grid that is still
+        // displayed; use the id because refreshed model instances need not be
+        // referentially identical to the card's captured value.
+        if (_uiState.value.profiles.none { it.id == profile.id }) return
+
+        // Bump before branching: ANY accepted selection supersedes a
+        // verification still in flight, including picking an unprotected
+        // profile while a protected one is mid-verify.
+        pinAttempt++
 
         if (profile.hasPin) {
             _uiState.update {
@@ -99,7 +154,10 @@ class ProfileSelectionViewModel(
                 )
             }
         } else {
-            selectProfile(profile.id)
+            // Qualified by the grid's scope. An unprotected pick has no PIN
+            // round trip to re-establish identity, so without this it was the
+            // one path that committed unguarded.
+            selectProfile(profile.id, expectedScope = gridScope)
         }
     }
 
@@ -108,15 +166,27 @@ class ProfileSelectionViewModel(
      */
     fun onPinEntered(pin: String) {
         val profile = _uiState.value.pinDialogProfile ?: return
+        val attempt = ++pinAttempt
 
         viewModelScope.launch {
             _uiState.update { it.copy(pinIsVerifying = true, pinError = null) }
 
-            when (val result = profileRepository.verifyPin(profile.id, pin)) {
+            // Pin the answer to the identity that was asked, not just to the
+            // dialog target: the active scope can move underneath us.
+            val scope = profileRepository.captureIdentityScope()
+            val result = profileRepository.verifyPin(profile.id, pin)
+            // The user can cancel (or tap a different profile) while the round
+            // trip is in flight. Intent proven before a suspension point is not
+            // intent after it, so re-check ownership before acting: committing
+            // unconditionally meant Cancel still entered the profile.
+            if (attempt != pinAttempt) return@launch
+
+            when (result) {
                 is ApiResult.Success -> {
-                    if (result.data.valid) {
+                    val token = result.data.authorizedProfileToken()
+                    if (token != null) {
                         _uiState.update { it.copy(pinIsVerifying = false, pinDialogProfile = null) }
-                        selectProfile(profile.id)
+                        selectProfile(profile.id, token, scope)
                     } else {
                         _uiState.update {
                             it.copy(pinIsVerifying = false, pinError = "Incorrect PIN")
@@ -143,6 +213,9 @@ class ProfileSelectionViewModel(
     }
 
     fun dismissPinDialog() {
+        // Bump the generation so an in-flight verification for the dismissed
+        // profile can no longer commit.
+        pinAttempt++
         _uiState.update {
             it.copy(pinDialogProfile = null, pinIsVerifying = false, pinError = null)
         }
@@ -194,9 +267,32 @@ class ProfileSelectionViewModel(
         _uiState.update { it.copy(selectedProfileId = null) }
     }
 
-    private fun selectProfile(profileId: String) {
+    private fun selectProfile(
+        profileId: String,
+        profileToken: String? = null,
+        expectedScope: AuthScopeSnapshot? = null,
+    ) {
         viewModelScope.launch {
-            profileRepository.selectProfile(profileId)
+            val result = profileRepository.selectProfile(profileId, profileToken, expectedScope)
+            if (result == ProfileCommitResult.ScopeChanged) {
+                // Someone else owns the identity now. Drop everything bound to
+                // the identity we no longer have — a retained grid would let
+                // the user pick a profile belonging to the previous session,
+                // and that commit carries no scope to reject it.
+                _uiState.update {
+                    it.copy(
+                        profiles = emptyList(),
+                        activeProfileId = null,
+                        selectedProfileId = null,
+                        pinDialogProfile = null,
+                        pinIsVerifying = false,
+                        pinError = null,
+                        deleteDialogProfile = null,
+                    )
+                }
+                loadProfiles()
+                return@launch
+            }
             _uiState.update { it.copy(selectedProfileId = profileId) }
         }
     }

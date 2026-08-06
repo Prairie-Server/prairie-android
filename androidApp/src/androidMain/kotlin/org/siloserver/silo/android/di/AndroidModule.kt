@@ -216,6 +216,7 @@ val androidModule = module {
         PushNotificationPresenter(
             context = androidContext(),
             notificationsRepository = get(),
+            tokenManager = get(),
         )
     }
     single { PushMessageHandler(presenter = get()) }

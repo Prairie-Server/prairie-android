@@ -77,6 +77,54 @@ class EncryptedTokenManagerScopeGenerationTest {
         assertNull(manager.getAccessTokenForScope(staleScope))
     }
 
+    /**
+     * The snapshot was the ONE identity read that did not reconcile with the
+     * registry first, so immediately after a registry-driven switch it still
+     * described the previous server — and every guard built on it then decided
+     * against a server the app had already left. Deliberately no intervening
+     * `getAccessToken()`: that read reconciles as a side effect and hid this.
+     */
+    @Test
+    fun snapshotReportsTheNewServerImmediatelyAfterARegistryFirstSwitch() = runTest {
+        val registry = FakeServerRegistry()
+        val manager = EncryptedTokenManagerImpl(
+            prefs = inMemoryPreferences(),
+            registry = registry,
+        )
+        manager.saveTokens("server-a-access", "server-a-refresh", 3600)
+
+        registry.switchExternally("server-b")
+
+        assertEquals("server-b", manager.snapshotCurrentScope()?.serverId)
+    }
+
+    /** An overlay owns identity outright; a switch underneath must not retarget it. */
+    @Test
+    fun aTemporaryOverlaySurvivesARegistryFirstSwitch() = runTest {
+        val registry = FakeServerRegistry()
+        val manager = EncryptedTokenManagerImpl(
+            prefs = inMemoryPreferences(),
+            registry = registry,
+        )
+        manager.saveTokens("server-a-access", "server-a-refresh", 3600)
+        manager.beginTemporaryScope(
+            TemporaryAuthScope(
+                generationId = "overlay-1",
+                serverId = "overlay-server",
+                serverUrl = "https://overlay.example",
+                accessToken = "overlay-access",
+                refreshToken = "overlay-refresh",
+                profileId = "overlay-profile",
+                profileToken = "overlay-token",
+                expiresAtEpochMs = Long.MAX_VALUE,
+            ),
+        )
+
+        registry.switchExternally("server-b")
+
+        assertEquals("overlay-server", manager.snapshotCurrentScope()?.serverId)
+    }
+
     private class FakeServerRegistry : ServerRegistry {
         private val serverA = ServerEntry(id = "server-a", url = "https://server-a.example")
         private val serverB = ServerEntry(id = "server-b", url = "https://server-b.example")
