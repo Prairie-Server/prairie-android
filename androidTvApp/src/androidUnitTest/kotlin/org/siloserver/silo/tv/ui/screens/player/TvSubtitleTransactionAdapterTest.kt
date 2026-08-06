@@ -333,7 +333,17 @@ class TvSubtitleTransactionAdapterTest {
         assertEquals(downloaded, harness.adapter.snapshot.committedIdentity)
         assertEquals(7, harness.adapter.snapshot.transition.committed.audioTrackIndex)
         assertEquals(
-            listOf(CommittedSubtitle(downloaded, audioTrackIndex = 7, qualityPreference = "auto")),
+            listOf(
+                CommittedSubtitle(
+                    downloaded,
+                    audioTrackIndex = 7,
+                    qualityPreference = "auto",
+                    // This scenario changes AUDIO explicitly, which is now
+                    // recorded so a subtitle-only commit cannot be mistaken for
+                    // the viewer choosing the audio it happened to carry.
+                    audioPreferenceSpecified = true,
+                ),
+            ),
             harness.persistence.persisted,
         )
     }

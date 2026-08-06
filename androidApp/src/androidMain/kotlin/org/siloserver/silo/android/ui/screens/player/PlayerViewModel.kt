@@ -684,6 +684,16 @@ class PlayerViewModel(
     private var lifecycleObserverJob: Job? = null
     private var resolveNextEpisodeJob: Job? = null
     private val exitPrepared = AtomicBoolean(false)
+
+    /**
+     * The session this view model owns, kept past the point UI state is cleared.
+     *
+     * Teardown happens in two stages — onExit() then onCleared() — and the first
+     * clears sessionId. Reading ownership from UI state in the second therefore
+     * yields null, and null means "stop whatever is playing", which after a
+     * player-to-player navigation is somebody else's session.
+     */
+    private var retainedOwnedSessionId: String? = null
     private var finalPositionScope: PlaybackWriteScope? = null
     private val initialPlayerLoadGate = InitialPlayerLoadGate()
 
@@ -940,6 +950,14 @@ class PlayerViewModel(
                 )) {
                     is VideoPlayerUiState.Ready -> {
                         unpublishedReadySessionId = playbackState.sessionId
+                        // Retained BEFORE the suspending UI application below.
+                        // The starter has already installed the lifecycle owner
+                        // and started its reporter by this point, so an exit
+                        // during that suspension would otherwise find neither a
+                        // published session nor a retained one — and skipping
+                        // teardown there strands the lifecycle and its reporter
+                        // running for a screen nobody is on.
+                        playbackState.sessionId?.let { retainedOwnedSessionId = it }
                         if (!ownsLoad(loadOwner)) {
                             stopStaleReadySession(playbackState.sessionId)
                             unpublishedReadySessionId = null
@@ -1181,7 +1199,8 @@ class PlayerViewModel(
                 title = watchDetail?.title ?: playbackState.title,
                 subtitle = watchDetail?.let { detail -> buildSubtitle(detail) } ?: playbackState.subtitle.orEmpty(),
                 artworkUrl = playbackState.artworkUrl,
-                sessionId = playbackState.sessionId,
+                sessionId = playbackState.sessionId
+                    ?.also { retainedOwnedSessionId = it },
                 playMethod = playbackState.playMethod,
                 playbackPlan = playbackState.playbackPlan,
                 requestHeaders = playbackState.requestHeaders,
@@ -1609,7 +1628,8 @@ class PlayerViewModel(
                                 } + downloaded
                             current.copy(
                                 error = null,
-                                sessionId = decision.session.sessionId,
+                                sessionId = decision.session.sessionId
+                                    .also { retainedOwnedSessionId = it },
                                 playMethod = decision.session.playMethod,
                                 playbackPlan = decision.session.playbackPlan,
                                 delivery = decision.plan.delivery,
@@ -2499,7 +2519,8 @@ class PlayerViewModel(
             current.copy(
                 error = null,
                 isBuffering = false,
-                sessionId = decision.session.sessionId,
+                sessionId = decision.session.sessionId
+                    .also { retainedOwnedSessionId = it },
                 playMethod = decision.session.playMethod,
                 playbackPlan = decision.session.playbackPlan,
                 delivery = decision.plan.delivery,
@@ -2711,7 +2732,8 @@ class PlayerViewModel(
         _uiState.update { current ->
             current.copy(
                 error = null,
-                sessionId = playback.sessionId,
+                sessionId = playback.sessionId
+                    ?.also { retainedOwnedSessionId = it },
                 playMethod = ready.session.playMethod,
                 playbackPlan = ready.session.playbackPlan,
                 delivery = ready.plan.delivery,
@@ -3530,9 +3552,21 @@ class PlayerViewModel(
         loadJob = null
         mobileSubtitleTransactions.invalidate()
         mobileSubtitleTransactions.requestDurableFinalPersistence()
+        // Qualified by the session this view model actually owns. The lifecycle
+        // is process-scoped, and phone navigation REPLACES the player back-stack
+        // entry — so a new view model can adopt its session before the outgoing
+        // one finishes tearing down, and an unqualified stop then kills the
+        // playback the viewer is currently watching. TV already qualifies both
+        // of its exits; phone did not.
+        val ownedSessionId = _uiState.value.sessionId ?: retainedOwnedSessionId
+        retainedOwnedSessionId = ownedSessionId
         viewModelScope.launch {
             mobileSubtitleTransactions.persistCommittedSelectionAndFlush()
-            sessionLifecycle.stop()
+            // Never unqualified. A null expectedSessionId disables the ownership
+            // guard entirely, which is the opposite of what a missing token
+            // should mean — if we cannot say which session was ours, we have no
+            // business stopping anyone's.
+            ownedSessionId?.let { sessionLifecycle.stop(expectedSessionId = it) }
         }
         val state = _uiState.value
         val cid = state.contentId.takeIf { it.isNotBlank() }
@@ -3730,6 +3764,13 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        // The RETAINED token, not the live state. An explicit back/remote exit
+        // calls onExit() before navigation, which clears sessionId — so by the
+        // time onCleared runs, a "snapshot" of UI state is already null, and a
+        // null token disables the ownership guard and stops whatever session is
+        // current. That is precisely the session a replacement screen may have
+        // just adopted.
+        val clearedSessionId = _uiState.value.sessionId ?: retainedOwnedSessionId
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
         loadOwners.invalidate()
@@ -3740,7 +3781,9 @@ class PlayerViewModel(
         onExit()
         // viewModelScope is cancelling here, so onExit's ordered stop may not run.
         // stopAsync() is app-scoped and de-duplicates against an in-flight stop.
-        sessionLifecycle.stopAsync()
+        // Qualified for the same reason as the ordered stop above: by the time
+        // onCleared runs, a replacement screen may already own playback.
+        clearedSessionId?.let { sessionLifecycle.stopAsync(expectedSessionId = it) }
         controlsHideJob?.cancel()
         introObserverJob?.cancel()
         lifecycleObserverJob?.cancel()

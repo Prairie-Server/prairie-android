@@ -44,6 +44,17 @@ class PlaybackStartupStallDetector(
         this.started = false
         this.signaled = false
         this.firstFrameRendered = false
+        // Only the startup deadline is cleared here — this is NOT a counter
+        // baseline, despite the shape of the check in sample(). Taking one was
+        // tried and reverted: Media3 creates fresh DecoderCounters when a
+        // renderer is enabled, so a baseline captured at mount can be compared
+        // against a counter that restarted at zero, and a healthy stream then
+        // looks frozen until it has rendered as many frames again. That trades
+        // a rare missed freeze for a common invented one. The residual — a
+        // reused player whose cumulative count makes the first sample look like
+        // this attempt already rendered — is accepted, and the real fix is
+        // AnalyticsListener.onRenderedFirstFrame(EventTime) carried through a
+        // mount key, which needs hardware to validate.
         this.decoderStartupAtMs = null
         this.paused = false
         this.lastProgressPositionMs = this.startPositionMs
@@ -51,6 +62,26 @@ class PlaybackStartupStallDetector(
         this.lastProgressAtMs = nowMs
     }
 
+    /**
+     * A frame rendered. Which stream rendered it is NOT known.
+     *
+     * Media3's callback carries no identity, so one from an outgoing stream can
+     * vouch for its replacement. That is a real defect and it is deliberately
+     * left in place: the two cheaper alternatives are both worse.
+     *
+     * Qualifying the callback with a key rebuilt from live state fails, because
+     * that key describes when the event was DELIVERED, not what rendered it.
+     * Comparing decoder counters against a mount baseline fails too, because
+     * Media3 creates fresh DecoderCounters when a renderer is enabled — so an
+     * outgoing count compared against a restarted counter would make a healthy
+     * stream look frozen until it had rendered as many frames again, which
+     * trades a rare missed freeze for a common false one.
+     *
+     * The correct fix is AnalyticsListener.onRenderedFirstFrame(EventTime),
+     * whose EventTime identifies the media period, carried through a mount key
+     * on the MediaItem tag. That is Media3 integration work whose failure modes
+     * are device-specific, and it is not being written blind.
+     */
     fun onFirstFrameRendered() {
         firstFrameRendered = true
         decoderStartupAtMs = null

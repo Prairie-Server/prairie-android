@@ -76,6 +76,19 @@ class HomeViewModel(
     private var realtimeRefreshInFlight = false
 
     /**
+     * Bumped by every fetch, checked before any of them publishes.
+     *
+     * loadSections(), refresh() and refreshFromRealtime() can all be in flight
+     * at once — a resume observer fires while an initial load is still
+     * running — and each captures hadSections BEFORE its network call. Without
+     * ordering, an older partial response lands after a newer complete one,
+     * replaces good sections and marks them not fully resolved, which now also
+     * tells the TV's focus restoration to keep waiting for rows that already
+     * arrived.
+     */
+    private var fetchGeneration = 0
+
+    /**
      * Debounced realtime refetch: quiet (no spinner) and single-flight —
      * an in-flight realtime or manual refresh already delivers the fresh
      * sections, so overlapping signals are dropped rather than raced.
@@ -96,7 +109,15 @@ class HomeViewModel(
         viewModelScope.launch {
             // Stale-while-revalidate: serve the cached home instantly (offline-
             // capable), then refresh from the network below.
+            // Captured BEFORE the cached read, which suspends: a refresh can
+            // start and publish fresh sections while we are in there, and
+            // overlaying the cache on top would put stale rows back on screen.
+            val bootstrapGeneration = fetchGeneration
             val cached = homeCache.getCachedHome()
+            if (fetchGeneration != bootstrapGeneration) {
+                fetchSections()
+                return@launch
+            }
             if (cached != null && cached.sections.isNotEmpty()) {
                 val overlaid = overlayLocalState(cached.sections)
                 _uiState.update { it.copy(isLoading = false, sections = overlaid, error = null) }
@@ -110,8 +131,14 @@ class HomeViewModel(
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
-            fetchSections()
-            _uiState.update { it.copy(isRefreshing = false) }
+            val generation = fetchSections()
+            // Only the newest fetch may clear the flag. A superseded refresh
+            // clearing it hides the spinner while a newer fetch is still
+            // running, and re-opens refreshFromRealtime's single-flight gate so
+            // it fires a redundant request.
+            if (generation == fetchGeneration) {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 
@@ -130,11 +157,16 @@ class HomeViewModel(
         )
     }
 
-    private suspend fun fetchSections() {
+    /**
+     * Runs one home fetch and returns the generation it ran as, so callers can
+     * tell whether their own work is still the newest before acting on it.
+     */
+    private suspend fun fetchSections(): Int {
         val requestIdentityGeneration = identityTransitions.generation.value
         val cacheWriteLease = HomeCacheWriteLease(requestIdentityGeneration)
         // Whether we already have something to show (cached or prior fetch) — if a
         // refresh fails we keep it rather than replacing it with a blocking error.
+        val generation = ++fetchGeneration
         val hadSections = _uiState.value.sections.isNotEmpty()
         when (val result = sectionRepository.getHomeSections()) {
             is ApiResult.Success -> {
@@ -149,6 +181,9 @@ class HomeViewModel(
                 val hydration = hydrateHomeSections(sections) { sectionId ->
                     sectionRepository.getHomeSectionItems(sectionId)
                 }
+                // Superseded while in flight: a newer fetch has already
+                // answered, so this reply describes a home nobody is looking at.
+                if (generation != fetchGeneration) return generation
                 val resolved = hydration.sections
                 // Don't persist a partially-resolved home over a good cached one.
                 val fullyResolved = hydration.fullyResolved
@@ -157,11 +192,20 @@ class HomeViewModel(
                 // local optimistic overlay applied.
                 if (
                     fullyResolved &&
+                    // A superseded fetch must not write its sections to the
+                    // cache either: the next cold start would serve them.
+                    generation == fetchGeneration &&
                     requestIdentityGeneration == identityTransitions.generation.value
                 ) {
                     homeCache.cacheHome(resolved, cacheWriteLease)
                 }
                 val overlaid = overlayLocalState(resolved)
+                // Checked AGAIN, after the cache write and the overlay. Both
+                // suspend, and a newer fetch can complete and publish during
+                // either — so a check taken before them proves only that this
+                // reply was current when it arrived, not that it still is when
+                // it finally writes.
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     // Only replace what's shown when the fetch fully resolved (or there
                     // was nothing yet) — a partial refresh must not clobber a good Home.
@@ -181,6 +225,8 @@ class HomeViewModel(
                 }
             }
             is ApiResult.Error -> {
+                // A superseded fetch's failure is not this home's failure.
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -191,6 +237,7 @@ class HomeViewModel(
                 }
             }
             is ApiResult.NetworkError -> {
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -199,6 +246,7 @@ class HomeViewModel(
                 }
             }
         }
+        return generation
     }
 
     // -- Card context-menu actions --

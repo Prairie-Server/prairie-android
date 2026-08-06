@@ -1117,6 +1117,18 @@ fun TvPlayerScreen(
         }
     }
 
+    // A subtitle or audio change that failed has to say so. Stage, validation,
+    // commit, rollback and mount failures all populated subtitleFailureMessage
+    // and nothing ever read it: "Applying…" simply vanished and the tick
+    // returned to the previous track, which is indistinguishable from the
+    // viewer having imagined pressing it. Audio replans share this adapter, so
+    // they were equally silent.
+    LaunchedEffect(state.subtitleFailureId) {
+        val message = state.subtitleFailureMessage ?: return@LaunchedEffect
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        viewModel.onSubtitleFailureShown(state.subtitleFailureId)
+    }
+
     // Surface transient Watch Together server rejections (e.g. a guest seek the
     // server refuses) as a brief Toast. These flow on the repo errors stream and
     // do NOT eject the user. Only collected while bound to a room.
@@ -1465,11 +1477,18 @@ fun TvPlayerScreen(
                         recovery.correctionId,
                         "rendered_frame_progress",
                     )
-                    is PostResumeVideoStallDetector.Signal.Failed -> viewModel.onRuntimeCorrection(
-                        "runtime_correction_failed",
-                        recovery.correctionId,
-                        "bounded_recovery_exhausted",
-                    )
+                    is PostResumeVideoStallDetector.Signal.Failed -> {
+                        viewModel.onRuntimeCorrection(
+                            "runtime_correction_failed",
+                            recovery.correctionId,
+                            "bounded_recovery_exhausted",
+                        )
+                        // Tell the viewer too. This signal fires once and never
+                        // again, so a frozen picture with running audio would
+                        // otherwise sit there indefinitely, recorded in
+                        // telemetry and invisible on screen.
+                        viewModel.onPlaybackRecoveryExhausted()
+                    }
                     null -> Unit
                 }
                 delay(1_000)
@@ -1705,13 +1724,18 @@ fun TvPlayerScreen(
         state.showSubtitleMenu,
         state.showSubtitleStyleDialog,
         state.isScrubbing,
+        state.showNextUp,
     ) {
         // Never auto-hide mid-scrub: hiding the scrubber would tear down the
         // in-flight preview under the user. The timer re-arms once the scrub
         // commits or cancels (isScrubbing flips back to false).
+        //
+        // Up Next counts down for longer than this timer, and it is a
+        // focus-owning surface: letting the timer fire under it hides the
+        // controls and pulls focus to the root, off the primary action.
         if (state.showControls && !state.isPaused && !state.hudOpen &&
             !state.showSubtitleMenu && !state.showSubtitleStyleDialog &&
-            !state.isScrubbing
+            !state.isScrubbing && !state.showNextUp
         ) {
             delay(CONTROLS_AUTO_HIDE_MS)
             viewModel.setControlsVisible(false)

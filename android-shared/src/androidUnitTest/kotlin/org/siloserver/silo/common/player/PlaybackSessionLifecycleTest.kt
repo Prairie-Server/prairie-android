@@ -858,6 +858,151 @@ class PlaybackSessionLifecycleTest {
     }
 
     // ------------------------------------------------------------------------
+    // Exactly-once teardown (auto-advance)
+    // ------------------------------------------------------------------------
+
+    /**
+     * The auto-advance regression: the outgoing screen's deferred onCleared stop
+     * used to land after the incoming episode had captured its ownership epoch,
+     * bumping stopEpoch and getting the incoming adoption rejected. On device
+     * that surfaced as "Playback start was superseded." on every episode change.
+     */
+    @Test
+    fun `gated duplicate teardown does not supersede the next item`() = runTest {
+        val sessionMgr = FakeSessionManager()
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        val gate = PlaybackTeardownGate(lifecycle)
+
+        val epochA = lifecycle.acquireOwnershipEpoch()
+        assertTrue(
+            lifecycle.adoptActiveSessionIfCurrent(
+                params = defaultStartParams(),
+                session = makeSession("sess-a"),
+                expectedOwnershipEpoch = epochA,
+            ),
+        )
+        // Ordered pre-navigation stop of the outgoing episode.
+        gate.stopOrdered(expectedSessionId = "sess-a")
+
+        // The incoming episode captures its epoch, and only THEN does the old
+        // screen's deferred onCleared fallback fire.
+        val epochB = lifecycle.acquireOwnershipEpoch()
+        gate.stopDetached(expectedSessionId = "sess-a")
+
+        val adopted = lifecycle.adoptActiveSessionIfCurrent(
+            params = defaultStartParams(),
+            session = makeSession("sess-b"),
+            expectedOwnershipEpoch = epochB,
+        )
+
+        assertTrue(adopted, "next episode must adopt despite the late duplicate teardown")
+        assertEquals("sess-b", (lifecycle.state.value as SessionState.Active).session.sessionId)
+        assertEquals(1, sessionMgr.stopCallCount, "outgoing session stopped exactly once")
+    }
+
+    /** Control: without the gate the same interleaving really does break. */
+    @Test
+    fun `ungated duplicate teardown supersedes the next item`() = runTest {
+        val sessionMgr = FakeSessionManager()
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+
+        val epochA = lifecycle.acquireOwnershipEpoch()
+        lifecycle.adoptActiveSessionIfCurrent(
+            params = defaultStartParams(),
+            session = makeSession("sess-a"),
+            expectedOwnershipEpoch = epochA,
+        )
+        lifecycle.stop(expectedSessionId = "sess-a")
+
+        val epochB = lifecycle.acquireOwnershipEpoch()
+        lifecycle.stop(expectedSessionId = "sess-a")
+
+        assertFalse(
+            lifecycle.adoptActiveSessionIfCurrent(
+                params = defaultStartParams(),
+                session = makeSession("sess-b"),
+                expectedOwnershipEpoch = epochB,
+            ),
+            "this is the bug the gate exists to prevent",
+        )
+    }
+
+    /**
+     * The claim must never be consumed without leaving an owner. Here the
+     * fallback lands while the ordered stop is still in flight — so it correctly
+     * skips — and the ordered stop then fails. Teardown has to survive that.
+     */
+    @Test
+    fun `fallback during a suspended ordered stop cannot abandon teardown`() = runTest {
+        val firstStopReached = CompletableDeferred<Unit>()
+        val releaseFirstStop = CompletableDeferred<Unit>()
+        val sessionMgr = object : FakeSessionManager() {
+            var attempts = 0
+            override suspend fun stopSession(sessionId: String): ApiResult<Unit> {
+                attempts++
+                if (attempts == 1) {
+                    firstStopReached.complete(Unit)
+                    releaseFirstStop.await()
+                    throw IllegalStateException("stop failed")
+                }
+                return super.stopSession(sessionId)
+            }
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+        val gate = PlaybackTeardownGate(lifecycle)
+
+        val epochA = lifecycle.acquireOwnershipEpoch()
+        lifecycle.adoptActiveSessionIfCurrent(
+            params = defaultStartParams(),
+            session = makeSession("sess-a"),
+            expectedOwnershipEpoch = epochA,
+        )
+
+        // runCatching so the failure stays inside this coroutine.
+        val ordered = backgroundScope.async {
+            runCatching { gate.stopOrdered(expectedSessionId = "sess-a") }
+        }
+        firstStopReached.await()
+
+        // The dying screen's onCleared fires mid-flight and finds it claimed.
+        gate.stopDetached(expectedSessionId = "sess-a")
+
+        releaseFirstStop.complete(Unit)
+        assertTrue(ordered.await().isFailure, "the ordered stop really did fail")
+        // The handoff job runs on Dispatchers.IO, so the test scheduler cannot
+        // see it. Join it through the same API a real next start uses.
+        lifecycle.acquireOwnershipEpoch()
+        assertEquals(2, sessionMgr.attempts, "the tracked job must retry the abandoned teardown")
+        assertEquals(SessionState.Idle, lifecycle.state.value)
+    }
+
+    /**
+     * The detached routes only schedule the stop, so nothing is positioned to
+     * catch it. The lifecycle scope has a SupervisorJob but no
+     * CoroutineExceptionHandler, so an escaping throw would be an uncaught
+     * coroutine exception — process death rather than a lingering session.
+     */
+    @Test
+    fun `a failing async stop does not escape as an uncaught exception`() = runTest {
+        val sessionMgr = object : FakeSessionManager() {
+            override suspend fun stopSession(sessionId: String): ApiResult<Unit> =
+                throw IllegalStateException("stop failed")
+        }
+        val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
+
+        val epoch = lifecycle.acquireOwnershipEpoch()
+        lifecycle.adoptActiveSessionIfCurrent(
+            params = defaultStartParams(),
+            session = makeSession("sess-a"),
+            expectedOwnershipEpoch = epoch,
+        )
+
+        lifecycle.stopAsync(expectedSessionId = "sess-a")
+        // Joins the tracked job. If the failure escaped, runTest reports it.
+        lifecycle.acquireOwnershipEpoch()
+    }
+
+    // ------------------------------------------------------------------------
     // Test infrastructure
     // ------------------------------------------------------------------------
 

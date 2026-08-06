@@ -65,6 +65,8 @@ class PgsSupExtractor(
     private var displaySetSegmentCount = 0
     private var failedClosed = false
     private var emittedSets = 0
+    /** Display sets dropped because the parser could not survive them. */
+    private var malformedSets = 0
     private var emittedCues = 0
 
     override fun sniff(input: ExtractorInput): Boolean {
@@ -147,6 +149,21 @@ class PgsSupExtractor(
             return Extractor.RESULT_CONTINUE
         }
 
+        // Reject a hostile bitmap BEFORE Media3 sizes an allocation from it.
+        // The parser trusts the declared width and height, allocating
+        // IntArray(width * height) plus an ARGB bitmap, so a few bytes can ask
+        // for hundreds of megabytes. Catching the failure afterwards is too
+        // late — the memory pressure has already happened, and on a small box
+        // the process simply goes.
+        if (segmentType == SEGMENT_TYPE_OBJECT && !isPgsObjectWithinBudget(payload)) {
+            malformedSets++
+            org.siloserver.silo.common.player.SubDiag.log(
+                "SUP object rejected: declared bitmap outside budget",
+            )
+            discardPendingDisplaySet()
+            return Extractor.RESULT_CONTINUE
+        }
+
         // First segment of a set carries the time the whole set is shown at.
         if (displaySet.isEmpty()) {
             displaySetTimeUs = pts90kHz * C.MICROS_PER_SECOND / PTS_CLOCK_HZ
@@ -188,6 +205,7 @@ class PgsSupExtractor(
         displaySetTimeUs = C.TIME_UNSET
         displaySetSegmentCount = 0
         val activeParser = parser ?: return
+        val output = trackOutput ?: return
         if (timeUs == C.TIME_UNSET) return
 
         emittedSets++
@@ -196,6 +214,61 @@ class PgsSupExtractor(
                 "SUP set=$emittedSets t=${timeUs / 1000}ms bytes=${bytes.size}",
             )
         }
+        // The bundled Media3 PGS parser trusts the display set's own 16-bit
+        // width/height: it allocates IntArray(width * height) and applies RLE
+        // runs with no pixel bound of its own. A corrupt or hostile set can
+        // therefore throw NegativeArraySizeException, an oversized-run
+        // IllegalArgumentException, or ask for an allocation large enough to
+        // take the process down on a low-memory box.
+        //
+        // Bounding the byte length upstream does not help — a handful of bytes
+        // can declare an enormous bitmap. So the parse is contained here, and a
+        // damaged caption costs one missing subtitle rather than the film.
+        //
+        // OutOfMemoryError is caught deliberately. It is not an error this
+        // process caused by being unhealthy; it is one specific allocation
+        // sized by untrusted input, and refusing to catch it on principle means
+        // a bad caption kills playback.
+        val decoded = try {
+            decodeDisplaySet(activeParser, bytes, timeUs)
+        } catch (e: Exception) {
+            malformedSets++
+            org.siloserver.silo.common.player.SubDiag.log(
+                "SUP set $emittedSets rejected: ${e::class.simpleName}: ${e.message}",
+            )
+            null
+        } catch (e: OutOfMemoryError) {
+            // Narrow by construction: this block now contains only parsing and
+            // cue encoding, both sized by the display set's own declared
+            // dimensions. It is not a general OOM handler — the sample queue is
+            // no longer inside it.
+            malformedSets++
+            org.siloserver.silo.common.player.SubDiag.log(
+                "SUP set $emittedSets exhausted memory and was dropped",
+            )
+            null
+        }
+        decoded?.let { publishDisplaySet(output, it, timeUs) }
+    }
+
+    /**
+     * Decode a display set WITHOUT touching the sample queue.
+     *
+     * Parsing and publication are separated on purpose. Writing samples from
+     * inside the parse callback means a failure partway through — after
+     * sampleData and before sampleMetadata — leaves uncommitted bytes in the
+     * queue, and the next sample then lands on a boundary the queue disagrees
+     * about. A dropped caption is recoverable; a corrupt queue is not.
+     *
+     * So everything untrusted happens here and produces plain byte arrays, and
+     * the caller publishes only if this returned normally.
+     */
+    private fun decodeDisplaySet(
+        activeParser: SubtitleParser,
+        bytes: ByteArray,
+        timeUs: Long,
+    ): List<ByteArray> {
+        val encodedSamples = mutableListOf<ByteArray>()
         activeParser.parse(
             bytes,
             0,
@@ -211,9 +284,15 @@ class PgsSupExtractor(
             // Duration stays unset: PGS ends a caption with the next display
             // set, and the parser's REPLACE behaviour already means a new
             // sample supersedes the last one.
-            val encoded = cueEncoder.encode(cues.cues, C.TIME_UNSET)
-            val data = ParsableByteArray(encoded)
-            output.sampleData(data, encoded.size)
+            encodedSamples += cueEncoder.encode(cues.cues, C.TIME_UNSET)
+        }
+        return encodedSamples
+    }
+
+    /** Publish decoded samples. Nothing here can throw on untrusted input. */
+    private fun publishDisplaySet(output: TrackOutput, samples: List<ByteArray>, timeUs: Long) {
+        samples.forEach { encoded ->
+            output.sampleData(ParsableByteArray(encoded), encoded.size)
             output.sampleMetadata(
                 (timeUs + offsetUsProvider()).coerceAtLeast(0L),
                 C.BUFFER_FLAG_KEY_FRAME,
@@ -274,6 +353,8 @@ class PgsSupExtractor(
         /** `PG` magic, 4-byte PTS, 4-byte DTS, type, 2-byte length. */
         const val SEGMENT_HEADER_SIZE = 13
         const val SEGMENT_TYPE_END = 0x80
+        /** ODS — the only segment that declares bitmap dimensions. */
+        const val SEGMENT_TYPE_OBJECT = 0x15
         private const val CONTAINER_SEGMENT_HEADER_SIZE = 3
         private const val MAX_DISPLAY_SET_BYTES = 16 * 1024 * 1024
         private const val MAX_DISPLAY_SET_SEGMENTS = 512
@@ -284,3 +365,47 @@ class PgsSupExtractor(
         private const val MAGIC_G = MAGIC_G_INT.toByte()
     }
 }
+
+/**
+ * Whether an ODS payload declares a bitmap this device should attempt.
+ *
+ * Reads only the object header, which is not a second PGS parser: two 16-bit
+ * fields at a fixed offset. RLE correctness stays Media3's problem; this exists
+ * solely so the allocation it performs is one we chose to allow.
+ *
+ * Layout, first-sequence object:
+ *   0..1  object id
+ *   2     version
+ *   3     sequence descriptor  (bit 7 set = first/base sequence)
+ *   4..6  object data length, 24-bit  (present only on a first sequence)
+ *   7..8  width, 16-bit
+ *   9..10 height, 16-bit
+ *
+ * Continuation segments carry no dimensions and are passed through: the base
+ * sequence they belong to was already judged.
+ */
+private fun isPgsObjectWithinBudget(payload: ByteArray): Boolean {
+    if (payload.size < 4) return false
+    val isFirstSequence = (payload[3].toInt() and 0x80) != 0
+    if (!isFirstSequence) return true
+    if (payload.size < 11) return false
+
+    fun u8(i: Int) = payload[i].toInt() and 0xFF
+    val objectDataLength = (u8(4) shl 16) or (u8(5) shl 8) or u8(6)
+    val width = (u8(7) shl 8) or u8(8)
+    val height = (u8(9) shl 8) or u8(10)
+
+    // object_data_length counts the four width/height bytes, so anything below
+    // them is malformed rather than merely small.
+    if (objectDataLength < 4) return false
+    if (width <= 0 || height <= 0) return false
+    if (width > MAX_PGS_DIMENSION || height > MAX_PGS_DIMENSION) return false
+    if (width.toLong() * height.toLong() > MAX_PGS_BITMAP_PIXELS) return false
+    if (objectDataLength.toLong() - 4L > MAX_PGS_OBJECT_DATA_BYTES) return false
+    return true
+}
+
+/** A full-frame 1080p caption is allowed; a 4K one is not, on TV memory. */
+private const val MAX_PGS_BITMAP_PIXELS = 1920L * 1080L
+private const val MAX_PGS_OBJECT_DATA_BYTES = 8L * 1024L * 1024L
+private const val MAX_PGS_DIMENSION = 4096
