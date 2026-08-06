@@ -127,8 +127,8 @@ class PersonDetailViewModelTest {
         viewModel: PersonDetailViewModel,
         predicate: (PersonDetailUiState) -> Boolean,
     ) {
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5_000) {
+        withContext(Dispatchers.IO) {
+            withTimeout(AWAIT_POLL_TIMEOUT_MS) {
                 while (!predicate(viewModel.uiState.value)) {
                     delay(10)
                 }
@@ -243,3 +243,13 @@ class PersonDetailViewModelTest {
     private fun item(id: String, title: String, type: String): String =
         """{"content_id":"$id","title":"$title","type":"$type"}"""
 }
+
+/**
+ * Wall-clock backstop for the polling waits above.
+ *
+ * It exists to turn a hang into a failure, not to assert latency: a passing
+ * test settles in milliseconds. Short deadlines here failed on a loaded CI
+ * runner while the work was merely slow, which looks exactly like the race the
+ * wait was written to catch.
+ */
+private const val AWAIT_POLL_TIMEOUT_MS = 30_000L

@@ -70,7 +70,9 @@ class PlaybackSessionManagerStagedReplanTest {
             .substringAfter("suspend fun confirmVideoSessionPublication(")
             .substringBefore("suspend fun rollbackUnpublishedVideoSession(")
 
-        val orphanRegistration = confirmation.indexOf("orphanedSessionIds +=")
+        // Every insertion goes through the bounded helper now, so the ledger
+        // cannot grow without limit when stops keep failing.
+        val orphanRegistration = confirmation.indexOf("rememberOrphanedSessionLocked(")
         val waiterRelease = confirmation.indexOf("pending.settled.complete(Unit)")
         val registeredCleanup = confirmation.indexOf(
             "scheduleRegisteredCommittedSessionCleanup(",
@@ -111,7 +113,7 @@ class PlaybackSessionManagerStagedReplanTest {
             // asynchronous cleanup still owns its first network attempt.
             harness.manager.stopSession("s2")
             releaseFirstCleanup.complete(Unit)
-            withTimeout(5_000) {
+            withTimeout(AWAIT_POLL_TIMEOUT_MS) {
                 while (harness.manager.orphanedSessionIdsForTest().isNotEmpty()) {
                     yield()
                 }
@@ -540,7 +542,7 @@ class PlaybackSessionManagerStagedReplanTest {
         val secondDiscard = launch { harness.manager.discardStagedVideoReplan(second) }
         try {
             withContext(Dispatchers.Default) {
-                withTimeout(5_000) { secondStopStarted.await() }
+                withTimeout(AWAIT_POLL_TIMEOUT_MS) { secondStopStarted.await() }
             }
             assertFalse(firstDiscard.isCompleted)
             assertTrue("s3" in harness.stopAttempts)
@@ -1590,3 +1592,13 @@ private object StagedReplanNoOpTokenManager : TokenManager {
     override suspend fun signOutCurrentServer() {}
     override suspend fun snapshotCurrentScope(): AuthScopeSnapshot? = null
 }
+
+/**
+ * Wall-clock backstop for the awaits above.
+ *
+ * These wait on signals and spins whose progress depends on getting scheduled,
+ * while the deadline counts real seconds regardless — so on a loaded CI runner
+ * a merely-slow test failed as if it had raced. The deadline exists to turn a
+ * hang into a failure, not to police latency.
+ */
+private const val AWAIT_POLL_TIMEOUT_MS = 30_000L

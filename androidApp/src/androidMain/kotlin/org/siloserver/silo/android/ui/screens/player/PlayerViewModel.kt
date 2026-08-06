@@ -17,6 +17,7 @@ import org.siloserver.silo.common.player.FinalPlaybackPositionWriter
 import org.siloserver.silo.common.player.Playability
 import org.siloserver.silo.common.player.PlaybackSessionLifecycle
 import org.siloserver.silo.common.player.PlaybackSessionManager
+import org.siloserver.silo.common.player.PlaybackTeardownGate
 import org.siloserver.silo.common.player.VideoSessionStartV3
 import org.siloserver.silo.common.player.cast.CastMediaSpec
 import org.siloserver.silo.common.player.cast.CastPrepareRequest
@@ -101,6 +102,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -723,6 +725,19 @@ class PlayerViewModel(
      * player-to-player navigation is somebody else's session.
      */
     private var retainedOwnedSessionId: String? = null
+
+    /**
+     * Makes this screen's teardown of the process-scoped lifecycle one-shot.
+     *
+     * Naming the session is necessary but not sufficient. onExit() runs an
+     * ordered stop and onCleared() then schedules a detached one for the same
+     * id; the second passes the lifecycle's ownership guard because the first
+     * already cleared the owner, and bumps `stopEpoch` on its way through. A
+     * screen that acquired its start epoch between the two — but has not yet
+     * adopted its session — is then rejected as superseded. TV has been behind
+     * this gate since auto-advance broke on exactly that race; phone was not.
+     */
+    private val lifecycleTeardown = PlaybackTeardownGate(sessionLifecycle)
     private var finalPositionScope: PlaybackWriteScope? = null
     private val initialPlayerLoadGate = InitialPlayerLoadGate()
 
@@ -1623,22 +1638,81 @@ class PlayerViewModel(
                 capabilities = capabilities,
                 clientPlaybackContext = playbackContext,
             )
+            // Returning on a stale generation is not enough on its own. By the
+            // time this call returns, the manager has already committed and
+            // taken ownership of the replacement session — so dropping the
+            // result quietly leaves a transcode running on the server that
+            // nothing will ever stop. The viewer sees playback exit; the server
+            // holds the stream slot until it times out. Release it when the
+            // generation moved on, the way TV already does; the adoption below
+            // owns the cancellation windows past this point.
+            val abandonedSessionId = (result as? ApiResult.Success)
+                ?.data
+                ?.let { it as? VideoSessionStartV3.Ready }
+                ?.session
+                ?.sessionId
+            if (!isActive || recoveryGeneration != playbackRecoveryGeneration) {
+                // Released on the manager's own scope, which outlives this
+                // screen: the whole point is to run after the reason for
+                // abandoning, and this ViewModel's scope may already be gone.
+                abandonedSessionId?.let(playbackSessionManager::abandonActiveVideoSessionAsync)
+            }
+            currentCoroutineContext().ensureActive()
             if (recoveryGeneration != playbackRecoveryGeneration) return@launch
             when (result) {
                 is ApiResult.Success -> when (val decision = result.data) {
                     is VideoSessionStartV3.Ready -> {
-                        sessionLifecycle.adoptActiveSession(
-                            params = StartParams(
-                                contentId = state.contentId,
-                                fileId = fileId,
-                                capabilities = capabilities,
-                                audioTrackIndex = decision.session.audioTrackIndex,
-                                subtitleTrackIndex = selectedSubtitleTrackIndex,
-                                startPosition = decision.session.position,
-                            ),
-                            session = decision.session,
-                            renewMissingSessionWithLegacyStart = false,
-                        )
+                        // Conditional adoption, evaluated inside the lifecycle
+                        // lock: an unconditional adopt can hand the lifecycle a
+                        // session this screen has already stopped owning, and
+                        // then the manager owns the replacement while the
+                        // lifecycle still owns its predecessor and the UI owns
+                        // neither.
+                        var adopted = false
+                        try {
+                            adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
+                                params = StartParams(
+                                    contentId = state.contentId,
+                                    fileId = fileId,
+                                    capabilities = capabilities,
+                                    audioTrackIndex = decision.session.audioTrackIndex,
+                                    subtitleTrackIndex = selectedSubtitleTrackIndex,
+                                    startPosition = decision.session.position,
+                                ),
+                                session = decision.session,
+                                renewMissingSessionWithLegacyStart = false,
+                                isCurrent = {
+                                    recoveryGeneration == playbackRecoveryGeneration && isActive
+                                },
+                            )
+                        } finally {
+                            // Covers refusal AND cancellation while waiting for
+                            // the lifecycle mutex, which throws before isCurrent
+                            // ever runs. NonCancellable because the usual reason
+                            // for being here is that this coroutine was
+                            // cancelled, and a cancelled coroutine cannot make
+                            // the call that releases the server's stream slot —
+                            // runCatching would only swallow the failure.
+                            if (!adopted) {
+                                withContext(NonCancellable) {
+                                    runCatching {
+                                        playbackSessionManager.stopSession(
+                                            decision.session.sessionId,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (!adopted) return@launch
+                        // Ownership moved at adoption, so the exit token moves
+                        // with it — and both exit routes read this token ahead
+                        // of UI state precisely so this write wins. Publishing
+                        // it only in the UI update below leaves a cancellation
+                        // in between with the lifecycle owning the replacement
+                        // while exit still names the predecessor, and the
+                        // lifecycle then correctly refuses to stop it.
+                        retainedOwnedSessionId = decision.session.sessionId
+                        currentCoroutineContext().ensureActive()
                         if (recoveryGeneration != playbackRecoveryGeneration) return@launch
                         val mountGeneration = expectNextMediaMount()
                         _uiState.update { current ->
@@ -1948,6 +2022,7 @@ class PlayerViewModel(
             positionSec = positionSec,
             durationSec = _uiState.value.duration,
             isPaused = _uiState.value.isPaused,
+            expectedSessionId = _uiState.value.sessionId,
         )
 
         // Track B: durably record the position (local resume + outbox sync) for
@@ -2533,7 +2608,11 @@ class PlayerViewModel(
             .takeIf { it.isFinite() && it >= 0.0 }
             ?: request.targetSourceSec
         seekRecoveryRollbackInvalidated = false
-        sessionLifecycle.adoptActiveSession(
+        // Conditional, evaluated inside the lifecycle lock. An unconditional
+        // adopt only checks currency before and after, so a seek superseded
+        // while this awaited the lock still handed the lifecycle a session this
+        // screen had stopped owning.
+        val adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
             params = StartParams(
                 contentId = before.contentId,
                 fileId = fileId,
@@ -2546,7 +2625,20 @@ class PlayerViewModel(
             ),
             session = decision.session,
             renewMissingSessionWithLegacyStart = false,
+            isCurrent = { isCurrentServerSeek(request, recoveryGeneration) },
         )
+        // Deliberately no stop on refusal, unlike the replan paths. A seek
+        // re-anchor is validated to reuse the SAME session id — the manager
+        // rejects any response that changes it — so there is no disposable
+        // candidate here. The id names the session still playing, and the
+        // ordinary reason for refusal is that a newer seek was queued, which
+        // needs that very session as its base.
+        if (!adopted) return
+        // Same rule as the other two adoption paths: the exit token names what
+        // the lifecycle owns, from the moment it owns it. Supersession or
+        // cancellation before the UI publication below would otherwise leave
+        // exit naming the predecessor and the replacement running.
+        retainedOwnedSessionId = decision.session.sessionId
         if (!isCurrentServerSeek(request, recoveryGeneration)) return
         currentCoroutineContext().ensureActive()
         val mountGeneration = expectNextMediaMount()
@@ -2758,6 +2850,15 @@ class PlayerViewModel(
             renewMissingSessionWithLegacyStart = false,
             isCurrent = adoption::isCurrent,
         )
+        // The lifecycle owns this session from here, so the exit token has to
+        // name it from here — not from the UI publication below. Supersession
+        // between the two abandons the manager's session without rolling the
+        // lifecycle back, and exit would otherwise name the predecessor, be
+        // rightly refused by the ownership guard, and leave the replacement
+        // running with the teardown gate stopping onCleared from retrying.
+        if (lifecycleAdopted) {
+            playback.sessionId?.let { retainedOwnedSessionId = it }
+        }
         if (!lifecycleAdopted || !adoption.isCurrent()) {
             return MobileSubtitleAdoptionResult.Superseded
         }
@@ -3756,7 +3857,14 @@ class PlayerViewModel(
         // one finishes tearing down, and an unqualified stop then kills the
         // playback the viewer is currently watching. TV already qualifies both
         // of its exits; phone did not.
-        val ownedSessionId = _uiState.value.sessionId ?: retainedOwnedSessionId
+        // Retained first, UI second. Every path that publishes a session id into
+        // UI state writes this token no later, and the three adoption paths
+        // (protocol-V3 replan, seek recovery, subtitle replan) write it earlier —
+        // at the moment the lifecycle takes ownership. That gap is the whole
+        // point: reading UI first inside it names the predecessor, the lifecycle
+        // rightly refuses to stop a session it no longer owns, and the one-shot
+        // gate stops onCleared from trying again. The replacement runs on.
+        val ownedSessionId = retainedOwnedSessionId ?: _uiState.value.sessionId
         retainedOwnedSessionId = ownedSessionId
         viewModelScope.launch {
             mobileSubtitleTransactions.persistCommittedSelectionAndFlush()
@@ -3764,7 +3872,7 @@ class PlayerViewModel(
             // guard entirely, which is the opposite of what a missing token
             // should mean — if we cannot say which session was ours, we have no
             // business stopping anyone's.
-            ownedSessionId?.let { sessionLifecycle.stop(expectedSessionId = it) }
+            ownedSessionId?.let { lifecycleTeardown.stopOrdered(expectedSessionId = it) }
         }
         val state = _uiState.value
         val cid = state.contentId.takeIf { it.isNotBlank() }
@@ -3968,13 +4076,14 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
-        // The RETAINED token, not the live state. An explicit back/remote exit
+        // The RETAINED token first, for the reason onExit gives. An explicit
+        // back/remote exit
         // calls onExit() before navigation, which clears sessionId — so by the
         // time onCleared runs, a "snapshot" of UI state is already null, and a
         // null token disables the ownership guard and stops whatever session is
         // current. That is precisely the session a replacement screen may have
         // just adopted.
-        val clearedSessionId = _uiState.value.sessionId ?: retainedOwnedSessionId
+        val clearedSessionId = retainedOwnedSessionId ?: _uiState.value.sessionId
         org.siloserver.silo.common.player.debug.PlaybackDebugState.screenError = null
         org.siloserver.silo.common.player.ActivePlaybackFile.clear(_uiState.value.mediaFileId)
         loadOwners.invalidate()
@@ -3984,10 +4093,11 @@ class PlayerViewModel(
         mobileSubtitleTransactions.invalidate()
         onExit()
         // viewModelScope is cancelling here, so onExit's ordered stop may not run.
-        // stopAsync() is app-scoped and de-duplicates against an in-flight stop.
+        // The gate is what decides: if that stop already claimed teardown this
+        // is a no-op, and otherwise the app-scoped async stop takes ownership.
         // Qualified for the same reason as the ordered stop above: by the time
         // onCleared runs, a replacement screen may already own playback.
-        clearedSessionId?.let { sessionLifecycle.stopAsync(expectedSessionId = it) }
+        clearedSessionId?.let { lifecycleTeardown.stopDetached(expectedSessionId = it) }
         controlsHideJob?.cancel()
         introObserverJob?.cancel()
         lifecycleObserverJob?.cancel()

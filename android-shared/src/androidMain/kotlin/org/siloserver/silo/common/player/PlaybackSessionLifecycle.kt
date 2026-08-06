@@ -101,6 +101,15 @@ class PlaybackSessionLifecycle(
 
     private data class ActiveSessionSnapshot(
         val state: SessionState,
+        /**
+         * The ownership token as it stood, captured rather than derived.
+         *
+         * [SessionState] carries a session id only while Active, but
+         * Reconnecting and Failed deliberately keep owning theirs — so
+         * reconstructing the token from the restored state alone erases
+         * ownership exactly for the states that exist to survive an outage.
+         */
+        val lastAdoptedSessionId: String?,
         val notice: PlayerNotice?,
         val lastStartParams: StartParams?,
         val lastReportedPosition: Double?,
@@ -366,6 +375,7 @@ class PlaybackSessionLifecycle(
     private fun captureActiveSessionSnapshot(): ActiveSessionSnapshot =
         ActiveSessionSnapshot(
             state = _state.value,
+            lastAdoptedSessionId = lastAdoptedSessionId,
             notice = _notice.value,
             lastStartParams = lastStartParams,
             lastReportedPosition = lastReportedPosition,
@@ -393,8 +403,15 @@ class PlaybackSessionLifecycle(
         renewMissingSessionWithLegacyStart = snapshot.renewMissingSessionWithLegacyStart
         diagnosticsRecording = snapshot.diagnosticsRecording
         _notice.value = snapshot.notice
-        // A rollback to the predecessor hands ownership back to that session.
-        (snapshot.state as? SessionState.Active)?.let { lastAdoptedSessionId = it.session.sessionId }
+        // Restore the token the snapshot captured, rather than deriving it from
+        // the restored state. Deriving gets both ends wrong: reading it only
+        // from Active leaves a rolled-back first deferred adoption naming the
+        // discarded replacement, while clearing everything that is not Active
+        // erases ownership for Reconnecting and Failed — which hold a session
+        // precisely so an outage does not lose it. A predecessor restored as
+        // Reconnecting would then have no id for stop() to name, and its
+        // transcode would run until the server expired it.
+        lastAdoptedSessionId = snapshot.lastAdoptedSessionId
         _state.value = snapshot.state
         if (
             restartReporter &&
@@ -527,7 +544,30 @@ class PlaybackSessionLifecycle(
      * Push a position update from the player. Non-suspend — the actual server
      * report happens on the internal 10s debounce loop (see [PROGRESS_REPORT_INTERVAL_MS]).
      */
-    fun reportPosition(positionSec: Double, durationSec: Double, isPaused: Boolean) {
+    fun reportPosition(
+        positionSec: Double,
+        durationSec: Double,
+        isPaused: Boolean,
+        /**
+         * The session the caller believes produced this sample; null when the
+         * caller owns none, as downloaded and local playback do not.
+         *
+         * These fields are process-global and the reporter loop pairs them with
+         * whichever session is current when it next fires — so a final callback
+         * from an outgoing player, arriving after the next screen has adopted,
+         * would otherwise flush the previous episode's position under the new
+         * episode's id. That is the "resume jumped to the last episode's time"
+         * shape.
+         *
+         * Note that null is NOT "skip the check": both exit paths clear the UI
+         * session id while player callbacks are still draining, so treating null
+         * as permission is exactly the hole this closes. A caller with no
+         * session may only write these fields while the lifecycle owns none
+         * either.
+         */
+        expectedSessionId: String?,
+    ) {
+        if (expectedSessionId != lastAdoptedSessionId) return
         if (positionSec.isFinite() && positionSec >= 0) {
             lastReportedPosition = positionSec
         }

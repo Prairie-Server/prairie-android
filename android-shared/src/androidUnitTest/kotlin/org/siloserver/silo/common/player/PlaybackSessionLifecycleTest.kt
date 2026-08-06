@@ -238,7 +238,7 @@ class PlaybackSessionLifecycleTest {
         assertEquals("sess-adopted", (active as SessionState.Active).session.sessionId)
         assertEquals(listOf("sess-adopted"), recordedSessions)
 
-        lifecycle.reportPosition(positionSec = 33.0, durationSec = 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(positionSec = 33.0, durationSec = 100.0, isPaused = false)
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
 
         assertEquals(0, sessionMgr.startCallCount)
@@ -264,7 +264,7 @@ class PlaybackSessionLifecycleTest {
             stopSessionOnStop = false,
         )
 
-        lifecycle.reportPosition(positionSec = 33.0, durationSec = 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(positionSec = 33.0, durationSec = 100.0, isPaused = false)
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
         lifecycle.stop()
         advanceUntilIdle()
@@ -507,7 +507,7 @@ class PlaybackSessionLifecycleTest {
         assertEquals("sess-original", (first as SessionState.Active).session.sessionId)
 
         // Simulate the player advancing.
-        lifecycle.reportPosition(positionSec = 42.5, durationSec = 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(positionSec = 42.5, durationSec = 100.0, isPaused = false)
 
         // Trigger the 10s reporter; first call returns 404 -> recovery -> re-start.
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
@@ -552,7 +552,7 @@ class PlaybackSessionLifecycleTest {
 
         val active = lifecycle.start(defaultStartParams())
         assertTrue(active is SessionState.Active)
-        lifecycle.reportPosition(10.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(10.0, 100.0, isPaused = false)
 
         // Trigger the 10s reporter -> NetworkError -> beginOutageRecovery.
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
@@ -596,7 +596,7 @@ class PlaybackSessionLifecycleTest {
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
         val active = lifecycle.start(defaultStartParams())
         assertTrue(active is SessionState.Active)
-        lifecycle.reportPosition(5.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(5.0, 100.0, isPaused = false)
 
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
         advanceUntilIdle()
@@ -634,7 +634,7 @@ class PlaybackSessionLifecycleTest {
         }
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
         lifecycle.start(defaultStartParams())
-        lifecycle.reportPosition(0.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(0.0, 100.0, isPaused = false)
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
         advanceUntilIdle()
         assertTrue(lifecycle.state.value is SessionState.Reconnecting)
@@ -682,7 +682,7 @@ class PlaybackSessionLifecycleTest {
         }
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
         lifecycle.start(defaultStartParams())
-        lifecycle.reportPosition(0.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(0.0, 100.0, isPaused = false)
 
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
         advanceUntilIdle()
@@ -718,7 +718,7 @@ class PlaybackSessionLifecycleTest {
         }
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
         lifecycle.start(defaultStartParams())
-        lifecycle.reportPosition(0.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(0.0, 100.0, isPaused = false)
 
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
         advanceUntilIdle()
@@ -753,7 +753,7 @@ class PlaybackSessionLifecycleTest {
         }
         val lifecycle = newLifecycle(sessionMgr, healthApi = healthApi, scope = backgroundScope)
         lifecycle.start(defaultStartParams())
-        lifecycle.reportPosition(12.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(12.0, 100.0, isPaused = false)
 
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
         advanceUntilIdle()
@@ -779,7 +779,7 @@ class PlaybackSessionLifecycleTest {
         }
         val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
         lifecycle.start(defaultStartParams())
-        lifecycle.reportPosition(15.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(15.0, 100.0, isPaused = false)
         advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
         advanceUntilIdle()
 
@@ -832,7 +832,7 @@ class PlaybackSessionLifecycleTest {
         }
         val lifecycle = newLifecycle(sessionMgr, scope = backgroundScope)
         lifecycle.start(defaultStartParams())
-        lifecycle.reportPosition(7.0, 100.0, isPaused = false)
+        lifecycle.reportOwnedPosition(7.0, 100.0, isPaused = false)
 
         // Four reporter ticks — every tick reads state.value's session, which
         // is still sess-original because the renewal start() is gated. Each
@@ -1020,6 +1020,24 @@ class PlaybackSessionLifecycleTest {
         personalDataRepository = personalRepo,
         scope = scope,
         playbackSessions = playbackSessions,
+    )
+
+    /**
+     * Reports a sample as the session the lifecycle currently owns.
+     *
+     * reportPosition requires the caller to name its session — null is "I own
+     * none", not "skip the check" — so these tests have to say which session
+     * they are reporting for, exactly as the players do.
+     */
+    private fun PlaybackSessionLifecycle.reportOwnedPosition(
+        positionSec: Double,
+        durationSec: Double,
+        isPaused: Boolean,
+    ) = reportPosition(
+        positionSec = positionSec,
+        durationSec = durationSec,
+        isPaused = isPaused,
+        expectedSessionId = (state.value as? SessionState.Active)?.session?.sessionId,
     )
 
     private fun defaultStartParams(startPosition: Double? = null) = StartParams(

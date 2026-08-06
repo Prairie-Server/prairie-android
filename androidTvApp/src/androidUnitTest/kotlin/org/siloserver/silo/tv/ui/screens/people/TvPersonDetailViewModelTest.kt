@@ -121,7 +121,7 @@ class TvPersonDetailViewModelTest {
         viewModel: TvPersonDetailViewModel,
         predicate: (TvPersonDetailUiState) -> Boolean,
     ) {
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
+        withContext(Dispatchers.IO) {
             withTimeout(30_000) {
                 while (!predicate(viewModel.uiState.value)) {
                     delay(10)
