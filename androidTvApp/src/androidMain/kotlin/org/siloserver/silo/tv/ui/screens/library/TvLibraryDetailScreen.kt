@@ -124,6 +124,7 @@ fun TvLibraryDetailScreen(
     ) {
         when (state.selectedTab) {
             TvLibraryTab.Recommended -> RecommendedTab(
+                surfaceKey = "library-$libraryId",
                 state = state,
                 onItemClick = onItemClick,
                 onRetry = viewModel::retryRecommended,
@@ -239,6 +240,8 @@ fun TvLibraryDetailScreen(
 
 @Composable
 private fun RecommendedTab(
+    /** Distinguishes this feed's saveable slots from other surfaces'. */
+    surfaceKey: String,
     state: TvLibraryDetailViewModel.UiState,
     onItemClick: (String) -> Unit,
     onRetry: () -> Unit,
@@ -275,6 +278,7 @@ private fun RecommendedTab(
         }
         else -> {
             TvSkylineSectionFeed(
+                surfaceKey = surfaceKey,
                 sections = rows,
                 onItemClick = onItemClick,
                 focusRequest = focusRequest,

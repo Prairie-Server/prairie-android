@@ -179,6 +179,7 @@ private fun TvHomeContent(
     sectionsFullyResolved: Boolean = true,
 ) {
     TvSkylineSectionFeed(
+        surfaceKey = "home",
         sections = sections,
         sectionsComplete = sectionsFullyResolved,
         onItemClick = onItemClick,

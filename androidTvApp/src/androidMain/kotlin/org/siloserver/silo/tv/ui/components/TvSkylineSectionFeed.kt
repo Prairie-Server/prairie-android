@@ -78,6 +78,17 @@ import org.koin.compose.koinInject
 fun TvSkylineSectionFeed(
     sections: List<ResolvedSection>,
     onItemClick: (String) -> Unit,
+    /**
+     * Identifies the surface this feed instance belongs to.
+     *
+     * `rememberSaveable` slots are POSITIONAL. Two feeds composed at the same
+     * position in different surfaces — Home and a library detail — otherwise
+     * share one slot, so a return target armed on one could be restored into
+     * the other, sending focus to a card that surface never showed. The saved
+     * target itself carries no owner: it is only
+     * [sectionId, itemId, sectionIndex, itemIndex].
+     */
+    surfaceKey: String,
     modifier: Modifier = Modifier,
     /**
      * False while rows are still being hydrated.
@@ -165,12 +176,12 @@ fun TvSkylineSectionFeed(
     // somewhere else. Saveable so it survives both the outer round trip and
     // process death, which is exactly when the live focus state below is gone
     // and indices would be all that was left.
-    var returnTarget by rememberSaveable(stateSaver = TvReturnTargetSaver) {
+    var returnTarget by rememberSaveable(surfaceKey, stateSaver = TvReturnTargetSaver) {
         mutableStateOf<TvReturnTarget?>(null)
     }
     // True while a restore target is armed. Gates the restore requester
     // attachments (and the row restorer's enter-fallback redirect they imply).
-    var detailReturnPending by rememberSaveable { mutableStateOf(false) }
+    var detailReturnPending by rememberSaveable(surfaceKey) { mutableStateOf(false) }
     // True while a ladder is actively driving focus back to the launch card.
     //
     // Focus lands on the wrong card first often enough that these ladders exist
@@ -189,7 +200,7 @@ fun TvSkylineSectionFeed(
     // would pivot onto a newly clicked card, see it already focused, and clear
     // the NEW trip's pending state — losing restoration for the trip that had
     // only just started.
-    var returnGeneration by rememberSaveable { mutableIntStateOf(0) }
+    var returnGeneration by rememberSaveable(surfaceKey) { mutableIntStateOf(0) }
     // Bumped when a ladder starts, so the row scrolls its own LazyRow to the
     // resolved card. Without it the card can sit outside the composed
     // horizontal window after a reorder, the requester never attaches, and
