@@ -30,9 +30,16 @@ class AdminPermissionsTest {
         assertFalse(isActingAdmin(user("admin"), profile(isPrimary = false)))
     }
 
+    /**
+     * The reported bug: a household profile that is not the owner showed the
+     * admin surface. The account role is identical on every profile, so the
+     * profile is the only thing separating them — and treating "not resolved"
+     * as permission handed admin to whoever was signed in whenever the profile
+     * lookup had not answered or had failed.
+     */
     @Test
-    fun `admin role with null profile is acting admin (profile not yet resolved)`() {
-        assertTrue(isActingAdmin(user("admin"), null))
+    fun `admin role with unresolved profile is not acting admin`() {
+        assertFalse(isActingAdmin(user("admin"), null))
     }
 
     @Test

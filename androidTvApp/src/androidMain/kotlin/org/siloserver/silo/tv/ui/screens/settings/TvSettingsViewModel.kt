@@ -139,7 +139,21 @@ class TvSettingsViewModel(
                 val isLastAttempt = attempt == UserLoadMaxAttempts - 1
                 when (val r = authRepository.getCurrentUser()) {
                     is ApiResult.Success -> {
-                        val profile = profileRepository.getActiveProfile()
+                        // Retried alongside /me. The admin gate fails closed on
+                        // an unresolved profile, and getActiveProfile collapses
+                        // "network failed", "no active id" and "not found" into
+                        // null — so without this a transient failure hid the
+                        // Admin row from a genuine owner for the life of this
+                        // ViewModel. Bounded by the same attempt budget: not
+                        // being an admin is by far the commonest reason for no
+                        // row, and that must not retry forever.
+                        var profile = profileRepository.getActiveProfile()
+                        var profileAttempt = 1
+                        while (profile == null && profileAttempt < UserLoadMaxAttempts) {
+                            delay(ProfileResolveRetryMs)
+                            profile = profileRepository.getActiveProfile()
+                            profileAttempt += 1
+                        }
                         _uiState.update {
                             it.copy(
                                 user = r.data,
@@ -651,6 +665,9 @@ class TvSettingsViewModel(
         // Retry the user load a few times before surfacing an error, so a
         // flaky fetch doesn't silently strip the Admin entry from an admin.
         const val UserLoadMaxAttempts = 3
+
+        /** Gap between profile lookups while the admin gate is unresolved. */
+        const val ProfileResolveRetryMs = 400L
         const val UserLoadRetryDelayMs = 400L
     }
 }

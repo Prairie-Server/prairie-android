@@ -18,5 +18,8 @@ class TvAdminGateTest {
     @Test fun `admin on primary profile sees admin`() = assertTrue(isActingAdmin(user("admin"), profile(true)))
     @Test fun `admin on non-primary hidden`() = assertFalse(isActingAdmin(user("admin"), profile(false)))
     @Test fun `non-admin hidden`() = assertFalse(isActingAdmin(user("user"), profile(true)))
-    @Test fun `admin without profile visible`() = assertTrue(isActingAdmin(user("admin"), null))
+    // Fails closed: an unresolved profile is not permission. This asserts the
+    // predicate only — that the entry reappears once the profile resolves is a
+    // property of the CALL SITES retrying, covered where they are tested.
+    @Test fun `admin without resolved profile hidden`() = assertFalse(isActingAdmin(user("admin"), null))
 }

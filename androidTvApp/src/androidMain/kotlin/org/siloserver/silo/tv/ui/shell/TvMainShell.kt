@@ -520,10 +520,24 @@ fun TvMainShell(
         }
         val user = userResult.data
         val activeProfile = profileRepository.getActiveProfile()
-        // Subtitle mirrors tvOS §5.8: role when known, falling back to username.
-        val subtitle = user?.role?.takeIf { it.isNotBlank() }
-            ?.replaceFirstChar { it.uppercase() }
-            ?: user?.username.orEmpty()
+        // The role belongs to the ACCOUNT, but this header shows a PROFILE's
+        // name — so rendering it under a non-owner profile reads as "laura is
+        // an admin" when laura is a household profile on an admin account.
+        // That is the caption a viewer actually sees and the reason this was
+        // reported. Show the role only where it is exercisable, which is the
+        // primary profile. A non-owner profile gets NOTHING here — falling back
+        // to the account username just captions laura's profile with the
+        // owner's name, which conflates the two all over again. Profile name
+        // and server is all a household profile needs to see.
+        //
+        // Cosmetic in the sense that no permission hangs on it — the surface
+        // gate is isActingAdmin below — but it is the part that misleads.
+        val subtitle = if (activeProfile?.isPrimary == true) {
+            user?.role?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
+                ?: user?.username.orEmpty()
+        } else {
+            ""
+        }
         val avatarUrl = activeProfile?.avatar
             ?.takeIf(::isImageAvatar)
             ?.let { resolveAvatarUrl(activeServerEntry?.url.orEmpty(), it) }
