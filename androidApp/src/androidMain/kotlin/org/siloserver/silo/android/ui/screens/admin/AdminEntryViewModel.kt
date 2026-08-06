@@ -7,6 +7,7 @@ import org.siloserver.silo.model.auth.isActingAdmin
 import org.siloserver.silo.network.ApiResult
 import org.siloserver.silo.repository.AuthRepository
 import org.siloserver.silo.repository.ProfileRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,7 +35,24 @@ class AdminEntryViewModel(
     ) : this(
         gateProvider = {
             val user = (authRepository.getCurrentUser() as? ApiResult.Success)?.data
-            val profile = profileRepository.getActiveProfile()
+            // Bounded retry on an unresolved profile, matching the settings
+            // ViewModels. isActingAdmin fails closed, and this gate guards a
+            // DESTINATION: a single null read would leave a genuine owner on
+            // "not authorized" for the lifetime of that back-stack entry, with
+            // no way to recover once the profile resolved. getActiveProfile
+            // collapses "network failed", "no active id" and "not found" into
+            // null, so a retry is the only signal available.
+            //
+            // Bounded because not being an admin is the ordinary case, and an
+            // unbounded retry would poll for every non-admin who ever lands
+            // here.
+            var profile = profileRepository.getActiveProfile()
+            var attempt = 1
+            while (profile == null && attempt < PROFILE_RESOLVE_ATTEMPTS) {
+                delay(PROFILE_RESOLVE_RETRY_MS)
+                profile = profileRepository.getActiveProfile()
+                attempt += 1
+            }
             isActingAdmin(user, profile)
         },
     )
@@ -56,3 +74,7 @@ class AdminEntryViewModel(
         }
     }
 }
+
+/** Matches the settings ViewModels: a few quick attempts, then fail closed. */
+private const val PROFILE_RESOLVE_ATTEMPTS = 3
+private const val PROFILE_RESOLVE_RETRY_MS = 400L

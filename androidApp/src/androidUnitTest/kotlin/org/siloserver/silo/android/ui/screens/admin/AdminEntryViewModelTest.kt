@@ -66,4 +66,27 @@ class AdminEntryViewModelTest {
     @Test fun `admin account on the primary profile is allowed`() = runTest(dispatcher) {
         assertTrue(vm(user("admin"), profile(primary = true)).uiState.value.isAdminVisible)
     }
+    /**
+     * The destination gate must RECOVER, not latch.
+     *
+     * isActingAdmin fails closed, so a profile lookup that answers null once
+     * would otherwise leave a genuine owner on "not authorized" for the
+     * lifetime of that back-stack entry — the gate added to close a hole
+     * locking out the very person it exists for. The provider retries, so a
+     * profile that resolves on a later attempt still admits them.
+     */
+    @Test fun `an owner is admitted once the profile resolves after a null read`() = runTest(dispatcher) {
+        var reads = 0
+        val vm = AdminEntryViewModel(
+            gateProvider = {
+                // null first, primary second — a transient lookup failure.
+                val profile = if (reads++ == 0) null else profile(primary = true)
+                isActingAdmin(user("admin"), profile)
+            },
+        )
+        // The provider itself retries, so one refresh is enough to recover.
+        assertTrue(reads >= 1)
+        vm.refresh()
+        assertTrue(vm.uiState.value.isAdminVisible)
+    }
 }
