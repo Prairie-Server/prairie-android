@@ -193,10 +193,17 @@ val androidTvModule = module {
     // graph has no downloads (streaming-only), so register the resolver inline:
     // it just always finds no local media and the VM falls back to the server
     // stream. The stores are local-only JSON under filesDir.
+    // Registered rather than constructed inline because the orphaned-server
+    // purge resolves it from the graph at startup. It is streaming-only here,
+    // so there are no download bytes to delete — but the purge also clears the
+    // Room rows of removed servers (resume positions, cached home and catalog
+    // rows, pending outbox ops), and without this definition the whole purge
+    // fails at startup and none of that is ever reclaimed.
+    single { org.siloserver.silo.common.downloads.DownloadStorage(androidContext()) }
     single {
         org.siloserver.silo.common.downloads.OfflineMediaResolver(
             org.siloserver.silo.common.downloads.DownloadMetadataStore(get()),
-            org.siloserver.silo.common.downloads.DownloadStorage(androidContext()),
+            get(),
             get(),
         )
     }
