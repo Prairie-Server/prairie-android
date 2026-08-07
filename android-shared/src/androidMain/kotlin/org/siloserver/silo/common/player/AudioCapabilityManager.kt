@@ -5,7 +5,6 @@ import android.media.AudioFormat
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioTrack
-import android.media.Spatializer
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
@@ -106,24 +105,22 @@ class AudioCapabilityManager(
     // Spatializer (Android 12+ / API 31+). The head-tracking + enabled state
     // flips independently of the audio route (e.g. plugging in BT head-tracked
     // earbuds on the same device), so we subscribe and re-emit.
-    private val spatializer: Spatializer? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    /**
+     * All Spatializer access is confined to [SpatializerBridge], held here as
+     * `Any?` so no Spatializer type appears in this class's fields, signatures
+     * or method bodies. That isolation is the point: ART resolves a method's
+     * referenced classes when the method runs, before any version branch inside
+     * it is evaluated, so a reference sitting in an untaken `if` still throws
+     * NoClassDefFoundError on a device without the class — and a runCatching
+     * around it does not help, because the failure happens outside the try.
+     */
+    private val spatializerBridge: Any? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2) {
             runCatching {
-                audioManager.spatializer
-            }.getOrNull()
-        } else null
-
-    private val spatializerListener: Any? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2 && spatializer != null) {
-            object : Spatializer.OnSpatializerStateChangedListener {
-                override fun onSpatializerEnabledChanged(sp: Spatializer, enabled: Boolean) {
+                SpatializerBridge(audioManager) { enabled ->
                     publishCapabilities(_capabilities.value.copy(spatializerEnabled = enabled))
                 }
-                override fun onSpatializerAvailableChanged(sp: Spatializer, available: Boolean) {
-                    // Available but disabled == user has turned spatialization off —
-                    // ride the enabledChanged callback above instead.
-                }
-            }
+            }.getOrNull()
         } else null
 
     init {
@@ -134,15 +131,8 @@ class AudioCapabilityManager(
         publishCapabilities(mapCapabilities(initialCapabilities))
         (appContext.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
             ?.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
-        val sp = spatializer
-        val spl = spatializerListener
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2 && sp != null && spl != null) {
-            runCatching {
-                sp.addOnSpatializerStateChangedListener(
-                    { it.run() },
-                    spl as Spatializer.OnSpatializerStateChangedListener,
-                )
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2) {
+            runCatching { (spatializerBridge as? SpatializerBridge)?.subscribe() }
         }
     }
 
@@ -152,7 +142,10 @@ class AudioCapabilityManager(
         }
         val codecs = supportedEncodings.map(EncodingSupport::codec)
 
-        val spatializerEnabled = spatializer?.isEnabled ?: false
+        val spatializerEnabled =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2) {
+                runCatching { (spatializerBridge as? SpatializerBridge)?.isEnabled() }.getOrNull() ?: false
+            } else false
 
         // Media3's aggregate maxChannelCount is not enough for route planning:
         // an AVR can accept eight-channel TrueHD but only six-channel AC3, for
@@ -345,4 +338,38 @@ class AudioCapabilityManager(
             EncodingSupport("ac4", AudioFormat.ENCODING_AC4, Build.VERSION_CODES.P),
         )
     }
+}
+
+/**
+ * Every reference to [android.media.Spatializer] lives here, and this class is
+ * only ever loaded on API 32+.
+ *
+ * `Spatializer` and `AudioManager.getSpatializer()` were added in API 32
+ * (S_V2), not 31 — an Android 12 device therefore has no such class, and
+ * touching it from a class that loads on every API level takes the whole
+ * process down at construction time.
+ */
+@androidx.annotation.RequiresApi(Build.VERSION_CODES.S_V2)
+private class SpatializerBridge(
+    audioManager: AudioManager,
+    private val onEnabledChanged: (Boolean) -> Unit,
+) {
+    private val spatializer: android.media.Spatializer = audioManager.spatializer
+
+    private val listener = object : android.media.Spatializer.OnSpatializerStateChangedListener {
+        override fun onSpatializerEnabledChanged(sp: android.media.Spatializer, enabled: Boolean) {
+            onEnabledChanged(enabled)
+        }
+
+        override fun onSpatializerAvailableChanged(sp: android.media.Spatializer, available: Boolean) {
+            // Available but disabled == the user turned spatialisation off —
+            // ride the enabledChanged callback above instead.
+        }
+    }
+
+    fun subscribe() {
+        spatializer.addOnSpatializerStateChangedListener({ it.run() }, listener)
+    }
+
+    fun isEnabled(): Boolean = spatializer.isEnabled
 }
