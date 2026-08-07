@@ -1065,6 +1065,10 @@ class PlaybackSessionManagerStagedReplanTest {
         harness.awaitStopped("s1")
 
         harness.manager.stopSession("s3")
+        // Stopping s3 also drains the stale candidate s2 it still owns, and that
+        // cleanup lands asynchronously. Only s1 was awaited, so on a contended
+        // runner the count assertion below raced it and saw {s1:1, s3:1}.
+        harness.awaitStopped("s2")
 
         assertEquals(null, harness.manager.activeSessionIdForTest())
         assertEquals(
