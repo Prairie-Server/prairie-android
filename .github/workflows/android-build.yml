@@ -63,3 +63,55 @@ jobs:
           path: |
             **/build/reports/tests/**
           if-no-files-found: ignore
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+
+      - name: Run lint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # NewApi and InlinedApi are fatal here. Two startup crashes reached
+          # users because nothing checked API levels: a Spatializer call gated
+          # at 31 for a class introduced at 32, and an unguarded API 28 call.
+          # Existing findings are held in per-module lint-baseline.xml, so only
+          # NEW violations fail. If this job fails, fix the call — do not
+          # regenerate the baseline to make it pass.
+          #
+          # lintVitalRelease runs here too. checkReleaseBuilds makes it part of
+          # assembleRelease, which only ever runs from release.yml on a v* tag —
+          # so without this the release variant is gated by a check that no pull
+          # request exercises, and the first run would be mid-release. It also
+          # covers the release-only source sets that lintDebug never sees.
+          ./gradlew \
+            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
+            :android-shared:lintDebug :androidApp:lintDebug :androidTvApp:lintDebug \
+            :androidApp:lintVitalRelease :androidTvApp:lintVitalRelease \
+            --max-workers=2
+
+      - name: Upload lint reports
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: lint-reports
+          path: |
+            **/build/reports/lint-results-*.html
+            **/build/reports/lint-results-*.xml
+          if-no-files-found: ignore

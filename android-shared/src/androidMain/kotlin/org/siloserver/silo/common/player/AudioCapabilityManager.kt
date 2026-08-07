@@ -209,7 +209,12 @@ class AudioCapabilityManager(
         devices.map(::sinkCategory).minByOrNull(::sinkPriority) ?: "unknown"
 
     private fun routeHash(device: AudioDeviceInfo): String {
-        val raw = "${device.type}|${device.id}|${device.address}"
+        // getAddress() is API 28; below that the route is identified by type and
+        // id alone. Unguarded this threw NoSuchMethodError on Android 7-8.1
+        // whenever diagnostics were collected.
+        val address =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) device.address else ""
+        val raw = "${device.type}|${device.id}|$address"
         return MessageDigest.getInstance("SHA-256")
             .digest(raw.encodeToByteArray())
             .take(ROUTE_HASH_BYTES)
@@ -307,8 +312,14 @@ class AudioCapabilityManager(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val support = AudioManager.getDirectPlaybackSupport(format, attributes)
             support and AudioManager.DIRECT_PLAYBACK_BITSTREAM_SUPPORTED != 0
-        } else {
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             AudioTrack.isDirectPlaybackSupported(format, attributes)
+        } else {
+            // API 29 introduced the query. Below it the platform cannot be
+            // asked, and runCatching was silently answering "no passthrough" —
+            // so pre-Q devices were transcoding audio they could have played
+            // directly. Same answer, but now it is a deliberate one.
+            false
         }
     }.getOrDefault(false)
 
@@ -331,7 +342,7 @@ class AudioCapabilityManager(
         val encodingSupport = listOf(
             EncodingSupport("ac3", AudioFormat.ENCODING_AC3),
             EncodingSupport("eac3", AudioFormat.ENCODING_E_AC3),
-            EncodingSupport("eac3_joc", AudioFormat.ENCODING_E_AC3_JOC),
+            EncodingSupport("eac3_joc", AudioFormat.ENCODING_E_AC3_JOC, Build.VERSION_CODES.P),
             EncodingSupport("dts", AudioFormat.ENCODING_DTS),
             EncodingSupport("dts_hd", AudioFormat.ENCODING_DTS_HD, Build.VERSION_CODES.M),
             EncodingSupport("truehd", AudioFormat.ENCODING_DOLBY_TRUEHD, Build.VERSION_CODES.N_MR1),

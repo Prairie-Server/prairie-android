@@ -160,6 +160,23 @@ android {
             isReturnDefaultValues = true
         }
     }
+
+    // Lint had never run on this project. The two crashes it would have caught
+    // — a Spatializer call gated at API 31 when the class arrives at 32, and a
+    // getAddress() call with no guard at all — both shipped from this module,
+    // which app-level lint does not analyse unless asked. Hence the gate here
+    // and checkDependencies in the apps.
+    //
+    // The baseline holds today's known findings (overwhelmingly desugared
+    // java.* calls and deliberate media3 @UnstableApi usage) so that only NEW
+    // violations fail. Delete it and regenerate deliberately; do not add to it
+    // to make a build pass.
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        fatal += setOf("NewApi", "InlinedApi")
+        checkReleaseBuilds = true
+    }
 }
 
 // Room schema export — the generated JSON schemas are committed under
