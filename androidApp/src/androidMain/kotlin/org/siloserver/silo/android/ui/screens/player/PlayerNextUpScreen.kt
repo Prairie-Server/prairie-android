@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -56,6 +58,7 @@ import org.siloserver.silo.common.ui.components.ThumbhashImage
  * Watching / Back actions, an auto-play countdown ring, the auto-play
  * toggle, and an On Deck carousel of other in-progress items.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlayerNextUpScreen(
     nextEpisode: PlayerViewModel.NextEpisodeInfo?,
@@ -69,6 +72,7 @@ fun PlayerNextUpScreen(
     onToggleAutoPlay: () -> Unit,
     onPlayOnDeckItem: (String) -> Unit,
     onBack: () -> Unit,
+    compactTabletop: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -86,25 +90,30 @@ fun PlayerNextUpScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 24.dp),
+                .padding(
+                    horizontal = 24.dp,
+                    vertical = if (compactTabletop) 12.dp else 24.dp,
+                ),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compactTabletop) 12.dp else 20.dp),
         ) {
             // Mini-player frame: the live video shows through the lighter top
             // band of the scrim; this is just the bordered frame over it.
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 620.dp)
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.10f))
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = 0.16f),
-                        shape = RoundedCornerShape(8.dp),
-                    ),
-            )
+            if (!compactTabletop) {
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 620.dp)
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.10f))
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(8.dp),
+                        ),
+                )
+            }
 
             // Next-episode panel.
             Column(
@@ -150,55 +159,47 @@ fun PlayerNextUpScreen(
                     )
                 }
 
-                // Action column — iOS uses vertical buttons, maxWidth 280.
-                Column(
-                    modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    if (nextEpisode != null) {
-                        Button(
-                            onClick = onPlayNow,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                            ),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Play Now")
-                        }
-                    }
-                    if (!videoEnded) {
-                        OutlinedButton(
-                            onClick = onKeepWatching,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Keep Watching", color = Color.White)
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = onBack,
-                        modifier = Modifier.fillMaxWidth(),
+                if (compactTabletop) {
+                    FlowRow(
+                        modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp),
+                        NextUpActionButtons(
+                            hasNextEpisode = nextEpisode != null,
+                            videoEnded = videoEnded,
+                            onPlayNow = onPlayNow,
+                            onKeepWatching = onKeepWatching,
+                            onBack = onBack,
                         )
-                        Text("Back", color = Color.White)
                     }
                     if (countdownSeconds != null) {
                         CountdownRing(
                             seconds = countdownSeconds,
                             totalSeconds = countdownTotalSeconds,
                         )
+                    }
+                } else {
+                    // Fullscreen/iOS-parity action column.
+                    Column(
+                        modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        NextUpActionButtons(
+                            hasNextEpisode = nextEpisode != null,
+                            videoEnded = videoEnded,
+                            onPlayNow = onPlayNow,
+                            onKeepWatching = onKeepWatching,
+                            onBack = onBack,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (countdownSeconds != null) {
+                            CountdownRing(
+                                seconds = countdownSeconds,
+                                totalSeconds = countdownTotalSeconds,
+                            )
+                        }
                     }
                 }
 
@@ -214,7 +215,7 @@ fun PlayerNextUpScreen(
             }
 
             // On Deck carousel (iOS-only feature; TV doesn't have it).
-            if (onDeckItems.isNotEmpty()) {
+            if (!compactTabletop && onDeckItems.isNotEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -236,6 +237,55 @@ fun PlayerNextUpScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NextUpActionButtons(
+    hasNextEpisode: Boolean,
+    videoEnded: Boolean,
+    onPlayNow: () -> Unit,
+    onKeepWatching: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (hasNextEpisode) {
+        Button(
+            onClick = onPlayNow,
+            modifier = modifier,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.White,
+                contentColor = Color.Black,
+            ),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Play Now")
+        }
+    }
+    if (!videoEnded) {
+        OutlinedButton(
+            onClick = onKeepWatching,
+            modifier = modifier,
+        ) {
+            Text("Keep Watching", color = Color.White)
+        }
+    }
+    OutlinedButton(
+        onClick = onBack,
+        modifier = modifier,
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
+        )
+        Text("Back", color = Color.White)
     }
 }
 

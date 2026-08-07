@@ -6,6 +6,7 @@ import android.content.pm.ActivityInfo
 import android.graphics.Rect
 import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -16,8 +17,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -27,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,6 +44,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -62,6 +69,7 @@ import org.siloserver.silo.common.player.DisplayHdrProbe
 import org.siloserver.silo.common.player.PlaybackCapabilityDetector
 import org.siloserver.silo.common.player.PlaybackPreflightListener
 import org.siloserver.silo.common.player.RefreshRateMatcher
+import org.siloserver.silo.common.player.SessionState
 import org.siloserver.silo.common.player.SubtitleManager
 import org.siloserver.silo.common.player.VideoPlayerMediaSpec
 import org.siloserver.silo.common.player.validatedColorRangeFallback
@@ -188,11 +196,14 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val density = LocalDensity.current
+    val tabletopPosture = rememberTabletopPlayerPosture(activity)
     val lifecycleOwner = LocalLifecycleOwner.current
     val activePlayerHolder: ActivePlayerHolder = koinInject()
     val pictureInPictureCoordinator: SiloPictureInPictureCoordinator = koinInject()
     val playerSettingsStore: org.siloserver.silo.common.settings.PlayerSettingsStore = koinInject()
     val uiState by viewModel.presentationState.collectAsState()
+    val sessionState by viewModel.sessionState.collectAsState()
     val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
     val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     val backendFactory: VideoPlaybackBackendFactory = koinInject()
@@ -209,7 +220,34 @@ fun PlayerScreen(
     var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
     var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
+    var playerRootBounds by remember { mutableStateOf<Rect?>(null) }
     var fastForwardHoldActive by remember { mutableStateOf(false) }
+    val originalWindowBrightness = remember(activity) {
+        activity?.window?.attributes?.screenBrightness
+    }
+    var playerBrightnessFraction by remember(activity, originalWindowBrightness) {
+        mutableFloatStateOf(
+            (
+                originalWindowBrightness
+                    ?.takeIf { it >= 0f }
+                    ?: runCatching {
+                        Settings.System.getInt(
+                            context.contentResolver,
+                            Settings.System.SCREEN_BRIGHTNESS,
+                        ) / 255f
+                    }.getOrDefault(0.5f)
+                ).coerceIn(0f, 1f),
+        )
+    }
+
+    DisposableEffect(activity, originalWindowBrightness) {
+        onDispose {
+            val window = activity?.window ?: return@onDispose
+            val attributes = window.attributes
+            attributes.screenBrightness = originalWindowBrightness ?: -1f
+            window.attributes = attributes
+        }
+    }
 
     // Google Cast (Chromecast). Distinct from the NSD/mDNS SiloCast device
     // remote. When a Cast session connects, local Media3 is paused and a
@@ -219,6 +257,19 @@ fun PlayerScreen(
     val castState by castManager.castState.collectAsState()
     val castScope = rememberCoroutineScope()
     var wasCasting by remember { mutableStateOf(false) }
+    val tabletopPaneLayout = remember(tabletopPosture, playerRootBounds, density.density) {
+        val posture = tabletopPosture ?: return@remember null
+        val rootBounds = playerRootBounds ?: return@remember null
+        calculateTabletopPlayerPaneLayout(
+            rootTopPx = rootBounds.top,
+            rootBottomPx = rootBounds.bottom,
+            foldTopPx = posture.foldBounds.top,
+            foldBottomPx = posture.foldBounds.bottom,
+            foldGuardPx = with(density) { 8.dp.roundToPx() },
+        )
+    }
+    val useTabletopPlayerLayout =
+        tabletopPaneLayout != null && !isInPictureInPictureMode && !castState.isConnected
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The process RoomSession owns the WS; this controller owns only the
@@ -592,12 +643,14 @@ fun PlayerScreen(
         orientationLockedResolved,
         castState.isConnected,
         orientationLockSupported,
+        tabletopPosture,
     ) {
         // While casting, the screen shows the cast takeover panel, not video —
         // no reason to force landscape (and it must unlock if already forced).
         // Large Android 16 displays likewise own their orientation by platform
-        // policy, so explicitly release any lock left by a smaller display.
-        if (castState.isConnected || !orientationLockSupported) {
+        // policy. Tabletop posture also owns its physical orientation; forcing
+        // landscape can rotate a horizontal hinge back into book posture.
+        if (castState.isConnected || !orientationLockSupported || tabletopPosture != null) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             return@LaunchedEffect
         }
@@ -1106,7 +1159,17 @@ fun PlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Black)
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                val next = Rect(
+                    bounds.left.roundToInt(),
+                    bounds.top.roundToInt(),
+                    bounds.right.roundToInt(),
+                    bounds.bottom.roundToInt(),
+                )
+                if (playerRootBounds != next) playerRootBounds = next
+            },
     ) {
         if (uiState.isLoading) {
             Box(
@@ -1164,6 +1227,17 @@ fun PlayerScreen(
                 subtitleManager.applyAppearance(pv, subtitleAppearance)
             }
 
+            val activeTabletopPaneLayout = tabletopPaneLayout.takeIf {
+                useTabletopPlayerLayout
+            }
+            val videoSurfaceModifier = if (activeTabletopPaneLayout != null) {
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(with(density) { activeTabletopPaneLayout.videoHeightPx.toDp() })
+            } else {
+                Modifier.fillMaxSize()
+            }
 
             if (controller != null) {
                 AndroidView(
@@ -1185,8 +1259,7 @@ fun PlayerScreen(
                         view.resizeMode = resizeMode
                         subtitleManager.syncSubtitleVideoBounds(view)
                     },
-                    modifier = Modifier
-                        .fillMaxSize()
+                    modifier = videoSurfaceModifier
                         .onGloballyPositioned { coordinates ->
                             val bounds = coordinates.boundsInWindow()
                             val next = Rect(
@@ -1200,6 +1273,25 @@ fun PlayerScreen(
                             }
                         },
                 )
+            }
+
+            // In tabletop posture the regular PlayerOverlay is deliberately
+            // constrained to the controls pane. Keep playback/reconnection
+            // feedback on the video itself instead of showing a spinner below
+            // the hinge among the transport controls.
+            if (activeTabletopPaneLayout != null &&
+                (uiState.isBuffering || sessionState is SessionState.Reconnecting)
+            ) {
+                Box(
+                    modifier = videoSurfaceModifier,
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(56.dp),
+                        color = Color.White,
+                        strokeWidth = 3.dp,
+                    )
+                }
             }
 
             // Cast takeover surface — replaces the video AND the local player
@@ -1229,12 +1321,37 @@ fun PlayerScreen(
             }
 
             if (!isInPictureInPictureMode && !castState.isConnected) {
+                val playerOverlayModifier = if (activeTabletopPaneLayout != null) {
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(with(density) { activeTabletopPaneLayout.controlsHeightPx.toDp() })
+                } else {
+                    Modifier.fillMaxSize()
+                }
                 PlayerClockScope(viewModel) { clock ->
                     PlayerOverlay(
                         state = uiState.withPlaybackClock(clock),
                         viewModel = viewModel,
                         roomSnapshot = roomSnapshot,
-                        orientationLockSupported = orientationLockSupported,
+                        orientationLockSupported =
+                            orientationLockSupported && activeTabletopPaneLayout == null,
+                        alwaysShowControls = activeTabletopPaneLayout != null,
+                        tabletopMode = activeTabletopPaneLayout != null,
+                        tabletopPaneHeight = activeTabletopPaneLayout?.let { layout ->
+                            with(density) { layout.controlsHeightPx.toDp() }
+                        },
+                        brightnessFraction = playerBrightnessFraction,
+                        onSetBrightness = { fraction ->
+                            val appliedBrightness = fraction.coerceIn(0.02f, 1f)
+                            playerBrightnessFraction = appliedBrightness
+                            activity?.window?.let { window ->
+                                val attributes = window.attributes
+                                attributes.screenBrightness = appliedBrightness
+                                window.attributes = attributes
+                            }
+                        },
+                        showBufferingIndicator = activeTabletopPaneLayout == null,
                         castSlot = {
                             SiloCastButton(
                                 castManager = castManager,
@@ -1280,6 +1397,7 @@ fun PlayerScreen(
                         onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
                         onSelectAudio = { viewModel.onSelectAudio(it) },
                         onSelectVersion = { viewModel.onSelectVersion(it) },
+                        modifier = playerOverlayModifier,
                     )
                 }
             }
