@@ -274,6 +274,24 @@ object DiagnosticsFocusLogger {
             "action" to SiloLogAttribute.Text(action),
         ),
     )
+
+    /**
+     * Content focus entry found nothing to focus, even one frame later.
+     *
+     * Every `requestFocus()` on the way into content is wrapped in
+     * `runCatching`, because a requester whose node has not composed yet throws
+     * rather than returning false. That made the failure invisible: focus went
+     * nowhere, no exception surfaced, and the viewer was simply stuck with no
+     * evidence in any log. Warn level on purpose — the telemetry builds
+     * instrument logcat at `minLevel = WARNING`, so this becomes a breadcrumb
+     * instead of vanishing.
+     */
+    fun contentEntryFailed(route: String) = SiloLog.w(
+        DiagnosticsLogCategory.FOCUS,
+        "TvShellFocus",
+        "content focus entry failed",
+        mapOf("route" to SiloLogAttribute.Text(route)),
+    )
 }
 
 private val API_VERSION = Regex("v[0-9]+")

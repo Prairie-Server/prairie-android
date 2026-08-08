@@ -104,6 +104,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import org.siloserver.silo.common.diagnostics.DiagnosticsFocusLogger
 import org.siloserver.silo.common.ui.components.ThumbhashImage
 import org.siloserver.silo.common.ui.components.isImageAvatar
 import org.siloserver.silo.tv.ui.theme.SiloOnSurface
@@ -609,16 +610,23 @@ fun TvMainShell(
         }
     }
 
-    val moveFocusToContent: (String) -> Unit = { route ->
-        focusState.closeProfileMenuForContent()
-        if (route == TvMainRoute.Search.route) {
-            runCatching { searchInputFocusRequester.requestFocus() }
-        } else if (route == TvMainRoute.Home.route || route == TvMainRoute.Video.route) {
-            panelScope.launch {
-                runCatching { contentFocusRequester.requestFocus() }
-                runCatching { homeFirstRowContainerFocusRequester.requestFocus() }
+    // True when a requester actually took focus. `requestFocus()` throws rather
+    // than returning false when its node has not composed yet, so each call has
+    // to be guarded — and that guard is what used to swallow the failure whole.
+    val claimContentFocus: (String) -> Boolean = { route ->
+        when {
+            route == TvMainRoute.Search.route ->
+                runCatching { searchInputFocusRequester.requestFocus() }.getOrDefault(false)
+
+            route == TvMainRoute.Home.route || route == TvMainRoute.Video.route -> {
+                val content =
+                    runCatching { contentFocusRequester.requestFocus() }.getOrDefault(false)
+                val firstRow = runCatching {
+                    homeFirstRowContainerFocusRequester.requestFocus()
+                }.getOrDefault(false)
+                content || firstRow
             }
-        } else {
+
             // Just request focus on the content group. The Box's
             // .focusRestorer() restores to the user's last-focused card
             // (e.g., card 7 of row 3) instead of slamming back to card 0.
@@ -627,7 +635,32 @@ fun TvMainShell(
             // re-focused index 0 — defeating the restorer. Initial focus
             // when a screen first loads is still handled by each screen's
             // own LaunchedEffect on its first data emission.
-            runCatching { contentFocusRequester.requestFocus() }
+            else -> runCatching { contentFocusRequester.requestFocus() }.getOrDefault(false)
+        }
+    }
+
+    val moveFocusToContent: (String) -> Unit = { route ->
+        focusState.closeProfileMenuForContent()
+        val homeLike = route == TvMainRoute.Home.route || route == TvMainRoute.Video.route
+        // Home/Video keep claiming from the scope; every other route still
+        // claims inline first, so the timing of a successful claim is exactly
+        // what it was. What is new is the second chance: a claim that finds a
+        // not-yet-composed requester now gets one more frame before it is given
+        // up on — the same allowance the detail-return path already makes for
+        // "the Home row requester was not attached during the synchronous
+        // claim". On a 2 GB Amlogic box the content group is routinely still
+        // composing when Down arrives from the menu bar, and the first claim
+        // lands on nothing.
+        val claimedInline = if (homeLike) false else claimContentFocus(route)
+        if (!claimedInline) {
+            panelScope.launch {
+                if (!claimContentFocus(route)) {
+                    withFrameNanos { }
+                    if (!claimContentFocus(route)) {
+                        DiagnosticsFocusLogger.contentEntryFailed(route)
+                    }
+                }
+            }
         }
     }
     val openForYou: (SavedListSelection?) -> Unit = { selection ->
