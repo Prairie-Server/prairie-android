@@ -114,6 +114,16 @@ fun TvPlayerScrubber(
     onCommitScrub: () -> Unit,
     onCancelScrub: () -> Unit,
     onRequestFocus: FocusRequester,
+    /**
+     * Toggle play/pause. Center on the bar is bound to this, not to entering a
+     * scrub: the Google TV remote has no dedicated play/pause key, so Center
+     * with the overlay up is the only one-press pause a viewer has — and it is
+     * what every other TV player does. Scrubbing does not need it; Left/Right
+     * skip and long-press engages auto-seek.
+     */
+    onPlayPause: () -> Unit,
+    /** See TvPlayerIdleOverlay.canToggleAfterCommit. */
+    canToggleAfterCommit: Boolean = true,
     onMoveDownToTransport: () -> Unit,
     onExitWhenIdle: () -> Unit,
     onRateChanged: (Int) -> Unit = {},
@@ -347,13 +357,21 @@ fun TvPlayerScrubber(
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                             if (isUp) {
                                 stopAutoSeek()
-                                if (isTimelineScrubbing || isScrubbing) {
+                                // Center means "here": land any scrub in
+                                // flight, then flip playback. Racing forward at
+                                // 32x it stops on the frame you asked for;
+                                // hunting a spot while paused it plays on from
+                                // it. Entering a scrub MODE here — what this
+                                // used to do — spent the viewer's only
+                                // one-press pause on something Left/Right
+                                // already do, and the Google TV remote has no
+                                // dedicated play/pause key to fall back on.
+                                val committed = isTimelineScrubbing || isScrubbing
+                                if (committed) {
                                     isTimelineScrubbing = false
                                     onCommitScrub()
-                                } else {
-                                    onBeginScrub()
-                                    isTimelineScrubbing = true
                                 }
+                                if (!committed || canToggleAfterCommit) onPlayPause()
                                 true
                             } else if (isDown) true else false
                         }
