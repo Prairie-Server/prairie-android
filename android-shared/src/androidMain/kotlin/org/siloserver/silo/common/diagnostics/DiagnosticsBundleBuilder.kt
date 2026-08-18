@@ -179,6 +179,7 @@ class FileDiagnosticsBundleBuilder : DiagnosticsBundleBuilder {
                         .sanitizeHostedStringsIf(hosted),
                 )
                 path.endsWith(".jsonl") -> redactJsonLines(decoded, tokens, hosted)
+                path == CRASH_STACK_FILE && hosted -> decoded.redact(tokens).sanitizeHostedCrashStack()
                 else -> decoded.redact(tokens).sanitizeHostedTextIf(hosted)
             }
             check(tokens.none(sanitized::contains)) { "artifact redaction could not be verified" }
@@ -329,7 +330,9 @@ class FileDiagnosticsBundleBuilder : DiagnosticsBundleBuilder {
         if (this !is JsonObject) return sanitizeHostedStrings()
         return JsonObject(
             mapValues { (key, value) ->
-                if (key != "report" || value !is JsonObject) {
+                if (key == "crash" && value is JsonObject) {
+                    value.sanitizeHostedCrashManifest()
+                } else if (key != "report" || value !is JsonObject) {
                     value.sanitizeHostedStrings()
                 } else {
                     JsonObject(
@@ -360,6 +363,21 @@ class FileDiagnosticsBundleBuilder : DiagnosticsBundleBuilder {
             },
         )
     }
+
+    private fun JsonObject.sanitizeHostedCrashManifest(): JsonObject = JsonObject(
+        mapValues { (key, value) ->
+            if (key == "stack_excerpt" && value is JsonPrimitive && value.isString) {
+                JsonPrimitive(
+                    checkNotNull(value.contentOrNull)
+                        .sanitizeHostedCrashStack(MAX_HOSTED_CRASH_EXCERPT_BYTES),
+                )
+            } else if (key.isStructuredTimestampKey() && value is JsonPrimitive && value.isString) {
+                value
+            } else {
+                value.sanitizeHostedStrings()
+            }
+        },
+    )
 
     private fun JsonElement.sanitizeHostedLogLineStrings(): JsonElement {
         if (this !is JsonObject) return sanitizeHostedStrings()
@@ -405,6 +423,66 @@ class FileDiagnosticsBundleBuilder : DiagnosticsBundleBuilder {
 
     private fun String.sanitizeHostedTextIf(hosted: Boolean): String =
         if (hosted) sanitizeHostedText() else this
+
+    private fun String.sanitizeHostedCrashStack(maxUtf8Bytes: Int? = null): String {
+        val sanitizedWholeStack = sanitizeHostedText()
+        if (sanitizedWholeStack != HOSTED_UNSAFE_TEXT) {
+            return sanitizedWholeStack.boundHostedCrashText(maxUtf8Bytes)
+        }
+        val hadTrailingNewline = endsWith('\n')
+        val lines = split('\n').let { if (hadTrailingNewline) it.dropLast(1) else it }
+        val sanitized = buildList {
+            lines.forEach { line ->
+                val sanitizedLine = line.sanitizeHostedCrashStackLine()
+                val retained = sanitizedLine.takeIf { it.isUsefulHostedCrashStackLine() }
+                    ?: HOSTED_UNSAFE_TEXT
+                if (retained != HOSTED_UNSAFE_TEXT || lastOrNull() != HOSTED_UNSAFE_TEXT) {
+                    add(retained)
+                }
+            }
+        }
+        if (sanitized.none { it.isUsefulHostedCrashStackLine() }) return HOSTED_UNSAFE_TEXT
+        val joined = sanitized.joinToString("\n")
+        if (joined.hasUnsafeHostedResidue()) return HOSTED_UNSAFE_TEXT
+        return (if (hadTrailingNewline) "$joined\n" else joined)
+            .boundHostedCrashText(maxUtf8Bytes)
+    }
+
+    private fun String.sanitizeHostedCrashStackLine(): String {
+        val withoutFrameQualifiers = HOSTED_QUALIFIED_STACK_FRAME.matchEntire(this)?.let { match ->
+            match.groupValues[1] + match.groupValues[2]
+        } ?: this
+        val sanitized = withoutFrameQualifiers.sanitizeHostedText()
+        val throwable = HOSTED_THROWABLE_LINE.matchEntire(sanitized.trim()) ?: return sanitized
+        return throwable.groupValues[1] + throwable.groupValues[2]
+    }
+
+    private fun String.isUsefulHostedCrashStackLine(): Boolean {
+        val line = trim()
+        if (line.isEmpty() || line == HOSTED_UNSAFE_TEXT) return false
+        if (HOSTED_STACK_FRAME_LINE.matches(line) || HOSTED_STACK_OMITTED_LINE.matches(line)) return true
+        return HOSTED_THROWABLE_LINE.matches(line)
+    }
+
+    private fun String.boundHostedCrashText(maxUtf8Bytes: Int?): String {
+        if (maxUtf8Bytes == null || encodeToByteArray().size <= maxUtf8Bytes) return this
+        val result = StringBuilder(length.coerceAtMost(maxUtf8Bytes))
+        var index = 0
+        var usedBytes = 0
+        var lastLineBoundary = -1
+        while (index < length) {
+            val codePoint = codePointAt(index)
+            val value = String(Character.toChars(codePoint))
+            val bytes = value.encodeToByteArray().size
+            if (usedBytes + bytes > maxUtf8Bytes) break
+            result.append(value)
+            usedBytes += bytes
+            index += Character.charCount(codePoint)
+            if (codePoint == '\n'.code) lastLineBoundary = result.length
+        }
+        val bounded = if (lastLineBoundary > 0) result.substring(0, lastLineBoundary) else HOSTED_UNSAFE_TEXT
+        return bounded.takeIf { !it.hasUnsafeHostedResidue() } ?: HOSTED_UNSAFE_TEXT
+    }
 
     private fun String.sanitizeHostedText(): String {
         val comparable = Normalizer.normalize(this, Normalizer.Form.NFKC)
@@ -903,6 +981,7 @@ class FileDiagnosticsBundleBuilder : DiagnosticsBundleBuilder {
         const val MANIFEST_FILE = "manifest.json"
         const val DEVICE_FILE = "device.json"
         const val CRASH_SUMMARY_FILE = "crash/summary.json"
+        const val CRASH_STACK_FILE = "crash/stack.txt"
         const val LOGS_FILE = "logs.jsonl"
         const val CRASH_TOMBSTONE_FILE = "crash/tombstone.pb"
         const val REDACTED_VALUE = "[REDACTED]"
@@ -917,6 +996,7 @@ class FileDiagnosticsBundleBuilder : DiagnosticsBundleBuilder {
         const val HOSTED_GENERIC_DECODER = "android-decoder"
         const val HOSTED_OBFUSCATED_FRAME = "android-obfuscated-frame"
         const val HOSTED_OBFUSCATED_ERROR = "android-obfuscated-error"
+        const val MAX_HOSTED_CRASH_EXCERPT_BYTES = 8 * 1_024
         val REDACTION_FAILURE_SENTINEL = "{\"redaction_failure\":true}\n".encodeToByteArray()
         val HOSTED_URL_SCHEMES = setOf("http", "https", "ws", "wss")
         val TEXT_ENTRIES = CANONICAL_ARCHIVE_ORDER.toSet() - MANIFEST_FILE - "crash/tombstone.pb"
@@ -1113,6 +1193,25 @@ class FileDiagnosticsBundleBuilder : DiagnosticsBundleBuilder {
         val QUALIFIED_STACK_SYMBOL = Regex(
             "^[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+\\.[a-z_$][A-Za-z0-9_$]*$",
         )
+        val HOSTED_STACK_FRAME_LINE = Regex(
+            "^at[ \\t]+(?:android-obfuscated-frame|" +
+                "[A-Za-z_$][A-Za-z0-9_$]*(?:\\.(?:[A-Za-z_$][A-Za-z0-9_$]*|<init>|<clinit>))+" +
+                ")\\([^\\r\\n]*\\)$",
+        )
+        val HOSTED_QUALIFIED_STACK_FRAME = Regex(
+            "^([ \\t]*at[ \\t]+)" +
+                "(?:(?:[^\\s/]+/){1,2}|[^\\s/]+//)" +
+                "([A-Za-z_$][A-Za-z0-9_$]*(?:\\.(?:[A-Za-z_$][A-Za-z0-9_$]*|<init>|<clinit>))+" +
+                "\\([^\\r\\n]*\\))$",
+        )
+        val HOSTED_THROWABLE_LINE = Regex(
+            "^((?:(?i:caused[ \\t]+by|suppressed):?[ \\t]*)?)" +
+                "(android-obfuscated-error|" +
+                "[A-Za-z_][A-Za-z0-9_$]*(?:\\.[A-Za-z_][A-Za-z0-9_$]*)*\\." +
+                "[A-Z][A-Za-z0-9_$]*(?:Exception|Error))" +
+                "(?:[ \\t]*:.*)?$",
+        )
+        val HOSTED_STACK_OMITTED_LINE = Regex("^\\.\\.\\.[ \\t]+[0-9]+[ \\t]+more$")
         val SOURCE_FILE_TOKEN = Regex("^[A-Z][A-Za-z0-9_$-]*\\.(?:c|cc|cpp|h|java|kt|m|mm|swift)$")
         val HOST_TOKEN = Regex("(?i)\\bhost_[0-9a-f]{16}\\b")
         val REDACTED_AUTHORITY = Regex("(?i)\\b((?:https?|wss?)://)\\[REDACTED]")
