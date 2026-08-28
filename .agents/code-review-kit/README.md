@@ -46,6 +46,24 @@ Each template installs:
 use the `android` template for upstream `silo-android` (Silo package IDs /
 exposure rules).
 
+### Gitignore note (Android / Apple)
+
+Several client repos ignore `.cursor/` and most of `.claude/*`. After applying
+`android` or `apple`, ensure these exceptions exist (as in this repo’s
+`.gitignore`) so agents and Bugbot rules are actually tracked:
+
+```gitignore
+.claude/*
+!.claude/skills/
+!.claude/agents/
+!.claude/agents/**
+.codex/
+.cursor/*
+!.cursor/agents/
+!.cursor/agents/**
+!.cursor/BUGBOT.md
+```
+
 ## Mapping
 
 | Template | Repositories |
