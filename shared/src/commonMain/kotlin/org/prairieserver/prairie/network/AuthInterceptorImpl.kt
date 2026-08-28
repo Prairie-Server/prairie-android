@@ -279,8 +279,8 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
     }
 
     onRequest { request, _ ->
-        val skipAuth = request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true
-        val requireAuth = request.attributes.getOrNull(RequireSiloAuthAttributeKey) == true
+        val skipAuth = request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true
+        val requireAuth = request.attributes.getOrNull(RequirePrairieAuthAttributeKey) == true
         val diagnosticsScope = request.attributes.getOrNull(DiagnosticsRequestScopeKey)
         val diagnosticsAuthorization = request.attributes.getOrNull(DiagnosticsUploadAuthorizationKey)
         val pinned = request.attributes.getOrNull(AuthScopeAttributeKey)
@@ -442,7 +442,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             request.removePrairieCredentialHeaders()
             return@on proceed(request)
         }
-        if (request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true) {
+        if (request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true) {
             if (!isSameSiloHttpOrigin(trustedServerUrl, request.url)) {
                 request.removePrairieCredentialHeaders()
             }
