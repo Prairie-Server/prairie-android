@@ -34,13 +34,19 @@ google-services.json
 *.keystore
 
 # Local tooling state — but checked-in project skills under .claude/skills/
+# and shared review agents / Bugbot rules under .claude/agents and .cursor/
 # are shared with the repo. Per-machine skill config (device registries,
 # server endpoints) stays local via the *.local.md convention.
 .claude/*
 !.claude/skills/
+!.claude/agents/
+!.claude/agents/**
 .claude/skills/**/*.local.md
 .codex/
-.cursor/
+.cursor/*
+!.cursor/agents/
+!.cursor/agents/**
+!.cursor/BUGBOT.md
 .worktrees/
 .playwright-mcp/
 .playwright-cli/
