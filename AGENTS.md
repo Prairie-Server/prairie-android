@@ -11,7 +11,15 @@ This repository contains only the Silo Android clients. Shared Kotlin logic live
 - Android TV navigation is Home, available media-type tabs from server libraries, For You (with its Watchlist/Favorites dropdown, mirroring tvOS `.recommendations`), and Calendar, plus search and profile actions. Reading/ebooks are excluded.
 - Requests is live on phone and TV, server-gated by `requests_enabled` (profile menu + search entry points, matching Apple). Admin surfaces are not exposed in the Android clients — no STATS dashboard, and none of the richer admin screens (users/sessions/logs/scans) — and neither is Watch Together. Session management (seeing where you are signed in and signing other devices out) is not exposed either; device pairing stays. This is a deliberate divergence from Apple, which does surface the STATS dashboard. Do not add any of it back to menus without an explicit product decision.
 
+## Skills & review agents
+
+Task-specific guides live in `.agents/skills/` (Claude-compat copies under
+`.claude/skills/`). For branch reviews, use the `code-review` skill or the
+`code-reviewer` subagent (`.cursor/agents/code-reviewer.md`). Bugbot project
+rules live in `.cursor/BUGBOT.md`.
+
 ## Build, Test, and Development Commands
+
 
 - `./gradlew :androidApp:assembleDebug` builds the Android phone APK.
 - `./gradlew :androidTvApp:assembleDebug` builds the Android TV APK.
