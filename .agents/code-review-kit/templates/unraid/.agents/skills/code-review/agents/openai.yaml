@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review Unraid template diffs for Silo"
+  default_prompt: "Use $code-review to review the default-branch...HEAD diff and report Critical / Important findings."

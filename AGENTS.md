@@ -11,6 +11,14 @@ This repository contains only the Prairie Android clients. Shared Kotlin logic l
 - Android TV navigation is Home, available media-type tabs from server libraries, For You (with its Watchlist/Favorites dropdown, mirroring tvOS `.recommendations`), and Calendar, plus search and profile actions. Reading/ebooks are excluded.
 - Requests is live on phone and TV, server-gated by `requests_enabled` (profile menu + search entry points, matching Apple). The Admin STATS dashboard is live for acting admins (Settings entry on both platforms, matching Apple's dashboard design); the richer admin screens (users/sessions/logs/scans) and Watch Together are not accessible — do not add them to menus without an explicit product decision.
 
+## Skills & review agents
+
+Task-specific guides live in `.agents/skills/` (Claude-compat copies under
+`.claude/skills/`). For branch reviews, use the `code-review` skill or the
+`code-reviewer` subagent (`.cursor/agents/code-reviewer.md`). Bugbot project
+rules live in `.cursor/BUGBOT.md`. Portable templates for other Silo/Prairie
+repos are under `.agents/code-review-kit/`.
+
 ## Build, Test, and Development Commands
 
 - `./gradlew :androidApp:assembleDebug` builds the Android phone APK.
