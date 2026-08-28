@@ -170,7 +170,7 @@ fun ItemDetailScreen(
         mutableStateOf<org.prairieserver.prairie.model.download.DownloadSizeEstimate?>(null)
     }
     var showDownloadQualityPicker by remember { mutableStateOf(false) }
-    var pendingSiloCastLaunchRequest by remember { mutableStateOf<PrairieCastLaunchRequest?>(null) }
+    var pendingPrairieCastLaunchRequest by remember { mutableStateOf<PrairieCastLaunchRequest?>(null) }
     val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -646,7 +646,7 @@ fun ItemDetailScreen(
                             playOnDeviceLabel = PLAY_ON_DEVICE_LABEL,
                             onPlayOnDevice = {
                                 val castContentId = nextEpisode?.contentId ?: detail.contentId
-                                pendingSiloCastLaunchRequest = videoCastRequest(
+                                pendingPrairieCastLaunchRequest = videoCastRequest(
                                     contentId = castContentId,
                                     title = nextEpisode?.title ?: detail.title,
                                     subtitle = nextEpisodeLabel,
@@ -873,7 +873,7 @@ fun ItemDetailScreen(
                                 }
                             },
                             onPlayOnDevice = {
-                                pendingSiloCastLaunchRequest = videoCastRequest(
+                                pendingPrairieCastLaunchRequest = videoCastRequest(
                                     contentId = detail.contentId,
                                     title = detail.title,
                                     fileId = playbackFileId,
@@ -932,10 +932,10 @@ fun ItemDetailScreen(
             )
         }
 
-        pendingSiloCastLaunchRequest?.let { request ->
+        pendingPrairieCastLaunchRequest?.let { request ->
             PrairieCastTargetPickerSheet(
                 launchRequest = request,
-                onDismiss = { pendingSiloCastLaunchRequest = null },
+                onDismiss = { pendingPrairieCastLaunchRequest = null },
                 onLaunched = onOpenCastRemote,
             )
         }

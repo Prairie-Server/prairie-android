@@ -115,7 +115,7 @@ fun PrairieCastRemoteScreen(
 ) {
     val state by controller.state.collectAsState()
     val playback = state.playbackState
-    val artwork = rememberSiloCastArtwork(playback?.contentId)
+    val artwork = rememberPrairieCastArtwork(playback?.contentId)
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var showTargetPicker by remember { mutableStateOf(false) }
@@ -182,7 +182,7 @@ fun PrairieCastRemoteScreen(
                         onChooseTv = { showTargetPicker = true },
                     )
                     playback.contentId == null && state.isLaunching -> RemoteStatus(
-                        title = "Starting playback on ${state.connectedTarget?.name ?: "Silo TV"}…",
+                        title = "Starting playback on ${state.connectedTarget?.name ?: "Prairie TV"}…",
                         showSpinner = true,
                     )
                     playback.contentId == null -> RemoteIdleConnected(
@@ -372,7 +372,7 @@ private fun RemoteIdleConnected(targetName: String?) {
             modifier = Modifier.size(48.dp),
         )
         Text(
-            "Connected to ${targetName ?: "Silo TV"}",
+            "Connected to ${targetName ?: "Prairie TV"}",
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
             color = RemoteOnSurface,
             textAlign = TextAlign.Center,
@@ -422,7 +422,7 @@ private fun RemoteConnecting(
         } else {
             CircularProgressIndicator(color = RemoteOnSurface)
             Text(
-                "Connecting to ${targetName ?: "Silo TV"}…",
+                "Connecting to ${targetName ?: "Prairie TV"}…",
                 style = MaterialTheme.typography.titleMedium,
                 color = RemoteSecondary,
                 textAlign = TextAlign.Center,

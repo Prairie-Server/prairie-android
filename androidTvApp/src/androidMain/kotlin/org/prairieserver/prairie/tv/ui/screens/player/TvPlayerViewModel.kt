@@ -2574,7 +2574,7 @@ class TvPlayerViewModel(
                         cancelPendingCatalogSubtitle()
                         _uiState.update {
                             it.copy(
-                                error = "This Silo server must be updated to support playback recovery.",
+                                error = "This Prairie server must be updated to support playback recovery.",
                                 isLoading = false,
                                 isBuffering = false,
                             )
@@ -3267,7 +3267,7 @@ class TvPlayerViewModel(
                             )
                             VideoSessionStartV3.ServerUpgradeRequired -> handleSeekRecoveryFailure(
                                 request,
-                                "This Silo server does not support reliable seeking.",
+                                "This Prairie server does not support reliable seeking.",
                             )
                         }
                     }
@@ -3276,7 +3276,7 @@ class TvPlayerViewModel(
                         if (result.error == "seek_reanchor_not_supported") {
                             handleSeekRecoveryFailure(
                                 request,
-                                "This Silo server does not support reliable seeking.",
+                                "This Prairie server does not support reliable seeking.",
                             )
                         } else {
                             performPinnedSeekFailureRecovery(
@@ -3340,14 +3340,14 @@ class TvPlayerViewModel(
                     )
                     VideoSessionStartV3.ServerUpgradeRequired -> handleSeekRecoveryFailure(
                         request,
-                        "This Silo server does not support reliable seeking.",
+                        "This Prairie server does not support reliable seeking.",
                     )
                 }
             }
             is ApiResult.Error -> {
                 if (!isCurrentSeekRecovery(request)) return
                 val message = if (result.error == "seek_reanchor_not_supported") {
-                    "This Silo server does not support reliable seeking."
+                    "This Prairie server does not support reliable seeking."
                 } else {
                     "Unable to seek (${result.message})"
                 }

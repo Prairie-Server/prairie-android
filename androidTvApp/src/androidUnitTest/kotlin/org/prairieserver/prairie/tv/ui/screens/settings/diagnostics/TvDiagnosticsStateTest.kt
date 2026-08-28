@@ -33,8 +33,8 @@ class TvDiagnosticsStateTest {
             listOf(DiagnosticsDestinationKind.HOSTED, DiagnosticsDestinationKind.SELF_HOSTED),
             TvDiagnosticsDestinations,
         )
-        assertEquals("Silo Diagnostics", tvDiagnosticsDestinationTitle(DiagnosticsDestinationKind.HOSTED))
-        assertEquals("This Silo server", tvDiagnosticsDestinationTitle(DiagnosticsDestinationKind.SELF_HOSTED))
+        assertEquals("Prairie Diagnostics", tvDiagnosticsDestinationTitle(DiagnosticsDestinationKind.HOSTED))
+        assertEquals("This Prairie server", tvDiagnosticsDestinationTitle(DiagnosticsDestinationKind.SELF_HOSTED))
     }
 
     @Test
@@ -45,11 +45,11 @@ class TvDiagnosticsStateTest {
         )
         // An unnamed server must not render an empty value row.
         assertEquals(
-            "This Silo server",
+            "This Prairie server",
             tvDiagnosticsDestinationName(DiagnosticsDestinationKind.SELF_HOSTED, ""),
         )
         assertEquals(
-            "Silo Diagnostics",
+            "Prairie Diagnostics",
             tvDiagnosticsDestinationName(DiagnosticsDestinationKind.HOSTED, "Living Room Silo"),
         )
     }

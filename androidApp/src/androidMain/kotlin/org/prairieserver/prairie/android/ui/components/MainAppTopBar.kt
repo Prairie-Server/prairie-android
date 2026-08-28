@@ -105,7 +105,7 @@ fun PrairieWordmark(
 ) {
     androidx.compose.foundation.Image(
         painter = painterResource(id = R.drawable.prairie_wordmark),
-        contentDescription = "Silo",
+        contentDescription = "Prairie",
         contentScale = ContentScale.Fit,
         modifier = modifier
             .width(width)

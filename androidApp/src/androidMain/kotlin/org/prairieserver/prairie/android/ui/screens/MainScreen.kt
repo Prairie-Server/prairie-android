@@ -94,7 +94,7 @@ fun MainScreen(
     val headerState by headerViewModel.uiState.collectAsState()
     val siloCastController: PrairieCastController = koinInject()
     val siloCastState by siloCastController.state.collectAsState()
-    var showSiloCastTargetPicker by rememberSaveable { mutableStateOf(false) }
+    var showPrairieCastTargetPicker by rememberSaveable { mutableStateOf(false) }
     var showWatchTogetherEntry by rememberSaveable { mutableStateOf(false) }
 
     fun playVideo(contentId: String, fileId: Int? = null, resumePositionSeconds: Double? = null) {
@@ -368,10 +368,10 @@ fun MainScreen(
                                 if (siloCastState.hasActiveSession) {
                                     navController.navigate(Route.PrairieCastRemote.route)
                                 } else {
-                                    showSiloCastTargetPicker = true
+                                    showPrairieCastTargetPicker = true
                                 }
                             },
-                            onRemoteChooseTvClick = { showSiloCastTargetPicker = true },
+                            onRemoteChooseTvClick = { showPrairieCastTargetPicker = true },
                             onRemoteDisconnectClick = { siloCastController.disconnect() },
                             isRemoteControlActive = siloCastState.hasActiveSession,
                             onRequestsClick = requestsMenuAction,
@@ -543,9 +543,9 @@ fun MainScreen(
                 )
             }
 
-            if (showSiloCastTargetPicker) {
+            if (showPrairieCastTargetPicker) {
                 PrairieCastTargetPickerSheet(
-                    onDismiss = { showSiloCastTargetPicker = false },
+                    onDismiss = { showPrairieCastTargetPicker = false },
                     controller = siloCastController,
                 )
             }

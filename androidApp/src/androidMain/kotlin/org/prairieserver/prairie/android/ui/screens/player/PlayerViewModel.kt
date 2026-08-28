@@ -1894,7 +1894,7 @@ class PlayerViewModel(
                     }
                     VideoSessionStartV3.ServerUpgradeRequired -> _uiState.update {
                         it.copy(
-                            error = "This Silo server must be updated to support playback recovery.",
+                            error = "This Prairie server must be updated to support playback recovery.",
                             isLoading = false,
                             isBuffering = false,
                         )
@@ -2557,11 +2557,11 @@ class PlayerViewModel(
                                 )
                             }
                             VideoSessionStartV3.ServerUpgradeRequired -> {
-                                failureMessage = "This Silo server does not support reliable seeking."
+                                failureMessage = "This Prairie server does not support reliable seeking."
                             }
                         }
                         is ApiResult.Error -> if (result.error == "seek_reanchor_not_supported") {
-                            failureMessage = "This Silo server does not support reliable seeking."
+                            failureMessage = "This Prairie server does not support reliable seeking."
                         } else {
                             pinnedRequest = PinnedSeekRecoveryRequest(
                                 classification = "seek_reanchor_failed",
@@ -2634,14 +2634,14 @@ class PlayerViewModel(
                         VideoSessionStartV3.ServerUpgradeRequired -> publishSeekFailure(
                             request,
                             recoveryGeneration,
-                            "This Silo server does not support reliable seeking.",
+                            "This Prairie server does not support reliable seeking.",
                         )
                     }
                     is ApiResult.Error -> publishSeekFailure(
                         request,
                         recoveryGeneration,
                         if (fallbackResult.error == "seek_reanchor_not_supported") {
-                            "This Silo server does not support reliable seeking."
+                            "This Prairie server does not support reliable seeking."
                         } else {
                             "Unable to seek (${fallbackResult.message})"
                         },

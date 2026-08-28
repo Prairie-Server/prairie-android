@@ -108,7 +108,7 @@ fun DiagnosticsReportScreen(
                             DetailLine(
                                 "Destination",
                                 if (report.destinationKind == DiagnosticsDestinationKind.HOSTED) {
-                                    "Silo Diagnostics"
+                                    "Prairie Diagnostics"
                                 } else {
                                     report.destinationServerInstanceId
                                 },

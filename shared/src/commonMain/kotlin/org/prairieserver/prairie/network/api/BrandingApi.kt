@@ -6,7 +6,7 @@ import io.ktor.client.request.get
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.network.skipSiloAuth
+import org.prairieserver.prairie.network.skipPrairieAuth
 
 @Serializable
 data class BrandingStatus(
@@ -22,7 +22,7 @@ open class BrandingApi(private val client: HttpClient) {
             // carries a bearer it never needed, so a dead session would fail
             // it and silently fall back to the compatibility name this
             // endpoint exists to stop using.
-            skipSiloAuth()
+            skipPrairieAuth()
             timeout {
                 connectTimeoutMillis = BRANDING_TIMEOUT_MS
                 requestTimeoutMillis = BRANDING_TIMEOUT_MS

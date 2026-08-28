@@ -174,7 +174,7 @@ class CompanionPairingCoordinator(
         val snapshot = serverStore.snapshot()
         val orderedServers = snapshot.orderedServers()
         if (orderedServers.isEmpty()) {
-            return fail(target, "No saved Silo servers are available to send.")
+            return fail(target, "No saved Prairie servers are available to send.")
         }
 
         var signedInCount = 0

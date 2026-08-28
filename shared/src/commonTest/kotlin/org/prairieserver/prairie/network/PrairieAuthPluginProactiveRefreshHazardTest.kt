@@ -113,7 +113,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
      * change state" is false here — GET /downloads/{id}/file completes the
      * download server-side — and an optionally-authenticated read would hand
      * back GUEST data with a 200 that callers cache while the user is being
-     * signed out. Genuinely public calls opt out with skipSiloAuth() and never
+     * signed out. Genuinely public calls opt out with skipPrairieAuth() and never
      * reach this path at all.
      */
     @Test
@@ -142,7 +142,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
         val sent = mutableListOf<Pair<String, String?>>()
         val client = repudiatingClient(tokenManager, sent)
 
-        val response = client.get("/api/v1/health") { skipSiloAuth() }
+        val response = client.get("/api/v1/health") { skipPrairieAuth() }
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertNull(sent.single { it.first == "/api/v1/health" }.second)

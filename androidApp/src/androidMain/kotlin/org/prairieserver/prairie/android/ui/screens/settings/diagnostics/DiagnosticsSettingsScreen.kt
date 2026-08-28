@@ -122,8 +122,8 @@ internal fun DiagnosticsSettingsContent(
                 SettingsSection(title = "Send reports to") {
                     DiagnosticsDestinationKind.entries.forEach { destination ->
                         val label = when (destination) {
-                            DiagnosticsDestinationKind.HOSTED -> "Silo Diagnostics"
-                            DiagnosticsDestinationKind.SELF_HOSTED -> "This Silo server"
+                            DiagnosticsDestinationKind.HOSTED -> "Prairie Diagnostics"
+                            DiagnosticsDestinationKind.SELF_HOSTED -> "This Prairie server"
                         }
                         SettingsChoiceRow(
                             label = label,
@@ -332,7 +332,7 @@ private fun DiagnosticsUnavailableScreen(onBackClick: () -> Unit) {
 
 @Composable
 private fun DiagnosticsStatusCard(state: DiagnosticsUiState) {
-    val destination = if (state.destinationKind == DiagnosticsDestinationKind.HOSTED) "Silo Diagnostics" else "this server"
+    val destination = if (state.destinationKind == DiagnosticsDestinationKind.HOSTED) "Prairie Diagnostics" else "this server"
     val (title, detail) = when (state.availability) {
         DiagnosticsAvailabilityUi.AVAILABLE -> "Available" to "Reports can be reviewed and sent to $destination."
         DiagnosticsAvailabilityUi.DISABLED -> "Disabled" to "Local reports remain available to inspect or delete."

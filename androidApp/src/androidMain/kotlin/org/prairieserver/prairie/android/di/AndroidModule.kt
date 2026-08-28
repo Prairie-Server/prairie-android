@@ -88,7 +88,7 @@ import org.prairieserver.prairie.android.ui.screens.reading.ReadingHubViewModel
 import org.prairieserver.prairie.android.ui.screens.search.SearchViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
-import org.prairieserver.prairie.android.cast.SharedPrefsSiloCastLastTargetStore
+import org.prairieserver.prairie.android.cast.SharedPrefsPrairieCastLastTargetStore
 import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.cast.PrairieCastLastTargetStore
 import org.prairieserver.prairie.android.cast.PrairieCastSessionManager
@@ -198,7 +198,7 @@ val androidModule = module {
         }
     }
     single { CompanionPairingCoordinator(get(), get(), get()) }
-    single<PrairieCastLastTargetStore> { SharedPrefsSiloCastLastTargetStore(androidContext()) }
+    single<PrairieCastLastTargetStore> { SharedPrefsPrairieCastLastTargetStore(androidContext()) }
     single {
         PrairieCastController(
             browser = get(),

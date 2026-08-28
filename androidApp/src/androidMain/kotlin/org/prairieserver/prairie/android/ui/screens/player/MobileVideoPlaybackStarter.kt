@@ -296,7 +296,7 @@ internal class MobileVideoPlaybackStarter(
                 )
                 VideoSessionStartV3.ServerUpgradeRequired -> return failure(
                     request.contentId,
-                    "This Silo server must be updated to support the Media3 playback protocol.",
+                    "This Prairie server must be updated to support the Media3 playback protocol.",
                     diagnosticsCode = PlaybackDiagnosticsCode.SERVER_UPGRADE_REQUIRED,
                 )
             }

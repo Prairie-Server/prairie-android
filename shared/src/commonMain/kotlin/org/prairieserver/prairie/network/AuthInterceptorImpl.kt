@@ -300,7 +300,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
         }
 
         if (
-            // skipSiloAuth is also used by login/refresh/device-login POSTs:
+            // skipPrairieAuth is also used by login/refresh/device-login POSTs:
             // those requests omit headers but still carry credentials in the
             // body. Only read-only candidate probes may bypass consent.
             (!skipAuth || request.method != HttpMethod.Get) &&
@@ -600,7 +600,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 // would return GUEST data with a 200 that callers cache while
                 // sessionExpired is signing the user out. Failing the call is
                 // the honest answer, so this throws rather than sending
-                // anything. Genuinely public calls opt out with skipSiloAuth(),
+                // anything. Genuinely public calls opt out with skipPrairieAuth(),
                 // never receive a bearer, and so never reach this branch.
                 RefreshOutcome.CredentialsDead -> {
                     request.removePrairieCredentialHeaders()

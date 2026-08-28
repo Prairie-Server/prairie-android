@@ -22,7 +22,7 @@ import org.prairieserver.prairie.repository.CatalogRepository
  * outside Compose so the Android media session can publish the same artwork.
  */
 @Composable
-fun rememberSiloCastArtwork(contentId: String?): PrairieCastArtwork {
+fun rememberPrairieCastArtwork(contentId: String?): PrairieCastArtwork {
     val repository: CatalogRepository = koinInject()
     // Key the state as well as the effect so the previous title's artwork is
     // removed synchronously, before the new detail lookup suspends.

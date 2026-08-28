@@ -151,11 +151,11 @@ class PushNotificationPresenter(
     ): PushNotificationContent {
         if (row == null) {
             return PushNotificationContent(
-                title = fallbackTitle?.takeIf { it.isNotBlank() } ?: "Silo notification",
+                title = fallbackTitle?.takeIf { it.isNotBlank() } ?: "Prairie notification",
                 // Deliberately does not promise this specific event is visible
                 // under the active identity — it may not be ours to show.
                 body = fallbackBody?.takeIf { it.isNotBlank() }
-                    ?: "Open Silo to check notifications.",
+                    ?: "Open Prairie to check notifications.",
                 route = Route.Inbox.route,
             )
         }
@@ -170,7 +170,7 @@ class PushNotificationPresenter(
                 body = listOfNotNull(
                     episodeTag,
                     row.episodeTitle.ifBlank { null },
-                ).joinToString(" - ").ifBlank { "Open Silo to watch." },
+                ).joinToString(" - ").ifBlank { "Open Prairie to watch." },
                 route = route,
             )
             NotificationType.RequestFulfilled -> PushNotificationContent(
@@ -185,11 +185,11 @@ class PushNotificationPresenter(
                     ?: row.rawType.substringBefore('.')
                         .replace('_', ' ')
                         .replaceFirstChar { it.uppercase() }
-                        .ifBlank { "Silo notification" },
+                        .ifBlank { "Prairie notification" },
                 body = fallbackBody?.takeIf { it.isNotBlank() }
                     ?: row.episodeTitle.ifBlank { null }
                     ?: row.seriesTitle.ifBlank { null }
-                    ?: "Open Silo to view it.",
+                    ?: "Open Prairie to view it.",
                 route = route,
             )
         }
@@ -209,7 +209,7 @@ class PushNotificationPresenter(
             "Notifications",
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "Private Silo notification alerts"
+            description = "Private Prairie notification alerts"
         }
         manager.createNotificationChannel(channel)
     }

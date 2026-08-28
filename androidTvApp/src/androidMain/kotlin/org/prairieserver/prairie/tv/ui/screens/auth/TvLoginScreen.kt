@@ -313,7 +313,7 @@ private fun BrandHeader() {
     ) {
         Image(
             painter = painterResource(id = R.drawable.prairie_wordmark),
-            contentDescription = "Silo",
+            contentDescription = "Prairie",
             modifier = Modifier
                 .width(66.dp)
                 .height(35.dp),

@@ -6,7 +6,7 @@ import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import org.prairieserver.prairie.network.skipSiloAuth
+import org.prairieserver.prairie.network.skipPrairieAuth
 
 @Serializable
 data class HealthStatus(
@@ -24,7 +24,7 @@ open class HealthApi(private val client: HttpClient) {
             // Public: never send credentials, so a dead session cannot make a
             // reachability check fail. Matches the explicit-server variants of
             // the other public endpoints.
-            skipSiloAuth()
+            skipPrairieAuth()
             timeout {
                 connectTimeoutMillis = HEALTH_TIMEOUT_MS
                 requestTimeoutMillis = HEALTH_TIMEOUT_MS

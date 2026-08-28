@@ -38,7 +38,7 @@ class MediaAuthInterceptor(
         val original = chain.request()
         val failedSnapshot = runBlocking { authSession.snapshot() }
         if (!isSameHttpOrigin(failedSnapshot.serverUrl, original.url.toString())) {
-            return chain.proceed(original.withoutSiloCredentials())
+            return chain.proceed(original.withoutPrairieCredentials())
         }
 
         val authed = original.newBuilder()
@@ -65,7 +65,7 @@ class MediaAuthInterceptor(
                 .applyAuthHeaders(retrySnapshot)
                 .build()
         } else {
-            original.withoutSiloCredentials()
+            original.withoutPrairieCredentials()
         }
         return chain.proceed(retried)
     }
@@ -76,7 +76,7 @@ class MediaAuthInterceptor(
     }
 }
 
-private fun Request.withoutSiloCredentials(): Request =
+private fun Request.withoutPrairieCredentials(): Request =
     newBuilder()
         .removeHeader("Authorization")
         .removeHeader("X-Profile-Id")

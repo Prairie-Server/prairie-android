@@ -70,7 +70,7 @@ import org.prairieserver.prairie.tv.ui.theme.Spacing
  * It used to be a top-level route outside `TvMainShell`, so the surface had no
  * top bar, no on-screen Back, and no relationship to the rest of Settings.
  *
- * The destination choice ("Silo Diagnostics" vs "This Silo server") used to be
+ * The destination choice ("Prairie Diagnostics" vs "This Prairie server") used to be
  * a pair of inline rows above the consent ladder, and a hand-rolled
  * `onPreviewKeyEvent` ladder swallowed Up at the top of that ladder — the rows
  * rendered but no D-pad press could ever reach them. tvOS does not have that

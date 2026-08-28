@@ -43,7 +43,7 @@ class PrairieMediaSessionBitmapLoader(context: Context) : BitmapLoader, Closeabl
 
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> = executor.submit<Bitmap> {
         BitmapFactory.decodeByteArray(data, 0, data.size)
-            ?: throw IOException("Silo media artwork data could not be decoded")
+            ?: throw IOException("Prairie media artwork data could not be decoded")
     }
 
     override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> = executor.submit<Bitmap> {
@@ -55,7 +55,7 @@ class PrairieMediaSessionBitmapLoader(context: Context) : BitmapLoader, Closeabl
                     .build(),
             )
             if (result !is SuccessResult) {
-                throw IOException("Silo media artwork could not be loaded")
+                throw IOException("Prairie media artwork could not be loaded")
             }
             val bitmap = result.image.toBitmap()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.config == Bitmap.Config.HARDWARE) {
