@@ -32,7 +32,7 @@ Kotlin Multiplatform. Modules:
 Stack: Kotlin 2.1.20, Compose Multiplatform 1.7.3, Material3, Compose-for-TV 1.0.1,
 Coil3 3.1.0, Media3/ExoPlayer 1.10.0 + libmpv, Koin DI, navigation-compose 2.9.0,
 Room 2.8.4, DataStore, WorkManager. minSdk 24, targetSdk 35, compileSdk 36.
-Package root `org.prairieserver.prairie` (dirs say "silo"; product is "Prairie").
+Package root `org.prairieserver.prairie` (dirs say "prairie"; product is "Prairie").
 iOS-parity is a deliberate design driver — many files say "Mirrors iosApp …".
 
 ---
@@ -330,7 +330,7 @@ no resource shrinking. No Baseline Profile, no `profileinstaller`, no signingCon
 ## 6. Quick-start checklist for the new session
 
 1. `git checkout uiux-fluidity-overhaul` and read recent commits (`git log --oneline -10`).
-2. Re-read this doc + the memory note `silo-uiux-overhaul-plan` and `silo-build-on-windows`.
+2. Re-read this doc + the memory note `prairie-uiux-overhaul-plan` and `prairie-build-on-windows`.
 3. Confirm the branch tip still compiles green using the §1 procedure (grep the output!).
 4. Pick a phase. 6 is non-gated; 7 and 8 require an owner checkpoint before merge.
 5. Work in per-phase commits; keep source-guard tests green; verify by grepping

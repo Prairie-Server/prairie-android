@@ -111,7 +111,7 @@ Steps:
 - [ ] Run the test and confirm it FAILS to compile (the `ReaderLocator` symbol does not yet exist):
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.reader.ReaderLocatorTest"
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.reader.ReaderLocatorTest"
   ```
 
   Expected: build failure / unresolved reference `ReaderLocator`.
@@ -204,7 +204,7 @@ Steps:
 - [ ] Run the test and confirm it PASSES:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.reader.ReaderLocatorTest"
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.reader.ReaderLocatorTest"
   ```
 
   Expected: `BUILD SUCCESSFUL`, all 9 test methods green.
@@ -212,7 +212,7 @@ Steps:
 - [ ] Commit:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && git add shared/src/commonMain/kotlin/com/continuum/app/model/reader/ReaderLocator.kt shared/src/commonTest/kotlin/com/continuum/app/model/reader/ReaderLocatorTest.kt && git commit -m "feat(reader): add ReaderLocator sealed type with typed JSON + legacy page:N parse"
+  cd /Users/dev/projects/prairie/prairie-android && git add shared/src/commonMain/kotlin/com/continuum/app/model/reader/ReaderLocator.kt shared/src/commonTest/kotlin/com/continuum/app/model/reader/ReaderLocatorTest.kt && git commit -m "feat(reader): add ReaderLocator sealed type with typed JSON + legacy page:N parse"
   ```
 
 ---
@@ -256,7 +256,7 @@ Steps:
 - [ ] Run the test and confirm it FAILS (unresolved `progressLocationForPage`, and `ebookPageNumberFromProgressLocation` does not yet understand typed JSON):
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.ebook.EbookVersionSelectionTest"
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.ebook.EbookVersionSelectionTest"
   ```
 
   Expected: compile failure on `progressLocationForPage` (and, once that is added, a failing assertion on the typed-JSON case until the body is updated).
@@ -281,7 +281,7 @@ Steps:
 - [ ] Run the test and confirm it PASSES:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.ebook.EbookVersionSelectionTest"
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :shared:testDebugUnitTest --tests "com.continuum.app.model.ebook.EbookVersionSelectionTest"
   ```
 
   Expected: `BUILD SUCCESSFUL`, including the three new methods and all pre-existing `EbookVersionSelectionTest` cases.
@@ -289,7 +289,7 @@ Steps:
 - [ ] Commit:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && git add shared/src/commonMain/kotlin/com/continuum/app/model/ebook/EbookVersionSelection.kt shared/src/commonTest/kotlin/com/continuum/app/model/ebook/EbookVersionSelectionTest.kt && git commit -m "feat(reader): resolve progress location via ReaderLocator (typed JSON + legacy page:N)"
+  cd /Users/dev/projects/prairie/prairie-android && git add shared/src/commonMain/kotlin/com/continuum/app/model/ebook/EbookVersionSelection.kt shared/src/commonTest/kotlin/com/continuum/app/model/ebook/EbookVersionSelectionTest.kt && git commit -m "feat(reader): resolve progress location via ReaderLocator (typed JSON + legacy page:N)"
   ```
 
 ---
@@ -346,7 +346,7 @@ Steps:
 - [ ] Run the test:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.ebook.EbookLocalStateStoreTest"
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :android-shared:testDebugUnitTest --tests "com.continuum.app.common.ebook.EbookLocalStateStoreTest"
   ```
 
   Expected: `BUILD SUCCESSFUL`. (`android-shared` already depends on `:shared` via `implementation(project(":shared"))`, so the `ReaderLocator` import resolves. If it does not compile, that signals the store module is missing the shared dependency — it is not — so the expected outcome is green with no production edit.)
@@ -356,7 +356,7 @@ Steps:
 - [ ] Commit:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && git add android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/ebook/EbookLocalStateStoreTest.kt && git commit -m "test(reader): assert EbookLocalStateStore reads legacy and typed locator progress rows"
+  cd /Users/dev/projects/prairie/prairie-android && git add android-shared/src/androidUnitTest/kotlin/com/continuum/app/common/ebook/EbookLocalStateStoreTest.kt && git commit -m "test(reader): assert EbookLocalStateStore reads legacy and typed locator progress rows"
   ```
 
 ---
@@ -408,7 +408,7 @@ Steps:
 - [ ] Compile `androidApp` to confirm the refactor type-checks:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :androidApp:compileDebugKotlin
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :androidApp:compileDebugKotlin
   ```
 
   Expected: `BUILD SUCCESSFUL`.
@@ -416,7 +416,7 @@ Steps:
 - [ ] Run the full affected module suites to confirm nothing regressed:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest :android-shared:testDebugUnitTest :androidApp:testDebugUnitTest
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :shared:testDebugUnitTest :android-shared:testDebugUnitTest :androidApp:testDebugUnitTest
   ```
 
   Expected: `BUILD SUCCESSFUL` across all three.
@@ -424,7 +424,7 @@ Steps:
 - [ ] Commit:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && git add androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ReaderViewModel.kt && git commit -m "refactor(reader): persist progress + bookmarks as typed ReaderLocator JSON"
+  cd /Users/dev/projects/prairie/prairie-android && git add androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader/ReaderViewModel.kt && git commit -m "refactor(reader): persist progress + bookmarks as typed ReaderLocator JSON"
   ```
 
 ---
@@ -443,7 +443,7 @@ Steps:
 - [ ] Verify no inline `"page:` string literals remain in the reader path except the legacy-parse branch inside `ReaderLocator.parse`:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && /usr/bin/grep -rn "page:" androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader shared/src/commonMain/kotlin/com/continuum/app/model
+  cd /Users/dev/projects/prairie/prairie-android && /usr/bin/grep -rn "page:" androidApp/src/androidMain/kotlin/com/continuum/app/android/ui/screens/reader shared/src/commonMain/kotlin/com/continuum/app/model
   ```
 
   Expected: the only `"page:"` producers are `EpubReader.kt`'s `ReaderSection(location = "page:$index")` (section TOC anchors, untouched in Phase 1 — acceptable, parsed by the locator) and the legacy branch in `ReaderLocator.kt` / `EbookVersionSelection` comments. Note any others and fix if they bypass the helper.
@@ -451,7 +451,7 @@ Steps:
 - [ ] Run lint on changed Kotlin (the repo's standard pre-MR gate):
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:lintKotlinCommonMain :androidApp:lintDebug
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :shared:lintKotlinCommonMain :androidApp:lintDebug
   ```
 
   If these Gradle lint tasks are not configured in this repo, fall back to the project's documented lint command and run that instead; do not invent a task name. Fix any reported issues inline.
@@ -459,7 +459,7 @@ Steps:
 - [ ] Final full run to confirm everything is green together:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && ./gradlew :shared:testDebugUnitTest :android-shared:testDebugUnitTest :androidApp:testDebugUnitTest
+  cd /Users/dev/projects/prairie/prairie-android && ./gradlew :shared:testDebugUnitTest :android-shared:testDebugUnitTest :androidApp:testDebugUnitTest
   ```
 
   Expected: `BUILD SUCCESSFUL`.
@@ -467,7 +467,7 @@ Steps:
 - [ ] If self-review surfaced any fix, commit it:
 
   ```
-  cd /Users/dev/projects/silo/prairie-android && git add -A && git commit -m "chore(reader): phase 1 self-review fixes for ReaderLocator"
+  cd /Users/dev/projects/prairie/prairie-android && git add -A && git commit -m "chore(reader): phase 1 self-review fixes for ReaderLocator"
   ```
 
 ---

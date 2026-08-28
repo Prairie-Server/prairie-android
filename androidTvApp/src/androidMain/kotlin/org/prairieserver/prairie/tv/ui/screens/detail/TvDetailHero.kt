@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -62,14 +63,13 @@ internal sealed class TvHeroFactToken {
 }
 
 /**
- * Full-bleed cinematic hero for the Android TV detail screen. Mirrors the
- * tvOS `TVDetailHero` 1:1.
+ * Full-bleed cinematic hero for the Android TV detail screen. Structurally
+ * mirrors tvOS `TVDetailHero`.
  *
  * Layout = a `ZStack(bottomLeading)`: a near-full-viewport backdrop, a
  * 4-stop horizontal darkening on the left, a soft vertical fade into the
  * rail body at the bottom, then the bottom-anchored editorial + action
- * column on the left. The "Starring …" credit floats upper-right as its own
- * trailing overlay (tvOS `starringOverlay`), NOT inside the editorial column.
+ * column on the left.
  *
  * Apple sizes the hero relative to the viewport (`heroHeight = 980` of a
  * 1080-pt canvas ≈ 0.907×), so we compute the height as a fraction of the
@@ -92,12 +92,20 @@ internal fun TvDetailHero(
     overview: String?,
     tagline: String?,
     factsLine: List<TvHeroFactToken>,
-    starringText: String?,
+    directorText: String?,
     actions: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     // Optional description-translation affordance (Apple tvOS parity),
     // rendered as its own focus stop directly under the synopsis.
     translation: (@Composable () -> Unit)? = null,
+    /**
+     * How far (px) the page has scrolled past the hero's top. Read inside the
+     * draw phase only, so scrolling never recomposes the hero. The backdrop
+     * recedes with it — dims toward the page background and drifts at a
+     * fraction of the scroll — so moving into the body reads as the hero
+     * giving way rather than being chopped off by the next section.
+     */
+    scrollOffsetPx: () -> Float = { 0f },
 ) {
     // heroHeight = 980 of a 1080-pt tvOS canvas ≈ 0.907 × viewport height.
     // The TV theme keeps dp geometry at device density, so screenHeightDp maps
@@ -121,7 +129,15 @@ internal fun TvDetailHero(
                 thumbhash = backdropThumbhash,
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        val offset = scrollOffsetPx().coerceAtLeast(0f)
+                        val fadeDistance = size.height * BackdropFadeHeightFraction
+                        val progress = if (fadeDistance > 0f) (offset / fadeDistance).coerceIn(0f, 1f) else 0f
+                        alpha = 1f - progress * (1f - BackdropMinAlpha)
+                        translationY = minOf(offset, size.height) * BackdropParallaxFactor
+                    },
             )
         } else {
             Box(modifier = Modifier.matchParentSize().background(DarkSurface))
@@ -157,36 +173,6 @@ internal fun TvDetailHero(
                 ),
         )
 
-        // "Starring …" floats in the upper-right of the hero, right-aligned —
-        // tvOS `.overlay(alignment: .trailing)` + `.padding(.bottom, heroHeight
-        // * 0.45)` (the bottom padding on the vertically-centered overlay
-        // pushes the credit into the top-right region). 2-line limit; sized up
-        // from the raw tvOS ~2x mapping (24pt → 12sp) per design review, with
-        // maxWidth widened to match so casts don't ellipsize sooner.
-        starringText?.takeIf { it.isNotBlank() }?.let { line ->
-            Text(
-                text = line,
-                fontWeight = FontWeight.Normal,
-                fontSize = 16.sp,
-                lineHeight = 20.sp,
-                color = Color.White.copy(alpha = 0.8f),
-                textAlign = TextAlign.End,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        offset = Offset(0f, 2f),
-                        blurRadius = 6f,
-                    ),
-                ),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = Spacing.safeArea, bottom = heroHeight * 0.45f)
-                    .widthIn(max = 280.dp),
-            )
-        }
-
         // Reserve and pin the action cluster before measuring the editorial
         // column. The hero can therefore keep the fixed tvOS viewport framing
         // without letting tall copy collapse visible-but-focusable controls.
@@ -204,6 +190,7 @@ internal fun TvDetailHero(
                     overview = overview,
                     tagline = tagline,
                     factsLine = factsLine,
+                    directorText = directorText,
                     contentMaxWidth = contentMaxWidth,
                     verticalSpacing = editorialSpacing,
                     collapsedSynopsisLines = collapsedSynopsisLines,
@@ -227,6 +214,12 @@ internal fun TvDetailHero(
     }
 }
 
+/** Scrolling ~40% of the hero height fades the backdrop to [BackdropMinAlpha]. */
+private const val BackdropFadeHeightFraction = 0.4f
+private const val BackdropMinAlpha = 0.35f
+/** Backdrop drifts down at this fraction of the scroll — a light parallax. */
+private const val BackdropParallaxFactor = 0.4f
+
 @Composable
 private fun EditorialColumn(
     title: String,
@@ -237,6 +230,7 @@ private fun EditorialColumn(
     overview: String?,
     tagline: String?,
     factsLine: List<TvHeroFactToken>,
+    directorText: String?,
     contentMaxWidth: androidx.compose.ui.unit.Dp,
     verticalSpacing: androidx.compose.ui.unit.Dp,
     collapsedSynopsisLines: Int,
@@ -268,6 +262,20 @@ private fun EditorialColumn(
             )
         }
         translation?.invoke()
+
+        // Quiet "Directed by …" credit between the synopsis and the facts row.
+        // 14sp = the ten-foot metadata floor; the 0.62 alpha keeps it reading
+        // as a credit rather than another synopsis line.
+        directorText?.takeIf { it.isNotBlank() }?.let { line ->
+            Text(
+                text = line,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.62f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
         if (factsLine.isNotEmpty()) {
             FactsRow(tokens = factsLine)

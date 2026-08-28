@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.catalog.OverlaySummary
 import org.prairieserver.prairie.model.section.SectionItem
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -27,14 +28,20 @@ data class TvMarqueeContent(
     val id: String,
     val title: String,
     val logoUrl: String?,
-    /** Codec/HDR + content-rating chips (`4K`, `DOLBY VISION`, `ATMOS`). */
+    /** Optional uppercase content-classification chip. */
     val badges: List<String>,
-    /** Dot-joined meta tokens after the badges: year · genre · runtime, or
-     *  `S2 E7 · episode title · 45 min · 23m left` for episodes. */
+    /** Dot-joined editorial metadata after the badge. */
     val metaParts: List<String>,
     val synopsis: String?,
     /** A quieter detail line: cast / air-date when carried by the payload. */
     val detailLine: String?,
+    /**
+     * Playback format, `4K · Dolby Vision · EAC3 5.1`, from the section
+     * payload's overlay summary. Rendered as a muted spec line under the
+     * detail line rather than as chips, so the content rating stays the only
+     * badge on the hero and the format is there when the viewer looks for it.
+     */
+    val specLine: String?,
     val backdropUrl: String?,
     val backdropThumbhash: String?,
     val posterUrl: String?,
@@ -75,38 +82,45 @@ data class TvMarqueeContent(
     }
 
     companion object {
-        fun from(item: SectionItem, rowTitle: String): TvMarqueeContent {
+        fun from(
+            item: SectionItem,
+            rowTitle: String,
+            rowIdentity: String = rowTitle,
+        ): TvMarqueeContent {
             val isEpisode = item.type.equals("episode", ignoreCase = true)
 
             val meta = mutableListOf<String>()
             if (isEpisode) {
                 episodeToken(item.seasonNumber, item.episodeNumber)?.let(meta::add)
                 if (item.title.isNotBlank()) meta.add(item.title)
-                lengthText(item.durationSeconds)?.let(meta::add)
+                lengthText(item.runtime, item.durationSeconds)?.let(meta::add)
                 timeLeftText(item.positionSeconds, item.durationSeconds)?.let(meta::add)
+                ratingToken(item.ratingImdb)?.let(meta::add)
             } else {
                 if (item.year > 0) meta.add(item.year.toString())
+                lengthText(item.runtime, item.durationSeconds)?.let(meta::add)
+                ratingToken(item.ratingImdb)?.let(meta::add)
                 item.genres.firstOrNull { it.isNotBlank() }?.let(meta::add)
-                lengthText(item.durationSeconds)?.let(meta::add)
-                item.ratingImdb?.let { meta.add(formatRating(it)) }
+                timeLeftText(item.positionSeconds, item.durationSeconds)?.let(meta::add)
             }
 
-            // Codec/HDR + content-rating chips (`4K · DOLBY VISION · ATMOS ·
-            // TV-MA`) derived from the section payload's overlay summary, then
-            // the content rating — mirrors tvOS `TVFocusMarquee.badges(from:)`.
-            val badges = qualityBadges(item.overlaySummary).toMutableList()
-            item.contentRating?.takeIf { it.isNotBlank() }?.let { badges.add(it.uppercase()) }
+            val badges = item.contentRating
+                ?.takeIf { it.isNotBlank() }
+                ?.uppercase(Locale.US)
+                ?.let(::listOf)
+                .orEmpty()
 
             val sectionBackdropUrl = item.backdropUrl?.takeIf { it.isNotBlank() }
             val sectionPosterUrl = item.posterUrl?.takeIf { it.isNotBlank() }
             return TvMarqueeContent(
-                id = "$rowTitle#${item.contentId}",
+                id = "$rowIdentity#${item.contentId}",
                 title = if (isEpisode) (item.seriesTitle ?: item.title) else item.title,
                 logoUrl = item.logoUrl?.takeIf { it.isNotBlank() },
                 badges = badges,
                 metaParts = meta,
                 synopsis = item.overview?.takeIf { it.isNotBlank() },
                 detailLine = null,
+                specLine = specLine(item.overlaySummary),
                 // Match tvOS: a section backdrop (or poster fallback) is always
                 // available for the first rested frame. Episode enrichment may
                 // replace it with series art later.
@@ -123,59 +137,6 @@ data class TvMarqueeContent(
             )
         }
 
-        /**
-         * Headline quality trio — resolution, dynamic range, audio — uppercased
-         * to the Skyline badge style, from the section payload's overlay summary.
-         * Mirrors tvOS `TVFocusMarquee.badges(from:)`.
-         */
-        internal fun qualityBadges(summary: org.prairieserver.prairie.model.catalog.OverlaySummary?): List<String> {
-            if (summary == null) return emptyList()
-            val badges = mutableListOf<String>()
-            prettyResolution(summary.resolution)?.let(badges::add)
-            summary.hdr?.takeIf { it.isNotBlank() }?.let { hdr ->
-                badges.add(dynamicRangeBadge(hdr))
-            }
-            summary.audio?.takeIf { it.isNotBlank() }?.let { audio ->
-                badges.add(audioBadge(audio))
-            }
-            return badges.distinct()
-        }
-
-        private fun dynamicRangeBadge(value: String): String {
-            val normalized = value.trim().lowercase(Locale.US)
-            return when {
-                normalized.contains("dolby vision") ||
-                    normalized.contains("dovi") ||
-                    Regex("(^|[^a-z])dv([^a-z]|$)").containsMatchIn(normalized) -> "DOLBY VISION"
-                normalized.contains("hdr10+") || normalized.contains("hdr10 plus") -> "HDR10+"
-                normalized.contains("hdr10") -> "HDR10"
-                normalized.contains("hlg") -> "HLG"
-                else -> value.trim().uppercase(Locale.US)
-            }
-        }
-
-        private fun audioBadge(value: String): String {
-            val normalized = value.trim().lowercase(Locale.US)
-            return when {
-                normalized.contains("atmos") ||
-                    Regex("(^|[^a-z])joc([^a-z]|$)").containsMatchIn(normalized) -> "ATMOS"
-                normalized.contains("dts-hd") || normalized.contains("dts hd") -> "DTS-HD"
-                normalized.contains("truehd") || normalized.contains("true hd") -> "TRUEHD"
-                normalized.contains("e-ac-3") || normalized.contains("eac3") -> "EAC3"
-                normalized.contains("ac-3") || normalized == "ac3" -> "AC3"
-                else -> value.trim().uppercase(Locale.US)
-            }
-        }
-
-        private fun prettyResolution(value: String?): String? {
-            val v = value?.takeIf { it.isNotBlank() } ?: return null
-            return when (v.lowercase()) {
-                "2160p", "4k", "uhd" -> "4K"
-                "4320p", "8k" -> "8K"
-                else -> v.uppercase()
-            }
-        }
-
         private fun episodeToken(season: Int?, episode: Int?): String? = when {
             season != null && episode != null -> "S$season E$episode"
             season != null -> "Season $season"
@@ -187,13 +148,56 @@ data class TvMarqueeContent(
             if (position == null || duration == null || duration <= 0) return null
             if (position <= 60 || position / duration >= 0.95) return null
             val remaining = (((duration - position) / 60.0)).let { kotlin.math.ceil(it).toInt() }.coerceAtLeast(1)
-            return "${remaining}m left"
+            return "$remaining min left"
         }
 
-        private fun lengthText(durationSeconds: Double?): String? {
-            if (durationSeconds == null || durationSeconds <= 0) return null
-            val minutes = (durationSeconds / 60.0).roundToInt()
-            if (minutes <= 0) return null
+        /**
+         * `4K · Dolby Vision · EAC3 5.1` from the payload's overlay summary —
+         * the same resolution / dynamic-range / audio trio the tvOS marquee
+         * shows, spelled out rather than uppercased since it is a text line
+         * here, not a chip row.
+         */
+        internal fun specLine(summary: OverlaySummary?): String? {
+            if (summary == null) return null
+            val parts = mutableListOf<String>()
+            prettyResolution(summary.resolution)?.let(parts::add)
+            summary.hdr?.trim()?.takeIf { it.isNotEmpty() }?.let { hdr ->
+                parts.add(
+                    if (hdr.contains("dv", ignoreCase = true) || hdr.contains("dolby", ignoreCase = true)) {
+                        "Dolby Vision"
+                    } else {
+                        hdr.uppercase(Locale.US)
+                    },
+                )
+            }
+            summary.audio?.trim()?.takeIf { it.isNotEmpty() }?.let { audio ->
+                val codec = if (audio.contains("atmos", ignoreCase = true)) "Atmos" else audio.uppercase(Locale.US)
+                val channels = summary.audioChannels?.trim()?.takeIf { it.isNotEmpty() }
+                parts.add(if (channels != null) "$codec $channels" else codec)
+            }
+            return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+        }
+
+        private fun prettyResolution(value: String?): String? {
+            val v = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            return when (v.lowercase(Locale.US)) {
+                "2160p", "4k", "uhd" -> "4K"
+                "4320p", "8k" -> "8K"
+                else -> v.uppercase(Locale.US)
+            }
+        }
+
+        /** Episode/movie length: the metadata runtime when present, else
+         *  derived from the file duration the payload already carries. */
+        private fun lengthText(runtimeMinutes: Int?, durationSeconds: Double?): String? {
+            runtimeText(runtimeMinutes)?.let { return it }
+            val duration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 }
+                ?: return null
+            return runtimeText((duration / 60.0).roundToInt())
+        }
+
+        private fun runtimeText(minutes: Int?): String? {
+            if (minutes == null || minutes <= 0) return null
             return if (minutes >= 60) {
                 val hours = minutes / 60
                 val rest = minutes % 60
@@ -202,6 +206,12 @@ data class TvMarqueeContent(
                 "$minutes min"
             }
         }
+
+        private fun ratingToken(rating: Double?): String? =
+            validImdbRating(rating)?.let(::formatRating)
+
+        private fun validImdbRating(rating: Double?): Double? =
+            rating?.takeIf { it.isFinite() && it > 0.0 && it <= 10.0 }
 
         private fun formatRating(rating: Double): String {
             val rounded = (rating * 10).roundToInt() / 10.0
@@ -287,14 +297,21 @@ class TvFocusMarqueeState internal constructor() {
 
     internal var candidate: TvMarqueeContent? by mutableStateOf(null)
 
+    internal var focusedMarqueeId: String? by mutableStateOf(null)
+        private set
+
+    internal val hasSettledRealFocus: Boolean
+        get() = focusedMarqueeId != null && focusedMarqueeId == content?.id
+
     /** Per-contentId enrichment cache (tvOS `enrichmentCache`) so scrubbing
      *  back over a row never refetches item detail. Persists for the page. */
     private val enrichmentCache = mutableMapOf<String, TvMarqueeEnrichment>()
     private val enrichmentRequests = mutableSetOf<String>()
 
     /** Report card focus. The displayed content swaps on the next composition turn. */
-    fun preview(item: SectionItem, rowTitle: String) {
-        val next = TvMarqueeContent.from(item, rowTitle)
+    fun preview(item: SectionItem, rowTitle: String, rowIdentity: String = rowTitle) {
+        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity)
+        focusedMarqueeId = next.id
         // Focus is back on the already-displayed card: cancel any pending swap
         // so a brief A→B→A scrub within the debounce window can't commit a
         // stale B after focus has returned to A.
@@ -310,9 +327,11 @@ class TvFocusMarqueeState internal constructor() {
      * is only for page entry: once focus has produced displayed or pending
      * content, the seed is ignored so it never fights real navigation.
      */
-    fun seedInitialPreview(item: SectionItem, rowTitle: String) {
-        if (content != null || candidate != null) return
-        candidate = TvMarqueeContent.from(item, rowTitle)
+    fun seedInitialPreview(item: SectionItem, rowTitle: String, rowIdentity: String = rowTitle) {
+        if (focusedMarqueeId != null) return
+        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity)
+        if (candidate?.id == next.id || content?.id == next.id) return
+        candidate = next
     }
 
     internal fun commit(value: TvMarqueeContent?) {
@@ -377,8 +396,9 @@ fun rememberTvFocusMarqueeState(
     // Populate the cache and enrich the active hero when identity still
     // matches. Near-viewport proactive prefetch usually wins this request; the
     // shared claim prevents duplicates when it is already in flight.
-    LaunchedEffect(state.content?.contentId, fetchDetail) {
+    LaunchedEffect(state.content?.id, state.focusedMarqueeId, fetchDetail) {
         val fetch = fetchDetail ?: return@LaunchedEffect
+        if (!state.hasSettledRealFocus) return@LaunchedEffect
         val contentId = state.content?.contentId ?: return@LaunchedEffect
         if (!state.beginEnrichmentRequest(contentId)) return@LaunchedEffect
         try {

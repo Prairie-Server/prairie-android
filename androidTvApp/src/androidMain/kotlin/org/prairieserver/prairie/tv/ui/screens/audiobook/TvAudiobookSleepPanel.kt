@@ -10,7 +10,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import org.prairieserver.prairie.common.player.SleepTimerChoice
-import kotlinx.coroutines.delay
 
 private data class SleepOption(val label: String, val choice: SleepTimerChoice)
 
@@ -31,18 +30,20 @@ fun TvAudiobookSleepPanel(
     currentChoice: SleepTimerChoice,
     onSelectSleep: (SleepTimerChoice) -> Unit,
     modifier: Modifier = Modifier,
+    onFocusAcquisitionFailed: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
     val focusIndex = SLEEP_OPTIONS.indexOfFirst { it.choice == currentChoice }.coerceAtLeast(0)
-    LaunchedEffect(Unit) {
-        listState.scrollToItem(focusIndex)
-        // Let the target row compose/measure after the scroll before grabbing focus.
-        delay(100)
-        runCatching { focusRequester.requestFocus() }
-    }
+    // Scroll only; the scaffold retries until focus is observed on the row.
+    LaunchedEffect(Unit) { listState.scrollToItem(focusIndex) }
 
-    TvAudiobookOverlayScaffold(title = "Sleep timer", modifier = modifier) {
+    TvAudiobookOverlayScaffold(
+        title = "Sleep timer",
+        initialFocus = focusRequester,
+        modifier = modifier,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
+    ) {
         LazyColumn(
             state = listState,
             modifier = Modifier

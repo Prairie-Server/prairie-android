@@ -8,20 +8,20 @@
 ## Purpose
 
 This document mines the reference apps in `/Users/jimcole/source` and maps their best
-product behavior and engineering patterns onto silo's current subsystems. It is the
+product behavior and engineering patterns onto prairie's current subsystems. It is the
 concrete companion to the approved best-of-source roadmap: where the roadmap says *what*
 to borrow and in what order, this says *exactly which pattern, from which file, applied
-where in silo, at what effort, under what license, with what Android-7 caveat*.
+where in prairie, at what effort, under what license, with what Android-7 caveat*.
 
 Approach (agreed): **hybrid, prioritized by gap.** Deep code-level extraction for
 Reading (ebook/reflow, comics/manga, PDF), Audiobook, and the Video player; survey-level
 (gaps only) for Watch-Together, Notifications, Requests, and Admin. Each was mined by an
-agent reading the mapped reference apps against silo's current code.
+agent reading the mapped reference apps against prairie's current code.
 
 ## How to read this
 
 - Effort: **S** = ≤1 day, **M** = a few days, **L** = a week+ / new subsystem.
-- Every borrowed idea cites a real source file and the silo file it applies to.
+- Every borrowed idea cites a real source file and the prairie file it applies to.
 - Correctness items overlapping the playback/reader review (2026-06-15) are flagged.
 - Constraints carried throughout: **Android 7 / API 24 hard floor** and **AGPLv3**.
 
@@ -36,16 +36,16 @@ debugging), not as gating rules.
 The only reason to *reimplement* rather than paste, then, is **engineering fit**, and it
 still applies in specific cases:
 
-- Different UI stack — silo is **Compose/KMP-first**; the Jellyfin clients, mihon, Kotatsu,
+- Different UI stack — prairie is **Compose/KMP-first**; the Jellyfin clients, mihon, Kotatsu,
   document-viewer, etc. are XML View + RecyclerView/ViewPager. Pasting their view holders
   imports a parallel UI stack.
 - Parallel infrastructure — don't drag in a second DI/preferences system (mihon's Injekt,
-  others' DataStore wrappers) when silo already has its own.
+  others' DataStore wrappers) when prairie already has its own.
 - Native packaging — MuPDF/pdfium, libmobi, MPV add NDK builds, ABI/`.so` weight, and
   API24 risk; those are *architecture decisions*, not free copies, regardless of license.
 
 So: **copy whatever is a clean fit; reimplement only where the source's architecture
-clashes with silo's.** The "what NOT to borrow" notes below now reflect engineering fit,
+clashes with prairie's.** The "what NOT to borrow" notes below now reflect engineering fit,
 not licensing.
 
 ---
@@ -121,7 +121,7 @@ They de-risk everything built on top.
 
 ### Best-in-class reference(s) and why
 
-- **readest** (AGPL-3.0) — most directly transferable: foliate-js WebView reader whose **document model, CFI locator, and three-tier settings hierarchy** map ~1:1 onto silo's WebView-reflow architecture. Primary mine.
+- **readest** (AGPL-3.0) — most directly transferable: foliate-js WebView reader whose **document model, CFI locator, and three-tier settings hierarchy** map ~1:1 onto prairie's WebView-reflow architecture. Primary mine.
 - **book-story** (GPL-3.0) — best **Compose-native shell and settings UX** (type-safe DataStore DSL, debounced progress persistence, nested-TOC drawer, font registry). *Do not* borrow its rendering path (it discards EPUB CSS).
 - **koreader** (AGPL-3.0) — **typography depth** (language-keyed hyphenation, margin presets, CSS-tweak taxonomy) as data tables/UX, not the C++ engine.
 - **LibreraReader** (GPL-3.0; bundles LGPL libmobi) — the concrete **MOBI/AZW native-parse** path (libmobi → EPUB conversion, then reuse the EPUB pipeline).
@@ -145,12 +145,12 @@ They de-risk everything built on top.
 
 ### Concrete adoptable patterns
 
-| Idea | Source location | Where in silo | Effort | License | A7 caveat |
+| Idea | Source location | Where in prairie | Effort | License | A7 caveat |
 |---|---|---|---|---|---|
 | Element-level locator (CSS-selector/text-quote anchor) alongside section+fraction | readest `utils/cfi.ts`, `services/nav/locations.ts` | `reflow/ReflowLocator.kt`, `paginator.js` (emit nearest-element selector on relocate) | M | AGPL design, reimplement | `elementFromPoint`+`querySelector` OK on API24 WebView; avoid `:has()` |
 | Char/byte-offset location map for accurate book progress | readest `bakeLocationsAndCfis` (SIZE_PER_LOC=2500) | replace `SectionWeights.kt` estimate with cumulative offset table | S | AGPL design | none |
 | Three-tier settings (global < per-book deltas < session) | readest `types/book.ts` override flags | `ReaderControls.kt` + `EbookLocalStateStore.kt` | M | AGPL design | none |
-| Type-safe DataStore settings DSL | book-story `data/settings/SettingsManager.kt` | silo display-prefs persistence (absent today) | M | GPL-3.0 — attribute if copied | DataStore fine on API24 |
+| Type-safe DataStore settings DSL | book-story `data/settings/SettingsManager.kt` | prairie display-prefs persistence (absent today) | M | GPL-3.0 — attribute if copied | DataStore fine on API24 |
 | Debounced (300ms) progress persistence | book-story `ReaderModel.updateProgress()` | `ReflowableReader` locator callback / `ReaderViewModel.kt` | S | GPL-3.0 pattern | none |
 | Font registry + font-family picker | book-story `ui/reader/data/ReaderData.kt` | extend `ReaderDisplaySettings`; wire `ReflowStyle.kt:23` | M | GPL-3.0 pattern | bundle static weights; variable fonts API26+ |
 | Nested-TOC drawer w/ auto-expand current | book-story `ui/reader/ReaderChaptersDrawer.kt` | `ReaderShell.kt` | S | GPL-3.0 pattern | none |
@@ -163,7 +163,7 @@ They de-risk everything built on top.
 
 ### What NOT to borrow / risks
 
-- Don't adopt book-story's CSS-discarding native-text parser (silo's WebView correctly preserves publisher CSS) — borrow its shell/settings/state, not its parser. (JellyBook is thin; ideas only.)
+- Don't adopt book-story's CSS-discarding native-text parser (prairie's WebView correctly preserves publisher CSS) — borrow its shell/settings/state, not its parser. (JellyBook is thin; ideas only.)
 - Don't chase koreader's CREngine; only its Lua data tables/UX taxonomy are practical.
 - Full EPUB-CFI is heavy — a lighter element-selector + text-quote anchor gives ~90% of resume/bookmark stability for far less.
 - libmobi adds an NDK build + binary size + maintenance — justify only if MOBI/AZW is a real need; otherwise keep graceful external-open.
@@ -199,7 +199,7 @@ They de-risk everything built on top.
 
 ### Concrete adoptable patterns
 
-| Idea | Source location | Where in silo | Effort | License | A7 caveat |
+| Idea | Source location | Where in prairie | Effort | License | A7 caveat |
 |---|---|---|---|---|---|
 | `Viewer` interface + per-mode impls (L2R/R2L/Vertical/Webtoon) by object | mihon `viewer/Viewer.kt:12`, `pager/PagerViewers.kt` | replace `ComicReader.kt` monolith; `ComicViewer` + manga/webtoon impls | M | Apache-2.0 — reimplement, attribute | none |
 | Config vs tap-navigation split (reactive config; fractional `RectF`→region) | mihon `ViewerConfig.kt`, `ViewerNavigation.kt:44-53` | new `ComicReaderConfig` from `ReaderDisplaySettings` | M | Apache-2.0 | none |
@@ -209,7 +209,7 @@ They de-risk everything built on top.
 | `ZoomMode` (FIT_WIDTH/HEIGHT/SCREEN/ORIGINAL) + zoom/pan/double-tap via SSIV | Kotatsu `core/model/ZoomMode.kt`, `ui/pager/standard/PageHolder.kt`; mihon `ReaderPageImageView.kt` | replace `Image`/`ContentScale.Fit` (`ComicReader.kt:263-270`) with SSIV in `AndroidView` | L | GPL/Apache | SSIV region/tile decode = the A7-safe path for large/zoomed pages |
 | Adaptive decode: RGB_565 + region decoder + downsample by free-RAM | Kotatsu `BasePageHolder`, `core/image/BitmapDecoderCompat.kt` | extend `decodeComicPageBitmap` (`:299-314`) | M | GPL-3.0 | targets API24 OOM; `ImageDecoder` is API28+ — keep BitmapFactory fallback |
 | Chapter/issue stitching (prev/transition/curr/transition/next) + range preload | mihon `PagerViewerAdapter.kt:47-114` | new series-aware layer above `ReaderViewModel` | L | Apache-2.0 | needs backend series API |
-| Natural/numeric page sort | (silo bug) | `listComicArchivePages` (`:343-358`) | S | n/a | none |
+| Natural/numeric page sort | (prairie bug) | `listComicArchivePages` (`:343-358`) | S | n/a | none |
 | Double-page spread pairing (landscape) — later | komikku `PagerViewerAdapter` joinedItems | future `PageLayout` mode | L | Apache-2.0 | two bitmaps at once → watch API24 memory |
 | Rotation-restore guard (suppress spurious page events) | komikku `viewer/pager/Pager.kt` | pager-state restore | S | Apache-2.0 | none |
 
@@ -218,11 +218,11 @@ They de-risk everything built on top.
 - Don't fork the View-based viewers wholesale (XML ViewPager/RecyclerView + SSIV); borrow the *abstractions* and reimplement in Compose, using thin `AndroidView`/SSIV wrappers only where zoom demands it.
 - Don't pull a native unrar/7z lib for CBR/CB7 in the first slice — keep external-only.
 - **API24 decode memory is the dominant risk:** mandatory RAM-gated prefetch, bounded concurrent decodes, RGB_565 + region decoding via SSIV, free-RAM-tied downsample. `ImageDecoder` paths are API28+ — keep BitmapFactory fallback.
-- Don't copy mihon's Injekt/preferences plumbing; route config through silo's existing `ReaderDisplaySettings` + `EbookLocalStateStore`.
+- Don't copy mihon's Injekt/preferences plumbing; route config through prairie's existing `ReaderDisplaySettings` + `EbookLocalStateStore`.
 
 ## PDF / Fixed-Document Reader
 
-silo renders fixed documents with Android's built-in `PdfRenderer` (no native MuPDF/pdfium). The references all sit on MuPDF (GPL/AGPL) — adopt **algorithms/patterns**, not their JNI codecs.
+prairie renders fixed documents with Android's built-in `PdfRenderer` (no native MuPDF/pdfium). The references all sit on MuPDF (GPL/AGPL) — adopt **algorithms/patterns**, not their JNI codecs.
 
 ### Best-in-class reference(s) and why
 
@@ -236,7 +236,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 - **LRU page cache + recycle-on-evict** — document-viewer `DecodeServiceBase.java:385-417`; Librera `:63-82`.
 - **Bitmap pool/reuse** — document-viewer `BitmapManager.java:81-257` (match w/h/config before alloc, cap `maxMemory()/2`).
 - **OOM safety net** — document-viewer `DecodeServiceBase.java:215-228`; Librera `:291-369`: catch `OutOfMemoryError`, clear cache, recycle, abort task — never crash.
-- **Native page lifecycle guards** — Librera `MuPdfPage.java` `isRecycled()` + global `TempHolder.lock`; document-viewer `MuPdfPage.java:93-113` synchronized recycle. (Validates silo's own concern from two codebases.)
+- **Native page lifecycle guards** — Librera `MuPdfPage.java` `isRecycled()` + global `TempHolder.lock`; document-viewer `MuPdfPage.java:93-113` synchronized recycle. (Validates prairie's own concern from two codebases.)
 - **Fit modes** — document-viewer `SinglePageController.java:253-268`; koreader `readerzooming.lua:522-593` (9 modes).
 - **Content auto-crop** — koreader `pdfdocument.lua:155-176` + `koptinterface.lua:191-237` (validates bbox > 10% of page). `PdfRenderer` exposes no bbox → needs pixel scan.
 - **Prefetch/hinting** — koreader `readerhinting.lua:13-26` (pre-render ~3 pages async).
@@ -257,7 +257,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 
 ### Concrete adoptable patterns
 
-| Idea | Source location | Where in silo | Effort | License | A7 caveat |
+| Idea | Source location | Where in prairie | Effort | License | A7 caveat |
 |---|---|---|---|---|---|
 | Memory-derived render cap + RGB_565 | koreader `doccache.lua:15,53`; Librera `MemoryUtils.java` | `renderPdfPageBitmap` `PdfReader.kt:284` | S | pattern only | critical — `memoryClass` on API24 can be 32–64MB |
 | LRU page-bitmap cache (recycle on evict) | doc-viewer `DecodeServiceBase.java:385-417` | cache around `PdfPage` (`:187`) | M | GPL pattern | window 1–3 pages on low-heap |
@@ -272,19 +272,19 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 
 ### What NOT to borrow / risks
 
-- Don't import MuPDF/pdfium or `com.artifex.*`/`org.ebookdroid.droids.mupdf.*` — silo deliberately uses `PdfRenderer`; MuPDF is a large native + GPL-coupling commitment (separate engine decision, not a borrow).
+- Don't import MuPDF/pdfium or `com.artifex.*`/`org.ebookdroid.droids.mupdf.*` — prairie deliberately uses `PdfRenderer`; MuPDF is a large native + GPL-coupling commitment (separate engine decision, not a borrow).
 - Skip quadtree tiling for v1 — `PdfRenderer.Page.render` supports a clip `Rect` + `Matrix`, so region rendering is far simpler; revisit only for >4× zoom on huge pages.
 - Don't blindly allow 1–32× zoom — render *clipped regions* at high zoom, never a full-page bitmap scaled up.
 - Avoid giant fixed thread pools (doc-viewer thumbnail executor sized 256) — bound to 1–2 render threads.
 - The **2×/2000px hardcode (`PdfReader.kt:294`) is the single biggest A7 liability** — replace before adding zoom.
-- koreader's k2pdfopt reflow is irrelevant — silo reflows via its separate reflow engine.
+- koreader's k2pdfopt reflow is irrelevant — prairie reflows via its separate reflow engine.
 
 ## Audiobook Player
 
 ### Best-in-class reference(s) and why
 
 - **Voice** (GPL-3.0) — gold standard for an *audiobook-native* on-device player: per-book speed/gain/skip-silence, chapter cue points, sleep timer with fade + shake-to-reset + end-of-chapter, `MediaLibraryService`. Borrow its **playback-service shape, sleep-timer state machine, and per-book audio-processing model**.
-- **lissen-android** (GPL-3.0) — gold standard for *server-backed multi-file timeline*: one MediaItem per chapter from clipped/concatenated file segments, centralized absolute↔(chapter,offset) math, a streaming `SimpleCache` **separate** from downloads, chapter-boundary-aware sync. Borrow its **timeline/MediaSource construction and dual-cache separation** — silo's biggest gap.
+- **lissen-android** (GPL-3.0) — gold standard for *server-backed multi-file timeline*: one MediaItem per chapter from clipped/concatenated file segments, centralized absolute↔(chapter,offset) math, a streaming `SimpleCache` **separate** from downloads, chapter-boundary-aware sync. Borrow its **timeline/MediaSource construction and dual-cache separation** — prairie's biggest gap.
 - absorb / aradia / AudioAnchor / audiobookshelf-app — secondary UX/domain references.
 
 ### What they do well
@@ -311,7 +311,7 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 
 ### Concrete adoptable patterns
 
-| Idea | Source location | Where in silo | Effort | License | A7 caveat |
+| Idea | Source location | Where in prairie | Effort | License | A7 caveat |
 |---|---|---|---|---|---|
 | One-MediaItem-per-chapter playlist from clipped/concatenated segments → true multi-file timeline | lissen `PlaybackService.kt:303`, `resolveChapterToFiles:255`, `LissenMediaSourceFactory.kt:62` | new `AudiobookMediaItemBuilder` → `ContinuumPlayerFactory`; VM stops collapsing to one `selectedFileId` (`:186`) | L | GPLv3 — reimplement | `ConcatenatingMediaSource2`/`ClippingMediaSource` fine on API24 |
 | Centralized absolute↔(chapter,offset) math + `CHAPTER_START_MS` | lissen `CalculateChapterIndexAndPosition.kt:20`, `PlaybackSynchronizationService.kt:175` | extend `AudiobookChapters.kt:36` with reverse-map + media-index helpers | S | GPLv3 pattern | pure Kotlin |
@@ -323,27 +323,27 @@ silo renders fixed documents with Android's built-in `PdfRenderer` (no native Mu
 | Notification next/prev → interval; in-app → chapter skip | Voice `VoicePlayer.getAvailableCommands:109`, `LibrarySessionCallback:56` | `ContinuumPlaybackService` command/button config; **gate by media type** | M | GPLv3 pattern | Media3 commands API24 |
 | Keep audiobooks playing on swipe-away/off-screen | Voice (never stops on task removal); lissen `START_STICKY` | branch `onTaskRemoved:172` by media type; detach `MediaController` from Compose (`AudiobookPlayerScreen.kt:87`) into app-scoped holder + mini-player | M–L | own code | FG-service mediaPlayback type API34+; on A7 keep session alive |
 | Chapter-boundary-aware progress sync (tighten near boundaries; `timeListened` delta; finished-state) | lissen `PlaybackSynchronizationService.kt:69-136` | extend `AudiobookProgressSyncer` | S–M | GPLv3 pattern | n/a |
-| Server-synced bookmarks (reuse ebook annotation pattern) | silo ebook `EbookReaderRepository.kt:30`; audiobookshelf-app | `AudiobookBookmarksStore:13` → repository + sync; note-edit in sheet | M | own code / server | n/a |
+| Server-synced bookmarks (reuse ebook annotation pattern) | prairie ebook `EbookReaderRepository.kt:30`; audiobookshelf-app | `AudiobookBookmarksStore:13` → repository + sync; note-edit in sheet | M | own code / server | n/a |
 
 ### What NOT to borrow / risks
 
 - Don't collapse the audiobook player into a music/now-playing UX — keep the book metaphor (chapter list w/ per-chapter progress, whole-book scrub, chapter-aware skip).
 - **Don't let the streaming cache replace public downloads** — two stores: ephemeral `SimpleCache` (`externalCacheDir`, evictable) vs user-facing `DownloadStorage` (`Music/Prairie`, `DownloadStorage.kt:420,596`); `OfflineMediaResolver` stays the authoritative "downloaded?" check.
-- Don't apply Voice's notification prev/next remap globally — silo's service is shared with video; gate by media type.
+- Don't apply Voice's notification prev/next remap globally — prairie's service is shared with video; gate by media type.
 - Don't adopt lissen's per-chapter `ConcatenatingMediaSource2` for the video path; keep `ContinuumPlayerFactory` buffer/processor config branched by media type.
-- Voice/lissen are XML/Hilt-based audiobook apps — borrow their playback-service shape and timeline math; reimplement in silo's Compose/KMP style rather than pasting. Seismic (shake) is a clean direct dependency.
+- Voice/lissen are XML/Hilt-based audiobook apps — borrow their playback-service shape and timeline math; reimplement in prairie's Compose/KMP style rather than pasting. Seismic (shake) is a clean direct dependency.
 - A7: implement the background fix with an API-level branch (`START_STICKY` + persistent `MediaSession` on API24).
 
 ## Video Player
 
-silo is **not greenfield** here — it already ships a `VideoPlaybackBackend` contract with both Media3 and MPV implementations, a route-capability matrix, a buffer-preset enum, a real `MediaCodecList` probe, and a Compose TV remote key mapper. The references are best used as a **maturity checklist** that exposes wiring gaps and two selection bugs.
+prairie is **not greenfield** here — it already ships a `VideoPlaybackBackend` contract with both Media3 and MPV implementations, a route-capability matrix, a buffer-preset enum, a real `MediaCodecList` probe, and a Compose TV remote key mapper. The references are best used as a **maturity checklist** that exposes wiring gaps and two selection bugs.
 
 ### Best-in-class references & why
 
 | Ref | License | Why |
 |---|---|---|
-| **jellyfin-androidtv** `playback/` | GPLv2 | Cleanest backend-behind-contract: `PlayerBackend` interface, `BackendService.switchBackend()` hot-swap. Target shape for silo's backend. |
-| **findroid** `player/` | GPLv3 | Canonical `dev.jdtech.mpv:libmpv` integration — the *same* dep silo uses; `MPVPlayer extends BasePlayer`. |
+| **jellyfin-androidtv** `playback/` | GPLv2 | Cleanest backend-behind-contract: `PlayerBackend` interface, `BackendService.switchBackend()` hot-swap. Target shape for prairie's backend. |
+| **findroid** `player/` | GPLv3 | Canonical `dev.jdtech.mpv:libmpv` integration — the *same* dep prairie uses; `MPVPlayer extends BasePlayer`. |
 | **AFinity** `player/mpv/` | GPLv3 | Richest libass styling surface (`sub-ass-override`, `sub-border-style`, `sub-color`, `sub-font-size`). minSdk 35 — MPV not proven on A7. |
 | **Wholphin** `services/PlayerFactory.kt` | GPLv2 | Runtime backend choice as a factory + libass-aware ExoPlayer path (`AssRenderersFactory`) — libass *without* MPV. |
 | **jellyfin-android** `TrackSelectionHelper.kt` | GPLv2 | Delivery-method-aware track selection (EMBED/EXTERNAL/ENCODE). |
@@ -357,7 +357,7 @@ silo is **not greenfield** here — it already ships a `VideoPlaybackBackend` co
 
 ### Prairie current state
 
-silo is ahead on every axis except UI surfacing and two bugs.
+prairie is ahead on every axis except UI surfacing and two bugs.
 - **Backend contract — DONE:** `backend/VideoPlaybackBackend.kt:12`; `Media3VideoPlaybackBackend` + `MpvVideoPlaybackBackend`; factory + `VideoPlaybackBackendSelector.kt:6` Auto policy (TRANSCODE→Media3, hard-container→MPV, styled-subs→MPV).
 - **Capability metadata — DONE but not surfaced:** `VideoBackendCapabilities.kt` carries `subtitleRendering`, `supportsHardContainers`, `displayName`. **Gap:** `video/VideoPlayerUiState.Ready:25` has no field for backend kind/displayName/subtitle-rendering → UI can't show "libass (MPV)" vs "Media3 text". Headline ask; wiring gap.
 - **MPV backend — DONE, real native libs:** `dev.jdtech.mpv:libmpv:1.0.0`; `libmpv.so` + ffmpeg packaged for **armeabi-v7a** (the 32-bit A7 ABI). `MpvPlayer.kt` complete `BasePlayer` (cache→buffering, libass via fontconfig, buffered position from `demuxer-cache-time`, auth headers). Auth headers pulled with `runBlocking` (`ContinuumPlayerFactory.kt:179`) — latent ANR.
@@ -369,7 +369,7 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 ### Concrete adoptable patterns
 
-| Idea | Source location | Where in silo | Effort | License | A7 caveat |
+| Idea | Source location | Where in prairie | Effort | License | A7 caveat |
 |---|---|---|---|---|---|
 | Surface backendKind/displayName/subtitleRendering on player UI state | jellyfin-androidtv `PlayerState.kt:83` | add fields to `VideoPlayerUiState.Ready` (`:25`) from `backend.capabilities` | S | concept | none |
 | Fix unconditional text disable + apply `preferredTextLanguage` | jellyfin-android `TrackSelectionUtils.kt:13` | `TrackSelectionPresets.kt:69` & `:108` | S | GPLv2 — reimplement | none |
@@ -380,11 +380,11 @@ silo is ahead on every axis except UI surfacing and two bugs.
 | Delivery-method-aware track switching | jellyfin-android `TrackSelectionHelper.kt:43,105,151` | `VideoTrackSelectionCoordinator` + `PlaybackSessionManager.changeAudio` | M | GPLv2 — pattern | none |
 | Explicit FF/REW + press-and-hold scrub | jellyfin-androidtv `CustomPlaybackOverlayFragment.java:453` | `TvPlayerRemoteKeyAction.kt:19` add media keys | S | GPLv2 — pattern | none |
 | Tighter resume (3s/15s) + server→client seek listener | jellyfin-androidtv `PlaybackController.java:59`, `PlaySessionSocketService.kt:37` | `PlaybackSessionManager.reportProgress` (`:71`) | S–M | GPLv2 — pattern | none |
-| Move `runBlocking` auth fetch off player-build thread | (silo-internal) | `ContinuumPlayerFactory.kt:179` | S | n/a | avoids ANR on slower A7 |
+| Move `runBlocking` auth fetch off player-build thread | (prairie-internal) | `ContinuumPlayerFactory.kt:179` | S | n/a | avoids ANR on slower A7 |
 
 ### What NOT to borrow / risks
 
-- **Don't make MPV the default / sole path on TV/A7.** Both MPV references run minSdk 28/35 — neither validates libmpv on API24/armeabi-v7a (silo packages the `.so`, but "builds" ≠ "decodes reliably on a 2017 ARMv7 box"). Keep MPV opt-in/Auto-only (as `VideoPlaybackBackendSelector` already does); keep abiFilters tight (APK size).
+- **Don't make MPV the default / sole path on TV/A7.** Both MPV references run minSdk 28/35 — neither validates libmpv on API24/armeabi-v7a (prairie packages the `.so`, but "builds" ≠ "decodes reliably on a 2017 ARMv7 box"). Keep MPV opt-in/Auto-only (as `VideoPlaybackBackendSelector` already does); keep abiFilters tight (APK size).
 - **Don't destabilize the Media3 path during the reading phase.** Highest-value, lowest-risk S items (text-disable fix, capability surfacing, FF/REW, off-thread auth) are all Media3-side — land those first; defer libass-on-Media3 (L) and MPV styling (M).
 - The Jellyfin clients (jellyfin-androidtv/android, Wholphin) are XML View-based; reimplement their ideas in Compose rather than pasting view code — engineering fit, not license. `dev.jdtech.mpv:libmpv` is already a binary dep.
 - Keep MPV's event-driven `STATE_BUFFERING` (push) rather than poll-only buffer; use `getBufferedPosition()` only for the scrub cushion.
@@ -412,7 +412,7 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 ## Notifications (survey)
 
-**Prairie current state.** REST-source-of-truth inbox + realtime accelerator: pure `applyEvent` fold (`NotificationsRepository.kt:58`); capped-backoff reconnect (`:227`); optimistic `markRead`/`markAllRead` with revert (`:169,177`); `reset()` on profile switch (`:212`). Realtime client mints ws-ticket, decodes frames (`NotificationsRealtimeClient.kt:65`). **silo is far ahead of every reference here** (streamyfin = expo-push/badge only; jellyfin clients = in-memory app alerts; Campfire = server config) — only correctness gaps:
+**Prairie current state.** REST-source-of-truth inbox + realtime accelerator: pure `applyEvent` fold (`NotificationsRepository.kt:58`); capped-backoff reconnect (`:227`); optimistic `markRead`/`markAllRead` with revert (`:169,177`); `reset()` on profile switch (`:212`). Realtime client mints ws-ticket, decodes frames (`NotificationsRealtimeClient.kt:65`). **prairie is far ahead of every reference here** (streamyfin = expo-push/badge only; jellyfin clients = in-memory app alerts; Campfire = server config) — only correctness gaps:
 - Unsynchronized `_state` RMW — fold all mutations through `_state.update{}` (atomic pattern); derive rows/unread from `_state`. **S** — *branch-review bug.*
 - No terminal on persistent auth failure — `connectRealtime` loops forever; `Closed("ticket_error_401")` folds as no-op. Stop/long-backoff on 401/403; expose a disconnected state. **M** — *branch-review bug.*
 - Backoff not reset on clean close — reset on successful *connect* (hello/subscribed), not on traffic. **S** — *branch-review bug.*
@@ -429,7 +429,7 @@ silo is ahead on every axis except UI surfacing and two bugs.
 
 ## Admin (survey)
 
-**Prairie current state.** `AdminRepository.kt` stateless pass-through: stats, user CRUD, session list + control, app/audit logs, library scan. ViewModels: `AdminUsersViewModel` (generation-gated, `:34`), `AdminUserEditViewModel` (`:53`), `AdminStatsViewModel`. **No reference app covers admin** — silo is the only one with real CRUD + session control + logs. Correctness only:
+**Prairie current state.** `AdminRepository.kt` stateless pass-through: stats, user CRUD, session list + control, app/audit logs, library scan. ViewModels: `AdminUsersViewModel` (generation-gated, `:34`), `AdminUserEditViewModel` (`:53`), `AdminStatsViewModel`. **No reference app covers admin** — prairie is the only one with real CRUD + session control + logs. Correctness only:
 - Cleared library-ids field revokes all access — `update` always sends `libraryIds = parseLibraryIds(text)` (`:137`); blank → `emptyList()` (`AdminUserForm.kt:48`), *sent* (not omitted) → server revokes all. Send `null` when blank, or distinguish cleared vs empty. **S** — *branch-review bug.* (Quota fields are safe — `parseQuota` returns null.)
 - `deleteUser` — current code removes from list **only on success** (`:59`), no optimistic resurrect path; the review's "resurrect" premise appears stale for this revision. **No change unless an optimistic variant returns** — confirm.
 - `AdminUserEditViewModel.load` idempotent guard (`loaded` flag, `:60`) can't switch targets within one instance — correct only if always freshly scoped per navigation; else add id-aware reload. **S.**
@@ -440,7 +440,7 @@ silo is ahead on every axis except UI surfacing and two bugs.
 ## Provenance Ledger
 
 Lineage breadcrumbs (maintenance aid, not a license requirement). "Mode" = whether the
-source's architecture is a clean fit (copy) or clashes with silo's stack (reimplement).
+source's architecture is a clean fit (copy) or clashes with prairie's stack (reimplement).
 Update as items land.
 
 | Idea borrowed | Source app | Source license | Mode |

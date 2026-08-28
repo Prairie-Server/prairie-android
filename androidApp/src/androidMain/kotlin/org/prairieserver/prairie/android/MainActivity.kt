@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,12 +33,19 @@ import org.prairieserver.prairie.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMIS
 import org.prairieserver.prairie.android.downloads.hasLegacyPublicDownloadPermission
 import org.prairieserver.prairie.android.push.PushNotificationPresenter
 import org.prairieserver.prairie.android.ui.navigation.AppNavigation
+import org.prairieserver.prairie.android.ui.navigation.ExternalRouteRequest
+import org.prairieserver.prairie.android.ui.navigation.ExternalRouteRequestFactory
 import org.prairieserver.prairie.android.ui.navigation.Route
+import org.prairieserver.prairie.android.ui.navigation.clearConsumedExternalRouteRequest
 import org.prairieserver.prairie.android.ui.navigation.contentDeepLinkRouteOrNull
+import org.prairieserver.prairie.android.ui.navigation.ExternalRouteScope
+import org.prairieserver.prairie.android.ui.navigation.notificationExternalRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.hasLocalDownloadsForScope
+import org.prairieserver.prairie.android.ui.navigation.inviteClaimRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.notificationNavigationRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.shouldStartOnDownloads
+import org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourLocalCache
 import org.prairieserver.prairie.android.ui.theme.PrairieTheme
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
@@ -57,7 +65,8 @@ import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.java.KoinJavaComponent.get
 
@@ -70,9 +79,42 @@ class MainActivity : ComponentActivity() {
         // start. Mirrors the TV-side flag in MainTvActivity.
         @Volatile
         private var hasShownColdSplash = false
+
+        /**
+         * Set on the launch Intent once its external route has been delivered.
+         * `putExtra` mutates the process-local Intent, which covers ordinary
+         * in-process Activity recreation but NOT process death — the system may
+         * rebuild the task from the original launch Intent, without this. The
+         * saved-state route below is what covers that case; this is the fast
+         * path.
+         */
+        private const val EXTRA_EXTERNAL_ROUTE_CONSUMED =
+            "org.prairieserver.prairie.EXTERNAL_ROUTE_CONSUMED"
+
+        /**
+         * Stands in for an active server whose identity could not be read, so a
+         * scope built from it matches nothing instead of everything.
+         */
+        private const val UNRESOLVED_IDENTITY = "silo:unresolved-identity"
+
+        /** Saved-state key for [consumedExternalRoute]. */
+        private const val STATE_CONSUMED_EXTERNAL_ROUTE =
+            "org.prairieserver.prairie.CONSUMED_EXTERNAL_ROUTE"
     }
 
-    private val incomingExternalRoutes = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    private val externalRouteRequestFactory = ExternalRouteRequestFactory()
+    // Retain the latest request even while Compose is between collectors (for
+    // example while an existing top Activity is being resumed by onNewIntent).
+    // A replay-free SharedFlow can silently drop exactly that warm delivery.
+    private val pendingExternalRouteRequests = MutableStateFlow<ExternalRouteRequest?>(null)
+
+    /**
+     * The external route already delivered for the Intent this Activity was
+     * launched with, carried across process death in saved state so a restored
+     * task cannot replay a link the user already followed and navigated away
+     * from.
+     */
+    private var consumedExternalRoute: String? = null
 
     // POST_NOTIFICATIONS is required on Android 13+ for any notification —
     // download progress / completion notifications silently never appear
@@ -84,13 +126,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consumedExternalRoute = savedInstanceState?.getString(STATE_CONSUMED_EXTERNAL_ROUTE)
         enableEdgeToEdge()
         maybeRequestNotificationPermission()
         maybeRequestLegacyPublicDownloadPermission()
 
         setContent {
             var startRoute by remember { mutableStateOf<String?>(null) }
-            var pendingExternalRoute by remember { mutableStateOf<String?>(null) }
+            val pendingExternalRoute by pendingExternalRouteRequests.collectAsState()
             var splashPlaybackComplete by remember { mutableStateOf(hasShownColdSplash) }
 
             LaunchedEffect(Unit) {
@@ -101,14 +144,12 @@ class MainActivity : ComponentActivity() {
                 // its target after auth instead of being silently dropped.
                 // The pending route is only consumed once the main graph is
                 // showing, so pre-auth starts just hold it.
-                (notificationRouteOrNull(intent) ?: contentDeepLinkRouteOrNull(intent?.dataString))
-                    ?.let { pendingExternalRoute = it }
-                launchAuthenticatedStartupWarmup(route)
-            }
-            LaunchedEffect(Unit) {
-                incomingExternalRoutes.collect { route ->
-                    pendingExternalRoute = route
+                // Skip an Intent whose route was already delivered: it is only
+                // still here because the Activity retains it.
+                if (intent?.getBooleanExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, false) != true) {
+                    queueExternalRouteFrom(intent)
                 }
+                launchAuthenticatedStartupWarmup(route)
             }
 
             PrairieTheme {
@@ -143,7 +184,32 @@ class MainActivity : ComponentActivity() {
                         AppNavigation(
                             startDestination = resolvedRoute,
                             pendingExternalRoute = pendingExternalRoute,
-                            onExternalRouteConsumed = { pendingExternalRoute = null },
+                            onRequeueExternalRoute = { route ->
+                                // A fresh request: clear the consumed marker so
+                                // this re-delivery is not mistaken for the
+                                // already-followed original.
+                                consumedExternalRoute = null
+                                intent?.removeExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED)
+                                pendingExternalRouteRequests.value =
+                                    externalRouteRequestFactory.create(route)
+                            },
+                            onExternalRouteConsumed = { consumedRequest ->
+                                // Record the delivery in two places. The Intent
+                                // extra covers in-process Activity recreation,
+                                // which re-parses the retained Intent in
+                                // onCreate and would otherwise yank the user
+                                // back to a link they already followed. It is
+                                // process-local, so the saved-state route below
+                                // is what covers process death.
+                                intent?.putExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, true)
+                                consumedExternalRoute = consumedRequest.route
+                                pendingExternalRouteRequests.update { pendingRequest ->
+                                    clearConsumedExternalRouteRequest(
+                                        pendingRequest = pendingRequest,
+                                        consumedRequest = consumedRequest,
+                                    )
+                                }
+                            },
                         )
                     }
                 }
@@ -160,13 +226,19 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        consumedExternalRoute?.let { outState.putString(STATE_CONSUMED_EXTERNAL_ROUTE, it) }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // A genuinely new Intent has not been consumed, whatever the old one
+        // carried.
+        intent.removeExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED)
+        consumedExternalRoute = null
         setIntent(intent)
-        val route = deviceLoginPairRouteOrNull(intent.dataString)
-            ?: notificationRouteOrNull(intent)
-            ?: contentDeepLinkRouteOrNull(intent.dataString)
-        route?.let { incomingExternalRoutes.tryEmit(it) }
+        lifecycleScope.launch { queueExternalRouteFrom(intent) }
     }
 
     /**
@@ -212,6 +284,95 @@ class MainActivity : ComponentActivity() {
         requestLegacyPublicDownloadPermission.launch(LEGACY_PUBLIC_DOWNLOAD_PERMISSION)
     }
 
+
+    /**
+     * Parses an Intent into a pending external route, tagged with the identity
+     * it is only meaningful under.
+     *
+     * Everything that can wait through authentication has to declare its scope,
+     * because "wait" can mean days for a notification PendingIntent and several
+     * profile switches:
+     *  - a pairing link names its issuing SERVER ORIGIN;
+     *  - a notification was generated for one profile's inbox on one server, so
+     *    it carries the identity stamped on it at post time;
+     *  - a content link (`prairie://item`, `prairie://play`) carries no identity of
+     *    its own, but its ids are server-local — so it is pinned to whoever is
+     *    signed in when the link arrives. Arriving signed-out pins nothing,
+     *    which is what lets a link opened before login still work after it.
+     */
+    private suspend fun queueExternalRouteFrom(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, false) == true) return
+
+        // NOT gated on the active server. The route carries its issuing origin
+        // and the pairing destination refuses — and explains — a mismatch, with
+        // a switch action. Dropping it here was silent: the user scanned a code
+        // and nothing happened. A link whose origin cannot be read does not
+        // parse into a route at all.
+        val deviceRoute = deviceLoginPairRouteOrNull(intent?.dataString)
+        // Rejected outright unless it says whose it is — see
+        // [notificationExternalRouteOrNull].
+        val notification = notificationExternalRouteOrNull(
+            route = notificationRouteOrNull(intent),
+            serverId = intent?.getStringExtra(PushNotificationPresenter.EXTRA_SERVER_ID),
+            profileId = intent?.getStringExtra(PushNotificationPresenter.EXTRA_PROFILE_ID),
+        )
+        val notificationRoute = notification?.first
+        val contentRoute = contentDeepLinkRouteOrNull(intent?.dataString)
+        val inviteRoute = inviteClaimRouteOrNull(intent?.dataString)
+
+        val route = notificationRoute ?: contentRoute ?: deviceRoute ?: inviteRoute ?: return
+        if (route == consumedExternalRoute) return
+
+        val scope = when {
+            // Unscoped for DELIVERY: the pairing screen owns the server check,
+            // so the request must actually arrive for it to be explained.
+            route === deviceRoute -> ExternalRouteScope.Unscoped
+            // Non-null by construction: `route` is only this when `notification`
+            // produced it, and that requires a complete identity.
+            route === notificationRoute -> checkNotNull(notification).second
+            route === contentRoute -> currentIdentityScope()
+            // An invite claim carries its own target server and is designed to
+            // work before authentication, so it must NOT be pinned to the
+            // current identity.
+            else -> ExternalRouteScope.Unscoped
+        }
+
+        pendingExternalRouteRequests.value =
+            externalRouteRequestFactory.create(route = route, scope = scope)
+    }
+
+    /**
+     * One cohesive read of the live identity.
+     *
+     * Reading the server and profile through separate getters could tear across
+     * a switch — the cached server id from before it, the profile id from after
+     * — producing a hybrid identity that belongs to nobody, which then either
+     * consumes a valid one-shot route or weakens it with a null wildcard.
+     */
+    private suspend fun currentIdentityScope(): ExternalRouteScope {
+        val scope = get<TokenManager>(TokenManager::class.java).snapshotCurrentScope()
+        if (scope != null) {
+            return ExternalRouteScope.Identity(
+                serverId = scope.serverId,
+                profileId = scope.profileId,
+                identityGeneration = scope.identityGeneration,
+            )
+        }
+        // A null snapshot means "no active server" — nothing to pin to, and the
+        // link must survive setup and login. But it ALSO means "snapshotting
+        // failed" or "this manager does not model scopes", and turning those
+        // into a wildcard would quietly unpin a link that should have been
+        // pinned. Only an actually-absent server is allowed to be unpinned.
+        val registry = get<ServerRegistry>(ServerRegistry::class.java)
+        return if (registry.activeServerId.value == null) {
+            ExternalRouteScope.Identity(serverId = null, profileId = null)
+        } else {
+            // An active server we cannot describe: pin to something nothing
+            // matches rather than to everything.
+            ExternalRouteScope.Identity(serverId = UNRESOLVED_IDENTITY, profileId = null)
+        }
+    }
+
     private fun notificationRouteOrNull(intent: Intent?): String? =
         notificationNavigationRouteOrNull(
             intent?.getStringExtra(PushNotificationPresenter.EXTRA_NAV_ROUTE),
@@ -234,10 +395,17 @@ class MainActivity : ComponentActivity() {
      *  - All set → `Home`
      */
     private suspend fun resolveStartDestination(): String {
-        deviceLoginPairRouteOrNull(intent?.dataString)?.let { return it }
-
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
+
+        // NOTE: a device link is deliberately NOT returned as the start
+        // destination. It used to be, which put Pair Device at the root of a
+        // signed-out app: its "Sign In" pushed Login, and the successful login
+        // then cleared the whole stack with popUpTo(0), losing the pairing
+        // request entirely. It is queued as a pending external route instead,
+        // so the normal server/token/profile gates run first and the pairing
+        // screen arrives on top of an authenticated stack — which also means
+        // its Back/Done has somewhere real to return to.
 
         val activeEntry = registry.activeEntry.value
             ?: return Route.ServerSetup.route
@@ -258,7 +426,7 @@ class MainActivity : ComponentActivity() {
         if (profileId.isNullOrBlank()) return Route.ProfileSelection.route
 
         // Offline-with-downloads fast path: if local media exists and either
-        // the device has no network OR the configured Prairie server fails the
+        // the device has no network OR the configured Silo server fails the
         // authoritative health probe, land directly on Downloads instead of
         // greeting the user with a dead Home request.
         // Filesystem walk + health probe off the main dispatcher: this runs
@@ -283,6 +451,16 @@ class MainActivity : ComponentActivity() {
             )
         ) {
             return Route.Downloads.route
+        }
+
+        // A warm start would otherwise bypass the tour gate entirely (e.g.
+        // process death mid-tour). Once completion is confirmed the local
+        // cache short-circuits inside the gate, so this costs nothing on
+        // launches after the first; the gate itself fails open to Home on
+        // any error, so it can't strand an offline start.
+        val tourCache = get<OnboardingTourLocalCache>(OnboardingTourLocalCache::class.java)
+        if (!tourCache.isDone(activeEntry.id, profileId)) {
+            return Route.OnboardingTour.route
         }
 
         return Route.Home.route
@@ -311,6 +489,9 @@ class MainActivity : ComponentActivity() {
                 personalDataRepository = get(PersonalDataRepository::class.java),
                 sectionRepository = get(SectionRepository::class.java),
                 homeCache = get(HomeCachePort::class.java),
+                identityTransitions = get<org.prairieserver.prairie.network.IdentityTransitionBarrier>(
+                    org.prairieserver.prairie.network.IdentityTransitionBarrier::class.java,
+                ),
                 serverUrl = get<ServerRegistry>(ServerRegistry::class.java).activeEntry.value?.url,
                 artworkPlan = StartupArtworkPlan.phone(),
             )

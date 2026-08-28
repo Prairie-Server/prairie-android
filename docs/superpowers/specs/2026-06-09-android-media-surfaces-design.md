@@ -2,7 +2,7 @@
 
 ## Context
 
-The deployed server at `root@silo-new:/opt/prairie-server` now exposes first-class audiobook and ebook catalog contracts. Android currently has partial audiobook and book scaffolding, but several assumptions are stale: old metadata expects fields such as `file_url`, while the server now exposes media through `versions`, `audiobook`, `ebook`, and dedicated ebook reader endpoints.
+The deployed server at `root@prairie-new:/opt/prairie-server` now exposes first-class audiobook and ebook catalog contracts. Android currently has partial audiobook and book scaffolding, but several assumptions are stale: old metadata expects fields such as `file_url`, while the server now exposes media through `versions`, `audiobook`, `ebook`, and dedicated ebook reader endpoints.
 
 This design adds audiobooks to Android mobile and Android TV, adds ebooks to Android mobile, and hides ebooks from Android TV.
 

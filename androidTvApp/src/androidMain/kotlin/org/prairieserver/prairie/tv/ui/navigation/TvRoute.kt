@@ -62,7 +62,9 @@ sealed class TvRoute(val route: String) {
 
     // --- Main (drawer + nested nav: home, libraries, search, settings) ---
     data object Main : TvRoute("main")
-    data object Diagnostics : TvRoute("diagnostics")
+
+    // No "diagnostics" list route: the diagnostics settings surface is a
+    // category inside Settings (tvOS parity). Only the report detail is pushed.
     data class DiagnosticsReport(val reportId: String) :
         TvRoute("diagnostics/report/${reportId.routeEncode()}") {
         companion object {
@@ -75,9 +77,9 @@ sealed class TvRoute(val route: String) {
     data class ItemDetail(val contentId: String, val seasonNumber: Int? = null) :
         TvRoute(
             if (seasonNumber != null) {
-                "item/$contentId?seasonNumber=$seasonNumber"
+                "item/${contentId.routeEncode()}?seasonNumber=$seasonNumber"
             } else {
-                "item/$contentId"
+                "item/${contentId.routeEncode()}"
             },
         ) {
         companion object {
@@ -101,13 +103,29 @@ sealed class TvRoute(val route: String) {
         val resumePositionSeconds: Double? = null,
         /** Pre-selected audio track index (0-based) chosen on the detail screen. */
         val audioTrackIndex: Int? = null,
-        /** Pre-selected subtitle track index (0-based; -1 = Off). */
+        /**
+         * True when [audioTrackIndex] is a pick the viewer made this session,
+         * false when it is a durable value seeded onto the detail screen. The
+         * ordinal alone cannot tell them apart, and the difference decides
+         * whether the choice carries to the next episode.
+         */
+        val audioPickedThisSession: Boolean = false,
+        /** Pre-selected subtitle track index (combined space; -1 = Off). */
         val subtitleTrackIndex: Int? = null,
+        /**
+         * True when [subtitleTrackIndex] is the detail row's Auto preview
+         * rather than a pick the viewer made. It still decides what plays —
+         * that is the point of handing it over — but it must never be recorded
+         * as an explicit choice.
+         */
+        val subtitleAutoResolved: Boolean = false,
         /** Consecutive auto-advance count for pass-out protection (0 = manual start). */
         val autoAdvanceCount: Int = 0,
+        /** Opaque key for a process-only, target-bound episode selection handoff. */
+        val episodeSelectionHandoffNonce: String? = null,
     ) : TvRoute(
         buildString {
-            append("player/$contentId")
+            append("player/${contentId.routeEncode()}")
             val query = buildList {
                 if (fileId != null) add("fileId=$fileId")
                 VideoPlayerRouteArgs.normalizeQuality(quality)?.let { value ->
@@ -115,8 +133,15 @@ sealed class TvRoute(val route: String) {
                 }
                 if (roomId != null) add("roomId=${roomId.routeEncode()}")
                 if (audioTrackIndex != null) add("audioTrackIndex=$audioTrackIndex")
+                if (audioPickedThisSession) add("audioPicked=true")
                 if (subtitleTrackIndex != null) add("subtitleTrackIndex=$subtitleTrackIndex")
+                if (subtitleTrackIndex != null && subtitleAutoResolved) {
+                    add("$ARG_SUBTITLE_AUTO_RESOLVED=true")
+                }
                 if (autoAdvanceCount > 0) add("autoAdvanceCount=$autoAdvanceCount")
+                episodeSelectionHandoffNonce
+                    ?.takeIf(::isValidTvEpisodeSelectionHandoffNonce)
+                    ?.let { nonce -> add("$ARG_EPISODE_SELECTION_HANDOFF_NONCE=$nonce") }
                 VideoPlayerRouteArgs.encodeResumePosition(resumePositionSeconds)?.let { value ->
                     add("${VideoPlayerRouteArgs.RESUME_POSITION}=$value")
                 }
@@ -126,16 +151,22 @@ sealed class TvRoute(val route: String) {
     ) {
         companion object {
             const val ROUTE = "player/{contentId}?fileId={fileId}&quality={quality}&roomId={roomId}" +
-                "&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}" +
-                "&autoAdvanceCount={autoAdvanceCount}&resumePosition={resumePosition}"
+                "&audioTrackIndex={audioTrackIndex}&audioPicked={audioPicked}" +
+                "&subtitleTrackIndex={subtitleTrackIndex}" +
+                "&subtitleAutoResolved={subtitleAutoResolved}" +
+                "&autoAdvanceCount={autoAdvanceCount}&resumePosition={resumePosition}" +
+                "&episodeSelectionHandoffNonce={episodeSelectionHandoffNonce}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
             const val ARG_QUALITY = "quality"
             const val ARG_ROOM_ID = "roomId"
             const val ARG_AUDIO_TRACK_INDEX = "audioTrackIndex"
+            const val ARG_AUDIO_PICKED = "audioPicked"
             const val ARG_SUBTITLE_TRACK_INDEX = "subtitleTrackIndex"
+            const val ARG_SUBTITLE_AUTO_RESOLVED = "subtitleAutoResolved"
             const val ARG_AUTO_ADVANCE_COUNT = "autoAdvanceCount"
             const val ARG_RESUME_POSITION = VideoPlayerRouteArgs.RESUME_POSITION
+            const val ARG_EPISODE_SELECTION_HANDOFF_NONCE = "episodeSelectionHandoffNonce"
         }
     }
 
@@ -150,7 +181,7 @@ sealed class TvRoute(val route: String) {
         val startPositionSeconds: Double? = null,
     ) : TvRoute(
         buildString {
-            append("audiobook/$contentId")
+            append("audiobook/${contentId.routeEncode()}")
             val query = buildList {
                 if (fileId != null) add("fileId=$fileId")
                 VideoPlayerRouteArgs.encodeResumePosition(startPositionSeconds)?.let { value ->
@@ -186,14 +217,19 @@ sealed class TvRoute(val route: String) {
         val libraryId: Int,
         val collectionId: String,
         val title: String,
+        /** Drives which sort keys and filter facets the page offers. */
+        val libraryType: String = "",
     ) : TvRoute(
-        "library/$libraryId/collection/${collectionId.routeEncode()}?title=${title.routeEncode()}"
+        "library/$libraryId/collection/${collectionId.routeEncode()}" +
+            "?title=${title.routeEncode()}&libraryType=${libraryType.routeEncode()}"
     ) {
         companion object {
-            const val ROUTE = "library/{libraryId}/collection/{collectionId}?title={title}"
+            const val ROUTE =
+                "library/{libraryId}/collection/{collectionId}?title={title}&libraryType={libraryType}"
             const val ARG_LIBRARY_ID = "libraryId"
             const val ARG_COLLECTION_ID = "collectionId"
             const val ARG_TITLE = "title"
+            const val ARG_LIBRARY_TYPE = "libraryType"
         }
     }
 
@@ -301,30 +337,6 @@ sealed class TvMainRoute(val route: String) {
     /** Global cross-library catalog browse — opened from Settings. */
     data object Browse : TvMainRoute("main/browse")
 
-    /** Admin hub + sub-screens — opened from Settings when adminVisible. */
-    data object AdminHub : TvMainRoute("main/admin")
-    data object AdminDashboard : TvMainRoute("main/admin/dashboard")
-    data object AdminUsers : TvMainRoute("main/admin/users")
-    data object AdminSessions : TvMainRoute("main/admin/sessions")
-    data object AdminScans : TvMainRoute("main/admin/scans")
-    data object AdminLogs : TvMainRoute("main/admin/logs")
-
-    /**
-     * Admin user create/edit form. `userId` is omitted for create and carried
-     * as a query arg for edit (NavType can't express a nullable Int path arg).
-     */
-    data class AdminUserEdit(val userId: Int? = null) :
-        TvMainRoute(
-            if (userId != null) "main/admin/users/edit?userId=$userId" else "main/admin/users/edit",
-        ) {
-        companion object {
-            const val ROUTE = "main/admin/users/edit?userId={userId}"
-            const val ARG_USER_ID = "userId"
-        }
-    }
-
-    data object ManageSessions : TvMainRoute("main/settings/sessions")
-
     /** Request detail for a discover/search result (tmdb id + media type). */
     data class RequestDetail(val mediaType: String, val tmdbId: Int) :
         TvMainRoute("main/request/$mediaType/$tmdbId") {
@@ -335,6 +347,36 @@ sealed class TvMainRoute(val route: String) {
         }
     }
 }
+
+/**
+ * Route strings this app used to register and no longer does.
+ *
+ * Navigation restores a saved back stack by destination id, and an id with no
+ * registered destination makes the restore throw — so a build that simply drops
+ * a route can crash on first launch after the update, before the replacement
+ * surface is ever reachable. The phone graph already keeps no-op aliases for its
+ * removed Video/Audio/Reading destinations for exactly this reason; these are
+ * the TV equivalents, and they redirect rather than render.
+ *
+ * Nothing here brings a withdrawn surface back: the admin and session-management
+ * screens stay deleted, and each alias lands in Settings.
+ */
+internal val TvRemovedRoutes: List<String> = listOf(
+    // Diagnostics became a Settings category rather than a top-level screen.
+    "diagnostics",
+)
+
+/** Nested [TvRoute.Main] equivalents of [TvRemovedRoutes]. */
+internal val TvRemovedMainRoutes: List<String> = listOf(
+    "main/settings/sessions",
+    "main/admin",
+    "main/admin/dashboard",
+    "main/admin/users",
+    "main/admin/users/edit?userId={userId}",
+    "main/admin/sessions",
+    "main/admin/scans",
+    "main/admin/logs",
+)
 
 private fun String.routeEncode(): String =
     URLEncoder.encode(this, StandardCharsets.UTF_8.toString()).replace("+", "%20")

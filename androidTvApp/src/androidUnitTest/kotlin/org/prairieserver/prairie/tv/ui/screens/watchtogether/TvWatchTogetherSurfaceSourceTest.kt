@@ -37,7 +37,12 @@ class TvWatchTogetherSurfaceSourceTest {
     fun aResolvedRoomReachesTheNavigationCallback() {
         assertTrue(itemDetailScreen.contains("onWatchTogether(room)"))
         assertTrue(itemDetailScreen.contains("watchTogetherViewModel.consumeResult()"))
-        assertTrue(appNavigation.contains("TvRoute.WatchTogetherLobby(roomId = snapshot.roomId).route"))
+        // The resolved room now goes through navigateToTvWatchTogether, which
+        // is what builds the destination — a Watch Together PLAYER target is an
+        // ordinary playback navigation and has to share the player back-stack
+        // bookkeeping instead of single-topping the current player in place.
+        assertTrue(appNavigation.contains("navigateToTvWatchTogether(snapshot"))
+        assertTrue(appNavigation.contains("tvWatchTogetherDestination(room)"))
     }
 
     @Test

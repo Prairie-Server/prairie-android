@@ -161,25 +161,25 @@ Expected: `legacyTvLauncherIconsAreOpaqueSquaresAtRequiredDensities` fails becau
 Preserve the current highest-resolution blank gradient and colorful adaptive foreground before replacing targets:
 
 ```bash
-cp androidTvApp/src/androidMain/res/mipmap-xxxhdpi/ic_launcher.png /tmp/silo-tv-icon-gradient.png
-cp androidTvApp/src/androidMain/res/mipmap-xxxhdpi/ic_launcher_foreground.png /tmp/silo-tv-icon-mark.png
+cp androidTvApp/src/androidMain/res/mipmap-xxxhdpi/ic_launcher.png /tmp/prairie-tv-icon-gradient.png
+cp androidTvApp/src/androidMain/res/mipmap-xxxhdpi/ic_launcher_foreground.png /tmp/prairie-tv-icon-mark.png
 
 for density_and_size in mdpi:80 hdpi:120 xhdpi:160 xxhdpi:240 xxxhdpi:320; do
   density=${density_and_size%%:*}
   size=${density_and_size##*:}
   mark_height=$((size * 68 / 100))
 
-  magick /tmp/silo-tv-icon-gradient.png \
+  magick /tmp/prairie-tv-icon-gradient.png \
     -gravity center -crop 360x360+0+0 +repage \
     -resize "${size}x${size}!" \
-    /tmp/silo-tv-icon-background.png
+    /tmp/prairie-tv-icon-background.png
 
-  magick /tmp/silo-tv-icon-mark.png \
+  magick /tmp/prairie-tv-icon-mark.png \
     -trim +repage -resize "x${mark_height}" \
-    /tmp/silo-tv-icon-foreground.png
+    /tmp/prairie-tv-icon-foreground.png
 
-  magick /tmp/silo-tv-icon-background.png \
-    /tmp/silo-tv-icon-foreground.png \
+  magick /tmp/prairie-tv-icon-background.png \
+    /tmp/prairie-tv-icon-foreground.png \
     -gravity center -composite \
     "PNG24:androidTvApp/src/androidMain/res/mipmap-${density}/ic_launcher.png"
 done
@@ -190,10 +190,10 @@ Expected: five opaque square files with a centered colorful Prairie mark on the 
 Generate the banner separately so Fire OS's centered square crop contains the complete canonical logo:
 
 ```bash
-magick -size 320x180 canvas:'#1718c9' /tmp/silo-tv-banner-background.png
+magick -size 320x180 canvas:'#1718c9' /tmp/prairie-tv-banner-background.png
 magick androidTvApp/src/androidMain/res/drawable/prairie_wordmark.png \
-  -trim +repage -resize '180x' /tmp/silo-tv-banner-wordmark.png
-magick /tmp/silo-tv-banner-background.png /tmp/silo-tv-banner-wordmark.png \
+  -trim +repage -resize '180x' /tmp/prairie-tv-banner-wordmark.png
+magick /tmp/prairie-tv-banner-background.png /tmp/prairie-tv-banner-wordmark.png \
   -gravity center -composite \
   'PNG24:androidTvApp/src/androidMain/res/drawable/tv_banner.png'
 ```
@@ -277,7 +277,7 @@ Expected: installation succeeds and the Fire TV app grid opens.
 - [ ] **Step 3: Capture and inspect the Fire TV launcher**
 
 ```bash
-adb -s "$FIRE_TV_SERIAL" exec-out screencap -p > /tmp/fire-tv-silo-square-launcher.png
+adb -s "$FIRE_TV_SERIAL" exec-out screencap -p > /tmp/fire-tv-prairie-square-launcher.png
 ```
 
 Expected: Fire OS retains its outer gray sideload frame, but the inner Prairie icon is square, the colorful mark is not compressed, and the mark is materially larger and sharper than before.
@@ -296,7 +296,7 @@ Expected: installation succeeds and the Google TV launcher opens.
 - [ ] **Step 5: Capture and inspect the Google TV launcher**
 
 ```bash
-adb -s "$GOOGLE_TV_SERIAL" exec-out screencap -p > /tmp/google-tv-silo-adaptive-launcher.png
+adb -s "$GOOGLE_TV_SERIAL" exec-out screencap -p > /tmp/google-tv-prairie-adaptive-launcher.png
 ```
 
 Expected: Google TV uses the existing adaptive icon with its normal launcher mask; there is no baked square border, stretched banner, or cropped mark.

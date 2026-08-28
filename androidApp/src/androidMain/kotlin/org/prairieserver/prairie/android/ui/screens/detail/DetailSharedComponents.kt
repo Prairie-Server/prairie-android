@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +32,6 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -44,6 +44,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +71,7 @@ import org.prairieserver.prairie.android.ui.theme.PillShape
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.Season
+import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
 
 // ── Tokens ────────────────────────────────────────────────────
 
@@ -90,6 +92,276 @@ fun detailScreenBackgroundBrush(dominantColor: Color): Brush =
         1.00f to Color.Transparent,
     )
 
+private val ExpandedDetailBreakpoint = 600.dp
+
+data class DetailPortraitArtwork(
+    val url: String?,
+    val thumbhash: String?,
+    val reserveSpace: Boolean = false,
+)
+
+/**
+ * Switches movie and series details from the compact phone hero to a
+ * poster-led cinematic composition when an unfolded or otherwise large
+ * window has enough horizontal room. Keeping the decision inside the
+ * composable makes folding, unfolding, and freeform-window resizing update
+ * the layout without changing navigation or screen state.
+ */
+@Composable
+fun AdaptiveDetailHero(
+    detail: ItemDetail,
+    eyebrow: String?,
+    sourceTokens: List<String>,
+    factsLine: List<String>,
+    portraitArtwork: DetailPortraitArtwork = DetailPortraitArtwork(
+        url = detail.posterUrl,
+        thumbhash = detail.posterThumbhash,
+    ),
+    modifier: Modifier = Modifier,
+    dominantColor: Color = PrairieBackground,
+    directorText: String? = null,
+    translation: (@Composable () -> Unit)? = null,
+    actions: @Composable () -> Unit,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        if (maxWidth >= ExpandedDetailBreakpoint) {
+            val horizontalPadding = if (maxWidth >= 840.dp) 48.dp else 32.dp
+            val posterWidth = (maxWidth * 0.25f).coerceIn(164.dp, 224.dp)
+            ExpandedDetailHero(
+                detail = detail,
+                portraitArtwork = portraitArtwork,
+                eyebrow = eyebrow,
+                sourceTokens = sourceTokens,
+                factsLine = factsLine,
+                horizontalPadding = horizontalPadding,
+                posterWidth = posterWidth,
+                directorText = directorText,
+                translation = translation,
+                actions = actions,
+            )
+        } else {
+            DetailHero(
+                detail = detail,
+                eyebrow = eyebrow,
+                sourceTokens = sourceTokens,
+                factsLine = factsLine,
+                dominantColor = dominantColor,
+                directorText = directorText,
+                translation = translation,
+                actions = actions,
+            )
+        }
+    }
+}
+
+/**
+ * Expanded-window detail hero inspired by the reference foldable layout:
+ * a full-bleed backdrop carries the page while the poster and editorial
+ * metadata form a readable two-column foreground.
+ */
+@Composable
+private fun ExpandedDetailHero(
+    detail: ItemDetail,
+    portraitArtwork: DetailPortraitArtwork,
+    eyebrow: String?,
+    sourceTokens: List<String>,
+    factsLine: List<String>,
+    horizontalPadding: Dp,
+    posterWidth: Dp,
+    directorText: String?,
+    translation: (@Composable () -> Unit)?,
+    actions: @Composable () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        ThumbhashImage(
+            url = detail.backdropUrl,
+            thumbhash = detail.backdropThumbhash,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize(),
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.horizontalGradient(
+                        0.00f to Color.Black.copy(alpha = 0.88f),
+                        0.48f to Color.Black.copy(alpha = 0.58f),
+                        1.00f to Color.Black.copy(alpha = 0.32f),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.00f to Color.Black.copy(alpha = 0.08f),
+                        0.68f to Color.Black.copy(alpha = 0.18f),
+                        1.00f to PrairieBackground,
+                    ),
+                ),
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizontalPadding)
+                .padding(top = 88.dp, bottom = 40.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            if (portraitArtwork.reserveSpace || !portraitArtwork.url.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .width(posterWidth)
+                        .aspectRatio(2f / 3f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .heroTarget(),
+                ) {
+                    if (!portraitArtwork.url.isNullOrBlank()) {
+                        ThumbhashImage(
+                            url = portraitArtwork.url,
+                            thumbhash = portraitArtwork.thumbhash,
+                            contentDescription = detail.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (!eyebrow.isNullOrBlank()) {
+                    EyebrowChip(text = eyebrow)
+                }
+                ExpandedHeroTitle(detail = detail)
+                if (sourceTokens.isNotEmpty() || detail.contentRating != null) {
+                    SourceRow(
+                        tokens = sourceTokens,
+                        ratingChip = detail.contentRating,
+                        horizontalAlignment = Alignment.Start,
+                    )
+                }
+                if (factsLine.isNotEmpty()) {
+                    FactsRow(
+                        tokens = factsLine,
+                        horizontalAlignment = Alignment.Start,
+                    )
+                }
+                actions()
+                detail.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                    OverviewBlock(text = overview)
+                }
+                translation?.invoke()
+                directorText?.takeIf { it.isNotBlank() }?.let { line ->
+                    Text(
+                        text = line,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.62f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpandedHeroTitle(detail: ItemDetail) {
+    val isEpisode = detail.type == "episode"
+    val seriesTitle = detail.seriesTitle?.takeIf { it.isNotBlank() }
+    if (isEpisode && seriesTitle != null) {
+        val (episodePrimary, episodeSubtitle) = splitHeroTitle(detail.title)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = seriesTitle,
+                fontSize = 34.sp,
+                lineHeight = 39.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = DetailPrimaryText,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = episodePrimary,
+                fontSize = 22.sp,
+                lineHeight = 27.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DetailPrimaryText.copy(alpha = 0.9f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (episodeSubtitle != null) {
+                Text(
+                    text = episodeSubtitle.uppercase(),
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.0.sp,
+                    color = DetailPrimaryText.copy(alpha = 0.76f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        return
+    }
+
+    val logoUrl = detail.logoUrl
+    if (!logoUrl.isNullOrBlank()) {
+        ThumbhashImage(
+            url = logoUrl,
+            thumbhash = null,
+            contentDescription = detail.title,
+            contentScale = ContentScale.Fit,
+            transparent = true,
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .height(112.dp),
+        )
+        return
+    }
+
+    val (primary, subtitle) = splitHeroTitle(detail.title)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = primary,
+            fontSize = 36.sp,
+            lineHeight = 41.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = DetailPrimaryText,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle.uppercase(),
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.2.sp,
+                color = DetailPrimaryText.copy(alpha = 0.8f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 // ── Hero ──────────────────────────────────────────────────────
 
 /**
@@ -107,6 +379,7 @@ fun DetailHero(
     factsLine: List<String>,
     modifier: Modifier = Modifier,
     dominantColor: Color = PrairieBackground,
+    directorText: String? = null,
     // Optional viewer-facing description-translation affordance, rendered
     // directly under the overview (Apple parity: DescriptionTranslationView).
     translation: (@Composable () -> Unit)? = null,
@@ -144,6 +417,18 @@ fun DetailHero(
                 OverviewBlock(text = overview)
             }
             translation?.invoke()
+            directorText?.takeIf { it.isNotBlank() }?.let { line ->
+                Text(
+                    text = line,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White.copy(alpha = 0.62f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (factsLine.isNotEmpty()) {
                 FactsRow(tokens = factsLine)
             }
@@ -338,12 +623,16 @@ private fun EyebrowChip(text: String) {
 }
 
 @Composable
-private fun SourceRow(tokens: List<String>, ratingChip: String?) {
+private fun SourceRow(
+    tokens: List<String>,
+    ratingChip: String?,
+    horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+) {
     // iOS PhoneDetailHero.sourceRow: HStack spacing 8, tokens 14pt medium
     // (0.85 alpha), middle-dot separators 14pt semibold (0.4 alpha).
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, horizontalAlignment),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tokens.forEachIndexed { index, token ->
@@ -417,14 +706,17 @@ private fun OverviewBlock(text: String) {
 }
 
 @Composable
-private fun FactsRow(tokens: List<String>) {
+private fun FactsRow(
+    tokens: List<String>,
+    horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+) {
     // iOS FlowingFactsRow: tokens 13pt medium (0.78 alpha), middle-dot
     // separators 13pt semibold (0.4 alpha), spacing 8, top pad 4.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, horizontalAlignment),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tokens.forEachIndexed { index, token ->
@@ -721,29 +1013,13 @@ fun HeroActionStack(
                 TextButton(onClick = {
                     showResumeDialog = false
                     onPlay()
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Resume")
-                }
+                }) { Text("Resume") }
             },
             dismissButton = {
                 TextButton(onClick = {
                     showResumeDialog = false
                     onPlayFromBeginning()
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Replay,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Play from Beginning")
-                }
+                }) { Text("Play from Beginning") }
             },
         )
     }
@@ -815,7 +1091,34 @@ fun SeasonChips(
 ) {
     if (seasons.size <= 1) return
 
+    val selectedSeasonIndex = seasons.indexOfFirst {
+        it.seasonNumber == selectedSeasonNumber
+    }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = selectedSeasonIndex.coerceAtLeast(0),
+    )
+
+    // Pager swipes can move beyond the chips visible on compact cover screens.
+    // Follow the shared selection, but leave the row alone while its chip is
+    // already fully visible so nearby swipes do not cause needless movement.
+    LaunchedEffect(selectedSeasonIndex, seasons.size) {
+        if (selectedSeasonIndex < 0) return@LaunchedEffect
+
+        val layoutInfo = listState.layoutInfo
+        val selectedItem = layoutInfo.visibleItemsInfo.firstOrNull {
+            it.index == selectedSeasonIndex
+        }
+        val isFullyVisible = selectedItem != null &&
+            selectedItem.offset >= layoutInfo.viewportStartOffset &&
+            selectedItem.offset + selectedItem.size <= layoutInfo.viewportEndOffset
+
+        if (!isFullyVisible) {
+            listState.animateScrollToItem(selectedSeasonIndex)
+        }
+    }
+
     LazyRow(
+        state = listState,
         contentPadding = PaddingValues(horizontal = SafePadding),
         horizontalArrangement = Arrangement.spacedBy(SmallPadding),
         modifier = modifier.fillMaxWidth(),
@@ -826,7 +1129,7 @@ fun SeasonChips(
             contentType = { "season-chip" },
         ) { season ->
             val isSelected = season.seasonNumber == selectedSeasonNumber
-            val label = if (season.isSpecials) "Specials" else "Season ${season.seasonNumber}"
+            val label = phoneSeasonLabel(season)
             // iOS PhoneSeasonChips: 14pt (semibold selected / medium
             // unselected), hpad 16, height 36, unselected fill white-0.06.
             Surface(
@@ -871,8 +1174,8 @@ object HeroMetadata {
         val s = detail.seasonNumber
         val e = detail.episodeNumber
         return when {
-            s != null && e != null -> "Season $s · Episode $e"
-            s != null -> "Season $s"
+            s != null && e != null -> "${phoneSeasonNumberLabel(s)} · Episode $e"
+            s != null -> phoneSeasonNumberLabel(s)
             else -> null
         }
     }
@@ -916,6 +1219,12 @@ object HeroMetadata {
         }
     }
 }
+
+internal fun phoneSeasonLabel(season: Season): String =
+    if (season.isSpecialsForDisplay()) "Specials" else phoneSeasonNumberLabel(season.seasonNumber)
+
+private fun phoneSeasonNumberLabel(seasonNumber: Int): String =
+    if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
 
 // ── Play label helper ─────────────────────────────────────────
 

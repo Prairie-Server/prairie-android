@@ -3,16 +3,19 @@ package org.prairieserver.prairie.common.startup
 import android.content.Context
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
-import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
+import org.prairieserver.prairie.common.ui.components.avatarRef
+import org.prairieserver.prairie.common.ui.components.resolveProfileAvatar
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.IdentityTransitionBarrier
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
-import org.prairieserver.prairie.util.ArtworkUrl
+import org.prairieserver.prairie.repository.port.HomeCacheWriteLease
+import org.prairieserver.prairie.viewmodel.hydrateHomeSections
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -83,6 +86,7 @@ suspend fun warmAuthenticatedStartup(
     personalDataRepository: PersonalDataRepository,
     sectionRepository: SectionRepository,
     homeCache: HomeCachePort,
+    identityTransitions: IdentityTransitionBarrier,
     serverUrl: String?,
     artworkPlan: StartupArtworkPlan,
 ) {
@@ -106,7 +110,15 @@ suspend fun warmAuthenticatedStartup(
                 Unit
             },
             async {
-                runCatching { warmHome(context, sectionRepository, homeCache, artworkPlan) }
+                runCatching {
+                    warmHome(
+                        context,
+                        sectionRepository,
+                        homeCache,
+                        identityTransitions,
+                        artworkPlan,
+                    )
+                }
                 Unit
             },
         ).awaitAll()
@@ -135,27 +147,23 @@ private suspend fun CoroutineScope.warmHome(
     context: Context,
     sectionRepository: SectionRepository,
     homeCache: HomeCachePort,
+    identityTransitions: IdentityTransitionBarrier,
     artworkPlan: StartupArtworkPlan,
 ) {
+    val requestIdentityGeneration = identityTransitions.generation.value
+    val cacheWriteLease = HomeCacheWriteLease(requestIdentityGeneration)
     when (val result = sectionRepository.getHomeSections()) {
         is ApiResult.Success -> {
-            val resolvedPairs: List<Pair<ResolvedSection, Boolean>> =
-                result.data.sections.map { section ->
-                    async {
-                        when (val itemsResult = sectionRepository.getHomeSectionItems(section.id)) {
-                            is ApiResult.Success -> (itemsResult.data.section ?: section) to true
-                            is ApiResult.Error,
-                            is ApiResult.NetworkError -> section to false
-                        }
-                    }
-                }.awaitAll()
-
-            if (resolvedPairs.all { it.second }) {
-                val resolved = resolvedPairs.map { it.first }.filter { it.items.isNotEmpty() }
-                if (resolved.isNotEmpty()) {
-                    homeCache.cacheHome(resolved)
-                    warmHomeArtwork(context, resolved, artworkPlan)
-                }
+            val hydration = hydrateHomeSections(result.data.sections) { sectionId ->
+                sectionRepository.getHomeSectionItems(sectionId)
+            }
+            if (
+                hydration.fullyResolved &&
+                hydration.sections.isNotEmpty() &&
+                requestIdentityGeneration == identityTransitions.generation.value
+            ) {
+                homeCache.cacheHome(hydration.sections, cacheWriteLease)
+                warmHomeArtwork(context, hydration.sections, artworkPlan)
             }
         }
         is ApiResult.Error,
@@ -180,12 +188,8 @@ private suspend fun warmHomeArtwork(
 
     fun append(urlString: String?, widthPx: Int, heightPx: Int) {
         if (requests.size >= plan.maxUrls) return
-        val raw = urlString?.trim().orEmpty()
-        if (raw.isEmpty()) return
-        // Warm the preferred format for this device so ThumbhashImage's first
-        // request hits the Coil disk/memory cache.
-        val url = ArtworkUrl.preferred(raw)
-        if (!seen.add(url)) return
+        val url = urlString?.trim().orEmpty()
+        if (url.isEmpty() || !seen.add(url)) return
         requests.add(
             ImageRequest.Builder(context)
                 .data(url)
@@ -236,14 +240,22 @@ private suspend fun warmAvatarArtwork(
     serverUrl: String?,
 ) {
     val requests = profiles
-        .mapNotNull { profile ->
-            profile.avatar?.let { resolveAvatarUrl(serverUrl.orEmpty(), it) }
-        }
+        .mapNotNull { profile -> resolveProfileAvatar(serverUrl.orEmpty(), profile.avatarRef()) }
         .distinct()
-        .map { url ->
+        .map { resolved ->
             ImageRequest.Builder(context)
-                .data(url)
+                .data(resolved.url)
                 .size(profileAvatarWarmSizePx, profileAvatarWarmSizePx)
+                // Warm the SAME cache entry the grid will later read. Without
+                // the shared key an uploaded avatar would be filed under the
+                // presigned URL warmup happened to get, and the screen's own
+                // (re-signed) URL would miss it and download all over again.
+                .apply {
+                    resolved.cacheKey?.let {
+                        memoryCacheKey(it)
+                        diskCacheKey(it)
+                    }
+                }
                 .build()
         }
     warmImages(context, requests)

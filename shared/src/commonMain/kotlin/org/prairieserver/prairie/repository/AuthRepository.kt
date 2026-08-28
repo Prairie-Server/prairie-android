@@ -1,6 +1,6 @@
 package org.prairieserver.prairie.repository
 
-import org.prairieserver.prairie.model.auth.AuthSession
+import org.prairieserver.prairie.model.auth.InvitationLookupResponse
 import org.prairieserver.prairie.model.auth.LoginResponse
 import org.prairieserver.prairie.model.auth.LoginRequest
 import org.prairieserver.prairie.model.auth.SetupStatusResponse
@@ -11,6 +11,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.api.AuthApi
+import org.prairieserver.prairie.network.api.BrandingApi
 import org.prairieserver.prairie.network.api.HealthApi
 import org.prairieserver.prairie.network.map
 
@@ -19,17 +20,24 @@ class AuthRepository(
     private val tokenManager: TokenManager,
     private val serverRegistry: ServerRegistry? = null,
     private val healthApi: HealthApi? = null,
+    private val brandingApi: BrandingApi? = null,
 ) {
     /**
-     * Logs in with username and password.
-     * On success, persists tokens via [TokenManager] and returns the [User].
+     * Persists a successful auth response's tokens into the active server's
+     * scope and unwraps the [User] — the shared tail of every path that ends
+     * a signed-out state (login, signup, setup, invitation claim).
      */
-    suspend fun login(username: String, password: String): ApiResult<User> {
-        val result = authApi.login(LoginRequest(username = username, password = password))
-        return when (result) {
+    private suspend fun persistSession(
+        result: ApiResult<LoginResponse>,
+        targetServerId: String? = null,
+        targetServerUrl: String? = null,
+    ): ApiResult<User> =
+        when (result) {
             is ApiResult.Success -> {
                 val data = result.data
-                tokenManager.saveTokens(
+                tokenManager.replaceAccountSession(
+                    serverId = targetServerId ?: tokenManager.getCurrentServerId(),
+                    serverUrl = targetServerUrl,
                     accessToken = data.accessToken,
                     refreshToken = data.refreshToken,
                     expiresIn = data.expiresIn,
@@ -39,7 +47,13 @@ class AuthRepository(
             is ApiResult.Error -> result
             is ApiResult.NetworkError -> result
         }
-    }
+
+    /**
+     * Logs in with username and password.
+     * On success, persists tokens via [TokenManager] and returns the [User].
+     */
+    suspend fun login(username: String, password: String): ApiResult<User> =
+        persistSession(authApi.login(LoginRequest(username = username, password = password)))
 
     /**
      * Credential login without persistence. TV keeps QR and password sign-in
@@ -59,27 +73,16 @@ class AuthRepository(
         password: String,
         inviteCode: String,
     ): ApiResult<User> {
-        val result = authApi.signup(
-            SignupRequest(
-                username = username,
-                email = email,
-                password = password,
-                inviteCode = inviteCode,
+        return persistSession(
+            authApi.signup(
+                SignupRequest(
+                    username = username,
+                    email = email,
+                    password = password,
+                    inviteCode = inviteCode,
+                ),
             ),
         )
-        return when (result) {
-            is ApiResult.Success -> {
-                val data = result.data
-                tokenManager.saveTokens(
-                    accessToken = data.accessToken,
-                    refreshToken = data.refreshToken,
-                    expiresIn = data.expiresIn,
-                )
-                ApiResult.Success(data.user)
-            }
-            is ApiResult.Error -> result
-            is ApiResult.NetworkError -> result
-        }
     }
 
     /**
@@ -90,22 +93,7 @@ class AuthRepository(
         username: String,
         email: String,
         password: String,
-    ): ApiResult<User> {
-        val result = authApi.setup(username, email, password)
-        return when (result) {
-            is ApiResult.Success -> {
-                val data = result.data
-                tokenManager.saveTokens(
-                    accessToken = data.accessToken,
-                    refreshToken = data.refreshToken,
-                    expiresIn = data.expiresIn,
-                )
-                ApiResult.Success(data.user)
-            }
-            is ApiResult.Error -> result
-            is ApiResult.NetworkError -> result
-        }
-    }
+    ): ApiResult<User> = persistSession(authApi.setup(username, email, password))
 
     /** Checks whether the server requires initial setup. */
     suspend fun getSetupStatus(): ApiResult<SetupStatusResponse> =
@@ -113,6 +101,43 @@ class AuthRepository(
 
     suspend fun getSetupStatus(serverUrl: String): ApiResult<SetupStatusResponse> =
         authApi.getSetupStatus(serverUrl)
+
+    /**
+     * Resolves an emailed-invitation claim token against a server the app is
+     * not signed into yet.
+     */
+    suspend fun lookupInvitation(
+        serverUrl: String,
+        token: String,
+    ): ApiResult<InvitationLookupResponse> = authApi.lookupInvitation(serverUrl, token)
+
+    /**
+     * Accepts an emailed invitation: the account is created with the
+     * invitation's email as username, tokens are persisted, and the new
+     * [User] is returned — same post-conditions as [signup].
+     *
+     * The claim request goes to [serverUrl] directly (it needs no auth), and
+     * the app only adopts that server as active once the claim has actually
+     * succeeded. Switching first would strand a user whose claim fails —
+     * expired token, already used, network error — on a server they have no
+     * account on, with their previous session no longer active.
+     */
+    suspend fun acceptInvitation(
+        serverUrl: String,
+        token: String,
+        password: String,
+    ): ApiResult<User> {
+        val result = authApi.acceptInvitation(serverUrl, token, password)
+        if (result !is ApiResult.Success) return persistSession(result)
+        val targetServerId = serverRegistry?.addOrUpdate(serverUrl)
+        val persisted = persistSession(
+            result = result,
+            targetServerId = targetServerId,
+            targetServerUrl = serverUrl.takeIf { serverRegistry == null },
+        )
+        if (persisted is ApiResult.Success) refreshActiveServerName()
+        return persisted
+    }
 
     /** Checks whether public signups are enabled. */
     suspend fun getSignupStatus(): ApiResult<SignupStatusResponse> =
@@ -135,21 +160,9 @@ class AuthRepository(
         try {
             authApi.logout()
         } finally {
-            val activeId = tokenManager.getCurrentServerId()
             tokenManager.signOutCurrentServer()
-            if (activeId != null) {
-                serverRegistry?.signOut(activeId)
-            }
         }
     }
-
-    /** Lists active sessions for the current user. */
-    suspend fun getSessions(): ApiResult<List<AuthSession>> =
-        authApi.getSessions().map { it.sessions }
-
-    /** Revokes a specific session by ID. */
-    suspend fun deleteSession(id: String): ApiResult<Unit> =
-        authApi.revokeSession(id)
 
     /** Returns true when a refresh token is present (user has previously logged in). */
     suspend fun isLoggedIn(): Boolean =
@@ -179,20 +192,26 @@ class AuthRepository(
     }
 
     /**
-     * Best-effort: hit `/api/v1/health` and update the active registry entry's
-     * fetched name. Quietly no-ops if there's no registry, no active server,
-     * or the call fails — this is purely for nicer UX in the server list.
+     * Best-effort: read the native branding identity and update the active
+     * registry entry's fetched name. Health is a fallback for older servers
+     * without the branding endpoint. Quietly no-ops if no usable name can be
+     * resolved — this is purely for nicer UX in the server list.
      */
     suspend fun refreshActiveServerName() {
         val registry = serverRegistry ?: return
-        val api = healthApi ?: return
         val activeId = registry.activeServerId.value ?: return
-        val result = api.checkHealth()
-        if (result is ApiResult.Success && registry.activeServerId.value == activeId) {
-            result.data.serverName
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?.let { registry.setFetchedName(activeId, it) }
+        val brandingName = (brandingApi?.getBranding() as? ApiResult.Success)
+            ?.data
+            ?.serverName
+            .usableServerName()
+        val resolvedName = brandingName ?: (healthApi?.checkHealth() as? ApiResult.Success)
+            ?.data
+            ?.serverName
+            .usableServerName()
+        if (resolvedName != null && registry.activeServerId.value == activeId) {
+            registry.setFetchedName(activeId, resolvedName)
         }
     }
+
+    private fun String?.usableServerName(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 }

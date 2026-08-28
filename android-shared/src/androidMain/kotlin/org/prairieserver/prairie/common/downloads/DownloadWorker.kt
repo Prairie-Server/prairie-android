@@ -20,7 +20,9 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import org.prairieserver.prairie.model.download.DownloadStatus
+import org.prairieserver.prairie.model.download.DownloadRecord
 import org.prairieserver.prairie.repository.DownloadsRepository
+import org.prairieserver.prairie.network.PrairieAuthUnavailableException
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.timeout
@@ -40,6 +42,16 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.URLDecoder
 import java.util.concurrent.TimeUnit
+
+internal fun DownloadRecord.withWorkerStatus(
+    status: String,
+    bytesSent: Long? = null,
+    fileSize: Long? = null,
+): DownloadRecord = copy(
+    status = status,
+    bytesSent = bytesSent ?: this.bytesSent,
+    fileSize = fileSize ?: this.fileSize,
+)
 
 /**
  * Streams `GET /api/v1/downloads/{id}/file` to the local
@@ -314,7 +326,13 @@ class DownloadWorker(
                 Result.retry()
             }
         } catch (e: Throwable) {
-            failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
+            if (downloadAuthFailureIsRetriable(e)) {
+                Log.i(TAG, "doWork auth unavailable id=$downloadId")
+                DiagnosticsDownloadLogger.event("download auth unavailable")
+                Result.retry()
+            } else {
+                failPermanently(e, downloadId, serverId, profileId, fileId, activeUri)
+            }
         }
         } finally {
             lifetimeLease.close()
@@ -338,7 +356,13 @@ class DownloadWorker(
         // Best-effort: publish failed state into the repo + sidecar.
         val record = if (uiPushAllowed(serverId, profileId)) repository.recordForFile(fileId) else null
         if (record != null) {
-            repository.upsertLocal(record.copy(status = DownloadStatus.Failed.wire))
+            repository.upsertLocal(
+                record.withWorkerStatus(
+                    status = DownloadStatus.Failed.wire,
+                    bytesSent = 0,
+                    fileSize = 0,
+                ),
+            )
         }
         updateSidecarStatus(
             serverId, profileId, fileId,
@@ -361,8 +385,8 @@ class DownloadWorker(
         profileId: String,
         fileId: Int,
         status: String,
-        bytesSent: Long,
-        fileSize: Long,
+        bytesSent: Long? = null,
+        fileSize: Long? = null,
         localUri: String? = null,
         fileName: String? = null,
         // null = keep existing; "" = clear (download finished/failed); else set.
@@ -373,10 +397,10 @@ class DownloadWorker(
             metadataStore.writeSidecar(
                 serverId, profileId,
                 existing.copy(
-                    record = existing.record.copy(
+                    record = existing.record.withWorkerStatus(
                         status = status,
-                        bytesSent = if (bytesSent > 0) bytesSent else existing.record.bytesSent,
-                        fileSize = if (fileSize > 0) fileSize else existing.record.fileSize,
+                        bytesSent = bytesSent,
+                        fileSize = fileSize,
                     ),
                     localUri = localUri ?: existing.localUri,
                     fileName = fileName?.takeIf { it.isNotBlank() } ?: existing.fileName,
@@ -406,8 +430,6 @@ class DownloadWorker(
         updateSidecarStatus(
             serverId, profileId, fileId,
             status = DownloadStatus.Downloading.wire,
-            bytesSent = 0,
-            fileSize = 0,
             localUri = localUri,
             resumeValidator = validator?.takeIf { it.isNotBlank() } ?: "",
         )
@@ -441,7 +463,7 @@ class DownloadWorker(
 
     companion object {
         private const val TAG = "DownloadWorker"
-        const val NOTIFICATION_CHANNEL_ID = "prairie_downloads"
+        const val NOTIFICATION_CHANNEL_ID = "silo_downloads"
         const val KEY_DOWNLOAD_ID = "download_id"
         const val KEY_FILE_ID = "file_id"
         const val KEY_SERVER_ID = "server_id"
@@ -661,3 +683,20 @@ private fun String.decodeRfc5987(): String {
     val encoded = substringAfter("''", missingDelimiterValue = this)
     return runCatching { URLDecoder.decode(encoded, Charsets.UTF_8.name()) }.getOrDefault(encoded)
 }
+
+/**
+ * A request the auth plugin refused to send because there were no usable
+ * credentials — the session was repudiated mid-download, or the token for this
+ * scope is gone.
+ *
+ * Retriable, matching how a 401 response is already classified: the user can
+ * sign back in and a part-downloaded file of several gigabytes is worth
+ * keeping. Treating it as permanent deletes that partial and paints the
+ * download Failed.
+ *
+ * Deliberately narrow rather than `is IllegalStateException`, which
+ * [PrairieAuthUnavailableException] extends — widening it that far would also make
+ * a genuine 404 look retriable.
+ */
+internal fun downloadAuthFailureIsRetriable(e: Throwable): Boolean =
+    e is PrairieAuthUnavailableException

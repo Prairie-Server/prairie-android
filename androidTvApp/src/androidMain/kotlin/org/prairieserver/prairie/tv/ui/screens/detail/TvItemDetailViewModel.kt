@@ -2,7 +2,15 @@ package org.prairieserver.prairie.tv.ui.screens.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.common.player.video.EpisodeSelectionHandoff
+import org.prairieserver.prairie.common.player.video.EpisodeSubtitleIntent
+import org.prairieserver.prairie.common.player.video.EpisodeSubtitleMode
+import org.prairieserver.prairie.common.player.video.captureEpisodeSourceIntent
+import org.prairieserver.prairie.common.player.video.captureEpisodeSubtitleIntent
+import org.prairieserver.prairie.common.player.video.resolveEpisodeSubtitleIntent
+import org.prairieserver.prairie.common.player.video.resolveEpisodeSourceIntent
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.catalog.CastMember
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
@@ -11,8 +19,9 @@ import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.LeafItemUserData
 import org.prairieserver.prairie.model.catalog.Season
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
-import org.prairieserver.prairie.model.catalog.sortedForDisplay
+import org.prairieserver.prairie.model.catalog.initialSeasonDisplayPlan
 import org.prairieserver.prairie.model.playback.combinedSubtitleSelectionIndexes
+import org.prairieserver.prairie.model.playback.buildPlaybackSubtitleChoices
 import org.prairieserver.prairie.playback.SUBTITLE_OFF_FINGERPRINT
 import org.prairieserver.prairie.playback.audioTrackFingerprint
 import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
@@ -20,6 +29,9 @@ import org.prairieserver.prairie.playback.resolveSubtitleTrackOrdinal
 import org.prairieserver.prairie.playback.subtitleTrackFingerprint
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.IdentityTransitionBarrier
+import org.prairieserver.prairie.network.IdentityTransitionPhase
+import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.ProfileRepository
@@ -39,6 +51,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 data class TvItemDetailUiState(
     val isLoading: Boolean = true,
@@ -66,6 +80,15 @@ data class TvItemDetailUiState(
     // index -1 means "Off". Reset whenever the version changes since each file
     // has its own track lists.
     val selectedAudioIndex: Int? = null,
+    /**
+     * True only when the viewer picked the audio here, this session.
+     *
+     * A restored durable value and a fresh pick both land in
+     * [selectedAudioIndex], and the player cannot tell them apart from the
+     * ordinal alone — so a restore would masquerade as a new decision and pin
+     * itself onto every later episode.
+     */
+    val audioPickedThisSession: Boolean = false,
     val selectedSubtitleIndex: Int? = null,
     // Catalog-backed related shelf. This is a same-type / same-primary-genre
     // browse query until the server exposes an item-specific related endpoint.
@@ -73,7 +96,7 @@ data class TvItemDetailUiState(
     val moreLikeThisLoading: Boolean = false,
     // --- Next-up episode (series / season detail only) ---
     // The episode the hero Play button targets: an in-progress episode if one
-    // exists, else the first unwatched, else the first. Mirrors prairie-apple's
+    // exists, else the first unwatched, else the first. Mirrors silo-apple's
     // `nextUpEpisode`.
     val nextUpEpisode: EpisodeListItem? = null,
     // The next-up episode's loaded playback detail (versions / tracks). Loaded
@@ -86,14 +109,17 @@ data class TvItemDetailUiState(
     // selectedFileId/audio/subtitle, which series/season detail does not use).
     val selectedNextUpFileId: Int? = null,
     val selectedNextUpAudioIndex: Int? = null,
+    /** As [audioPickedThisSession], for the series/season next-up selector. */
+    val nextUpAudioPickedThisSession: Boolean = false,
     val selectedNextUpSubtitleIndex: Int? = null,
     val preferredQuality: String = "auto",
     // Cascaded subtitle preferences that annotate the selector row's Auto
     // preview ("Auto - <track>" / "Auto - None") so it previews the SAME track
-    // the player would auto-select. ItemDetail (unlike WatchDetail) carries no
-    // per-item effective_* fields, so these are sourced from the active profile
-    // (matching the profile fallback in TvVideoPlaybackStarter); showForced
-    // defaults to true when unset, as the player state does.
+    // the player would auto-select. Resolved canonically — see
+    // [loadSubtitlePreferences]; the profile columns are only the fallback for
+    // a server that cannot resolve. `preferredSubtitleLanguage` null is "no
+    // preference" and "" is "no subtitles"; showForced defaults to true when
+    // unset, as the player state does.
     val preferredSubtitleLanguage: String? = null,
     val subtitleMode: String? = null,
     val showForcedSubtitles: Boolean = true,
@@ -186,6 +212,103 @@ internal fun shouldApplyNextUpTrackRestore(
     currentSelectedFileId == requestedSelectedFileId
 
 /**
+ * How many `GET /favorites/{id}` probes may be in flight at once.
+ *
+ * A season is commonly 10-25 episodes and every one needs its own probe, so
+ * unbounded parallelism put a whole season on the wire in one burst — measured
+ * at 150-520 ms each, with the slowest arriving well after the rail had been
+ * drawn. A small window keeps the first rows filling promptly without the
+ * burst.
+ */
+internal const val EPISODE_FAVORITE_PROBE_CONCURRENCY = 6
+
+/**
+ * Whether a revalidation pass answered everything it was asked to.
+ *
+ * Only ids this season actually shows count: the signal is process-wide, so it
+ * routinely names episodes from a season that is not on screen, and waiting for
+ * those would mean never catching up.
+ *
+ * [requested] of null means the signal could not produce a delta, so every
+ * visible episode had to answer. A caller that records itself caught up while
+ * one of its probes failed leaves that row stale with nothing left to retry it,
+ * which is why this is separate from "the reload succeeded".
+ */
+/**
+ * Cached favourite answers that must be forgotten because they changed
+ * elsewhere and are not on screen to be re-probed.
+ *
+ * The cache spans seasons but a refresh only probes the visible one, so a
+ * changed episode belonging to another season would otherwise keep its stale
+ * answer for the life of this screen — the visible season's refresh would
+ * record the change as handled and move on. Dropping the entry instead means
+ * the season that does show it probes it when it next loads.
+ *
+ * Only OFF-SCREEN entries are dropped. A visible one is revalidated in place,
+ * because removing it would render that row as "not a favourite" until its
+ * probe answered.
+ *
+ * [requested] of null means the change list could not be produced, so every
+ * cached answer that is not on screen is suspect.
+ */
+internal fun staleOffScreenFavorites(
+    requested: Set<String>?,
+    cachedIds: Set<String>,
+    visibleIds: Set<String>,
+): Set<String> = when (requested) {
+    null -> cachedIds - visibleIds
+    else -> requested.intersect(cachedIds) - visibleIds
+}
+
+internal fun revalidationSatisfied(
+    requested: Set<String>?,
+    visibleIds: List<String>,
+    answered: Set<String>,
+): Boolean {
+    val visible = visibleIds.toSet()
+    val required = requested?.intersect(visible) ?: visible
+    return required.all { it in answered }
+}
+
+/**
+ * Resolves the favourite flag for the episodes whose state is not already
+ * known, at most [concurrency] probes in flight at once.
+ *
+ * [onResolved] fires for each episode the moment its own probe answers, so the
+ * rail fills as results arrive. Waiting for the whole set would mean one slow
+ * probe holding back every answer that already landed — and bounding the
+ * requests makes that wait longer, not shorter, because the work is now spread
+ * over several waves instead of one burst.
+ *
+ * Reports only episodes that answered successfully: a failed probe is left out
+ * entirely rather than reported as `false`, so a transient error does not stick
+ * as a cached "not a favourite" for the rest of the visit. The returned list is
+ * every pair that resolved, for callers that want the whole outcome.
+ */
+internal suspend fun probeEpisodeFavorites(
+    episodeIds: List<String>,
+    knownIds: Set<String>,
+    concurrency: Int = EPISODE_FAVORITE_PROBE_CONCURRENCY,
+    onResolved: (String, Boolean) -> Unit = { _, _ -> },
+    probe: suspend (String) -> ApiResult<Boolean>,
+): List<Pair<String, Boolean>> {
+    val unknown = episodeIds.filterNot { it in knownIds }
+    if (unknown.isEmpty()) return emptyList()
+    val gate = Semaphore(concurrency)
+    return coroutineScope {
+        unknown.map { id ->
+            async {
+                val favorite = gate.withPermit { probe(id) }
+                (favorite as? ApiResult.Success)?.let { success ->
+                    onResolved(id, success.data)
+                    id to success.data
+                }
+            }
+        }.awaitAll()
+    }.filterNotNull()
+}
+
+/**
  * Drives the enhanced TV item detail screen. Loads the full [ItemDetail] plus
  * the current user's favorite/watchlist state in parallel. For series, pulls
  * seasons once the main detail lands and lazily loads episodes whenever the
@@ -199,10 +322,13 @@ class TvItemDetailViewModel(
     private val personalDataRepository: PersonalDataRepository,
     private val playerSettingsStore: PlayerSettingsStore,
     private val profileRepository: ProfileRepository,
+    private val profileSettings: ProfileSettingsController,
     metadataAiRepository: org.prairieserver.prairie.repository.MetadataAiRepository,
     private val contentId: String,
     private val userItemState: UserItemStatePort = NoOpUserItemStatePort,
     private val recommendationRepository: org.prairieserver.prairie.repository.RecommendationRepository? = null,
+    private val tokenManager: TokenManager,
+    private val identityTransitions: IdentityTransitionBarrier,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvItemDetailUiState())
@@ -217,6 +343,13 @@ class TvItemDetailViewModel(
         descriptionTranslation.phase
 
     init {
+        viewModelScope.launch {
+            identityTransitions.transitions.collect { transition ->
+                if (transition.phase == IdentityTransitionPhase.WILL_CHANGE) {
+                    pendingNextUpSelectionHandoff = null
+                }
+            }
+        }
         observePreferredQuality()
         if (contentId.isNotBlank()) {
             // Restore this title's pre-play track choices (QA 2026-07-08: a
@@ -237,16 +370,38 @@ class TvItemDetailViewModel(
 
     /**
      * Loads the cascaded subtitle preferences that annotate the selector row's
-     * Auto preview. This screen loads an [ItemDetail], which carries no per-item
-     * `effective_*` subtitle fields (only [org.prairieserver.prairie.model.catalog.WatchDetail]
-     * does), so — unlike [TvVideoPlaybackStarter], which reads the WatchDetail
-     * effective fields first — these come purely from the active profile
-     * (`subtitle_language` / `subtitle_mode` / `show_forced_subtitles`), the
-     * same fallback the starter drops to. showForced defaults to true when unset,
-     * matching the player state and the starter's `?: true`.
+     * Auto preview.
+     *
+     * These resolve canonically, through the same [ProfileSettingsController]
+     * the settings screen writes with. The `user_profiles` columns
+     * `GET /profiles` serves are NOT equivalent: the settings screen writes
+     * `playback.subtitle_language` / `subtitle_mode` / `show_forced_subtitles`
+     * at `scope=profile` and the server does not mirror a canonical write back
+     * into those columns, so reading them here previewed the preference the
+     * user had *before* their last edit while
+     * [org.prairieserver.prairie.tv.ui.screens.player.TvVideoPlaybackStarter] — which
+     * reads WatchDetail's server-resolved `effective_*` fields — played the new
+     * one. The columns stay as the fallback for a server that cannot resolve
+     * canonically. showForced defaults to true when unset, matching the player
+     * state and the starter's `?: true`.
      */
     private fun loadSubtitlePreferences() {
         viewModelScope.launch {
+            val resolved = runCatching { profileSettings.load() }.getOrNull()?.snapshot
+            if (resolved != null) {
+                _uiState.update {
+                    it.copy(
+                        // The snapshot spells "no preference" as "", the Auto
+                        // preview spells it as null (it reads "" as "no subs",
+                        // matching the profile column, which the server omits
+                        // when empty). Translate rather than leak the wrong one.
+                        preferredSubtitleLanguage = resolved.subtitleLanguage.ifBlank { null },
+                        subtitleMode = resolved.subtitleMode,
+                        showForcedSubtitles = resolved.showForcedSubtitles,
+                    )
+                }
+                return@launch
+            }
             val profile = runCatching { profileRepository.getActiveProfile() }.getOrNull()
             _uiState.update {
                 it.copy(
@@ -345,7 +500,7 @@ class TvItemDetailViewModel(
                         -> detail.seriesId?.takeIf { it.isNotBlank() }?.let { seriesId ->
                             loadSeasons(
                                 seriesContentId = seriesId,
-                                preferredSeasonNumber = detail.seasonNumber?.takeIf { it > 0 },
+                                preferredSeasonNumber = detail.seasonNumber,
                             )
                         }
                     }
@@ -388,16 +543,29 @@ class TvItemDetailViewModel(
      */
     fun refreshOnReturn() {
         val current = _uiState.value.detail ?: return
+        val playbackReturn = TvDetailTrackSelectionSession.consumePlaybackReturn(contentId)
+        playbackReturn?.let { saved ->
+            _uiState.update {
+                it.copy(
+                    detail = it.detail?.withPlaybackReturn(saved),
+                    selectedFileId = saved.fileId,
+                    selectedAudioIndex = saved.audio,
+                    selectedSubtitleIndex = saved.subtitle,
+                )
+            }
+        }
         viewModelScope.launch {
             // Local overlay first: the player's final position write is already
             // on disk, so the label corrects before the server round-trip.
             val overlaid = withLocalProgress(current)
+                .let { refreshed -> playbackReturn?.let(refreshed::withPlaybackReturn) ?: refreshed }
             if (overlaid != current) {
                 _uiState.update { it.copy(detail = overlaid) }
             }
             when (val result = catalogRepository.getItemDetail(contentId)) {
                 is ApiResult.Success -> {
                     val detail = withLocalProgress(result.data)
+                        .let { refreshed -> playbackReturn?.let(refreshed::withPlaybackReturn) ?: refreshed }
                     if (!isTvHiddenMediaType(detail.type)) {
                         _uiState.update {
                             it.copy(
@@ -419,7 +587,22 @@ class TvItemDetailViewModel(
             else -> null
         }
         val season = _uiState.value.selectedSeason
-        if (seriesId != null && season != null) loadEpisodes(seriesId, season, quiet = true)
+        // Coming back from an episode's own screen: the favourite may have been
+        // toggled in there, and this view model still holds the old answer. Only
+        // the items actually changed are re-asked about.
+        val favoritesVersion = TvFavoriteRevalidationSession.currentVersion()
+        // Null: too far behind to be given a delta, so re-check the lot.
+        val favoritesToRecheck =
+            TvFavoriteRevalidationSession.changedSince(favoritesRevalidatedThrough)
+        if (seriesId != null && season != null) {
+            loadEpisodes(
+                seriesId,
+                season,
+                quiet = true,
+                revalidateFavorites = favoritesToRecheck,
+                favoritesVersion = favoritesVersion,
+            )
+        }
     }
 
     fun onToggleFavorite() {
@@ -436,6 +619,10 @@ class TvItemDetailViewModel(
                 }
             } else {
                 _uiState.update { it.copy(isTogglingFavorite = false) }
+                // A series rail one screen up may be holding a stale answer for
+                // this item. Tell it exactly which one changed rather than
+                // making it re-ask about the whole season.
+                TvFavoriteRevalidationSession.markChanged(contentId)
             }
         }
     }
@@ -530,7 +717,12 @@ class TvItemDetailViewModel(
         // Track indexes are file-specific; clear them so a stale index can't
         // carry over to a different version's track list.
         _uiState.update {
-            it.copy(selectedFileId = fileId, selectedAudioIndex = null, selectedSubtitleIndex = null)
+            it.copy(
+                selectedFileId = fileId,
+                selectedAudioIndex = null,
+                audioPickedThisSession = false,
+                selectedSubtitleIndex = null,
+            )
         }
         TvDetailTrackSelectionSession.remember(contentId, fileId, audio = null, subtitle = null)
         // Do NOT persist here: a version switch resets the indexes to null, and
@@ -542,7 +734,7 @@ class TvItemDetailViewModel(
 
     /** Pre-select an audio track for the next Play (index into the version's audioTracks). */
     fun onAudioTrackSelected(index: Int?) {
-        _uiState.update { it.copy(selectedAudioIndex = index) }
+        _uiState.update { it.copy(selectedAudioIndex = index, audioPickedThisSession = index != null) }
         val state = _uiState.value
         TvDetailTrackSelectionSession.remember(contentId, state.selectedFileId, index, state.selectedSubtitleIndex)
         persistTrackSelection()
@@ -657,20 +849,17 @@ class TvItemDetailViewModel(
             _uiState.update { it.copy(seasonsLoading = true) }
             when (val r = catalogRepository.getSeasons(seriesContentId)) {
                 is ApiResult.Success -> {
-                    val seasons = r.data.seasons.sortedForDisplay()
-                    val selectedSeason = preferredSeasonNumber
-                        ?.let { seasonNumber -> seasons.firstOrNull { it.seasonNumber == seasonNumber } }
-                    val firstRegular = selectedSeason
-                        ?: seasons.firstOrNull { !it.isSpecials }
-                        ?: seasons.firstOrNull()
+                    val plan = r.data.seasons.initialSeasonDisplayPlan(preferredSeasonNumber)
                     _uiState.update {
                         it.copy(
                             seasonsLoading = false,
-                            seasons = seasons,
-                            selectedSeason = firstRegular?.seasonNumber,
+                            seasons = plan.seasons,
+                            selectedSeason = plan.selectedSeasonNumber,
                         )
                     }
-                    if (firstRegular != null) loadEpisodes(seriesContentId, firstRegular.seasonNumber)
+                    plan.episodeRequestSeasonNumber?.let { seasonNumber ->
+                        loadEpisodes(seriesContentId, seasonNumber)
+                    }
                 }
                 else -> _uiState.update { it.copy(seasonsLoading = false) }
             }
@@ -678,7 +867,15 @@ class TvItemDetailViewModel(
     }
 
     private var episodeLoadJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * How far through [TvFavoriteRevalidationSession] this screen has caught up.
+     * Starts at the current version: anything toggled before this screen existed
+     * is already reflected in the data it is about to load.
+     */
+    private var favoritesRevalidatedThrough: Long = TvFavoriteRevalidationSession.currentVersion()
     private var moreLikeThisJob: Job? = null
+    private var nextUpDetailJob: Job? = null
     // The season number the currently-shown episodes/next-up actually belong to.
     // Lets a failed load revert the optimistic season selection so the chips and
     // the rail stay consistent (T15).
@@ -688,17 +885,46 @@ class TvItemDetailViewModel(
     private val episodeWatchMutationGenerations = mutableMapOf<String, Long>()
     private var nextEpisodeFavoriteMutationGeneration: Long = 0
     private val episodeFavoriteMutationGenerations = mutableMapOf<String, Long>()
+    private var nextUpPlaybackDetailGeneration: Long = 0
+    private var nextUpSelectorRevision: Long = 0
+    private var pendingNextUpSelectionHandoff: PendingNextUpSelectionHandoff? = null
+
+    private data class NextUpIdentity(
+        val serverId: String?,
+        val profileId: String?,
+        val generation: Long,
+    )
+
+    private data class PendingNextUpSelectionHandoff(
+        val targetContentId: String,
+        val refreshGeneration: Long,
+        val selectorRevision: Long,
+        val identity: NextUpIdentity,
+        val handoff: EpisodeSelectionHandoff,
+    )
+
+    private data class ResolvedNextUpTrackSelection(
+        val fileId: Int?,
+        val audioIndex: Int?,
+        val subtitleIndex: Int?,
+    )
 
     /**
      * Loads a season's episodes. [quiet] suppresses the loading spinner and is
      * used by [refreshOnReturn], whose contract is a no-flash background refresh
      * of the season already on screen.
      */
-    private fun loadEpisodes(seriesContentId: String, seasonNumber: Int, quiet: Boolean = false) {
+    private fun loadEpisodes(
+        seriesContentId: String,
+        seasonNumber: Int,
+        quiet: Boolean = false,
+        revalidateFavorites: Set<String>? = emptySet(),
+        favoritesVersion: Long? = null,
+    ) {
         // Cancel any in-flight episode load so a slower response for a
         // previously-selected season can't overwrite episodes/next-up for the
         // season the user is now on (rapid season switches / the initial
-        // firstRegular load racing a route-driven season load).
+        // selected-season load racing a route-driven season load).
         episodeLoadJob?.cancel()
         episodeLoadJob = viewModelScope.launch {
             if (!quiet) _uiState.update { it.copy(episodesLoading = true) }
@@ -709,7 +935,16 @@ class TvItemDetailViewModel(
                     episodeListGeneration += 1
                     _uiState.update { it.copy(episodesLoading = false, episodes = episodes) }
                     refreshNextUp(episodes)
-                    refreshEpisodeFavoriteStates(episodes)
+                    val revalidationComplete =
+                        refreshEpisodeFavoriteStates(episodes, revalidate = revalidateFavorites)
+                    // Caught up only now, and only if every id we were asked to
+                    // re-check actually answered. Advancing on read would drop
+                    // the signal when the reload failed; advancing after a
+                    // FAILED probe would drop it just as permanently, leaving
+                    // that one episode stale with nothing left to retry it.
+                    if (revalidationComplete) {
+                        favoritesVersion?.let { favoritesRevalidatedThrough = it }
+                    }
                 }
                 else -> {
                     // Quiet-failure contract (T15): a failed season load must NOT
@@ -729,27 +964,86 @@ class TvItemDetailViewModel(
         }
     }
 
-    private suspend fun refreshEpisodeFavoriteStates(episodes: List<EpisodeListItem>) {
-        if (episodes.isEmpty()) {
-            _uiState.update { it.copy(episodeFavoriteStates = emptyMap()) }
-            return
+    /**
+     * Fills in the favourite flag for episodes whose state this screen does not
+     * already know.
+     *
+     * There is no favourite field on an episode payload, so each one has to be
+     * asked for individually — `GET /favorites/{id}`, answering 404 for "not a
+     * favourite". Two things made that expensive enough to see in the field:
+     * every episode was asked on every season load even when the answer was
+     * already on screen, and all of them were asked at once. One series on a
+     * tester's Fire TV produced 116 such 404s at 150-520 ms each.
+     *
+     * So: ask only about episodes with no answer yet, and ask a few at a time.
+     * The map accumulates for the life of this view model, which is one visit
+     * to one item — leaving the screen and coming back still re-reads, so a
+     * favourite toggled on another device is picked up on the next visit
+     * rather than being cached indefinitely.
+     */
+    /**
+     * @param revalidate ids to re-ask about even though an answer is already
+     * held, because they were toggled on a screen further down. This view model
+     * is retained across that trip, so its answer for them is stale but
+     * present. Deliberately a targeted SET rather than a blanket flag:
+     * ON_RESUME also fires for returning from playback and for foregrounding
+     * the app, and re-probing a whole season on each of those would restore the
+     * request volume this window exists to prevent.
+     *
+     * Existing entries stay until a fresh answer replaces them — clearing first
+     * would render every episode as "not a favourite" for the length of a round
+     * trip, and permanently so for any probe that fails.
+     */
+    private suspend fun refreshEpisodeFavoriteStates(
+        episodes: List<EpisodeListItem>,
+        revalidate: Set<String>? = emptySet(),
+    ): Boolean {
+        // An empty season leaves the accumulated answers alone: rendering is
+        // keyed by the visible episode ids, so nothing stale can show, and
+        // clearing would make returning to a populated season re-probe it.
+        val episodeIds = episodes.map { it.contentId }
+        val visibleIds = episodeIds.toSet()
+
+        // Apply the change list to entries this screen holds but is not showing,
+        // before deciding anything else. Recording those as handled without
+        // acting on them is how a stale answer survives a season switch.
+        val stale = staleOffScreenFavorites(
+            requested = revalidate,
+            cachedIds = _uiState.value.episodeFavoriteStates.keys,
+            visibleIds = visibleIds,
+        )
+        if (stale.isNotEmpty()) {
+            _uiState.update { it.copy(episodeFavoriteStates = it.episodeFavoriteStates - stale) }
         }
-        val knownStates = _uiState.value.episodeFavoriteStates
-        val states = coroutineScope {
-            episodes.map { episode ->
-                async {
-                    val favorite = personalDataRepository.isFavorite(episode.contentId)
-                    episode.contentId to when (favorite) {
-                        is ApiResult.Success -> favorite.data
-                        else -> knownStates[episode.contentId] ?: false
+
+        // Now safe: the only changes left to account for are visible ones, and
+        // an empty season has none.
+        if (episodes.isEmpty()) return true
+        val generation = episodeListGeneration
+        // A null delta means the signal could not tell us what changed, so
+        // nothing is treated as already known.
+        val knownIds =
+            if (revalidate == null) emptySet() else _uiState.value.episodeFavoriteStates.keys - revalidate
+        val resolved = probeEpisodeFavorites(
+            episodeIds = episodeIds,
+            knownIds = knownIds,
+            onResolved = { id, favorite ->
+                // Publish per answer rather than per batch. Guarded by the
+                // generation the probes were started for, so a season the
+                // viewer has already left cannot write into the one on screen.
+                if (episodeListGeneration == generation) {
+                    _uiState.update {
+                        it.copy(episodeFavoriteStates = it.episodeFavoriteStates + (id to favorite))
                     }
                 }
-            }.awaitAll().toMap()
-        }
-        val currentIds = _uiState.value.episodes.mapTo(mutableSetOf()) { it.contentId }
-        if (currentIds == episodes.mapTo(mutableSetOf()) { it.contentId }) {
-            _uiState.update { it.copy(episodeFavoriteStates = states) }
-        }
+            },
+        ) { personalDataRepository.isFavorite(it) }
+
+        return revalidationSatisfied(
+            requested = revalidate,
+            visibleIds = episodeIds,
+            answered = resolved.mapTo(mutableSetOf()) { it.first },
+        )
     }
 
     fun onSetEpisodeWatched(episodeContentId: String, watched: Boolean) {
@@ -849,13 +1143,15 @@ class TvItemDetailViewModel(
     /**
      * Resolves the next-up episode for the selected season (series/season detail
      * only) and kicks off its playback-detail load when it changes. Mirrors
-     * prairie-apple's `nextUpEpisode` + the `.task(id:)`-driven
+     * silo-apple's `nextUpEpisode` + the `.task(id:)`-driven
      * `loadSeriesNextUpPlaybackDetail` / `loadSeasonNextUpPlaybackDetail`.
      */
     private fun refreshNextUp(episodes: List<EpisodeListItem>) {
-        val detail = _uiState.value.detail
+        val oldState = _uiState.value
+        val detail = oldState.detail
         val type = detail?.type?.lowercase()
         if (detail == null || (type != "series" && type != "season")) {
+            invalidateNextUpPlaybackDetailRequest()
             // Movie / episode detail does not drive next-up; clear any state.
             if (_uiState.value.nextUpEpisode != null || _uiState.value.nextUpPlaybackDetail != null) {
                 _uiState.update {
@@ -866,6 +1162,7 @@ class TvItemDetailViewModel(
                         didLoadNextUpPlaybackDetail = false,
                         selectedNextUpFileId = null,
                         selectedNextUpAudioIndex = null,
+                        nextUpAudioPickedThisSession = false,
                         selectedNextUpSubtitleIndex = null,
                     )
                 }
@@ -883,6 +1180,7 @@ class TvItemDetailViewModel(
         }
 
         if (nextUp == null) {
+            invalidateNextUpPlaybackDetailRequest()
             _uiState.update {
                 it.copy(
                     nextUpEpisode = null,
@@ -891,12 +1189,21 @@ class TvItemDetailViewModel(
                     didLoadNextUpPlaybackDetail = false,
                     selectedNextUpFileId = null,
                     selectedNextUpAudioIndex = null,
+                    nextUpAudioPickedThisSession = false,
                     selectedNextUpSubtitleIndex = null,
                 )
             }
             return
         }
 
+        // Capture portable intent while the old target's selected version and
+        // combined subtitle index are still available. Raw file IDs and indexes
+        // never cross the episode boundary.
+        val handoff = captureNextUpSelectionHandoff(oldState)
+        val refreshGeneration = ++nextUpPlaybackDetailGeneration
+        val selectorRevision = nextUpSelectorRevision
+        val identityGeneration = identityTransitions.generation.value
+        pendingNextUpSelectionHandoff = null
         _uiState.update {
             it.copy(
                 nextUpEpisode = nextUp,
@@ -905,10 +1212,17 @@ class TvItemDetailViewModel(
                 didLoadNextUpPlaybackDetail = false,
                 selectedNextUpFileId = null,
                 selectedNextUpAudioIndex = null,
+                nextUpAudioPickedThisSession = false,
                 selectedNextUpSubtitleIndex = null,
             )
         }
-        loadNextUpPlaybackDetail(nextUp.contentId)
+        loadNextUpPlaybackDetail(
+            episodeContentId = nextUp.contentId,
+            refreshGeneration = refreshGeneration,
+            selectorRevision = selectorRevision,
+            identityGeneration = identityGeneration,
+            handoff = handoff,
+        )
     }
 
     private fun resolveNextUpEpisode(episodes: List<EpisodeListItem>): EpisodeListItem? {
@@ -917,32 +1231,227 @@ class TvItemDetailViewModel(
         return episodes.firstOrNull()
     }
 
-    private fun loadNextUpPlaybackDetail(episodeContentId: String) {
-        viewModelScope.launch {
-            val result = catalogRepository.getItemDetail(episodeContentId)
-            // Ignore a late result if the next-up target moved on.
-            if (_uiState.value.nextUpEpisode?.contentId != episodeContentId) return@launch
-            when (result) {
-                is ApiResult.Success -> {
-                    val playbackDetail = withLocalProgress(result.data)
-                    _uiState.update {
-                        it.copy(
-                            nextUpPlaybackDetail = playbackDetail,
-                            isLoadingNextUpPlaybackDetail = false,
-                            didLoadNextUpPlaybackDetail = true,
-                        )
-                    }
-                    restoreNextUpTrackSelection(episodeContentId, playbackDetail)
-                }
-                else -> _uiState.update {
-                    it.copy(
+    private fun loadNextUpPlaybackDetail(
+        episodeContentId: String,
+        refreshGeneration: Long,
+        selectorRevision: Long,
+        identityGeneration: Long,
+        handoff: EpisodeSelectionHandoff?,
+    ) {
+        nextUpDetailJob?.cancel()
+        nextUpDetailJob = viewModelScope.launch {
+            val requestIdentity = captureNextUpIdentity(identityGeneration)
+            if (!ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration) || requestIdentity == null) {
+                clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
+                _uiState.update {
+                    if (!ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration)) it else it.copy(
                         nextUpPlaybackDetail = null,
                         isLoadingNextUpPlaybackDetail = false,
                         didLoadNextUpPlaybackDetail = true,
                     )
                 }
+                return@launch
+            }
+            if (handoff != null && nextUpSelectorRevision == selectorRevision) {
+                pendingNextUpSelectionHandoff = PendingNextUpSelectionHandoff(
+                    targetContentId = episodeContentId,
+                    refreshGeneration = refreshGeneration,
+                    selectorRevision = selectorRevision,
+                    identity = requestIdentity,
+                    handoff = handoff,
+                )
+            }
+            val result = catalogRepository.getItemDetail(episodeContentId)
+            if (!ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration)) {
+                clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
+                return@launch
+            }
+            val completionIdentity = captureNextUpIdentity(identityGeneration)
+            if (completionIdentity != requestIdentity) {
+                clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
+                _uiState.update {
+                    if (!ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration)) it else it.copy(
+                        nextUpPlaybackDetail = null,
+                        isLoadingNextUpPlaybackDetail = false,
+                        didLoadNextUpPlaybackDetail = true,
+                    )
+                }
+                return@launch
+            }
+            when (result) {
+                is ApiResult.Success -> {
+                    val playbackDetail = withLocalProgress(result.data)
+                    if (
+                        !ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration) ||
+                        captureNextUpIdentity(identityGeneration) != requestIdentity
+                    ) {
+                        clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
+                        return@launch
+                    }
+                    val pending = pendingNextUpSelectionHandoff?.takeIf {
+                        it.targetContentId == episodeContentId &&
+                            it.refreshGeneration == refreshGeneration &&
+                            it.selectorRevision == nextUpSelectorRevision &&
+                            it.identity == requestIdentity
+                    }
+                    val selectionRevision = nextUpSelectorRevision
+                    val selection = resolveNextUpTrackSelection(
+                        episodeContentId = episodeContentId,
+                        detail = playbackDetail,
+                        handoff = pending?.handoff,
+                        preferredQuality = _uiState.value.preferredQuality,
+                    )
+                    if (
+                        !ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration) ||
+                        captureNextUpIdentity(identityGeneration) != requestIdentity
+                    ) {
+                        clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
+                        return@launch
+                    }
+                    _uiState.update {
+                        if (!ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration)) {
+                            it
+                        } else if (nextUpSelectorRevision != selectionRevision) {
+                            // An explicit selector callback ran while a durable
+                            // read was suspended. Finish loading the target but
+                            // leave that newer explicit choice untouched.
+                            it.copy(
+                                nextUpPlaybackDetail = playbackDetail,
+                                isLoadingNextUpPlaybackDetail = false,
+                                didLoadNextUpPlaybackDetail = true,
+                            )
+                        } else {
+                            it.copy(
+                                nextUpPlaybackDetail = playbackDetail,
+                                isLoadingNextUpPlaybackDetail = false,
+                                didLoadNextUpPlaybackDetail = true,
+                                selectedNextUpFileId = selection.fileId,
+                                selectedNextUpAudioIndex = selection.audioIndex,
+                                nextUpAudioPickedThisSession = false,
+                                selectedNextUpSubtitleIndex = selection.subtitleIndex,
+                            )
+                        }
+                    }
+                    // This transition resolution is display/session input only.
+                    // Selector callbacks remain the sole writers to session/Room.
+                    clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
+                }
+                else -> {
+                    clearPendingNextUpHandoff(episodeContentId, refreshGeneration)
+                    _uiState.update {
+                        if (!ownsNextUpPlaybackDetailRequest(episodeContentId, refreshGeneration)) it else it.copy(
+                            nextUpPlaybackDetail = null,
+                            isLoadingNextUpPlaybackDetail = false,
+                            didLoadNextUpPlaybackDetail = true,
+                        )
+                    }
+                }
             }
         }
+    }
+
+    private fun invalidateNextUpPlaybackDetailRequest() {
+        nextUpDetailJob?.cancel()
+        nextUpDetailJob = null
+        nextUpPlaybackDetailGeneration += 1
+        pendingNextUpSelectionHandoff = null
+    }
+
+    private fun ownsNextUpPlaybackDetailRequest(episodeContentId: String, refreshGeneration: Long): Boolean =
+        nextUpPlaybackDetailGeneration == refreshGeneration &&
+            _uiState.value.nextUpEpisode?.contentId == episodeContentId
+
+    private fun clearPendingNextUpHandoff(episodeContentId: String, refreshGeneration: Long) {
+        pendingNextUpSelectionHandoff = pendingNextUpSelectionHandoff?.takeUnless {
+            it.targetContentId == episodeContentId && it.refreshGeneration == refreshGeneration
+        }
+    }
+
+    private suspend fun captureNextUpIdentity(expectedGeneration: Long): NextUpIdentity? {
+        if (identityTransitions.generation.value != expectedGeneration) return null
+        // A snapshot is the only internally-consistent server/profile read.
+        // Null means this TokenManager cannot pin the active identity; fail
+        // closed instead of composing separately-timed getters.
+        val scope = tokenManager.snapshotCurrentScope() ?: return null
+        if (identityTransitions.generation.value != expectedGeneration) return null
+        return NextUpIdentity(scope.serverId, scope.profileId, expectedGeneration)
+    }
+
+    private fun captureNextUpSelectionHandoff(state: TvItemDetailUiState): EpisodeSelectionHandoff? {
+        val detail = state.nextUpPlaybackDetail ?: return null
+        val selectedVersion = state.selectedNextUpFileId
+            ?.let { fileId -> detail.versions.firstOrNull { it.fileId == fileId } }
+        val activeVersion = selectTvDetailDisplayVersion(
+            versions = detail.versions,
+            selectedFileId = state.selectedNextUpFileId,
+            lastFileId = detail.userData?.lastFileId,
+            preferredQuality = state.preferredQuality,
+        )
+        val subtitleChoices = buildPlaybackSubtitleChoices(
+            catalogTracks = activeVersion?.subtitleTracks.orEmpty(),
+            plannedTracks = emptyList(),
+        )
+        // Source intent is carried only for an explicit version choice; an
+        // automatic last-file/quality choice must remain automatic on the
+        // target. Subtitle intent uses the displayed version because its
+        // combined index belongs to that version's track list.
+        val handoff = EpisodeSelectionHandoff(
+            source = selectedVersion?.let(::captureEpisodeSourceIntent),
+            subtitle = captureEpisodeSubtitleIntent(state.selectedNextUpSubtitleIndex, subtitleChoices),
+        )
+        return handoff.takeIf {
+            it.source != null || it.subtitle.mode != EpisodeSubtitleMode.AUTO
+        }
+    }
+
+    private suspend fun resolveNextUpTrackSelection(
+        episodeContentId: String,
+        detail: ItemDetail,
+        handoff: EpisodeSelectionHandoff?,
+        preferredQuality: String,
+    ): ResolvedNextUpTrackSelection {
+        val session = TvDetailTrackSelectionSession.recall(episodeContentId)
+        val sourceSpecified = handoff?.source != null
+        val carriedFileId = resolveEpisodeSourceIntent(handoff?.source, detail.versions)
+        val sessionFileId = session?.fileId?.takeIf { fileId -> detail.versions.any { it.fileId == fileId } }
+        val selectedFileId = if (sourceSpecified) carriedFileId else sessionFileId
+        val selectedVersion = selectTvDetailDisplayVersion(
+            versions = detail.versions,
+            selectedFileId = selectedFileId,
+            lastFileId = detail.userData?.lastFileId,
+            preferredQuality = preferredQuality,
+        )
+            ?: return ResolvedNextUpTrackSelection(selectedFileId, null, null)
+
+        val sessionVersionId = selectTvDetailDisplayVersion(
+            versions = detail.versions,
+            selectedFileId = sessionFileId,
+            lastFileId = detail.userData?.lastFileId,
+            preferredQuality = preferredQuality,
+        )?.fileId
+        val sessionMatchesSelectedVersion = session != null && sessionVersionId == selectedVersion.fileId
+        val targetSubtitleChoices = buildPlaybackSubtitleChoices(
+            catalogTracks = selectedVersion.subtitleTracks.orEmpty(),
+            plannedTracks = emptyList(),
+        )
+        val carriedSubtitle = resolveEpisodeSubtitleIntent(
+            intent = handoff?.subtitle ?: EpisodeSubtitleIntent.auto(),
+            targetSubtitles = targetSubtitleChoices,
+        )
+        val durable = userItemState.localTrackSelection(episodeContentId, selectedVersion.fileId)
+            ?.let { restoreTrackSelection(selectedVersion, it) }
+
+        val sessionAudio = session?.audio.takeIf { sessionMatchesSelectedVersion }
+        val sessionSubtitle = session?.subtitle.takeIf { sessionMatchesSelectedVersion }
+        return ResolvedNextUpTrackSelection(
+            fileId = selectedFileId,
+            audioIndex = sessionAudio ?: durable?.audioIndex,
+            subtitleIndex = if (carriedSubtitle.intentSpecified) {
+                carriedSubtitle.trackIndex
+            } else {
+                sessionSubtitle ?: durable?.subtitleIndex
+            },
+        )
     }
 
 
@@ -976,10 +1485,12 @@ class TvItemDetailViewModel(
     }
 
     fun onNextUpVersionSelected(fileId: Int?) {
+        markNextUpSelectorInput()
         _uiState.update {
             it.copy(
                 selectedNextUpFileId = fileId,
                 selectedNextUpAudioIndex = null,
+                nextUpAudioPickedThisSession = false,
                 selectedNextUpSubtitleIndex = null,
             )
         }
@@ -988,15 +1499,27 @@ class TvItemDetailViewModel(
     }
 
     fun onNextUpAudioTrackSelected(index: Int?) {
-        _uiState.update { it.copy(selectedNextUpAudioIndex = index) }
+        markNextUpSelectorInput()
+        _uiState.update {
+            it.copy(
+                selectedNextUpAudioIndex = index,
+                nextUpAudioPickedThisSession = index != null,
+            )
+        }
         rememberNextUpTrackSelection()
         persistNextUpTrackSelection()
     }
 
     fun onNextUpSubtitleTrackSelected(index: Int?) {
+        markNextUpSelectorInput()
         _uiState.update { it.copy(selectedNextUpSubtitleIndex = index) }
         rememberNextUpTrackSelection()
         persistNextUpTrackSelection()
+    }
+
+    private fun markNextUpSelectorInput() {
+        nextUpSelectorRevision += 1
+        pendingNextUpSelectionHandoff = null
     }
 
     private fun rememberNextUpTrackSelection() {
@@ -1023,24 +1546,6 @@ class TvItemDetailViewModel(
         )
     }
 
-    private fun restoreNextUpTrackSelection(episodeContentId: String, detail: ItemDetail) {
-        val session = TvDetailTrackSelectionSession.recall(episodeContentId)
-        if (session != null) {
-            _uiState.update {
-                if (it.nextUpEpisode?.contentId != episodeContentId) it else it.copy(
-                    selectedNextUpFileId = session.fileId,
-                    selectedNextUpAudioIndex = session.audio,
-                    selectedNextUpSubtitleIndex = session.subtitle,
-                )
-            }
-        }
-        // A session can intentionally select a file before its durable track
-        // fingerprints have loaded (file B / null / null). Always merge the
-        // selected file's durable dimensions after applying session state;
-        // the guarded update below preserves any non-null session choices.
-        seedPersistedNextUpTrackSelection(episodeContentId, detail)
-    }
-
     private fun seedPersistedNextUpTrackSelection(
         episodeContentId: String? = _uiState.value.nextUpEpisode?.contentId,
         detail: ItemDetail? = _uiState.value.nextUpPlaybackDetail,
@@ -1048,6 +1553,8 @@ class TvItemDetailViewModel(
         val targetContentId = episodeContentId ?: return
         val playbackDetail = detail ?: return
         val selectedFileId = _uiState.value.selectedNextUpFileId
+        val selectorRevision = nextUpSelectorRevision
+        val refreshGeneration = nextUpPlaybackDetailGeneration
         val version = selectedFileId
             ?.let { fileId -> playbackDetail.versions.firstOrNull { it.fileId == fileId } }
             ?: playbackDetail.versions.firstOrNull()
@@ -1055,28 +1562,50 @@ class TvItemDetailViewModel(
         viewModelScope.launch {
             val saved = userItemState.localTrackSelection(targetContentId, version.fileId) ?: return@launch
             val restored = restoreTrackSelection(version, saved)
-            _uiState.update {
-                if (!shouldApplyNextUpTrackRestore(
-                        currentContentId = it.nextUpEpisode?.contentId,
+            var remembered: TvDetailTrackSelectionSession.Saved? = null
+            while (true) {
+                val current = _uiState.value
+                if (
+                    nextUpPlaybackDetailGeneration != refreshGeneration ||
+                    nextUpSelectorRevision != selectorRevision ||
+                    !shouldApplyNextUpTrackRestore(
+                        currentContentId = current.nextUpEpisode?.contentId,
                         requestedContentId = targetContentId,
-                        currentSelectedFileId = it.selectedNextUpFileId,
+                        currentSelectedFileId = current.selectedNextUpFileId,
                         requestedSelectedFileId = selectedFileId,
                     )
                 ) {
-                    it
-                } else {
-                    val merged = mergeTrackSelection(
-                        currentAudioIndex = it.selectedNextUpAudioIndex,
-                        currentSubtitleIndex = it.selectedNextUpSubtitleIndex,
-                        durable = restored,
+                    break
+                }
+                val merged = mergeTrackSelection(
+                    currentAudioIndex = current.selectedNextUpAudioIndex,
+                    currentSubtitleIndex = current.selectedNextUpSubtitleIndex,
+                    durable = restored,
+                )
+                val updated = current.copy(
+                    selectedNextUpSubtitleIndex = merged.subtitleIndex,
+                    selectedNextUpAudioIndex = merged.audioIndex,
+                )
+                if (_uiState.compareAndSet(current, updated)) {
+                    remembered = TvDetailTrackSelectionSession.Saved(
+                        fileId = updated.selectedNextUpFileId,
+                        audio = updated.selectedNextUpAudioIndex,
+                        subtitle = updated.selectedNextUpSubtitleIndex,
                     )
-                    it.copy(
-                        selectedNextUpSubtitleIndex = merged.subtitleIndex,
-                        selectedNextUpAudioIndex = merged.audioIndex,
-                    )
+                    break
                 }
             }
-            rememberNextUpTrackSelection()
+            // Remember exactly the successfully-owned target snapshot. Never
+            // reread the now-current UI after a suspension: it may be a carried
+            // selection for a different episode.
+            remembered?.let { selection ->
+                TvDetailTrackSelectionSession.remember(
+                    contentId = targetContentId,
+                    fileId = selection.fileId,
+                    audio = selection.audio,
+                    subtitle = selection.subtitle,
+                )
+            }
         }
     }
 
@@ -1184,8 +1713,88 @@ private fun BrowseItem.toSectionItem(): SectionItem = SectionItem(
  * manual audio/subtitle pre-selection (QA 2026-07-08). In-memory on purpose:
  * durable per-playback preferences are recorded by the player itself.
  */
+/**
+ * Favourites toggled on one detail screen that other retained detail screens
+ * may still be showing the old answer for.
+ *
+ * Versioned rather than consume-once. Consume-once loses the signal whenever
+ * more than one screen can read it, and more than one always can: every detail
+ * screen refreshes on resume, so an episode screen returning from playback
+ * would swallow the marker meant for the series rail behind it. It also loses
+ * the signal when the read succeeds but the reload meant to act on it fails.
+ *
+ * So nothing is consumed. Each change gets a monotonically increasing version,
+ * and each reader remembers the version it has caught up to, advancing that
+ * mark only once a revalidation has actually succeeded. Any number of readers
+ * each see every change, and a failed reload simply tries again next resume.
+ *
+ * A targeted set remains the point: re-asking about every visible episode on
+ * every resume would restore the request volume the probe window exists to
+ * prevent, and ON_RESUME also fires for returning from playback and for
+ * foregrounding the app.
+ */
+internal object TvFavoriteRevalidationSession {
+    private val lock = Any()
+    private var version = 0L
+    private val changedAt = LinkedHashMap<String, Long>()
+
+    /**
+     * Highest version dropped by the cap. A reader behind this cannot be told
+     * what it missed, so it is told to re-check everything instead of being
+     * silently handed an incomplete delta.
+     */
+    private var evictedThrough = 0L
+
+    /** Ample for any one visit; oldest entries fall off rather than grow forever. */
+    private const val MAX_TRACKED = 256
+
+    fun markChanged(contentId: String) {
+        if (contentId.isBlank()) return
+        synchronized(lock) {
+            version += 1
+            changedAt.remove(contentId)
+            changedAt[contentId] = version
+            while (changedAt.size > MAX_TRACKED) {
+                val oldest = changedAt.entries.first()
+                evictedThrough = maxOf(evictedThrough, oldest.value)
+                changedAt.remove(oldest.key)
+            }
+        }
+    }
+
+    /** The mark a reader stores once it has caught up. */
+    fun currentVersion(): Long = synchronized(lock) { version }
+
+    /**
+     * Ids changed after [sinceVersion]; readers pass the mark they last stored.
+     *
+     * Null means "cannot say": this reader is behind entries the cap has since
+     * dropped, so a delta would be incomplete. Callers re-check everything
+     * visible rather than trusting a partial answer — being slow must cost a
+     * round of extra probes, never a silently missed change.
+     */
+    fun changedSince(sinceVersion: Long): Set<String>? = synchronized(lock) {
+        if (sinceVersion < evictedThrough) return null
+        changedAt.entries
+            .filter { it.value > sinceVersion }
+            .mapTo(LinkedHashSet()) { it.key }
+    }
+
+    fun reset() = synchronized(lock) {
+        version = 0L
+        evictedThrough = 0L
+        changedAt.clear()
+    }
+}
+
 internal object TvDetailTrackSelectionSession {
-    internal data class Saved(val fileId: Int?, val audio: Int?, val subtitle: Int?)
+    internal data class Saved(
+        val fileId: Int?,
+        val audio: Int?,
+        val subtitle: Int?,
+        val positionSeconds: Double? = null,
+        val durationSeconds: Double? = null,
+    )
 
     private val byContent = HashMap<String, Saved>()
 
@@ -1194,5 +1803,59 @@ internal object TvDetailTrackSelectionSession {
         byContent[contentId] = Saved(fileId, audio, subtitle)
     }
 
+    fun rememberPlaybackReturn(
+        contentId: String,
+        fileId: Int?,
+        audio: Int?,
+        subtitle: Int?,
+        positionSeconds: Double,
+        durationSeconds: Double?,
+    ) {
+        if (contentId.isBlank() || !positionSeconds.isFinite() || positionSeconds < 0.0) return
+        val previous = byContent[contentId]
+        byContent[contentId] = Saved(
+            // Exit can race teardown before either player file identifier is
+            // available. Keep the detail page's selected version in that case.
+            fileId = fileId ?: previous?.fileId,
+            // The player currently reports subtitle selection on exit but not
+            // audio selection. Keep the detail page's explicit audio choice
+            // instead of replacing it with an unknown/null value.
+            audio = audio ?: previous?.audio,
+            // A null player result means the mounted track could not be
+            // resolved to a stable server index (keep current), not Off.
+            subtitle = subtitle ?: previous?.subtitle,
+            positionSeconds = positionSeconds,
+            durationSeconds = durationSeconds?.takeIf { it.isFinite() && it > 0.0 },
+        )
+    }
+
     fun recall(contentId: String): Saved? = byContent[contentId]
+
+    /**
+     * Returns the pending player-exit progress once, while retaining the
+     * session's file and track choices for later detail-screen recreation.
+     */
+    fun consumePlaybackReturn(contentId: String): Saved? {
+        val saved = byContent[contentId]
+            ?.takeIf { it.positionSeconds != null }
+            ?: return null
+        byContent[contentId] = saved.copy(
+            positionSeconds = null,
+            durationSeconds = null,
+        )
+        return saved
+    }
+}
+
+private fun ItemDetail.withPlaybackReturn(saved: TvDetailTrackSelectionSession.Saved): ItemDetail {
+    val position = saved.positionSeconds?.takeIf { it.isFinite() && it >= 0.0 } ?: return this
+    val current = userData ?: LeafItemUserData()
+    return copy(
+        userData = current.copy(
+            isInProgress = position > 0.0,
+            positionSeconds = position.takeIf { it > 0.0 },
+            durationSeconds = saved.durationSeconds ?: current.durationSeconds,
+            lastFileId = saved.fileId ?: current.lastFileId,
+        ),
+    )
 }

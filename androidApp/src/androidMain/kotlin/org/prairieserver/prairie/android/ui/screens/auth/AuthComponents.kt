@@ -15,14 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -30,7 +25,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,14 +35,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.prairieserver.prairie.android.ui.components.siloKeyboardActions
 import org.prairieserver.prairie.android.R
 
-/** Prairie brand colors used across auth screens. */
+/** Silo brand colors used across auth screens. */
 object AuthColors {
     val Background = Color(0xFF000000)
     val Surface = Color(0xFF111214)
@@ -147,7 +140,7 @@ fun PrairieTextField(
     error: String? = null,
     keyboardType: KeyboardType = KeyboardType.Text,
     imeAction: ImeAction = ImeAction.Next,
-    onImeAction: () -> Unit = {},
+    onImeAction: (() -> Unit)? = null,
     singleLine: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -161,96 +154,7 @@ fun PrairieTextField(
                 keyboardType = keyboardType,
                 imeAction = imeAction,
             ),
-            keyboardActions = KeyboardActions(
-                onAny = { onImeAction() },
-            ),
-            shape = RoundedCornerShape(18.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = AuthColors.OnSurface,
-                unfocusedTextColor = AuthColors.OnSurface,
-                focusedBorderColor = AuthColors.FieldBorderFocused,
-                unfocusedBorderColor = AuthColors.FieldBorder,
-                errorBorderColor = AuthColors.Error,
-                focusedLabelColor = AuthColors.Primary,
-                unfocusedLabelColor = AuthColors.OnSurfaceVariant,
-                errorLabelColor = AuthColors.Error,
-                cursorColor = AuthColors.Primary,
-                focusedContainerColor = AuthColors.Surface,
-                unfocusedContainerColor = AuthColors.Surface,
-                errorContainerColor = AuthColors.Surface,
-                focusedPlaceholderColor = AuthColors.OnSurfaceVariant,
-                unfocusedPlaceholderColor = AuthColors.OnSurfaceVariant,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        if (error != null) {
-            Text(
-                text = error,
-                color = AuthColors.Error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 16.dp, top = 4.dp),
-            )
-        }
-    }
-}
-
-/**
- * Password text field with a visibility toggle icon button.
- *
- * @param value Current password text.
- * @param onValueChange Callback when text changes.
- * @param label Label displayed above and inside the field.
- * @param error Optional error message shown below the field.
- * @param imeAction IME action button (default Done).
- * @param onImeAction Callback invoked when the IME action fires.
- * @param modifier Modifier applied to the outer Column.
- */
-@Composable
-fun PrairiePasswordField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    modifier: Modifier = Modifier,
-    error: String? = null,
-    imeAction: ImeAction = ImeAction.Done,
-    onImeAction: () -> Unit = {},
-) {
-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            label = { Text(label) },
-            isError = error != null,
-            singleLine = true,
-            visualTransformation = if (passwordVisible) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = imeAction,
-            ),
-            keyboardActions = KeyboardActions(
-                onAny = { onImeAction() },
-            ),
-            trailingIcon = {
-                val icon = if (passwordVisible) {
-                    Icons.Filled.VisibilityOff
-                } else {
-                    Icons.Filled.Visibility
-                }
-                val description = if (passwordVisible) "Hide password" else "Show password"
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = description,
-                        tint = AuthColors.OnSurfaceVariant,
-                    )
-                }
-            },
+            keyboardActions = siloKeyboardActions(onImeAction),
             shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = AuthColors.OnSurface,

@@ -289,7 +289,7 @@ The web side. Owns rendering, theming, tap/swipe zones, and posting typed events
       applyTheme: function (themeJson) {
         if (!rendition) return;
         var t = JSON.parse(themeJson); // {bg,fg,fontPercent,marginEm,fontFamily}
-        rendition.themes.register("silo", {
+        rendition.themes.register("prairie", {
           "body": {
             "background": t.bg, "color": t.fg,
             "margin": t.marginEm + "em !important",
@@ -298,7 +298,7 @@ The web side. Owns rendering, theming, tap/swipe zones, and posting typed events
           },
           "img": { "max-width": "100% !important", "height": "auto !important" }
         });
-        rendition.themes.select("silo");
+        rendition.themes.select("prairie");
         rendition.themes.fontSize(t.fontPercent + "%");
       }
     };

@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.player
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -63,6 +65,13 @@ fun PlayerOverlay(
     viewModel: PlayerViewModel,
     roomSnapshot: RoomSnapshot? = null,
     isFastForwardHoldActive: Boolean = false,
+    orientationLockSupported: Boolean = true,
+    alwaysShowControls: Boolean = false,
+    tabletopMode: Boolean = false,
+    tabletopPaneHeight: Dp? = null,
+    brightnessFraction: Float,
+    onSetBrightness: (Float) -> Unit,
+    showBufferingIndicator: Boolean = true,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Double) -> Unit,
@@ -130,14 +139,23 @@ fun PlayerOverlay(
     // Orientation lock — toggled from the top-bar lock icon (iOS parity).
     // Persisted via the orientation-mode setting (default landscape-locked,
     // like iOS's PlayerOrientationCoordinator); PlayerScreen applies the
-    // matching requestedOrientation whenever the setting changes.
+    // matching requestedOrientation whenever the setting changes. Android 16
+    // large screens keep the preference but disable this no-op affordance.
     val isOrientationLocked by viewModel.orientationLocked.collectAsState()
     val context = LocalContext.current
 
     val introSkipState by viewModel.introSkipState.collectAsState()
+    val introSkipCountdownRun by viewModel.introSkipCountdownRun.collectAsState()
+    val introSkipTimerRunning by viewModel.introSkipTimerRunning.collectAsState()
+    // Back while the pill is up dismisses it and is consumed; a second Back
+    // behaves normally, because by then no pill is showing and this handler is
+    // disabled. The player has no other BackHandler of its own — sheets live in
+    // their own dialog windows, so an open sheet's Back never reaches here.
+    BackHandler(enabled = introSkipState.isVisible) { viewModel.onDismissIntroPrompt() }
     val sleepTimerState by viewModel.sleepTimerState.collectAsState()
     val sleepTimerDefault by viewModel.sleepTimerDefaultMinutes.collectAsState()
     val videoGravity by viewModel.videoGravity.collectAsState()
+    val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val notice by viewModel.notice.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val subtitleTools by viewModel.subtitleTools.collectAsState()
@@ -176,7 +194,7 @@ fun PlayerOverlay(
     Box(modifier = modifier.fillMaxSize()) {
         // Gesture layer stays out of the tree while controls are visible so
         // full-screen pointer handlers cannot consume taps meant for buttons.
-        if (!state.showControls && !state.showUpNext) {
+        if (!alwaysShowControls && !state.showControls && !state.showUpNext) {
             PlayerGestureHandler(
                 onToggleControls = onToggleControls,
                 onSkipForward = gatedSkipForward,
@@ -196,7 +214,9 @@ fun PlayerOverlay(
         // Buffering indicator. Shown during ExoPlayer buffering AND during outage
         // recovery — the lifecycle's Reconnecting state isn't visible to the player,
         // so we surface the spinner ourselves so the screen doesn't appear frozen.
-        if (state.isBuffering || sessionState is SessionState.Reconnecting) {
+        if (showBufferingIndicator &&
+            (state.isBuffering || sessionState is SessionState.Reconnecting)
+        ) {
             CircularProgressIndicator(
                 modifier = Modifier
                     .size(56.dp)
@@ -314,7 +334,7 @@ fun PlayerOverlay(
 
         // Transport controls (shown/hidden with animation)
         AnimatedVisibility(
-            visible = state.showControls && !state.showUpNext,
+            visible = (alwaysShowControls || state.showControls) && !state.showUpNext,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
@@ -332,10 +352,18 @@ fun PlayerOverlay(
                 chapters = state.chapters,
                 intro = state.intro,
                 trickplay = state.trickplay,
+                credits = state.credits,
+                recap = state.recap,
+                preview = state.preview,
                 hasChapters = state.chapters.isNotEmpty(),
                 hasTracks = state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty(),
                 hasMultipleVersions = state.versions.size > 1 || state.qualityOptions.size > 1,
                 isOrientationLocked = isOrientationLocked,
+                orientationLockSupported = orientationLockSupported,
+                tabletopMode = tabletopMode,
+                playbackSpeed = playbackSpeed,
+                nextEpisode = state.nextEpisode.takeUnless { inRoom },
+                brightnessFraction = brightnessFraction,
                 seekEnabled = seekEnabled,
                 playPauseEnabled = playPauseEnabled,
                 onBack = handleBack,
@@ -344,12 +372,17 @@ fun PlayerOverlay(
                 onSkipForward = gatedSkipForward,
                 onSkipBackward = gatedSkipBackward,
                 onToggleOrientationLock = {
-                    viewModel.onSetOrientationLocked(!isOrientationLocked)
+                    if (orientationLockSupported) {
+                        viewModel.onSetOrientationLocked(!isOrientationLocked)
+                    }
                 },
                 onOpenChapters = { chaptersSheetVisible = true },
                 onOpenTracks = { tracksSheetVisible = true },
                 onOpenQuality = { showQualitySelector = true },
                 onOpenSettings = { settingsSheetVisible = true },
+                onSetPlaybackSpeed = viewModel::onSetPlaybackSpeed,
+                onPlayNextEpisode = viewModel::playUpNextNow,
+                onSetBrightness = onSetBrightness,
                 castSlot = castSlot,
             )
         }
@@ -360,7 +393,7 @@ fun PlayerOverlay(
             .padding(bottom = 120.dp, end = 24.dp)
             .zIndex(2f)
 
-        // Intro auto-skip banner (Hidden / ShowingButton / CountingDown).
+        // Intro skip pill (Hidden / Asking / Skipped).
         // Shares the bottom-end slot with the Up Next card; intro and credits
         // never overlap in practice, but the card wins the slot if both could show.
         if (!state.showUpNext) {
@@ -370,8 +403,10 @@ fun PlayerOverlay(
             ) {
                 IntroAutoSkipBanner(
                     state = introSkipState,
-                    onSkipNow = viewModel::onSkipIntroNow,
-                    onCancelCountdown = viewModel::onCancelIntroAutoSkip,
+                    onSelect = viewModel::onSelectIntroPrompt,
+                    totalSeconds = viewModel.introSkipTotalSeconds,
+                    countdownRun = introSkipCountdownRun,
+                    timerRunning = introSkipTimerRunning,
                 )
             }
         }
@@ -419,13 +454,18 @@ fun PlayerOverlay(
                 },
                 onPlayOnDeckItem = viewModel::playOnDeckItemNow,
                 onBack = handleBack,
+                compactTabletop = tabletopMode,
             )
         }
 
         // Sleep timer chip — top-right, fades in only while a timer is active.
         // The chip stays visible regardless of `state.showControls` so users
         // know a sleep timer is still running even when the controls have
-        // auto-hidden.
+        // auto-hidden. When the HUD is visible, move it below the 48dp toolbar
+        // controls (16dp edge padding + 48dp target + 8dp gap) so it cannot
+        // cover Cast or playback settings in landscape.
+        val controlsVisible = (alwaysShowControls || state.showControls) && !state.showUpNext
+        val sleepTimerTopPadding = if (controlsVisible) 72.dp else 16.dp
         AnimatedVisibility(
             visible = sleepTimerState is SleepTimerState.Active,
             enter = fadeIn(),
@@ -433,7 +473,7 @@ fun PlayerOverlay(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(top = 16.dp, end = 16.dp)
+                .padding(top = sleepTimerTopPadding, end = 16.dp)
                 .zIndex(2f),
         ) {
             val active = sleepTimerState as? SleepTimerState.Active
@@ -493,6 +533,7 @@ fun PlayerOverlay(
             tracksSheetVisible = false
             aiTranslateVisible = true
         },
+        tabletopPaneHeight = tabletopPaneHeight,
     )
 
     if (subtitleSearchVisible) {
@@ -510,6 +551,7 @@ fun PlayerOverlay(
                 tracksSheetVisible = true
                 viewModel.onSearchSheetClosed()
             },
+            tabletopPaneHeight = tabletopPaneHeight,
         )
     }
 
@@ -531,6 +573,7 @@ fun PlayerOverlay(
                 tracksSheetVisible = true
                 viewModel.onTranslateSheetClosed()
             },
+            tabletopPaneHeight = tabletopPaneHeight,
         )
     }
 
@@ -543,6 +586,7 @@ fun PlayerOverlay(
             qualityOptions = state.qualityOptions,
             selectedQualityId = state.selectedQualityId,
             onSelectQuality = onSelectQuality,
+            tabletopPaneHeight = tabletopPaneHeight,
         )
     }
 
@@ -550,12 +594,14 @@ fun PlayerOverlay(
     PlayerSettingsSheet(
         isVisible = settingsSheetVisible,
         onDismiss = { settingsSheetVisible = false },
-        playbackSpeed = viewModel.playbackSpeed.collectAsState().value,
+        playbackSpeed = playbackSpeed,
         onSetPlaybackSpeed = viewModel::onSetPlaybackSpeed,
         videoGravity = videoGravity,
         onSetVideoGravity = viewModel::onSetVideoGravity,
-        autoSkipIntroEnabled = viewModel.autoSkipIntroEnabled.collectAsState().value,
-        onSetAutoSkipIntro = viewModel::onSetAutoSkipIntro,
+        letterboxExpansion = viewModel.letterboxExpansion.collectAsState().value,
+        onSetLetterboxExpansion = viewModel::onSetLetterboxExpansion,
+        introSkipMode = viewModel.introSkipMode.collectAsState().value,
+        onSetIntroSkipMode = viewModel::onSetIntroSkipMode,
         autoPlayNextEnabled = viewModel.autoPlayNextEnabled.collectAsState().value,
         onSetAutoPlayNext = viewModel::onSetAutoPlayNext,
         hdrEnabled = viewModel.hdrEnabled.collectAsState().value,
@@ -581,6 +627,7 @@ fun PlayerOverlay(
         subtitleDelayMs = viewModel.subtitleDelayMs.collectAsState().value,
         onSetSubtitleDelay = viewModel::onSetSubtitleDelay,
         sleepTimerState = sleepTimerState,
+        tabletopPaneHeight = tabletopPaneHeight,
     )
 
     PlaybackStatsSheet(
@@ -594,6 +641,7 @@ fun PlayerOverlay(
         sessionId = state.sessionId,
         playMethod = state.playMethod?.name,
         positionLabel = formatClockTime(state.position) + " / " + formatClockTime(state.duration),
+        tabletopPaneHeight = tabletopPaneHeight,
     )
 
     // Chapters picker — opened from the HUD chapters button (HUD product
@@ -609,6 +657,7 @@ fun PlayerOverlay(
             viewModel.onSeekToChapter(idx)?.let { sec -> viewModel.onSeek(sec) }
         },
         onDismiss = { chaptersSheetVisible = false },
+        tabletopPaneHeight = tabletopPaneHeight,
     )
 
     // Subtitle styling sheet — opened from the "Subtitle Style" row in
@@ -623,6 +672,7 @@ fun PlayerOverlay(
             subtitleStyleVisible = false
             settingsSheetVisible = true
         },
+        tabletopPaneHeight = tabletopPaneHeight,
     )
 
     // Sleep timer picker — opened from the "Sleep Timer" row in
@@ -638,6 +688,7 @@ fun PlayerOverlay(
             sleepTimerVisible = false
             settingsSheetVisible = true
         },
+        tabletopPaneHeight = tabletopPaneHeight,
     )
 }
 

@@ -26,7 +26,16 @@ class MobilePlayerLifecyclePerformanceSourceTest {
         assertTrue(viewModel.contains("val scope = finalPositionScope"))
         assertTrue(viewModel.contains("scope = scope,"))
         assertTrue(viewModel.contains("finalPlaybackPositionWriter.submit("))
-        assertTrue(viewModel.contains("sessionLifecycle.stopAsync()"))
+        // Still the non-blocking teardown this test exists to protect, now
+        // qualified by the session this view model owned — phone navigation
+        // replaces the player entry, so an unqualified stop could kill the
+        // session a newer screen had already adopted. It goes through the
+        // one-shot gate as well: the ordered stop and this one target the same
+        // session, and the second to run would otherwise bump the lifecycle's
+        // stop epoch and supersede whichever screen started next.
+        assertTrue(viewModel.contains("lifecycleTeardown.stopDetached(expectedSessionId ="))
+        assertTrue(viewModel.contains("lifecycleTeardown.stopOrdered(expectedSessionId ="))
+        assertTrue(viewModel.contains("PlaybackTeardownGate(sessionLifecycle)"))
         assertTrue(!viewModel.contains("runBlocking("))
         assertTrue(!screen.contains("onDispose { viewModel.onExit() }"))
         assertTrue(screen.contains("viewModel.claimInitialRouteLoad()"))

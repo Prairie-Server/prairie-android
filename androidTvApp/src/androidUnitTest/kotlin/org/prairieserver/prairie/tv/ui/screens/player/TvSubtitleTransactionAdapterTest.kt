@@ -83,6 +83,103 @@ class TvSubtitleTransactionAdapterTest {
     }
 
     @Test
+    fun `new server negotiated sidecar switches locally without replan`() = runTest {
+        val target = sidecar(4)
+        val harness = harness(
+            backgroundScope,
+            isLocallyMountable = { identity -> identity == target },
+        )
+
+        harness.adapter.select(target)
+        runCurrent()
+
+        assertTrue(
+            harness.port.requests.isEmpty(),
+            "an already-mounted sidecar must not ask the server to replan",
+        )
+        assertEquals(target, harness.adapter.snapshot.localMountIdentity)
+        assertEquals(sidecar(3), harness.adapter.snapshot.committedIdentity)
+
+        harness.adapter.reportMountedSelection(
+            identity = target,
+            selected = true,
+            snapshotKey = "mounted-sidecar-selected",
+            settled = true,
+        )
+        runCurrent()
+
+        assertEquals(target, harness.adapter.snapshot.committedIdentity)
+        assertNull(harness.adapter.snapshot.pendingIdentity)
+        assertEquals(listOf(target), harness.persistence.persisted.map { it.identity })
+    }
+
+    @Test
+    fun `old server catalog-only sidecar performs one staged replan at current position`() = runTest {
+        val adoption = AdoptionControl()
+        val harness = harness(
+            backgroundScope,
+            adoption = adoption,
+            isLocallyMountable = { false },
+        )
+
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+
+        val request = harness.port.requests.single()
+        assertEquals(
+            listOf(4),
+            harness.port.requests.map { it.subtitleTrackIndex },
+            "an unmounted sidecar must retain the staged replan fallback",
+        )
+        assertEquals(42.0, request.positionSeconds)
+        assertEquals(2, request.audioTrackIndex)
+        assertEquals("auto", request.qualityPreference)
+        assertNull(harness.adapter.snapshot.localMountIdentity)
+
+        harness.port.completeStage(candidate("old-server-sidecar", 4))
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "old-server-sidecar-mounted")
+        runCurrent()
+
+        assertEquals(listOf("old-server-sidecar"), harness.port.committed)
+        assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
+        assertEquals(listOf(42.0), adoption.requestedSourcePositions)
+    }
+
+    @Test
+    fun `burn in route stages one replan before switching to an external sidecar`() = runTest {
+        // Burn-in plans intentionally mount no negotiated alternatives. The
+        // selected SRT therefore follows the same safe fallback as an old
+        // server response and replaces the video route before it is mounted.
+        val harness = harness(backgroundScope, isLocallyMountable = { false })
+
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+
+        assertEquals(listOf(4), harness.port.requests.map { it.subtitleTrackIndex })
+        assertEquals(42.0, harness.port.requests.single().positionSeconds)
+        harness.port.completeStage(candidate("burn-in-to-sidecar", 4))
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "burn-in-replacement-mounted")
+        runCurrent()
+
+        assertEquals(listOf("burn-in-to-sidecar"), harness.port.committed)
+        assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
+    }
+
+    @Test
+    fun `an unmounted committed server sidecar is not restored locally`() = runTest {
+        val harness = harness(backgroundScope, isLocallyMountable = { false })
+
+        harness.adapter.restoreCommittedLocalMount()
+        runCurrent()
+
+        assertFalse(harness.adapter.snapshot.subtitleApplying)
+        assertNull(harness.adapter.snapshot.localMountIdentity)
+        assertEquals(sidecar(3), harness.adapter.snapshot.committedIdentity)
+    }
+
+    @Test
     fun `slow older preference write cannot overwrite newer commit`() = runTest {
         val harness = harness(backgroundScope, sessionId = null)
         harness.persistence.suspendFirst = true
@@ -199,6 +296,30 @@ class TvSubtitleTransactionAdapterTest {
     }
 
     @Test
+    fun `adapted edition commits returned audio and subtitle identities`() = runTest {
+        val harness = harness(backgroundScope)
+
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+        harness.port.completeStage(
+            candidate(
+                id = "adapted",
+                selectedIndex = 1,
+                selectedAudioIndex = 5,
+                effectiveMediaFileId = 22,
+                selectedSubtitleIdentity = sidecar(1),
+            ),
+        )
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "adapted-mounted")
+        runCurrent()
+
+        assertEquals(sidecar(1), harness.adapter.snapshot.committedIdentity)
+        assertEquals(5, harness.adapter.snapshot.transition.committed.audioTrackIndex)
+        assertEquals(22, harness.committedPlaybacks.single().effectiveMediaFileId)
+    }
+
+    @Test
     fun `local then audio before mount keeps one client-owned transaction`() = runTest {
         val downloaded = downloadedIdentity()
         val row = downloadedTrack(
@@ -242,7 +363,17 @@ class TvSubtitleTransactionAdapterTest {
         assertEquals(downloaded, harness.adapter.snapshot.committedIdentity)
         assertEquals(7, harness.adapter.snapshot.transition.committed.audioTrackIndex)
         assertEquals(
-            listOf(CommittedSubtitle(downloaded, audioTrackIndex = 7, qualityPreference = "auto")),
+            listOf(
+                CommittedSubtitle(
+                    downloaded,
+                    audioTrackIndex = 7,
+                    qualityPreference = "auto",
+                    // This scenario changes AUDIO explicitly, which is now
+                    // recorded so a subtitle-only commit cannot be mistaken for
+                    // the viewer choosing the audio it happened to carry.
+                    audioPreferenceSpecified = true,
+                ),
+            ),
             harness.persistence.persisted,
         )
     }
@@ -1523,6 +1654,36 @@ class TvSubtitleTransactionAdapterTest {
     }
 
     @Test
+    fun `authoritative downloaded refresh auto selects the exact server sidecar`() = runTest {
+        val harness = harness(backgroundScope)
+        val owner = harness.adapter.beginRefresh()
+        val row = PlayerSubtitleInfo(
+            index = 4,
+            language = "en",
+            codec = "vtt",
+            label = "Downloaded English",
+            source = "downloaded",
+            forced = false,
+            url = "https://silo.test/api/v1/stream/s1/subtitles/4.vtt",
+            downloadId = 91,
+            serverTrackId = "file:22:subtitle:4",
+            serverDelivery = "sidecar",
+        )
+
+        assertTrue(
+            harness.adapter.applyRefresh(
+                owner = owner,
+                subtitleTracks = listOf(row),
+                autoSelectDownloadId = 91,
+            ),
+        )
+        runCurrent()
+
+        assertEquals(tvSubtitleIdentity(row), harness.adapter.snapshot.pendingIdentity)
+        assertEquals(listOf(4), harness.port.requests.map { it.subtitleTrackIndex })
+    }
+
+    @Test
     fun `HUD catalog selection while controls are open enters one transaction`() = runTest {
         val harness = harness(backgroundScope)
 
@@ -2045,7 +2206,9 @@ class TvSubtitleTransactionAdapterTest {
         tracks: List<PlayerSubtitleInfo> = emptyList(),
         adoption: AdoptionControl = AdoptionControl(),
         durablePersistenceScope: CoroutineScope = scope,
-        isLocallyMountable: (SubtitleIdentity) -> Boolean = { true },
+        isLocallyMountable: (SubtitleIdentity) -> Boolean = { identity ->
+            identity !is SubtitleIdentity.ServerSidecar
+        },
         persistenceCoordinator: PlaybackTrackSelectionWriteCoordinator =
             PlaybackTrackSelectionWriteCoordinator(),
         persistence: RecordingPersistence = RecordingPersistence(),
@@ -2060,6 +2223,7 @@ class TvSubtitleTransactionAdapterTest {
             persistenceCoordinator = persistenceCoordinator,
             onCommittedPlayback = { adoptionRequest ->
                 adoption.started += 1
+                adoption.requestedSourcePositions += adoptionRequest.requestedSourcePositionSeconds
                 if (adoption.suspendAdoption) adoption.completions.receive()
                 adoption.failure?.let { throw it }
                 if (adoption.forceSuperseded || !adoptionRequest.isCurrent()) {
@@ -2140,6 +2304,7 @@ class TvSubtitleTransactionAdapterTest {
         var forceSuperseded: Boolean = false,
     ) {
         var started: Int = 0
+        val requestedSourcePositions = mutableListOf<Double>()
         val completions = Channel<Unit>(Channel.UNLIMITED)
 
         suspend fun complete() {
@@ -2178,6 +2343,8 @@ class TvSubtitleTransactionAdapterTest {
         tracks: List<PlayerSubtitleInfo> = emptyList(),
         qualityPreference: String = "auto",
         outputRouteGeneration: Long = 0L,
+        effectiveMediaFileId: Int? = null,
+        selectedSubtitleIdentity: SubtitleIdentity? = null,
     ): TvStagedSubtitleCandidate = TvStagedSubtitleCandidate(
         id = id,
         sessionId = sessionId,
@@ -2186,6 +2353,8 @@ class TvSubtitleTransactionAdapterTest {
         subtitleMode = mode,
         hasSidecar = hasSidecar,
         subtitleTracks = tracks,
+        effectiveMediaFileId = effectiveMediaFileId,
+        selectedSubtitleIdentity = selectedSubtitleIdentity,
         qualityPreference = qualityPreference,
         outputRouteGeneration = outputRouteGeneration,
     )
@@ -2315,6 +2484,7 @@ class TvSubtitleTransactionAdapterTest {
                 TvSubtitleCommittedPlayback(
                     sessionId = candidate.sessionId,
                     subtitleTracks = candidate.subtitleTracks,
+                    effectiveMediaFileId = candidate.effectiveMediaFileId,
                     outputRouteGeneration = candidate.outputRouteGeneration,
                 ),
             )

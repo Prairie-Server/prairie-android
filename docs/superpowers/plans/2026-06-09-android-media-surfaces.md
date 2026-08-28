@@ -1561,9 +1561,9 @@ git status --short --branch
 
 Expected: branch `feature/android-parity-and-media-surfaces` with a clean worktree after all task commits.
 
-- [ ] **Step 5: Manual smoke test against `root@silo-new` server**
+- [ ] **Step 5: Manual smoke test against `root@prairie-new` server**
 
-Use a debug build pointed at the Prairie server that matches `root@silo-new:/opt/prairie-server`.
+Use a debug build pointed at the Prairie server that matches `root@prairie-new:/opt/prairie-server`.
 
 Verify:
 

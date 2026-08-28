@@ -1537,7 +1537,7 @@ class SubtitleTrackMergeTest {
                     releaseName = "Dune Part Three", provider = "subdl"),
             ),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(4, merged.size)
@@ -1552,12 +1552,12 @@ class SubtitleTrackMergeTest {
         assertNull(first.forced)
         // Web: buildPlayerStreamUrl(apiBaseUrl, `/stream/${sid}/subtitles/${index}`, …)
         // with apiBaseUrl "/api/v1", absolutized against the server origin on Android.
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/2", first.url)
+        assertEquals("https://prairie.example/api/v1/stream/sess-1/subtitles/2", first.url)
 
         val second = merged[3]
         assertEquals(3, second.index)
         assertEquals("Dune Part Three (subdl)", second.label)
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/3", second.url)
+        assertEquals("https://prairie.example/api/v1/stream/sess-1/subtitles/3", second.url)
     }
 
     @Test
@@ -1568,7 +1568,7 @@ class SubtitleTrackMergeTest {
             existing = existing,
             downloaded = emptyList(),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertSame(existing, merged)
@@ -1580,7 +1580,7 @@ class SubtitleTrackMergeTest {
             existing = listOf(track(0, source = "embedded")),
             downloaded = listOf(downloaded(id = 312)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
         assertEquals(2, firstMerge.size)
 
@@ -1588,7 +1588,7 @@ class SubtitleTrackMergeTest {
             existing = firstMerge,
             downloaded = listOf(downloaded(id = 312), downloaded(id = 313)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(3, secondMerge.size)  // 1 embedded + 2 downloaded, no duplicate of 312
@@ -1605,11 +1605,11 @@ class SubtitleTrackMergeTest {
             existing = existing,
             downloaded = listOf(downloaded(id = 312)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(4, merged.last().index)  // max(0,3)+1, not size (2)
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/4", merged.last().url)
+        assertEquals("https://prairie.example/api/v1/stream/sess-1/subtitles/4", merged.last().url)
     }
 
     @Test
@@ -1618,11 +1618,11 @@ class SubtitleTrackMergeTest {
             existing = emptyList(),
             downloaded = listOf(downloaded(id = 312)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(0, merged.single().index)
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/0", merged.single().url)
+        assertEquals("https://prairie.example/api/v1/stream/sess-1/subtitles/0", merged.single().url)
     }
 
     @Test
@@ -1631,10 +1631,10 @@ class SubtitleTrackMergeTest {
             existing = emptyList(),
             downloaded = listOf(downloaded(id = 312)),
             sessionId = "sess-1",
-            serverUrl = "https://silo.example/",
+            serverUrl = "https://prairie.example/",
         )
 
-        assertEquals("https://silo.example/api/v1/stream/sess-1/subtitles/0", merged.single().url)
+        assertEquals("https://prairie.example/api/v1/stream/sess-1/subtitles/0", merged.single().url)
     }
 }
 ```
@@ -3664,9 +3664,9 @@ TV-side facts these tasks build on (verified against current code): `TvPlayerVie
 ### Task T1: TvPlayerViewModel — aiStatus probe, refreshSubtitles merge + Media3 rebuild, search/download/translate orchestration
 
 **Files:**
-- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
-- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
-- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
+- Modify: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerViewModel.kt`
+- Modify: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Modify: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/di/AndroidTvModule.kt`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4173,9 +4173,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task T2: TvSubtitleSearchDialog + HUD "Search subtitles" action row
 
 **Files:**
-- Create: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvSubtitleSearchDialog.kt`
-- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
-- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Create: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvSubtitleSearchDialog.kt`
+- Modify: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerHud.kt`
+- Modify: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4915,8 +4915,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task T3: TvAiTranslateDialog + HUD "Translate with AI" row (AI-status gated)
 
 **Files:**
-- Create: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvAiTranslateDialog.kt`
-- Modify: `/Users/dev/projects/silo/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
+- Create: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvAiTranslateDialog.kt`
+- Modify: `/Users/dev/projects/prairie/prairie-android/androidTvApp/src/androidMain/kotlin/com/continuum/app/tv/ui/screens/player/TvPlayerScreen.kt`
 
 - [ ] **Step 1: Write the failing test**
 

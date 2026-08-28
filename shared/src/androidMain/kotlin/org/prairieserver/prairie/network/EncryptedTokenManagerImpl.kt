@@ -34,6 +34,8 @@ class EncryptedTokenManagerImpl(
     private val prefs: SharedPreferences,
     private val registry: ServerRegistry,
     private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
+    private val afterAccountSessionCommit: suspend () -> Unit = {},
+    private val afterAccountSignOutCommit: suspend () -> Unit = {},
 ) : TokenManager {
 
     private val mutex = Mutex()
@@ -46,6 +48,9 @@ class EncryptedTokenManagerImpl(
     private var accessToken: String? = null
     private var refreshToken: String? = null
     private var tokenExpiryEpochMs: Long? = null
+
+    /** Lifetime the server gave the active access token, for the half-life clamp. */
+    private var tokenLifetimeMs: Long? = null
     private var profileId: String? = null
     private var profileToken: String? = null
     private var temporaryScope: TemporaryAuthScope? = null
@@ -103,6 +108,34 @@ class EncryptedTokenManagerImpl(
     }
 
     /**
+     * Answers for whichever identity is actually installed: a remote-playback
+     * overlay carries its own deadline, and falling through to the saved
+     * account's would refresh credentials this request is not spending.
+     */
+    override suspend fun accessTokenExpiresWithin(marginMs: Long): Boolean = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        temporaryScope?.let { overlay ->
+            // NOT expiresAtEpochMs — that is when the temporary SESSION ends,
+            // which can be hours past the access token it was issued with.
+            // Unknown until a refresh has told us, and unknown means leave it
+            // to the reactive 401 rather than refresh on a guess.
+            val overlayExpiry = overlay.accessTokenExpiresAtEpochMs ?: return@withLock false
+            return@withLock shouldRefreshProactively(
+                remainingMs = overlayExpiry - System.currentTimeMillis(),
+                lifetimeMs = overlay.accessTokenLifetimeMs,
+                marginMs = marginMs,
+            )
+        }
+        if (accessToken == null) return@withLock false
+        val expiry = tokenExpiryEpochMs ?: return@withLock false
+        shouldRefreshProactively(
+            remainingMs = expiry - System.currentTimeMillis(),
+            lifetimeMs = tokenLifetimeMs,
+            marginMs = marginMs,
+        )
+    }
+
+    /**
      * The registry observer flushes the cache asynchronously; between a
      * direct `ServerRegistry.switchTo()` and that collector running there is
      * a window where `getServerUrl()` already answers with the NEW server
@@ -136,34 +169,98 @@ class EncryptedTokenManagerImpl(
         }
     }
 
+    override suspend fun replaceAccountSession(
+        serverId: String?,
+        serverUrl: String?,
+        accessToken: String,
+        refreshToken: String,
+        expiresIn: Long,
+        profileId: String?,
+        profileToken: String?,
+    ) {
+        val targetServerId = serverId
+            ?: serverUrl?.let { registry.addOrUpdate(it) }
+            ?: registry.activeServerId.value
+            ?: error("account replacement requires a registered server")
+        val androidRegistry = registry as? AndroidServerRegistry
+            ?: error("persistent account replacement requires AndroidServerRegistry")
+        tokenWriteMutex.withLock {
+            identityTransitions.changing(
+                kind = IdentityTransitionKind.ACCOUNT_REPLACE,
+                target = {
+                    check(mutex.withLock { temporaryScope == null }) {
+                        "cannot replace the account inside a temporary auth scope"
+                    }
+                    IdentityTransitionTarget(serverId = targetServerId)
+                },
+            ) {
+                mutex.withLock {
+                    val lifetimeMs = expiresIn * 1_000L
+                    val expiryEpochMs = System.currentTimeMillis() + lifetimeMs
+                    // Registry selection and token/profile slots share the same
+                    // encrypted preferences file, so commit them atomically and
+                    // synchronously before publishing the cache.
+                    androidRegistry.commitAccountReplacement(
+                        serverId = targetServerId,
+                        profileId = profileId,
+                        profileToken = profileToken,
+                        accessToken = accessToken,
+                        refreshToken = refreshToken,
+                        expiryEpochMs = expiryEpochMs,
+                        lifetimeMs = lifetimeMs,
+                    )
+                    activeServerId = targetServerId
+                    this.profileId = profileId
+                    this.profileToken = profileToken
+                    this.accessToken = accessToken
+                    this.refreshToken = refreshToken
+                    tokenExpiryEpochMs = expiryEpochMs
+                    tokenLifetimeMs = lifetimeMs
+                    persistentCredentialEpoch += 1
+                    afterAccountSessionCommit()
+                }
+            }
+        }
+    }
+
     private suspend fun saveActiveTokensLocked(accessToken: String, refreshToken: String, expiresIn: Long) {
         mutex.withLock {
             ensureCacheMatchesRegistryLocked()
             temporaryScope?.let { scope ->
+                // The SESSION deadline (expiresAtEpochMs) is untouched: a
+                // refresh renews the access token, not the temporary session.
                 temporaryScope = scope.copy(
                     accessToken = accessToken,
                     refreshToken = refreshToken,
-                    expiresAtEpochMs = System.currentTimeMillis() + expiresIn * 1000L,
+                    accessTokenExpiresAtEpochMs =
+                        System.currentTimeMillis() + expiresIn * 1000L,
+                    accessTokenLifetimeMs = expiresIn * 1000L,
                 )
                 return@withLock
             }
             val serverId = activeServerId ?: return@withLock
             this.accessToken = accessToken
             this.refreshToken = refreshToken
-            val expiryEpochMs = System.currentTimeMillis() + expiresIn * 1000L
+            val lifetimeMs = expiresIn * 1000L
+            val expiryEpochMs = System.currentTimeMillis() + lifetimeMs
             this.tokenExpiryEpochMs = expiryEpochMs
+            this.tokenLifetimeMs = lifetimeMs
             persistentCredentialEpoch += 1
             prefs.edit()
                 .putString(serverScopedKey(serverId, KEY_ACCESS_TOKEN), accessToken)
                 .putString(serverScopedKey(serverId, KEY_REFRESH_TOKEN), refreshToken)
                 .putLong(serverScopedKey(serverId, KEY_TOKEN_EXPIRY), expiryEpochMs)
+                .putLong(serverScopedKey(serverId, KEY_TOKEN_LIFETIME), lifetimeMs)
                 .apply()
         }
     }
 
     override suspend fun clearTokens() {
         tokenWriteMutex.withLock {
-            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+            identityTransitions.changing(
+                kind = IdentityTransitionKind.SIGN_OUT,
+                target = { currentSignOutTarget() },
+            ) {
                 mutex.withLock { clearCurrentScopeLocked() }
             }
         }
@@ -171,7 +268,10 @@ class EncryptedTokenManagerImpl(
 
     override suspend fun invalidateSession() {
         tokenWriteMutex.withLock {
-            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+            identityTransitions.changing(
+                kind = IdentityTransitionKind.SIGN_OUT,
+                target = { currentSignOutTarget() },
+            ) {
                 mutex.withLock {
                     val wasTemporary = temporaryScope != null
                     clearCurrentScopeLocked()
@@ -181,7 +281,7 @@ class EncryptedTokenManagerImpl(
         }
     }
 
-    private fun clearCurrentScopeLocked() {
+    private suspend fun clearCurrentScopeLocked() {
         if (temporaryScope != null) {
             temporaryScope = null
         } else {
@@ -189,23 +289,34 @@ class EncryptedTokenManagerImpl(
         }
     }
 
-    private fun clearPersistentTokensLocked() {
-        persistentCredentialEpoch += 1
+    private suspend fun clearPersistentTokensLocked() {
         val serverId = activeServerId
+        var committedSignOut = false
+        if (serverId != null) {
+            val androidRegistry = registry as? AndroidServerRegistry
+            if (androidRegistry != null) {
+                androidRegistry.commitAccountSignOut(serverId)
+            } else {
+                val editor = prefs.edit()
+                    .remove(serverScopedKey(serverId, KEY_ACCESS_TOKEN))
+                    .remove(serverScopedKey(serverId, KEY_REFRESH_TOKEN))
+                    .remove(serverScopedKey(serverId, KEY_TOKEN_EXPIRY))
+                    .remove(serverScopedKey(serverId, KEY_TOKEN_LIFETIME))
+                    .remove(serverScopedKey(serverId, KEY_PROFILE_ID))
+                    .remove(serverScopedKey(serverId, KEY_PROFILE_TOKEN))
+                check(editor.commit()) { "unable to durably sign out account" }
+                registry.signOut(serverId)
+            }
+            committedSignOut = true
+        }
+        persistentCredentialEpoch += 1
         accessToken = null
         refreshToken = null
         tokenExpiryEpochMs = null
+        tokenLifetimeMs = null
         profileId = null
         profileToken = null
-        if (serverId != null) {
-            prefs.edit()
-                .remove(serverScopedKey(serverId, KEY_ACCESS_TOKEN))
-                .remove(serverScopedKey(serverId, KEY_REFRESH_TOKEN))
-                .remove(serverScopedKey(serverId, KEY_TOKEN_EXPIRY))
-                .remove(serverScopedKey(serverId, KEY_PROFILE_ID))
-                .remove(serverScopedKey(serverId, KEY_PROFILE_TOKEN))
-                .apply()
-        }
+        if (committedSignOut) afterAccountSignOutCommit()
     }
 
     override suspend fun getProfileId(): String? = mutex.withLock {
@@ -250,6 +361,45 @@ class EncryptedTokenManagerImpl(
         }
     }
 
+    override suspend fun getProfileIdentity(): ProfileIdentity = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        temporaryScope?.let { scope ->
+            return@withLock ProfileIdentity(scope.profileId, scope.profileToken)
+        }
+        ProfileIdentity(profileId, profileToken)
+    }
+
+    /**
+     * One lock, one preferences edit, so the PERSISTED id and token cannot
+     * disagree even if the process dies immediately after. Concurrent readers
+     * are a separate problem — see [TokenManager.setProfileIdentity].
+     *
+     * While a temporary overlay exists this refuses the write entirely rather
+     * than merging into it: remote-playback identity belongs to the overlay,
+     * and a partial merge is what produced the id/token mismatch in the first
+     * place.
+     */
+    override suspend fun setProfileIdentity(profileId: String?, profileToken: String?) {
+        mutex.withLock {
+            // A temporary overlay owns its own identity for the lifetime of a
+            // remote-playback handoff. Merging a profile commit into it is how
+            // you get the exact defect this method exists to prevent: writing
+            // the new profile id beside the overlay's old token. Leave it
+            // alone; the repository rejects the commit outright.
+            if (temporaryScope != null) return@withLock
+            val serverId = activeServerId ?: return
+            if (this.profileId == profileId && this.profileToken == profileToken) return
+            this.profileId = profileId
+            this.profileToken = profileToken
+            val idKey = serverScopedKey(serverId, KEY_PROFILE_ID)
+            val tokenKey = serverScopedKey(serverId, KEY_PROFILE_TOKEN)
+            prefs.edit().apply {
+                if (profileId == null) remove(idKey) else putString(idKey, profileId)
+                if (profileToken == null) remove(tokenKey) else putString(tokenKey, profileToken)
+            }.apply()
+        }
+    }
+
     override suspend fun getServerUrl(): String = mutex.withLock {
         temporaryScope?.serverUrl ?: registry.activeEntry.value?.url.orEmpty()
     }
@@ -289,7 +439,10 @@ class EncryptedTokenManagerImpl(
 
     override suspend fun signOutCurrentServer() {
         tokenWriteMutex.withLock {
-            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+            identityTransitions.changing(
+                kind = IdentityTransitionKind.SIGN_OUT,
+                target = { currentSignOutTarget() },
+            ) {
                 mutex.withLock { clearCurrentScopeLocked() }
             }
         }
@@ -323,8 +476,17 @@ class EncryptedTokenManagerImpl(
                 profileToken = scope.profileToken,
                 credentialGenerationId = scope.generationId,
                 identityGeneration = identityTransitions.generation.value,
+                isIdentityGenerationStamped = true,
             )
         }
+        // Reconcile with the registry FIRST. The registry observer is
+        // asynchronous, so immediately after a `switchTo(B)` this cached id can
+        // still be A — and every guard that trusts the snapshot then decides
+        // against a server the app has already left. The token reads
+        // (getAccessToken/getRefreshToken/getProfileId) reconcile; the snapshot
+        // did not, which made it disagree with them. Note getCurrentServerId
+        // still reads the cache directly.
+        ensureCacheMatchesRegistryLocked()
         val serverId = activeServerId ?: return@withLock null
         // Resolve the URL for *this* serverId from the registry entries so the
         // snapshot is internally consistent. Do NOT fall back to activeEntry —
@@ -339,6 +501,7 @@ class EncryptedTokenManagerImpl(
             serverUrl = url,
             profileToken = profileToken,
             identityGeneration = identityTransitions.generation.value,
+            isIdentityGenerationStamped = true,
             credentialEpoch = persistentCredentialEpoch,
         )
     }
@@ -370,29 +533,35 @@ class EncryptedTokenManagerImpl(
     private fun AuthScopeSnapshot.credentialsReplaced(): Boolean =
         credentialEpoch != 0L && credentialEpoch != persistentCredentialEpoch
 
-    override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? = mutex.withLock {
-        val generationId = scope.credentialGenerationId
-        if (generationId == null) {
-            if (scope.credentialsReplaced()) return@withLock null
-            persistentAccessToken(scope.serverId)
-        } else {
-            temporaryScope
-                ?.takeIf { it.generationId == generationId && it.serverId == scope.serverId }
-                ?.accessToken
+    override suspend fun getAccessTokenForScope(scope: AuthScopeSnapshot): String? =
+        withScopeGeneration(scope) {
+            mutex.withLock {
+                val generationId = scope.credentialGenerationId
+                if (generationId == null) {
+                    if (!scope.isLivePersistentScope()) return@withLock null
+                    persistentAccessToken(scope.serverId)
+                } else {
+                    temporaryScope
+                        ?.takeIf { it.generationId == generationId && it.serverId == scope.serverId }
+                        ?.accessToken
+                }
+            }
         }
-    }
 
-    override suspend fun getRefreshTokenForScope(scope: AuthScopeSnapshot): String? = mutex.withLock {
-        val generationId = scope.credentialGenerationId
-        if (generationId == null) {
-            if (scope.credentialsReplaced()) return@withLock null
-            persistentRefreshToken(scope.serverId)
-        } else {
-            temporaryScope
-                ?.takeIf { it.generationId == generationId && it.serverId == scope.serverId }
-                ?.refreshToken
+    override suspend fun getRefreshTokenForScope(scope: AuthScopeSnapshot): String? =
+        withScopeGeneration(scope) {
+            mutex.withLock {
+                val generationId = scope.credentialGenerationId
+                if (generationId == null) {
+                    if (!scope.isLivePersistentScope()) return@withLock null
+                    persistentRefreshToken(scope.serverId)
+                } else {
+                    temporaryScope
+                        ?.takeIf { it.generationId == generationId && it.serverId == scope.serverId }
+                        ?.refreshToken
+                }
+            }
         }
-    }
 
     override suspend fun saveTokensForScope(
         serverId: String,
@@ -401,8 +570,9 @@ class EncryptedTokenManagerImpl(
         expiresIn: Long,
     ) {
         mutex.withLock {
-            val expiryEpochMs = System.currentTimeMillis() + expiresIn * 1000L
-            savePersistentTokens(serverId, accessToken, refreshToken, expiryEpochMs)
+            val lifetimeMs = expiresIn * 1000L
+            val expiryEpochMs = System.currentTimeMillis() + lifetimeMs
+            savePersistentTokens(serverId, accessToken, refreshToken, expiryEpochMs, lifetimeMs)
         }
     }
 
@@ -412,26 +582,82 @@ class EncryptedTokenManagerImpl(
         refreshToken: String,
         expiresIn: Long,
     ) {
-        mutex.withLock {
-            val expiryEpochMs = System.currentTimeMillis() + expiresIn * 1000L
-            val generationId = scope.credentialGenerationId
-            if (generationId == null) {
-                // A stale scope must not overwrite the credentials of the login
-                // that replaced it.
-                if (scope.credentialsReplaced()) return@withLock
-                savePersistentTokens(scope.serverId, accessToken, refreshToken, expiryEpochMs)
-                return@withLock
-            }
-            val temporary = temporaryScope
-                ?.takeIf { it.generationId == generationId && it.serverId == scope.serverId }
-                ?: return@withLock
-            temporaryScope = temporary.copy(
-                accessToken = accessToken,
-                refreshToken = refreshToken,
-                expiresAtEpochMs = expiryEpochMs,
-            )
+        // A hand-built persistent scope with neither a credential epoch nor a
+        // captured identity generation cannot prove which account issued the
+        // refresh request. It may still be used for compatibility reads, but a
+        // late response must never overwrite a same-server reauthorization.
+        if (
+            scope.credentialGenerationId == null &&
+            scope.credentialEpoch == 0L &&
+            !scope.isIdentityGenerationStamped
+        ) {
+            return
         }
+        val save: suspend () -> Unit = {
+            mutex.withLock {
+                val lifetimeMs = expiresIn * 1000L
+                val expiryEpochMs = System.currentTimeMillis() + lifetimeMs
+                val generationId = scope.credentialGenerationId
+                if (generationId == null) {
+                    // A stale scope must not overwrite the credentials of the login
+                    // that replaced it or a server removed while refresh was in flight.
+                    if (!scope.isLivePersistentScope()) return@withLock
+                    savePersistentTokens(
+                        scope.serverId,
+                        accessToken,
+                        refreshToken,
+                        expiryEpochMs,
+                        lifetimeMs,
+                    )
+                    return@withLock
+                }
+                val temporary = temporaryScope
+                    ?.takeIf { it.generationId == generationId && it.serverId == scope.serverId }
+                    ?: return@withLock
+                // expiresAtEpochMs is the temporary SESSION deadline and is NOT
+                // renewed by refreshing the access token — overwriting it here
+                // silently extended the guest session on every refresh.
+                temporaryScope = temporary.copy(
+                    accessToken = accessToken,
+                    refreshToken = refreshToken,
+                    accessTokenExpiresAtEpochMs = expiryEpochMs,
+                    accessTokenLifetimeMs = lifetimeMs,
+                )
+            }
+        }
+        withScopeGeneration(scope) { save() }
     }
+
+    private suspend fun <T> withScopeGeneration(
+        scope: AuthScopeSnapshot,
+        block: suspend () -> T,
+    ): T? {
+        // For a live-stamped saved account (credentialEpoch != 0) and a
+        // temporary scope, the barrier is only a serialization primitive. A
+        // remote-playback overlay advances the global generation but must leave
+        // the persistent scope valid; the epoch/generation-id checks decide its
+        // identity. A hand-built persistent scope has no epoch, so its captured
+        // identity generation is the only request provenance it can carry.
+        val expectedGeneration = if (
+            scope.credentialGenerationId == null &&
+            scope.credentialEpoch == 0L &&
+            scope.isIdentityGenerationStamped
+        ) {
+            scope.identityGeneration
+        } else {
+            identityTransitions.generation.value
+        }
+        return identityTransitions.withCurrentGeneration(expectedGeneration) {
+            GuardedScopeValue(block())
+        }?.value
+    }
+
+    /** Keeps nullable token reads compatible with the barrier's non-null result contract. */
+    private data class GuardedScopeValue<T>(val value: T)
+
+    private fun AuthScopeSnapshot.isLivePersistentScope(): Boolean =
+        !credentialsReplaced() &&
+            registry.entries.value.any { entry -> entry.id == serverId && entry.url == serverUrl }
 
     private fun persistentAccessToken(serverId: String): String? =
         if (serverId == activeServerId) accessToken
@@ -446,16 +672,19 @@ class EncryptedTokenManagerImpl(
         accessToken: String,
         refreshToken: String,
         expiryEpochMs: Long,
+        lifetimeMs: Long,
     ) {
         prefs.edit()
             .putString(serverScopedKey(serverId, KEY_ACCESS_TOKEN), accessToken)
             .putString(serverScopedKey(serverId, KEY_REFRESH_TOKEN), refreshToken)
             .putLong(serverScopedKey(serverId, KEY_TOKEN_EXPIRY), expiryEpochMs)
+            .putLong(serverScopedKey(serverId, KEY_TOKEN_LIFETIME), lifetimeMs)
             .apply()
         if (serverId == activeServerId) {
             this.accessToken = accessToken
             this.refreshToken = refreshToken
             this.tokenExpiryEpochMs = expiryEpochMs
+            this.tokenLifetimeMs = lifetimeMs
         }
     }
 
@@ -471,6 +700,7 @@ class EncryptedTokenManagerImpl(
             accessToken = null
             refreshToken = null
             tokenExpiryEpochMs = null
+            tokenLifetimeMs = null
             profileId = null
             profileToken = null
             return
@@ -479,6 +709,8 @@ class EncryptedTokenManagerImpl(
         refreshToken = prefs.getString(serverScopedKey(serverId, KEY_REFRESH_TOKEN), null)
         val expiryKey = serverScopedKey(serverId, KEY_TOKEN_EXPIRY)
         tokenExpiryEpochMs = if (prefs.contains(expiryKey)) prefs.getLong(expiryKey, 0L) else null
+        val lifetimeKey = serverScopedKey(serverId, KEY_TOKEN_LIFETIME)
+        tokenLifetimeMs = if (prefs.contains(lifetimeKey)) prefs.getLong(lifetimeKey, 0L) else null
         profileId = prefs.getString(serverScopedKey(serverId, KEY_PROFILE_ID), null)
         profileToken = prefs.getString(serverScopedKey(serverId, KEY_PROFILE_TOKEN), null)
     }
@@ -487,6 +719,7 @@ class EncryptedTokenManagerImpl(
         const val KEY_ACCESS_TOKEN = "access_token"
         const val KEY_REFRESH_TOKEN = "refresh_token"
         const val KEY_TOKEN_EXPIRY = "token_expiry_epoch_ms"
+        const val KEY_TOKEN_LIFETIME = "token_lifetime_ms"
         const val KEY_PROFILE_ID = "profile_id"
         const val KEY_PROFILE_TOKEN = "profile_token"
         // Retained only so [AndroidServerRegistry.migrateLegacyIfNeeded] can
@@ -512,6 +745,16 @@ class EncryptedTokenManagerImpl(
             ?.url == scope.serverUrl
     }
 
+    /** Resolved under the identity-mutation mutex immediately before privacy gates run. */
+    private suspend fun currentSignOutTarget(): IdentityTransitionTarget = mutex.withLock {
+        ensureCacheMatchesRegistryLocked()
+        val temporary = temporaryScope
+        IdentityTransitionTarget(
+            serverId = temporary?.serverId ?: activeServerId,
+            purgesPersistentIdentity = temporary == null,
+        )
+    }
+
     override suspend fun invalidateSessionForScope(scope: AuthScopeSnapshot): Boolean =
         tokenWriteMutex.withLock {
             val matchesBeforeTransition = mutex.withLock {
@@ -523,7 +766,10 @@ class EncryptedTokenManagerImpl(
             }
             if (!matchesBeforeTransition) return@withLock false
 
-            identityTransitions.changing(IdentityTransitionKind.SIGN_OUT) {
+            identityTransitions.changing(
+                kind = IdentityTransitionKind.SIGN_OUT,
+                target = { IdentityTransitionTarget(serverId = scope.serverId) },
+            ) {
                 mutex.withLock {
                     ensureCacheMatchesRegistryLocked()
                     // `changing` increments the generation before entering this

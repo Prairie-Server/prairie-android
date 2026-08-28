@@ -11,7 +11,17 @@ internal fun normalizeSubripPayloadIfNeeded(
     offset: Int,
     length: Int,
 ): ByteArray? {
-    val text = data.decodeToString(offset, offset + length)
+    // Decoded STRICTLY, not leniently. decodeToString substitutes U+FFFD for
+    // anything that is not valid UTF-8 — and since a rewrite re-encodes what it
+    // decoded, those substitutions become permanent: a Windows-1252 subtitle
+    // comes back with "José" rendered as "Jos�" for the rest of its life.
+    //
+    // Legacy SRT files are commonly Windows-1252 or another single-byte
+    // regional encoding, so a failed UTF-8 decode is ordinary rather than
+    // exceptional. Falling back to Windows-1252 recovers the accents; if even
+    // that cannot be decoded, the payload is left exactly as it arrived, on
+    // the grounds that not normalising is better than corrupting.
+    val text = decodeSubtitleText(data, offset, length) ?: return null
     val normalized = normalizeSubripTextIfNeeded(text)
     return if (normalized == text) null else normalized.encodeToByteArray()
 }
@@ -127,3 +137,28 @@ private fun nextNonBlankIndex(lines: List<String>, startIndex: Int): Int? {
     }
     return null
 }
+
+private fun decodeSubtitleText(data: ByteArray, offset: Int, length: Int): String? =
+    decodeStrictly(data, offset, length, Charsets.UTF_8)
+        ?: decodeStrictly(data, offset, length, WINDOWS_1252)
+
+private fun decodeStrictly(
+    data: ByteArray,
+    offset: Int,
+    length: Int,
+    charset: java.nio.charset.Charset,
+): String? = try {
+    charset.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        .decode(java.nio.ByteBuffer.wrap(data, offset, length))
+        .toString()
+} catch (_: java.nio.charset.CharacterCodingException) {
+    null
+} catch (_: IllegalArgumentException) {
+    null
+}
+
+private val WINDOWS_1252: java.nio.charset.Charset =
+    runCatching { java.nio.charset.Charset.forName("windows-1252") }
+        .getOrElse { Charsets.ISO_8859_1 }

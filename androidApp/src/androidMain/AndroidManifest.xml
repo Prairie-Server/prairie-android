@@ -9,6 +9,19 @@
         android:name="android.hardware.touchscreen"
         android:required="true" />
 
+    <!--
+        Package visibility for the system speech recogniser. From Android 11 an
+        app cannot see packages it has not declared an interest in, so without
+        this the availability check comes back empty on every modern device and
+        the voice affordance silently never appears. Silo asks the recogniser to
+        listen; it never records audio itself, and so needs no RECORD_AUDIO.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -42,6 +55,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:launchMode="singleTop"
             android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -56,6 +70,7 @@
 
                 <data android:scheme="prairie" />
                 <data android:host="device" />
+                <data android:host="invite" />
                 <data android:host="item" />
                 <data android:host="play" />
                 <data android:host="downloads" />
@@ -87,6 +102,14 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Phone-only Media3 projection of playback controlled on a Silo TV.
+             It is started explicitly, so it does not compete with the local
+             playback service as the package's media-button cold-start target. -->
+        <service
+            android:name=".cast.PrairieCastMediaSessionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <service
             android:name=".push.PrairieFirebaseMessagingService"

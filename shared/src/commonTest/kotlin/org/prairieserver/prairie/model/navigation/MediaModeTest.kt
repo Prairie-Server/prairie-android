@@ -185,7 +185,7 @@ class MediaModeTest {
  * Leaving it out of the video types did not degrade it — it erased it: the type
  * mapped to no [MediaMode], so the library never reached navigation, search or
  * browse on either platform and nothing indicated anything was missing.
- * silo-apple hit the same thing (#93).
+ * prairie-apple hit the same thing (#93).
  */
 class MixedLibraryModeTest {
 

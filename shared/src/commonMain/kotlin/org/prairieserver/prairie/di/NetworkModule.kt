@@ -1,6 +1,5 @@
 package org.prairieserver.prairie.di
 
-import org.prairieserver.prairie.discovery.LanDiscovery
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.TokenManagerImpl
 import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
@@ -14,6 +13,7 @@ val networkModule = module {
     single<TokenManager> { TokenManagerImpl(get()) }
     single { createPrairieClient(get(), getOrNull(), getOrNull(), getOrNull()) }
     single { AuthApi(get()) }
+    single { OnboardingApi(get()) }
     single<DeviceLoginApi> { DefaultDeviceLoginApi(get()) }
     single { CatalogApi(get()) }
     single { PlaybackApi(get()) }
@@ -34,7 +34,8 @@ val networkModule = module {
     single<CalendarApi> { DefaultCalendarApi(get()) }
     single { HealthApi(get()) }
     single { org.prairieserver.prairie.update.AppUpdateChecker(get()) }
-    single { LanDiscovery(get()) }
+    single { org.prairieserver.prairie.discovery.LanDiscovery(get()) }
+    single { BrandingApi(get()) }
     single { SettingsApi(get()) }
     single { LibraryPlaybackPrefsApi(get()) }
     single { DownloadsApi(get()) }
@@ -42,7 +43,6 @@ val networkModule = module {
     single<SubtitlesApi> { DefaultSubtitlesApi(get()) }
     single<NotificationsApi> { DefaultNotificationsApi(get()) }
     single<PushRegistrationApi> { DefaultPushRegistrationApi(get()) }
-    single<AdminApi> { DefaultAdminApi(get()) }
     single<WatchTogetherApi> { DefaultWatchTogetherApi(get()) }
     single<DiagnosticsApi> { DefaultDiagnosticsApi(get()) }
 }

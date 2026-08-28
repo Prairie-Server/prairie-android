@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.theme.PrairieBackground
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
+import org.prairieserver.prairie.common.ui.movieDirectorCredit
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.Season
@@ -57,6 +58,11 @@ import org.prairieserver.prairie.model.catalog.Season
 @Composable
 fun MovieDetailContent(
     detail: ItemDetail,
+    portraitArtwork: DetailPortraitArtwork = DetailPortraitArtwork(
+        url = detail.posterUrl,
+        thumbhash = detail.posterThumbhash,
+    ),
+    similarItems: List<ItemDetail> = emptyList(),
     isFavorite: Boolean,
     isInWatchlist: Boolean,
     selectedVersionIndex: Int,
@@ -84,6 +90,7 @@ fun MovieDetailContent(
     seasons: List<Season> = emptyList(),
     selectedSeasonNumber: Int = 1,
     episodes: List<EpisodeListItem> = emptyList(),
+    episodesBySeason: Map<Int, List<EpisodeListItem>> = emptyMap(),
     isLoadingEpisodes: Boolean = false,
     onSeasonSelected: (Int) -> Unit = {},
     onEpisodePlayClick: (String, Double?) -> Unit = { _, _ -> },
@@ -133,12 +140,14 @@ fun MovieDetailContent(
         verticalArrangement = Arrangement.spacedBy(36.dp),
     ) {
         item(contentType = "detail-hero") {
-            DetailHero(
+            AdaptiveDetailHero(
                 detail = detail,
                 eyebrow = eyebrow,
                 sourceTokens = sourceTokens,
                 factsLine = factsLine,
+                portraitArtwork = portraitArtwork,
                 dominantColor = dominantColor,
+                directorText = movieDirectorCredit(detail),
                 translation = translation,
             ) {
                 HeroActionStack(
@@ -259,6 +268,11 @@ fun MovieDetailContent(
                             label = "Video",
                             value = formatVersionValueLabel(selectedVersion, isAutoVersion),
                             onClick = { showVersionPicker = true },
+                            // Apple's shouldEnable*Selector: a picker is offered
+                            // only when there is more than one real choice. The
+                            // sheets' Auto/Off rows are pseudo-entries and do
+                            // not count toward it.
+                            interactive = detail.versions.size > 1,
                         )
                         if (audioTracks.isNotEmpty()) {
                             TrackSelectorRow(
@@ -266,6 +280,7 @@ fun MovieDetailContent(
                                 label = "Audio",
                                 value = formatAudioValueLabel(audioTracks, selectedAudioIndex, selectedVersion?.effectiveAudioTrackIndex),
                                 onClick = { showAudioPicker = true },
+                                interactive = audioTracks.size > 1,
                             )
                         }
                         if (subtitleTracks.isNotEmpty()) {
@@ -274,6 +289,7 @@ fun MovieDetailContent(
                                 label = "Subtitles",
                                 value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
                                 onClick = { showSubtitlePicker = true },
+                                interactive = subtitleTracks.size > 1,
                             )
                         }
                     }
@@ -295,43 +311,19 @@ fun MovieDetailContent(
                         label = if (selectedSeasonNumber == 0) "Specials" else "Season $selectedSeasonNumber",
                         title = "Episodes",
                     )
-                    if (seasons.size > 1) {
-                        SeasonChips(
-                            seasons = seasons,
-                            selectedSeasonNumber = selectedSeasonNumber,
-                            onSeasonSelected = onSeasonSelected,
-                        )
-                    }
-                    when {
-                        isLoadingEpisodes -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator()
-                            }
-                        }
-                        episodes.isEmpty() -> {
-                            Text(
-                                text = "No episodes available",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = DetailTertiaryText,
-                                modifier = Modifier.padding(horizontal = SafePadding),
-                            )
-                        }
-                        else -> {
-                            EpisodeList(
-                                episodes = episodes,
-                                onEpisodePlayClick = onEpisodePlayClick,
-                                onEpisodeDetailClick = onEpisodeDetailClick,
-                                onEpisodeDownloadClick = onEpisodeDownloadClick,
-                                episodeDownloadState = episodeDownloadState,
-                                highlightContentId = detail.contentId,
-                            )
-                        }
-                    }
+                    SeasonEpisodePager(
+                        seasons = seasons,
+                        selectedSeasonNumber = selectedSeasonNumber,
+                        episodes = episodes,
+                        episodesBySeason = episodesBySeason,
+                        isLoadingEpisodes = isLoadingEpisodes,
+                        onSeasonSelected = onSeasonSelected,
+                        onEpisodePlayClick = onEpisodePlayClick,
+                        onEpisodeDetailClick = onEpisodeDetailClick,
+                        onEpisodeDownloadClick = onEpisodeDownloadClick,
+                        episodeDownloadState = episodeDownloadState,
+                        highlightContentId = detail.contentId,
+                    )
                 }
             }
         }
@@ -359,7 +351,7 @@ fun MovieDetailContent(
         if (detail.type != "episode") {
             item(contentType = "detail-similar") {
                 SimilarRail(
-                    contentId = detail.contentId,
+                    items = similarItems,
                     onSelect = onItemDetailClick,
                 )
             }

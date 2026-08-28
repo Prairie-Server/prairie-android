@@ -1,27 +1,10 @@
 package org.prairieserver.prairie.android.ui.screens.settings
 
 import androidx.compose.runtime.Composable
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-
-private val subtitleLanguageOptions = listOf("Off", "English", "Spanish", "French", "German", "Japanese", "Korean", "Chinese", "Portuguese", "Italian", "Russian")
-
-// Metadata language stores ISO 639-1 codes (server contract; "" = inherit) —
-// display labels, persist codes. Kept in lockstep with the TV list.
-private val metadataLanguageOptions = listOf(
-    "" to "Off",
-    "en" to "English",
-    "es" to "Spanish",
-    "fr" to "French",
-    "de" to "German",
-    "ja" to "Japanese",
-    "ko" to "Korean",
-    "zh" to "Chinese",
-    "pt" to "Portuguese",
-    "it" to "Italian",
-    "ru" to "Russian",
-)
+import org.prairieserver.prairie.model.settings.LanguageOptions
+import org.prairieserver.prairie.model.settings.SettingKeys
 
 /**
  * Subtitle settings section with language, display mode, and forced subtitles toggle.
@@ -29,6 +12,7 @@ private val metadataLanguageOptions = listOf(
 @Composable
 fun SubtitleSettings(
     subtitleLanguage: String,
+    subtitleLanguageSuggestions: List<String> = emptyList(),
     subtitleMode: SubtitleMode,
     showForcedSubtitles: Boolean,
     onLanguageChanged: (String) -> Unit,
@@ -40,21 +24,38 @@ fun SubtitleSettings(
     modifier: Modifier = Modifier,
     // Metadata AI description translation (server-gated; row hidden when off).
     metadataLanguageEnabled: Boolean = false,
-    metadataLanguage: String = "Off",
+    metadataLanguage: String = "",
+    metadataLanguageSuggestions: List<String> = emptyList(),
     onMetadataLanguageChanged: (String) -> Unit = {},
 ) {
-    SettingsSectionCard(modifier = modifier) {
-        SettingsSectionHeader("Subtitles")
-
+    val subtitleLanguageOptions = remember(subtitleLanguage, subtitleLanguageSuggestions) {
+        LanguageOptions.options(
+            key = SettingKeys.PLAYBACK_SUBTITLE_LANGUAGE,
+            currentValue = subtitleLanguage,
+            runtimeValues = subtitleLanguageSuggestions,
+        )
+    }
+    val metadataLanguageOptions = remember(metadataLanguage, metadataLanguageSuggestions) {
+        LanguageOptions.options(
+            key = SettingKeys.CATALOG_METADATA_LANGUAGE,
+            currentValue = metadataLanguage,
+            runtimeValues = metadataLanguageSuggestions,
+        )
+    }
+    SettingsSection(title = "Subtitles", modifier = modifier) {
         SettingsDropdownRow(
-            label = "Subtitle Language",
-            value = subtitleLanguage,
-            options = subtitleLanguageOptions,
-            onOptionSelected = onLanguageChanged,
+            label = "Subtitle language",
+            description = "Choose which subtitle language Silo should prefer first.",
+            value = LanguageOptions.label(subtitleLanguage, SettingKeys.PLAYBACK_SUBTITLE_LANGUAGE),
+            options = subtitleLanguageOptions.map { it.second },
+            onOptionSelected = { label ->
+                onLanguageChanged(LanguageOptions.wireValue(label, subtitleLanguageOptions))
+            },
         )
 
         SettingsDropdownRow(
-            label = "Subtitle Mode",
+            label = "Subtitle behavior",
+            description = "When Silo should turn subtitles on.",
             value = subtitleMode.label,
             options = SubtitleMode.entries.map { it.label },
             onOptionSelected = { label ->
@@ -63,7 +64,8 @@ fun SubtitleSettings(
         )
 
         SettingsSwitchRow(
-            label = "Show Forced Subtitles",
+            label = "Show forced subtitles",
+            description = "Show subtitles for foreign-language dialogue even when subtitles are off.",
             checked = showForcedSubtitles,
             onCheckedChange = onForcedSubtitlesChanged,
         )
@@ -72,28 +74,27 @@ fun SubtitleSettings(
         // (appearance follows the OS captioning preferences) + the custom
         // appearance editor (the same sheet the player uses).
         SettingsSwitchRow(
-            label = "Match Device Settings",
+            label = "Match device caption settings",
+            description = "Use the operating system's caption style instead of Silo's.",
             checked = subtitleMatchesDevice,
             onCheckedChange = onSubtitleMatchesDeviceChanged,
         )
         if (!subtitleMatchesDevice) {
-            SettingsClickableRow(
-                icon = Icons.Filled.ClosedCaption,
-                label = "Subtitle Appearance",
+            SettingsNavigationRow(
+                label = "Subtitle appearance",
+                description = "How subtitles are drawn during playback.",
                 onClick = onOpenSubtitleAppearance,
             )
         }
 
         if (metadataLanguageEnabled) {
-            val selectedLabel = metadataLanguageOptions.firstOrNull { it.first == metadataLanguage }?.second ?: "Off"
             SettingsDropdownRow(
-                label = "Metadata Language",
-                value = selectedLabel,
+                label = "Metadata language",
+                description = "Fallback language Silo prefers for titles, descriptions, and artwork.",
+                value = LanguageOptions.label(metadataLanguage, SettingKeys.CATALOG_METADATA_LANGUAGE),
                 options = metadataLanguageOptions.map { it.second },
                 onOptionSelected = { label ->
-                    metadataLanguageOptions.firstOrNull { it.second == label }?.let {
-                        onMetadataLanguageChanged(it.first)
-                    }
+                    onMetadataLanguageChanged(LanguageOptions.wireValue(label, metadataLanguageOptions))
                 },
             )
         }

@@ -18,7 +18,7 @@ the reviewed slice-A head as one security-focused, compiling vertical slice.
 - `eda4a4a2` — keep hardened EPUB paths compatible with Android API 24
 - `1fecf9b1` — centralize authenticated HTTP origin comparison
 - `cbf398fa` — reject ambiguous HTTP authorities
-- `5d5f0562` — keep credentials on the configured Silo origin
+- `5d5f0562` — keep credentials on the configured Prairie origin
 - `e18d092e` — reject authentication scopes whose credentials were replaced
 - `c07d9f9f` — require explicit consent before cleartext login
 

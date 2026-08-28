@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.common.player.video
 
+import org.prairieserver.prairie.common.player.StartParams
+
 data class VideoPlaybackStartRequest(
     val contentId: String,
     val preferredFileId: Int?,
@@ -29,4 +31,15 @@ data class VideoPlaybackStartRequest(
      * unreachable (issue #33). Default false = the gate applies.
      */
     val force: Boolean = false,
+    /**
+     * Session-only intent captured from the preceding episode. TV resolves it
+     * against this request's target catalog only after loading its watch detail.
+     */
+    val episodeSelectionHandoff: EpisodeSelectionHandoff? = null,
+    /**
+     * Exact adoption-time evidence for renewing a server session that vanished.
+     * A renewal is the same output route, so probing capabilities or rebuilding
+     * context here would silently turn it into a different playback decision.
+     */
+    val recoveryStartParams: StartParams? = null,
 )

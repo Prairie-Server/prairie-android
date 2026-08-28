@@ -1,12 +1,18 @@
 package org.prairieserver.prairie.repository
 
 import org.prairieserver.prairie.model.settings.EffectiveSetting
+import org.prairieserver.prairie.model.settings.EffectiveSettingValue
 import org.prairieserver.prairie.model.settings.EffectiveSubtitleAppearance
+import org.prairieserver.prairie.model.settings.SettingScopeIdentity
+import org.prairieserver.prairie.model.settings.StoredSettingValue
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.OverlayConfigResponse
 import org.prairieserver.prairie.network.api.SettingsApi
+import org.prairieserver.prairie.network.api.SettingsCapabilitiesResult
+import org.prairieserver.prairie.network.api.newSettingMutationId
 import org.prairieserver.prairie.network.map
+import kotlinx.serialization.json.JsonElement
 
 class SettingsRepository(
     private val settingsApi: SettingsApi,
@@ -40,6 +46,63 @@ class SettingsRepository(
     suspend fun getEffectiveSettings(keys: List<String>): ApiResult<Map<String, EffectiveSetting>> =
         settingsApi.getEffectiveSettings(keys).map { response ->
             response.settings.associateBy { it.key }
+        }
+
+    /**
+     * Batched canonical resolution (`GET /api/v1/settings/values/effective`):
+     * typed JSON values, each with the scope it resolved from. A key the
+     * server's contract does not know is simply absent from the map.
+     */
+    suspend fun getEffectiveValues(
+        keys: List<String> = emptyList(),
+        libraryIds: List<Int> = emptyList(),
+        seriesIds: List<String> = emptyList(),
+    ): ApiResult<Map<String, EffectiveSettingValue>> =
+        settingsApi.getEffectiveValues(keys, libraryIds, seriesIds).map { response ->
+            response.settings.associateBy { it.key }
+        }
+
+    /**
+     * What the connected server's settings contract supports, or
+     * [SettingsCapabilitiesResult.ServerUpgradeRequired] when it predates the
+     * canonical settings API. Screens surface that case as an explanation
+     * rather than as an empty list of settings.
+     */
+    suspend fun contractCapabilities(): SettingsCapabilitiesResult =
+        settingsApi.getContractCapabilities()
+
+    /**
+     * Write one profile-scoped value (`scope=profile`) — the household
+     * preference that applies on every device until a device overrides it.
+     *
+     * A fresh mutation id per call is correct here because one call is one
+     * logical write: these callers are settings pickers that roll their UI
+     * back on failure, so a user re-picking is genuinely new content and must
+     * not replay an id (that is exactly the 409 `mutation_id_conflict` case).
+     * A caller that retries the *same* write must pass the id it already used.
+     */
+    suspend fun setProfileValue(
+        key: String,
+        value: JsonElement,
+        mutationId: String = newSettingMutationId(),
+    ): ApiResult<StoredSettingValue> =
+        settingsApi.putValue(
+            key = key,
+            scope = SettingScopeIdentity.profile(),
+            value = value,
+            mutationId = mutationId,
+        )
+
+    /**
+     * Clear the profile-scoped value so the setting inherits again. 404 means
+     * nothing was stored there, which is the state the caller asked for, so it
+     * reports success rather than an error the UI would have to special-case.
+     */
+    suspend fun clearProfileValue(key: String): ApiResult<Unit> =
+        when (val result = settingsApi.deleteValue(key, SettingScopeIdentity.profile())) {
+            is ApiResult.Error ->
+                if (result.code == 404) ApiResult.Success(Unit) else result
+            else -> result
         }
 
     suspend fun getEffectiveSubtitleAppearance(): ApiResult<EffectiveSubtitleAppearance> =

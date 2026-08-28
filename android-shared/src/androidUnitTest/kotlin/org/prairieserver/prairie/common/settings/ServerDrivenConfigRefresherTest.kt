@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.common.settings
 
+import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.LibraryPlaybackPref
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.network.ApiResult
@@ -146,7 +147,7 @@ private class FakeLibraryPlaybackPrefsStore : LibraryPlaybackPrefsStore {
 }
 
 private class FakePlayerSettingsStore : PlayerSettingsStore {
-    override val autoSkipIntroFlow: Flow<Boolean> = flowOf(false)
+    override val introSkipModeFlow: Flow<IntroSkipMode> = flowOf(IntroSkipMode.ASK)
     override val autoSkipCreditsFlow: Flow<Boolean> = flowOf(false)
     override val autoPlayNextFlow: Flow<Boolean> = flowOf(true)
     override val hdrEnabledFlow: Flow<Boolean> = flowOf(true)
@@ -164,12 +165,12 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val playbackSpeedFlow: Flow<Double> = flowOf(1.0)
     override val audioSyncMsFlow: Flow<Int> = flowOf(0)
     override val subtitleSyncMsFlow: Flow<Int> = flowOf(0)
-    override fun subtitleSyncMsFor(contentId: String?): Flow<Int> = subtitleSyncMsFlow
     override val nextUpPromptSecondsFlow: Flow<Int> = flowOf(30)
     override val sleepTimerDefaultMinutesFlow: Flow<Int> = flowOf(30)
     override val resumeRewindSecondsFlow: Flow<Int> = flowOf(7)
     override val passOutThresholdFlow: Flow<Int> = flowOf(3)
     override val preferredQualityFlow: Flow<String> = flowOf("auto")
+    override val maxBitrateKbpsFlow: Flow<Int?> = flowOf(null)
     override val audioLanguageFlow: Flow<String> = flowOf("")
     override val videoGravityFlow: Flow<String> = flowOf("fit")
     override val orientationModeFlow: Flow<String> = flowOf("auto")
@@ -177,7 +178,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val subtitleUsesDeviceOverrideFlow: Flow<Boolean> = flowOf(false)
     var refreshCalls = 0
 
-    override suspend fun setAutoSkipIntro(value: Boolean) = Unit
+    override suspend fun setIntroSkipMode(value: IntroSkipMode) = Unit
     override suspend fun setAutoSkipCredits(value: Boolean) = Unit
     override suspend fun setAutoPlayNext(value: Boolean) = Unit
     override suspend fun setHdrEnabled(value: Boolean) = Unit
@@ -193,16 +194,17 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setPlaybackSpeed(value: Double) = Unit
     override suspend fun setAudioSyncMs(value: Int) = Unit
     override suspend fun setSubtitleSyncMs(value: Int) = Unit
-    override suspend fun setSubtitleSyncMsFor(contentId: String, value: Int) = Unit
     override suspend fun setNextUpPromptSeconds(value: Int) = Unit
     override suspend fun setSleepTimerDefaultMinutes(value: Int) = Unit
     override suspend fun setResumeRewindSeconds(value: Int) = Unit
     override suspend fun setPassOutThreshold(value: Int) = Unit
     override suspend fun setPreferredQuality(value: String) = Unit
+    override suspend fun setQuality(resolution: String, bitrateKbps: Int?) = Unit
     override suspend fun setAudioLanguage(value: String) = Unit
     override suspend fun setVideoGravity(value: String) = Unit
     override suspend fun setOrientationMode(value: String) = Unit
     override suspend fun setSubtitleAppearance(value: SubtitleAppearance) = Unit
+    override suspend fun flushProjectedSubtitleAppearance() = Unit
     override suspend fun refreshFromServer() {
         refreshCalls++
     }

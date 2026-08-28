@@ -6,8 +6,8 @@ import org.prairieserver.prairie.domain.MediaActionsCoordinator
 import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.repository.LiveTvRepository
-import org.prairieserver.prairie.repository.AdminRepository
 import org.prairieserver.prairie.repository.AuthRepository
+import org.prairieserver.prairie.repository.OnboardingRepository
 import org.prairieserver.prairie.repository.CalendarRepository
 import org.prairieserver.prairie.repository.DeviceLoginRepository
 import org.prairieserver.prairie.repository.CatalogRepository
@@ -28,6 +28,7 @@ import org.prairieserver.prairie.repository.SettingsRepository
 import org.prairieserver.prairie.repository.WatchTogetherRepository
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.watchtogether.RoomSession
+import org.prairieserver.prairie.watchtogether.WatchTogetherEntryGateway
 import org.koin.dsl.module
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,13 +45,29 @@ import kotlinx.coroutines.SupervisorJob
  * and TokenManager, so sharing instances is safe and efficient.
  */
 val repositoryModule = module {
-    // Repositories — `getOrNull()` for ServerRegistry / HealthApi keeps these
+    // Repositories — optional multi-server identity dependencies keep these
     // working when the multi-server platform binding isn't installed
     // (commonMain tests, hypothetical iOS reuse). Both repos no-op the
     // multi-server side effects when the registry is null.
-    single { AuthRepository(get(), get(), getOrNull(), getOrNull()) }
+    single {
+        AuthRepository(
+            authApi = get(),
+            tokenManager = get(),
+            serverRegistry = getOrNull(),
+            healthApi = getOrNull(),
+            brandingApi = getOrNull(),
+        )
+    }
+    single { OnboardingRepository(get()) }
     single { DeviceLoginRepository(get()) }
-    single { CatalogRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>() ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort) }
+    single {
+        CatalogRepository(
+            catalogApi = get(),
+            catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
+                ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
+            identityTransitions = get(),
+        )
+    }
     single { CalendarRepository(get()) }
     single { PlaybackRepository(get()) }
     // `getOrNull()` picks up the Room-backed ports when the Android platform
@@ -58,14 +75,24 @@ val repositoryModule = module {
     // back to the network-only no-op ports in commonMain tests / when unbound.
     single {
         PersonalDataRepository(
-            get(),
-            getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>() ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
-            getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>() ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
+            personalDataApi = get(),
+            userItemStatePort = getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>()
+                ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
+            catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
+                ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
+            identityTransitions = get(),
         )
     }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get(), get()) }
     single { CollectionRepository(get()) }
-    single { SectionRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>() ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort) }
+    single {
+        SectionRepository(
+            sectionApi = get(),
+            catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
+                ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
+            identityTransitions = get(),
+        )
+    }
     single { RecommendationRepository(get()) }
     single { RequestsRepository(get()) }
     single { RequestsFeatureStore(get()) }
@@ -75,11 +102,13 @@ val repositoryModule = module {
     single { org.prairieserver.prairie.model.feature.MetadataAiFeatureStore(get()) }
     single { org.prairieserver.prairie.repository.HomeRealtimeCoordinator(get(), get()) }
     single { SettingsRepository(get()) }
+    // Profile-scoped canonical settings, shared by the phone and TV screens so
+    // one platform cannot grow a behavior the other lacks.
+    single { org.prairieserver.prairie.domain.settings.ProfileSettingsController(get()) }
     single { LibraryPlaybackPrefsRepository(get()) }
     single { DownloadsRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.DownloadDeletionPort>() ?: org.prairieserver.prairie.repository.port.NoOpDownloadDeletionPort) }
     single { EbookReaderRepository(get()) }
     single { SubtitlesRepository(get()) }
-    single { AdminRepository(get()) }
     single { PushRegistrationRepository(get()) }
 
     // REST-backed inbox state plus a realtime factory that builds the default
@@ -99,7 +128,7 @@ val repositoryModule = module {
 
     // One room's snapshot/suggestions state + WS lifecycle. The realtime factory
     // builds the per-room socket client from the shared HttpClient + TokenManager.
-    // Access auth is supplied by the same-origin Prairie auth plugin; the room/profile
+    // Access auth is supplied by the same-origin Silo auth plugin; the room/profile
     // query fields are a residual server contract. Lazy so a socket is only minted
     // when connect() runs.
     single {
@@ -115,6 +144,7 @@ val repositoryModule = module {
             },
         )
     }
+    single<WatchTogetherEntryGateway> { get<WatchTogetherRepository>() }
     // Eager so the identity-transition privacy gate is installed before any
     // profile/server/token mutation can occur. This process-lifetime scope,
     // rather than a screen scope, owns connection replacement and teardown.

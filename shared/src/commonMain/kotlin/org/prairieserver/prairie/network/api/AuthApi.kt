@@ -45,7 +45,10 @@ class AuthApi(private val client: HttpClient) {
     }
 
     suspend fun getSetupStatus(): ApiResult<SetupStatusResponse> = safeApiCall {
-        client.get("/api/v1/auth/setup")
+        // Public, exactly like the explicit-server variant below — which
+        // already opted out. Without this the relative form carries a bearer
+        // it never needed, and a dead session would fail it.
+        client.get("/api/v1/auth/setup") { skipPrairieAuth() }
     }
 
     suspend fun getSetupStatus(serverUrl: String): ApiResult<SetupStatusResponse> = safeApiCall {
@@ -55,12 +58,43 @@ class AuthApi(private val client: HttpClient) {
     }
 
     suspend fun getSignupStatus(): ApiResult<SignupStatusResponse> = safeApiCall {
-        client.get("/api/v1/auth/signup")
+        client.get("/api/v1/auth/signup") { skipPrairieAuth() }
     }
 
     suspend fun getSignupStatus(serverUrl: String): ApiResult<SignupStatusResponse> = safeApiCall {
         client.get("${serverUrl.trimEnd('/')}/api/v1/auth/signup") {
             skipPrairieAuth()
+        }
+    }
+
+    /**
+     * Resolves an emailed-invitation claim token against the given server.
+     * Unauthenticated: this runs before any account exists.
+     */
+    suspend fun lookupInvitation(
+        serverUrl: String,
+        token: String,
+    ): ApiResult<InvitationLookupResponse> = safeApiCall {
+        // The token arrives from an emailed link and is not ours to trust as
+        // path-safe: a '/' or '?' in it would otherwise re-shape the request.
+        client.get("${serverUrl.trimEnd('/')}/api/v1/invitations/${token.encodeURLPathPart()}") {
+            skipPrairieAuth()
+        }
+    }
+
+    /**
+     * Accepts an invitation: creates the account (username = the invitation's
+     * email) and returns a normal login response.
+     */
+    suspend fun acceptInvitation(
+        serverUrl: String,
+        token: String,
+        password: String,
+    ): ApiResult<LoginResponse> = safeApiCall {
+        client.post("${serverUrl.trimEnd('/')}/api/v1/invitations/${token.encodeURLPathPart()}/accept") {
+            skipPrairieAuth()
+            contentType(ContentType.Application.Json)
+            setBody(AcceptInvitationRequest(password = password))
         }
     }
 
@@ -72,15 +106,6 @@ class AuthApi(private val client: HttpClient) {
         client.post("/api/v1/auth/logout")
     }
 
-    suspend fun getSessions(): ApiResult<SessionsResponse> = safeApiCall {
-        client.get("/api/v1/auth/sessions")
-    }
-
-    suspend fun revokeSession(id: String): ApiResult<Unit> = safeApiCall {
-        client.delete("/api/v1/auth/sessions/$id")
-    }
-
-    suspend fun deleteSession(id: String): ApiResult<Unit> = revokeSession(id)
 }
 
 /**

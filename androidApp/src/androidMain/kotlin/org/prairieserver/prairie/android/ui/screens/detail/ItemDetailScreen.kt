@@ -35,6 +35,7 @@ import org.prairieserver.prairie.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMIS
 import org.prairieserver.prairie.android.downloads.hasLegacyPublicDownloadPermission
 import org.prairieserver.prairie.android.ui.components.DetailLoadingSkeleton
 import org.prairieserver.prairie.android.ui.components.ErrorView
+import org.prairieserver.prairie.android.ui.components.swipeBackToDismiss
 import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastTargetPickerSheet
 import org.prairieserver.prairie.android.ui.screens.downloads.openDownloadTargetInExternalApp
 import org.prairieserver.prairie.android.ui.screens.watchtogether.SuggestToRoomViewModel
@@ -292,6 +293,10 @@ fun ItemDetailScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            // Swipe right on the page to go back (iOS interactive pop) — a
+            // lighter alternative to reaching for the back arrow on a tall
+            // detail page.
+            .swipeBackToDismiss(onDismiss = onBackClick)
             .background(MaterialTheme.colorScheme.background),
     ) {
         when {
@@ -556,9 +561,11 @@ fun ItemDetailScreen(
                         SeriesDetailContent(
                             translation = translationSlot,
                             detail = detail,
+                            similarItems = state.similarItems,
                             seasons = state.seasons,
                             selectedSeasonNumber = state.selectedSeasonNumber,
                             episodes = state.episodes,
+                            episodesBySeason = state.episodesBySeason,
                             isLoadingEpisodes = state.isLoadingEpisodes,
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
@@ -648,7 +655,11 @@ fun ItemDetailScreen(
                                         ?: playbackResumePosition(detail.userData),
                                 )
                             },
-                            onSuggestToRoom = if (suggestRoom != null && nextEpisode != null) {
+                            onSuggestToRoom = if (
+                                CLIENT_WATCH_TOGETHER_SURFACE_ENABLED &&
+                                suggestRoom != null &&
+                                nextEpisode != null
+                            ) {
                                 {
                                     suggestViewModel.suggest(
                                         contentId = nextEpisode.contentId,
@@ -672,6 +683,28 @@ fun ItemDetailScreen(
                     else -> {
                         val seriesId = detail.seriesId
                         val seasonNumber = detail.seasonNumber
+                        val episodeSeason = if (detail.type == "episode") {
+                            state.seasons.firstOrNull { it.seasonNumber == seasonNumber }
+                        } else {
+                            null
+                        }
+                        val seasonPosterUrl = episodeSeason?.posterUrl?.takeIf { it.isNotBlank() }
+                        val portraitArtwork = if (detail.type == "episode") {
+                            DetailPortraitArtwork(
+                                url = seasonPosterUrl ?: state.episodeSeriesPosterUrl,
+                                thumbhash = if (seasonPosterUrl != null) {
+                                    episodeSeason?.posterThumbhash
+                                } else {
+                                    state.episodeSeriesPosterThumbhash
+                                },
+                                reserveSpace = true,
+                            )
+                        } else {
+                            DetailPortraitArtwork(
+                                url = detail.posterUrl,
+                                thumbhash = detail.posterThumbhash,
+                            )
+                        }
                         // Derive download state for the currently-selected
                         // version. Re-reads on every UI emission so the
                         // worker's upsertLocal progress + status transitions
@@ -727,6 +760,8 @@ fun ItemDetailScreen(
                         MovieDetailContent(
                             translation = translationSlot,
                             detail = detail,
+                            similarItems = state.similarItems,
+                            portraitArtwork = portraitArtwork,
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
                             selectedVersionIndex = videoDisplayVersionIndex,
@@ -782,6 +817,7 @@ fun ItemDetailScreen(
                             seasons = state.seasons,
                             selectedSeasonNumber = state.selectedSeasonNumber,
                             episodes = state.episodes,
+                            episodesBySeason = state.episodesBySeason,
                             isLoadingEpisodes = state.isLoadingEpisodes,
                             onSeasonSelected = { viewModel.selectSeason(it) },
                             onEpisodePlayClick = { contentId, resumePositionSeconds ->
@@ -846,7 +882,9 @@ fun ItemDetailScreen(
                                     resumePositionSeconds = playbackResumePosition(detail.userData),
                                 )
                             },
-                            onSuggestToRoom = suggestRoom?.let {
+                            onSuggestToRoom = if (
+                                CLIENT_WATCH_TOGETHER_SURFACE_ENABLED && suggestRoom != null
+                            ) {
                                 {
                                     suggestViewModel.suggest(
                                         contentId = detail.contentId,
@@ -856,6 +894,8 @@ fun ItemDetailScreen(
                                         posterUrl = detail.posterUrl,
                                     )
                                 }
+                            } else {
+                                null
                             },
                             onWatchTogether = if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
                                 { onWatchTogether(detail.contentId, explicitFileId) }

@@ -8,12 +8,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -25,9 +23,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,31 +40,29 @@ fun PlaybackStatsSheet(
     sessionId: String? = null,
     playMethod: String? = null,
     positionLabel: String? = null,
+    tabletopPaneHeight: Dp? = null,
 ) {
     if (!isVisible) return
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val dismissSheet = { scope.dismissPlayerSheet(sheetState, onDismiss) }
 
     LaunchedEffect(isVisible) {
         if (isVisible) sheetState.show()
     }
 
-    ModalBottomSheet(
-        onDismissRequest = {
-            scope.launch { sheetState.hide() }
-            onDismiss()
-        },
+    PlayerModalBottomSheet(
+        onDismissRequest = dismissSheet,
         sheetState = sheetState,
-        containerColor = Color.Transparent,
-        contentColor = Color.White,
+        tabletopPaneHeight = tabletopPaneHeight,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 // Cap below the top edge + keep content flings from
                 // dismissing the sheet — see PlayerSheetSupport.
-                .heightIn(max = playerSheetMaxHeight())
+                .playerSheetContent(tabletopPaneHeight)
                 .nestedScroll(PlayerSheetFlingGuard)
                 .background(
                     brush = Brush.verticalGradient(
@@ -86,11 +82,9 @@ fun PlaybackStatsSheet(
                 PlayerSheetHeader(
                     title = "Stats for nerds",
                     onBack = onBack?.let { back ->
-                        {
-                            scope.launch { sheetState.hide() }
-                            back()
-                        }
+                        { scope.dismissPlayerSheet(sheetState, back) }
                     },
+                    onDismiss = dismissSheet,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
@@ -158,7 +152,10 @@ internal fun PlayerStatsSnapshot.mobileStatsRows(): List<Pair<String, String>> =
     videoDecoderName?.let { add("Video decoder" to it) }
     audioCodec?.let { add("Audio codec" to it) }
     audioDecoderName?.let { add("Audio decoder" to it) }
-    bitrateBps?.let { add("Bitrate" to formatStatsBitrate(it)) }
+    // Media3's onBandwidthEstimate value — measured network throughput, not the
+    // media bitrate. Labelling it "Bitrate" reads as a ~19 Mbps stream claiming
+    // 151 Mbps on a fast LAN.
+    bitrateBps?.let { add("Estimated bandwidth" to formatStatsBitrate(it)) }
     if (droppedFrames > 0) add("Dropped frames" to droppedFrames.toString())
     if (audioUnderruns > 0) add("Audio underruns" to audioUnderruns.toString())
 }

@@ -44,7 +44,10 @@ import org.prairieserver.prairie.common.player.audio.DelayAudioProcessor
 import org.prairieserver.prairie.common.player.audio.PassthroughSuppressingAudioSink
 import org.prairieserver.prairie.common.player.subtitle.OffsetSubtitleParserFactory
 import org.prairieserver.prairie.common.player.subtitle.PgsSupExtractor
+import org.prairieserver.prairie.common.player.subtitle.SidecarPlaybackFloor
+import org.prairieserver.prairie.common.player.subtitle.SidecarSubtitleMediaSource
 import org.prairieserver.prairie.common.player.subtitle.SubtitleOffsetHolder
+import org.prairieserver.prairie.common.player.subtitle.StreamingWebvttExtractor
 import org.prairieserver.prairie.common.player.video.PrairieMediaCodecVideoRenderer
 import org.prairieserver.prairie.common.player.video.PlaybackRuntimeCorrectionState
 import org.prairieserver.prairie.libass.LibassBridge
@@ -311,15 +314,11 @@ class PrairiePlayerFactory(
             loadErrorHandlingPolicy = mediaLoadErrorHandlingPolicy,
         )
 
-        // Staged buffer: start once a modest cushion is ready, wait longer
-        // after an actual stall, and let playback grow a deeper forward
-        // buffer in the background. A finite byte cap lets low-bitrate
-        // streams grow toward the time limit while preventing high-bitrate
-        // remuxes from filling the app heap on memory-constrained TVs.
-        val bufferPolicy = PlaybackBufferPolicy.forMode(
-            PlaybackBufferMode.Balanced,
-            playbackBufferDeviceProfile(),
-        )
+        // Start on a small cushion and keep filling in the background. Depth is
+        // bounded by the device's memory budget in PrairieLoadControl; the gap
+        // between min and max is fixed so the connection is never idle long
+        // enough for an upstream proxy to close it.
+        val bufferPolicy = PlaybackBufferPolicy.forConditions(playbackBufferDeviceProfile())
         val loadControl = PrairieLoadControl(bufferPolicy)
 
         val builder = ExoPlayer.Builder(context, renderersFactory)
@@ -379,6 +378,11 @@ class PrairiePlayerFactory(
      * Apply capability-aware track selection presets to [player]. Call at
      * player construction and again whenever [AudioPassthroughCapabilities]
      * changes (HDMI hot-plug, BT pair, user-toggled "force Atmos" setting).
+     *
+     * Returns whether parameters were actually assigned. A skip — teardown
+     * guard or no-op parameters — must be visible to callers that track
+     * "presets have been applied once", or a skipped first run silently
+     * reclassifies the real first application as a later change.
      */
     fun applyTrackSelectionPresets(
         player: Player,
@@ -387,16 +391,34 @@ class PrairiePlayerFactory(
         preferredAudioLanguage: String? = null,
         preferredTextLanguage: String? = null,
         hdrEnabled: Boolean = true,
-    ) {
+    ): Boolean {
+        // ExoPlayer resolves a track reselection by seeking the current media
+        // period. With no media period — idle, empty timeline, or torn down
+        // while this was in flight — that path dereferences a null holder and
+        // kills playback outright:
+        //
+        //   NullPointerException: MediaPeriodHolder.info
+        //     at ExoPlayerImplInternal.seekToCurrentPosition
+        //     at ExoPlayerImplInternal.reselectTracksInternalAndSeek
+        //
+        // Capability changes are exactly what lands here at the wrong moment:
+        // an HDMI route drop fires this while the screen is being left, so the
+        // player is already past the point of having anything to reselect.
+        // Presets are re-applied on the next construction anyway, so skipping
+        // costs nothing.
+        if (shouldSkipTrackReselection(player.playbackState, player.currentTimeline.isEmpty)) return false
+
         val base = player.trackSelectionParameters
         val next = if (isTv) {
+            // preferredTextLanguage is deliberately NOT forwarded on TV: the
+            // subtitle transaction adapter is the only authority that may
+            // enable a text track there (see TrackSelectionPresets.buildTvParameters).
             TrackSelectionPresets.buildTvParameters(
                 context = context,
                 base = base,
                 audioCaps = audioCaps,
                 displayHdr = displayHdr,
                 preferredAudioLanguage = preferredAudioLanguage,
-                preferredTextLanguage = preferredTextLanguage,
                 allowHdr = hdrEnabled,
             )
         } else {
@@ -410,13 +432,14 @@ class PrairiePlayerFactory(
             )
         }
         player.trackSelectionParameters = next
+        return true
     }
 
     /**
      * Build a [MediaItem] the player can consume directly via `setMediaItem`.
      * The MIME type hint on the item is what lets [DefaultMediaSourceFactory]
      * pick HLS vs. progressive without requiring the stream URL to carry the
-     * right extension — Prairie's transcode URLs don't always end in .m3u8.
+     * right extension — Silo's transcode URLs don't always end in .m3u8.
      *
      * Sidecar subtitles are attached via `setSubtitleConfigurations`; the
      * selected media source factory wires them through a merging source.
@@ -623,18 +646,30 @@ class PrairiePlayerFactory(
                     subtitleParserFactory.getCueReplacementBehavior(baseFormat),
                 )
                 .build()
-            val extractorsFactory = if (configuration.mimeType == MimeTypes.APPLICATION_PGS) {
-                ExtractorsFactory {
+            // Shared with the non-gating wrapper below: it publishes the live
+            // position, the extractor treats anything before it as history.
+            val playbackFloor = SidecarPlaybackFloor()
+            val extractorsFactory = when (configuration.mimeType) {
+                MimeTypes.APPLICATION_PGS -> ExtractorsFactory {
                     arrayOf(
                         PgsSupExtractor(
                             subtitleParserFactory,
                             subtitleOffsetProvider,
                             outputFormat,
+                            playbackFloor::get,
                         ),
                     )
                 }
-            } else {
-                ExtractorsFactory {
+                MimeTypes.TEXT_VTT -> ExtractorsFactory {
+                    arrayOf(
+                        StreamingWebvttExtractor(
+                            subtitleParserFactory.create(outputFormat),
+                            outputFormat,
+                            MAX_SUBTITLE_BYTES,
+                        ),
+                    )
+                }
+                else -> ExtractorsFactory {
                     arrayOf(
                         SubtitleExtractor(
                             subtitleParserFactory.create(outputFormat),
@@ -643,7 +678,12 @@ class PrairiePlayerFactory(
                     )
                 }
             }
-            return ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
+            val subtitleDataSourceFactory = if (configuration.mimeType in replayableTextSubtitleMimeTypes) {
+                ReplayableSubtitleDataSourceFactory(dataSourceFactory)
+            } else {
+                dataSourceFactory
+            }
+            val progressive = ProgressiveMediaSource.Factory(subtitleDataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
                 .createMediaSource(
                     MediaItem.Builder()
@@ -651,7 +691,19 @@ class PrairiePlayerFactory(
                         .setMimeType(configuration.mimeType)
                         .build(),
                 )
+            // A sidecar must not decide when playback starts or what loads
+            // next — left as a plain merged child it starves the video until
+            // its own download reaches the resume point. See the wrapper.
+            return SidecarSubtitleMediaSource(progressive, playbackFloor)
         }
+    }
+
+    private companion object {
+        val replayableTextSubtitleMimeTypes = setOf(
+            MimeTypes.TEXT_SSA,
+            MimeTypes.APPLICATION_SUBRIP,
+            MimeTypes.APPLICATION_TTML,
+        )
     }
 }
 
@@ -722,3 +774,17 @@ internal fun mediaItemMimeType(
         PlayMethod.DIRECT -> videoContainerMimeType(container)
     }
 }
+
+/**
+ * Whether a track reselection must be withheld from the player.
+ *
+ * ExoPlayer applies a reselection by seeking the current media period. With no
+ * media period — idle, or an empty timeline — that seek dereferences a null
+ * holder and ends playback with an ExoPlaybackException rather than being a
+ * no-op. Capability changes (HDMI hot-plug, audio route loss) can fire while a
+ * player is being torn down, which is exactly that window.
+ *
+ * Kept separate from the player so the rule can be tested without a Context.
+ */
+internal fun shouldSkipTrackReselection(playbackState: Int, timelineEmpty: Boolean): Boolean =
+    playbackState == Player.STATE_IDLE || timelineEmpty

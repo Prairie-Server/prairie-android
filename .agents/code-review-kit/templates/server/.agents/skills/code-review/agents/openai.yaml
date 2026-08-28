@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review Silo Server diffs for bugs and contract risk"
+  default_prompt: "Use $code-review to review the default-branch...HEAD diff and report Critical / Important findings."

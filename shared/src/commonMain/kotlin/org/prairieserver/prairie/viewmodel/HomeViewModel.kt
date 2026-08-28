@@ -7,13 +7,14 @@ import org.prairieserver.prairie.model.catalog.MediaItemUserState
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
+import org.prairieserver.prairie.network.IdentityTransitionBarrier
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
+import org.prairieserver.prairie.repository.port.HomeCacheWriteLease
 import org.prairieserver.prairie.repository.port.NoOpHomeCachePort
 import org.prairieserver.prairie.repository.port.NoOpUserItemStatePort
 import org.prairieserver.prairie.repository.port.UserItemStatePort
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,18 @@ data class HomeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val sections: List<ResolvedSection> = emptyList(),
+    /**
+     * Whether [sections] is the whole picture, or rows are still arriving.
+     *
+     * Surfaces that restore focus by identity need this: while hydration is
+     * still filling rows, a launch row can simply be absent, and "absent" has
+     * to mean "not here YET" rather than "gone" — otherwise focus is driven to
+     * the nearest survivor, which is a card the viewer never opened.
+     *
+     * Defaults true because a caller that does not know is describing a
+     * finished list; only a partial publish sets it false.
+     */
+    val sectionsFullyResolved: Boolean = true,
     val error: String? = null,
 )
 
@@ -45,6 +58,7 @@ class HomeViewModel(
     // Live-home accelerator (Apple realtime-updates spec). Null keeps
     // commonMain/tests network-only; the apps inject the shared coordinator.
     private val homeRealtime: org.prairieserver.prairie.repository.HomeRealtimeCoordinator? = null,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -60,6 +74,19 @@ class HomeViewModel(
     }
 
     private var realtimeRefreshInFlight = false
+
+    /**
+     * Bumped by every fetch, checked before any of them publishes.
+     *
+     * loadSections(), refresh() and refreshFromRealtime() can all be in flight
+     * at once — a resume observer fires while an initial load is still
+     * running — and each captures hadSections BEFORE its network call. Without
+     * ordering, an older partial response lands after a newer complete one,
+     * replaces good sections and marks them not fully resolved, which now also
+     * tells the TV's focus restoration to keep waiting for rows that already
+     * arrived.
+     */
+    private var fetchGeneration = 0
 
     /**
      * Debounced realtime refetch: quiet (no spinner) and single-flight —
@@ -82,7 +109,15 @@ class HomeViewModel(
         viewModelScope.launch {
             // Stale-while-revalidate: serve the cached home instantly (offline-
             // capable), then refresh from the network below.
+            // Captured BEFORE the cached read, which suspends: a refresh can
+            // start and publish fresh sections while we are in there, and
+            // overlaying the cache on top would put stale rows back on screen.
+            val bootstrapGeneration = fetchGeneration
             val cached = homeCache.getCachedHome()
+            if (fetchGeneration != bootstrapGeneration) {
+                fetchSections()
+                return@launch
+            }
             if (cached != null && cached.sections.isNotEmpty()) {
                 val overlaid = overlayLocalState(cached.sections)
                 _uiState.update { it.copy(isLoading = false, sections = overlaid, error = null) }
@@ -96,8 +131,14 @@ class HomeViewModel(
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
-            fetchSections()
-            _uiState.update { it.copy(isRefreshing = false) }
+            val generation = fetchSections()
+            // Only the newest fetch may clear the flag. A superseded refresh
+            // clearing it hides the spinner while a newer fetch is still
+            // running, and re-opens refreshFromRealtime's single-flight gate so
+            // it fires a redundant request.
+            if (generation == fetchGeneration) {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
         }
     }
 
@@ -116,9 +157,16 @@ class HomeViewModel(
         )
     }
 
-    private suspend fun fetchSections() {
+    /**
+     * Runs one home fetch and returns the generation it ran as, so callers can
+     * tell whether their own work is still the newest before acting on it.
+     */
+    private suspend fun fetchSections(): Int {
+        val requestIdentityGeneration = identityTransitions.generation.value
+        val cacheWriteLease = HomeCacheWriteLease(requestIdentityGeneration)
         // Whether we already have something to show (cached or prior fetch) — if a
         // refresh fails we keep it rather than replacing it with a blocking error.
+        val generation = ++fetchGeneration
         val hadSections = _uiState.value.sections.isNotEmpty()
         when (val result = sectionRepository.getHomeSections()) {
             is ApiResult.Success -> {
@@ -130,61 +178,55 @@ class HomeViewModel(
                 // re-downloading data already in hand. Defensive fallback resolves
                 // only sections the server left un-inlined (older deployments / a
                 // section type that reports a non-zero total but ships no items).
-                val needsFetch = sections.filter { it.items.isEmpty() && it.totalCount > 0 }
-                val resolvedPairs: List<Pair<ResolvedSection, Boolean>> = if (needsFetch.isEmpty()) {
-                    sections.map { it to true }
-                } else {
-                    val byId = needsFetch.map { section ->
-                        viewModelScope.async {
-                            section.id to when (val itemsResult = sectionRepository.getHomeSectionItems(section.id)) {
-                                is ApiResult.Success -> {
-                                    // The response carries items either nested under
-                                    // `section` or as a sibling top-level `items` list.
-                                    // Honor both — using only `.section` silently drops
-                                    // a successful refetch that returned items at the top
-                                    // level, leaving the section empty and filtered out.
-                                    val data = itemsResult.data
-                                    val responseSection = data.section
-                                    val hydrated = when {
-                                        responseSection != null && responseSection.items.isNotEmpty() ->
-                                            responseSection
-                                        responseSection != null && responseSection.totalCount == 0 ->
-                                            responseSection
-                                        responseSection != null && data.items.isNotEmpty() ->
-                                            responseSection.copy(items = data.items)
-                                        data.items.isNotEmpty() ->
-                                            section.copy(items = data.items)
-                                        else -> null
-                                    }
-                                    if (hydrated != null) hydrated to true else section to false
-                                }
-                                else -> section to false
-                            }
-                        }
-                    }.awaitAll().toMap()
-                    sections.map { section -> byId[section.id] ?: (section to true) }
+                val hydration = hydrateHomeSections(sections) { sectionId ->
+                    sectionRepository.getHomeSectionItems(sectionId)
                 }
-                val resolved = resolvedPairs.map { it.first }.filter { it.items.isNotEmpty() }
+                // Superseded while in flight: a newer fetch has already
+                // answered, so this reply describes a home nobody is looking at.
+                if (generation != fetchGeneration) return generation
+                val resolved = hydration.sections
                 // Don't persist a partially-resolved home over a good cached one.
-                val fullyResolved = resolvedPairs.all { it.second }
+                val fullyResolved = hydration.fullyResolved
 
                 // Cache the RAW server sections (snapshot), but display with the
                 // local optimistic overlay applied.
-                if (fullyResolved) {
-                    homeCache.cacheHome(resolved)
+                if (
+                    fullyResolved &&
+                    // A superseded fetch must not write its sections to the
+                    // cache either: the next cold start would serve them.
+                    generation == fetchGeneration &&
+                    requestIdentityGeneration == identityTransitions.generation.value
+                ) {
+                    homeCache.cacheHome(resolved, cacheWriteLease)
                 }
                 val overlaid = overlayLocalState(resolved)
+                // Checked AGAIN, after the cache write and the overlay. Both
+                // suspend, and a newer fetch can complete and publish during
+                // either — so a check taken before them proves only that this
+                // reply was current when it arrived, not that it still is when
+                // it finally writes.
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     // Only replace what's shown when the fetch fully resolved (or there
                     // was nothing yet) — a partial refresh must not clobber a good Home.
                     if (fullyResolved || !hadSections) {
-                        it.copy(isLoading = false, sections = overlaid, error = null)
+                        it.copy(
+                            isLoading = false,
+                            sections = overlaid,
+                            error = null,
+                            sectionsFullyResolved = fullyResolved,
+                        )
                     } else {
+                        // The partial result is discarded and the previous, good
+                        // sections stay on screen — so the flag keeps describing
+                        // THOSE, which were complete when they were published.
                         it.copy(isLoading = false, error = null)
                     }
                 }
             }
             is ApiResult.Error -> {
+                // A superseded fetch's failure is not this home's failure.
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -195,6 +237,7 @@ class HomeViewModel(
                 }
             }
             is ApiResult.NetworkError -> {
+                if (generation != fetchGeneration) return generation
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -203,6 +246,7 @@ class HomeViewModel(
                 }
             }
         }
+        return generation
     }
 
     // -- Card context-menu actions --

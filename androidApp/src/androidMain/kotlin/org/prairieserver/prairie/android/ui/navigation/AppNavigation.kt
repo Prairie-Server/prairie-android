@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import org.prairieserver.prairie.android.ui.screens.auth.DevicePairingWrongServerScreen
+import org.prairieserver.prairie.android.ui.screens.auth.DevicePairingUnknownServerScreen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +34,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.navArgument
+import kotlinx.coroutines.flow.map
 import org.prairieserver.prairie.android.cast.GoogleCastMiniBar
 import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.cast.PrairieCastSessionManager
@@ -40,7 +45,9 @@ import org.prairieserver.prairie.android.ui.screens.auth.LoginScreen
 import org.prairieserver.prairie.android.ui.screens.auth.DevicePairingScreen
 import org.prairieserver.prairie.android.ui.screens.auth.ServerSetupScreen
 import org.prairieserver.prairie.android.ui.screens.auth.SetupScreen
+import org.prairieserver.prairie.android.ui.screens.auth.InviteClaimScreen
 import org.prairieserver.prairie.android.ui.screens.auth.SignupScreen
+import org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourScreen
 import org.prairieserver.prairie.android.ui.screens.browse.BrowseScreen
 import org.prairieserver.prairie.android.ui.screens.browse.BrowseViewModel
 import org.prairieserver.prairie.android.ui.screens.calendar.CalendarScreen
@@ -58,21 +65,20 @@ import org.prairieserver.prairie.android.ui.screens.personal.FavoritesScreen
 import org.prairieserver.prairie.android.ui.screens.personal.HistoryScreen
 import org.prairieserver.prairie.android.ui.screens.personal.PersonalListsScreen
 import org.prairieserver.prairie.android.ui.screens.personal.WatchlistScreen
+import org.prairieserver.prairie.android.ui.screens.player.MobilePlayerRouteTarget
 import org.prairieserver.prairie.android.ui.screens.player.PlayerScreen
+import org.prairieserver.prairie.android.ui.screens.player.PlayerViewModel
 import org.prairieserver.prairie.android.ui.screens.profiles.CreateProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.EditProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionScreen
 import org.prairieserver.prairie.android.ui.screens.requests.MyRequestsScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDetailScreen
-import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvPlayerScreen
-import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestsScreen
 import org.prairieserver.prairie.android.ui.screens.search.MobileSearchMediaType
 import org.prairieserver.prairie.android.ui.screens.search.SearchScreen
 import org.prairieserver.prairie.android.ui.screens.search.SearchViewModel
 import org.prairieserver.prairie.android.ui.screens.servers.ServerListScreen
 import org.prairieserver.prairie.android.ui.screens.servers.ServerSwitchDestination
-import org.prairieserver.prairie.android.ui.screens.settings.CardOverlaySettingsScreen
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsScreen
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsPromptDialog
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
@@ -90,23 +96,48 @@ import org.koin.compose.viewmodel.koinViewModel
 /** Page-to-page cross-fade duration (ms). Snappier than Compose Nav's 700ms default. */
 private const val PageFadeDurationMs = 200
 
+internal class PlayerTargetProviderRegistration(
+    val backStackEntryId: String,
+    val target: () -> MobilePlayerRouteTarget?,
+)
+
+internal fun currentPlayerTargetOrNull(
+    currentBackStackEntryId: String?,
+    registration: PlayerTargetProviderRegistration?,
+): MobilePlayerRouteTarget? {
+    if (currentBackStackEntryId == null || registration?.backStackEntryId != currentBackStackEntryId) {
+        return null
+    }
+    return registration.target()
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavigation(
     navController: NavHostController = rememberNavController(),
     startDestination: String = Route.Login.route,
-    pendingExternalRoute: String? = null,
-    onExternalRouteConsumed: () -> Unit = {},
+    pendingExternalRoute: ExternalRouteRequest? = null,
+    onExternalRouteConsumed: (ExternalRouteRequest) -> Unit = {},
+    /**
+     * Re-queues [route] as a pending external request. Used when an action
+     * inside a destination is about to send the user through authentication,
+     * which clears the back stack and would otherwise lose that destination.
+     */
+    onRequeueExternalRoute: (String) -> Unit = {},
 ) {
     val tokenManager: TokenManager = koinInject()
+    val serverRegistry: org.prairieserver.prairie.network.ServerRegistry = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
-    val prairieCastController: PrairieCastController = koinInject()
+    val siloCastController: PrairieCastController = koinInject()
     val diagnosticsViewModel = koinViewModel<DiagnosticsViewModel>()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
+    var activePlayerTargetProvider by remember {
+        mutableStateOf<PlayerTargetProviderRegistration?>(null)
+    }
 
-    DisposableEffect(prairieCastController) {
-        prairieCastController.startBrowsing()
-        onDispose { prairieCastController.stopBrowsing() }
+    DisposableEffect(siloCastController) {
+        siloCastController.startBrowsing()
+        onDispose { siloCastController.stopBrowsing() }
     }
 
     // Graceful handling of server-side session invalidation (refresh 401'd).
@@ -122,37 +153,110 @@ fun AppNavigation(
         }
     }
 
-    // Keyed on the route so a notification arriving later restarts the
-    // collection; currentBackStackEntryFlow emits the current entry
-    // immediately on collect, so both "route arrives while on Main" and
-    // "Main arrives with route queued" are covered.
-    LaunchedEffect(pendingExternalRoute) {
-        // Consume only while the main (authenticated) graph is showing —
-        // a notification tapped pre-sign-in stays queued until auth lands,
-        // instead of pushing its target over Login. The back-stack flow makes
-        // this re-fire when Main arrives with the route still pending.
-        navController.currentBackStackEntryFlow.collect { entry ->
-            val route = pendingExternalRoute?.takeIf { it.isNotBlank() } ?: return@collect
-            // Every pre-auth / onboarding destination — a notification tapped
-            // on any of these stays queued until the authenticated graph
-            // shows, instead of pushing a content route that would 401.
-            val authRoutes = setOf(
-                Route.Login.route,
-                Route.ServerSetup.route,
-                Route.ServerList.ROUTE,
-                Route.Setup.route,
-                Route.Signup.route,
-                Route.ProfileSelection.route,
-                Route.CreateProfile.route,
-                Route.EditProfile.ROUTE,
-                Route.PairDevice.ROUTE,
-            )
-            if (entry.destination.route in authRoutes) return@collect
-            navController.navigate(route) {
-                launchSingleTop = true
-            }
-            onExternalRouteConsumed()
-        }
+    // Keyed on request identity, not route text, so delivering the same deep
+    // link again after Back still restarts the wait. The back-stack flow emits
+    // the current entry immediately, covering both "request arrives on Main"
+    // and "Main arrives with a request queued". Delivery itself is one-shot.
+    LaunchedEffect(pendingExternalRoute?.generation) {
+        consumeExternalRouteOnce(
+            pendingExternalRoute = pendingExternalRoute,
+            currentDestinationRoutes = navController.currentBackStackEntryFlow
+                .map { entry -> entry.destination.route },
+            isAlreadyAtRoute = { route ->
+                navController.isDisplayingExactPlayerRoute(
+                    route = route,
+                    currentPlayerTarget = currentPlayerTargetOrNull(
+                        currentBackStackEntryId = navController.currentBackStackEntry?.id,
+                        registration = activePlayerTargetProvider,
+                    ),
+                )
+            },
+            navigate = { route ->
+                // An external link to a TAB (prairie://downloads) must switch tabs,
+                // not push a second copy of that tab. A duplicate tab entry also
+                // makes the tab anchor ambiguous: popUpTo(route) resolves to the
+                // NEWEST match, so the older anchor entry would survive and Back
+                // could loop through a hidden tab.
+                if (tabForRoute(route) != null) {
+                    // Tear the player down BEFORE the tab switch, and without
+                    // saving it. tabSwitchNavOptions saves state so a tab keeps
+                    // its stack, which is right for a tab — but a saved player
+                    // entry keeps its ViewModelStore alive, so onCleared never
+                    // runs and the playback session it owns is never stopped.
+                    // The save is also keyed to the LOWEST popped destination,
+                    // so a later clearBackStack on the player route would not
+                    // even find it. Popping first means the player's teardown
+                    // runs the ordinary way.
+                    // ONLY when the player is the current destination. An
+                    // inclusive pop also removes everything above its target,
+                    // so a player sitting BELOW other entries — an external
+                    // item link pushed over it, say — would take those with it
+                    // and silently discard state the viewer expected back.
+                    // Leaving that rarer case saved is the pre-existing
+                    // behaviour; destroying history to fix it is worse.
+                    if (shouldPopPlayerBeforeExternalTab(
+                            navController.currentBackStackEntry?.destination?.route,
+                        )
+                    ) {
+                        navController.popBackStack(
+                            route = Route.Player.ROUTE,
+                            inclusive = true,
+                            saveState = false,
+                        )
+                    }
+                    navController.navigate(route) {
+                        tabSwitchNavOptions(navController.bottomMostTabRoute())
+                    }
+                } else {
+                    val replaceCurrentPlayer = shouldReplaceCurrentPlayer(
+                        currentDestinationRoute = navController.currentBackStackEntry
+                            ?.destination?.route,
+                        targetRoute = route,
+                    )
+                    // Single-top only when the arguments agree it really is the
+                    // same screen. AndroidX matches the destination NODE, so an
+                    // external link to item B while item A's detail is showing
+                    // reused A's entry and Back skipped A entirely — the same
+                    // defect this branch fixes for in-app navigation.
+                    val useSingleTop = shouldLaunchExternalRouteSingleTop(
+                        currentDestinationRoute = navController.currentBackStackEntry
+                            ?.destination?.route,
+                        currentContentId = navController.currentBackStackEntry
+                            ?.arguments
+                            ?.getString("contentId"),
+                        targetRoute = route,
+                    )
+                    navController.navigate(route) {
+                        if (replaceCurrentPlayer) {
+                            popUpTo(Route.Player.ROUTE) { inclusive = true }
+                        }
+                        // Decided from the finite external-route producer set,
+                        // not punctuation. A route's spelling does not say
+                        // whether its arguments identify a distinct request.
+                        launchSingleTop = useSingleTop
+                    }
+                }
+            },
+            isStillValidForScope = { scope ->
+                // Checked AFTER the wait: the identity can move while a request
+                // sits through setup, login and profile selection.
+                when (scope) {
+                    ExternalRouteScope.Unscoped -> true
+                    is ExternalRouteScope.Identity -> {
+                        // One snapshot, for the same reason the capture side
+                        // takes one: separate getters can tear across a switch
+                        // and validate against an identity that never existed.
+                        val live = tokenManager.snapshotCurrentScope()
+                        scope.matches(
+                            serverId = live?.serverId,
+                            profileId = live?.profileId,
+                            identityGeneration = live?.identityGeneration,
+                        )
+                    }
+                }
+            },
+            onConsumed = onExternalRouteConsumed,
+        )
     }
 
     // Re-read the authenticated profile id whenever the current destination
@@ -226,9 +330,8 @@ fun AppNavigation(
                     }
                 },
                 onChangeServer = {
-                    navController.navigate(Route.ServerList.autoScanRoute(autoScan = true)) {
+                    navController.navigate(Route.ServerSetup.route) {
                         popUpTo(Route.Login.route) { inclusive = true }
-                        launchSingleTop = true
                     }
                 },
             )
@@ -255,6 +358,44 @@ fun AppNavigation(
             )
         }
         composable(
+            route = Route.InviteClaim.ROUTE,
+            arguments = listOf(
+                navArgument("server") { type = NavType.StringType },
+                navArgument("token") { type = NavType.StringType },
+            ),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "prairie://invite?server={server}&token={token}" },
+            ),
+        ) { backStackEntry ->
+            val server = backStackEntry.arguments?.getString("server").orEmpty()
+            val claimToken = backStackEntry.arguments?.getString("token").orEmpty()
+            InviteClaimScreen(
+                serverUrl = server,
+                token = claimToken,
+                onNavigateToLogin = {
+                    navController.navigate(Route.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onClaimComplete = {
+                    navController.navigate(Route.ProfileSelection.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(Route.OnboardingTour.route) {
+            OnboardingTourScreen(
+                onDone = {
+                    navController.navigate(Route.Home.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(
             route = Route.PairDevice.ROUTE,
             arguments = listOf(
                 navArgument("token") {
@@ -267,46 +408,135 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("serverOrigin") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
-            deepLinks = listOf(
-                navDeepLink { uriPattern = "prairie://device?token={token}" },
-                navDeepLink { uriPattern = "prairie://device?code={code}" },
-            ),
+            // Deliberately NO navDeepLink registrations. While they existed,
+            // Navigation matched the Activity's launch Intent itself when the
+            // graph was installed and landed Pair Device before any
+            // server/token/profile gate had run — the exact bypass
+            // MainActivity's pending-route queue exists to prevent. The
+            // manifest filter still delivers the Intent; MainActivity parses
+            // and queues it.
         ) { backStackEntry ->
             val token = backStackEntry.arguments?.getString("token")
             val code = backStackEntry.arguments?.getString("code")
-            DevicePairingScreen(
-                token = token,
-                code = code,
-                onDone = {
-                    if (!navController.popBackStack()) {
-                        navController.navigate(Route.Home.route) {
-                            popUpTo(0) { inclusive = true }
+            val requiredOrigin = backStackEntry.arguments?.getString("serverOrigin")
+            val knownServers by serverRegistry.entries.collectAsState()
+            val activeServer by serverRegistry.activeEntry.collectAsState()
+            val match = remember(requiredOrigin, activeServer, knownServers) {
+                deviceLoginServerMatch(
+                    requiredOrigin = requiredOrigin,
+                    activeServerUrl = activeServer?.url,
+                    entries = knownServers,
+                )
+            }
+            val pairingScope = rememberCoroutineScope()
+            when (val resolved = match) {
+                is DeviceLoginServerMatch.SwitchRequired ->
+                    DevicePairingWrongServerScreen(
+                        serverName = resolved.entry.displayName,
+                        onSwitch = {
+                            pairingScope.launch {
+                                serverRegistry.switchTo(resolved.entry.id)
+                                // Re-queue ONLY if the target server will send
+                                // the user through auth: that flow ends at
+                                // profile selection, whose popUpTo(0) wipes this
+                                // destination and the code would have to be
+                                // scanned again. Re-queueing unconditionally was
+                                // worse — with no sign-in needed the request just
+                                // waited for this screen to close and then
+                                // reopened it.
+                                val authRoute = pairingAuthRouteOrNull(
+                                    tokenManager = tokenManager,
+                                    activeEntryProfileId = serverRegistry.activeEntry.value
+                                        ?.profileId,
+                                )
+                                if (authRoute != null) {
+                                    onRequeueExternalRoute(
+                                        Route.PairDevice(
+                                            token = token,
+                                            code = code,
+                                            serverOrigin = requiredOrigin,
+                                        ).route,
+                                    )
+                                    // Requeueing alone left the user sitting on
+                                    // a pairing screen for a server they are not
+                                    // signed in to; the queued request only
+                                    // fires once something else takes them
+                                    // somewhere authenticated. Send them.
+                                    navController.navigate(authRoute) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
+                            }
+                        },
+                        onCancel = {
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Route.Home.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        },
+                    )
+                is DeviceLoginServerMatch.UnknownServer ->
+                    DevicePairingUnknownServerScreen(
+                        origin = resolved.origin,
+                        onAddServer = {
+                            // Adding a server always runs setup and login, which
+                            // clear this destination — so this one always
+                            // re-queues.
+                            onRequeueExternalRoute(
+                                Route.PairDevice(
+                                    token = token,
+                                    code = code,
+                                    serverOrigin = requiredOrigin,
+                                ).route,
+                            )
+                            navController.navigate(Route.ServerSetup.route)
+                        },
+                        onCancel = {
+                            if (!navController.popBackStack()) {
+                                navController.navigate(Route.Home.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        },
+                    )
+                DeviceLoginServerMatch.Active -> DevicePairingScreen(
+                    token = token,
+                    code = code,
+                    onDone = {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Route.Home.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
                         }
-                    }
-                },
-                onSignIn = {
-                    navController.navigate(Route.Login.route)
-                },
-            )
+                    },
+                    onSignIn = {
+                        // Same preservation as the switch path: signing in ends
+                        // at profile selection, whose popUpTo(0) wipes this
+                        // destination, and the code would have to be scanned
+                        // again.
+                        onRequeueExternalRoute(
+                            Route.PairDevice(
+                                token = token,
+                                code = code,
+                                serverOrigin = requiredOrigin,
+                            ).route,
+                        )
+                        navController.navigate(Route.Login.route)
+                    },
+                )
+            }
         }
 
-        // ---- Server list (first-run connect + multi-server management) ----
-        composable(
-            route = Route.ServerList.ROUTE,
-            arguments = listOf(
-                navArgument(Route.ServerList.ARG_AUTO_SCAN) {
-                    type = NavType.BoolType
-                    defaultValue = false
-                },
-            ),
-        ) { backStackEntry ->
-            val autoScan = backStackEntry.arguments
-                ?.getBoolean(Route.ServerList.ARG_AUTO_SCAN)
-                ?: false
-            val canGoBack = navController.previousBackStackEntry != null
+        // ---- Server list (multi-server management) ----
+        composable(Route.ServerList.route) {
             ServerListScreen(
-                autoScan = autoScan,
                 onAddServer = {
                     navController.navigate(Route.ServerSetup.route)
                 },
@@ -314,23 +544,21 @@ fun AppNavigation(
                     // Route to whichever screen the new server's stored
                     // credentials can support — Home if a token+profile
                     // already exist (so the user stays signed in), else
-                    // ProfileSelection, Login, or Setup as appropriate.
+                    // ProfileSelection or Login as appropriate.
                     val target = when (destination) {
-                        ServerSwitchDestination.Home -> Route.Home.route
+                        // Through the tour gate, not straight to Home — the
+                        // switched-to server's profile may not have seen the
+                        // tour; the gate short-circuits when it has.
+                        ServerSwitchDestination.Home -> Route.OnboardingTour.route
                         ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
                         ServerSwitchDestination.Login -> Route.Login.route
-                        ServerSwitchDestination.Setup -> Route.Setup.route
                     }
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
                         launchSingleTop = true
                     }
                 },
-                onBack = if (canGoBack) {
-                    { navController.popBackStack() }
-                } else {
-                    null
-                },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -338,7 +566,10 @@ fun AppNavigation(
         composable(Route.ProfileSelection.route) {
             ProfileSelectionScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Home.route) {
+                    // Route through the tour gate: OnboardingTourScreen checks
+                    // server-side state and immediately hands off to Home when
+                    // the profile has already completed or skipped the tour.
+                    navController.navigate(Route.OnboardingTour.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
@@ -411,29 +642,53 @@ fun AppNavigation(
                 LaunchedEffect(Unit) {
                     navController.navigate(Route.Home.route) {
                         popUpTo(legacyRoute) { inclusive = true }
+                        // A restored stack can already hold Home IMMEDIATELY
+                        // below the legacy entry; without this the redirect adds
+                        // a second one, and a duplicate tab route makes the tab
+                        // anchor ambiguous (popUpTo resolves to the newest
+                        // match). Home further down is not collapsed — this
+                        // checks the new top after the alias is popped.
+                        launchSingleTop = true
                     }
+                }
+            }
+        }
+        // Same reasoning for the withdrawn admin dashboard, except that Settings
+        // is where its entry point used to live, so that is where it lands.
+        // Registered, never rendered — the admin surface stays deleted.
+        composable("admin") {
+            LaunchedEffect(Unit) {
+                navController.navigate(Route.Settings.route) {
+                    popUpTo("admin") { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+        }
+        // The Card overlays editor was removed (overlays are edited on the web
+        // app); a saved back stack from an older build can still hold its
+        // route, so keep a hidden redirect to Settings rather than crash on
+        // restore. Registered, never rendered.
+        composable("settings/card_overlays") {
+            LaunchedEffect(Unit) {
+                navController.navigate(Route.Settings.route) {
+                    popUpTo("settings/card_overlays") { inclusive = true }
+                    launchSingleTop = true
                 }
             }
         }
         composable(Route.Settings.route) {
             SettingsScreen(
                 onNavigateToServers = {
-                    navController.navigate(Route.ServerList.autoScanRoute(autoScan = false))
+                    navController.navigate(Route.ServerList.route)
                 },
                 onPairDevice = {
                     navController.navigate(Route.PairDevice().route)
-                },
-                onNavigateToAdmin = {
-                    navController.navigate(Route.Admin.route)
                 },
                 onSwitchProfile = { navController.navigate(Route.ProfileSelection.route) },
                 onNavigateToWatchlist = { navController.navigate(Route.Watchlist.route) },
                 onNavigateToFavorites = { navController.navigate(Route.Favorites.route) },
                 onNavigateToHistory = { navController.navigate(Route.History.route) },
                 onNavigateToCollections = { navController.navigate(Route.Collections().route) },
-                onNavigateToCardOverlays = {
-                    navController.navigate(Route.CardOverlays.route)
-                },
                 onNavigateToDiagnostics = {
                     navController.navigate(Route.Diagnostics.route)
                 },
@@ -443,12 +698,6 @@ fun AppNavigation(
                     }
                 },
                 showTopBar = true,
-                onBackClick = { navController.popBackStack() },
-            )
-        }
-        composable(Route.CardOverlays.route) {
-            CardOverlaySettingsScreen(
-                store = overlayPrefsStore,
                 onBackClick = { navController.popBackStack() },
             )
         }
@@ -522,40 +771,6 @@ fun AppNavigation(
                         navController.navigate(Route.ItemDetail(contentId).route)
                     } ?: navController.navigate(Route.RequestDetail(request.mediaType, request.tmdbId).route)
                 },
-            )
-        }
-
-        // ---- Live TV ----
-        composable(Route.LiveTv.route) {
-            LiveTvScreen(
-                onBackClick = { navController.popBackStack() },
-                onChannelClick = { channel ->
-                    navController.navigate(
-                        Route.LiveTvPlayer(channel.id, channel.displayName).route,
-                    )
-                },
-                onPlayLibraryItem = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
-                },
-            )
-        }
-        composable(
-            route = Route.LiveTvPlayer.ROUTE,
-            arguments = listOf(
-                navArgument(Route.LiveTvPlayer.ARG_CHANNEL_ID) { type = NavType.StringType },
-                navArgument(Route.LiveTvPlayer.ARG_NAME) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = ""
-                },
-            ),
-        ) { backStackEntry ->
-            val channelId = backStackEntry.arguments?.getString(Route.LiveTvPlayer.ARG_CHANNEL_ID).orEmpty()
-            val channelName = backStackEntry.arguments?.getString(Route.LiveTvPlayer.ARG_NAME).orEmpty()
-            LiveTvPlayerScreen(
-                channelId = channelId,
-                channelName = channelName,
-                onBackClick = { navController.popBackStack() },
             )
         }
         composable(
@@ -641,7 +856,7 @@ fun AppNavigation(
             ItemDetailScreen(
                 onBackClick = { navController.popBackStack() },
                 onPlayClick = { contentId, fileId, audioTrackIndex, subtitleTrackIndex, resumePositionSeconds ->
-                    val launchedRemotely = prairieCastController.launchOnConnectedTarget(
+                    val launchedRemotely = siloCastController.launchOnConnectedTarget(
                         PrairieCastPlaybackRequest(
                             contentId = contentId,
                             fileId = fileId,
@@ -821,6 +1036,19 @@ fun AppNavigation(
                 },
             ),
         ) { backStackEntry ->
+            val playerViewModel = koinViewModel<PlayerViewModel>()
+            DisposableEffect(backStackEntry.id, playerViewModel) {
+                val registration = PlayerTargetProviderRegistration(
+                    backStackEntryId = backStackEntry.id,
+                    target = playerViewModel::currentExternalRouteTarget,
+                )
+                activePlayerTargetProvider = registration
+                onDispose {
+                    if (activePlayerTargetProvider === registration) {
+                        activePlayerTargetProvider = null
+                    }
+                }
+            }
             PlayerScreen(
                 contentId = backStackEntry.arguments?.getString("contentId") ?: "",
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
@@ -834,6 +1062,7 @@ fun AppNavigation(
                 ),
                 roomId = backStackEntry.arguments?.getString("roomId"),
                 navController = navController,
+                viewModel = playerViewModel,
             )
         }
 
@@ -844,11 +1073,6 @@ fun AppNavigation(
                 onItemClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
-            )
-        }
-        composable(Route.Admin.route) {
-            org.prairieserver.prairie.android.ui.screens.admin.AdminStatsScreen(
-                onBackClick = { navController.popBackStack() },
             )
         }
         composable(Route.Watchlist.route) {
@@ -919,6 +1143,7 @@ fun AppNavigation(
                 onSend = { diagnosticsViewModel.uploadPrompt(prompt) },
                 onAlwaysSend = { diagnosticsViewModel.alwaysSendPrompt(prompt) },
                 onDontSend = { diagnosticsViewModel.declinePrompt(prompt) },
+                allowAlwaysSend = diagnosticsState.allowsAutomaticUpload,
             )
         }
         // Menu-less routes (detail screens etc.) get the cast bar as a bottom
@@ -937,7 +1162,7 @@ fun AppNavigation(
         )
         if (currentRoute !in castBarInlineRoutes) {
             PrairieCastMiniBar(
-                controller = prairieCastController,
+                controller = siloCastController,
                 onOpenRemote = { navController.navigate(Route.PrairieCastRemote.route) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -975,4 +1200,41 @@ fun AppNavigation(
     }
     }
     }
+}
+
+/**
+ * Exact player redelivery is idempotent. Navigating the same concrete route
+ * with launchSingleTop replaces the top entry and tears down active playback;
+ * a different content/file/quality/track route must still navigate normally.
+ */
+private fun NavHostController.isDisplayingExactPlayerRoute(
+    route: String,
+    currentPlayerTarget: MobilePlayerRouteTarget?,
+): Boolean {
+    val entry = currentBackStackEntry ?: return false
+    if (entry.destination.route != Route.Player.ROUTE) return false
+    val arguments = entry.arguments ?: return false
+    // A normal prairie://play link is a solo-playback request. Never swallow it
+    // merely because a Watch Together room currently happens to play the same
+    // content/file.
+    if (!arguments.getString("roomId").isNullOrBlank()) return false
+    val requestedTarget = playerRouteIntentOrNull(route) ?: return false
+    return currentPlayerTarget?.let(requestedTarget::matches) == true
+}
+
+/**
+ * The route the newly active server must pass through before pairing is
+ * possible, or null when it can pair immediately.
+ *
+ * Same credential check `ServerListViewModel` uses to pick a switch
+ * destination, including its preference for the registry entry's profile id
+ * over the token manager's cached one.
+ */
+private suspend fun pairingAuthRouteOrNull(
+    tokenManager: TokenManager,
+    activeEntryProfileId: String?,
+): String? {
+    if (tokenManager.getAccessToken().isNullOrBlank()) return Route.Login.route
+    val profileId = activeEntryProfileId ?: tokenManager.getProfileId()
+    return if (profileId.isNullOrBlank()) Route.ProfileSelection.route else null
 }

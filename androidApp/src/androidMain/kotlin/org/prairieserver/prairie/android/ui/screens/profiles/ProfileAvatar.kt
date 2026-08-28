@@ -7,10 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,41 +19,37 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.screens.auth.AuthColors
+import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
-import org.prairieserver.prairie.common.ui.components.isImageAvatar
+import org.prairieserver.prairie.common.ui.components.isEmojiAvatar
 import org.prairieserver.prairie.common.ui.components.profileAvatarDisplayText
-import org.prairieserver.prairie.common.ui.components.rememberProfileServerUrl
-import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
+import org.prairieserver.prairie.common.ui.components.rememberProfileAvatarImage
 
 /**
- * Pre-defined avatar options. Each entry is an emoji displayed inside a coloured circle.
- *
- * The server stores the avatar as a string. It may be an emoji, a DiceBear URL, or
- * an uploaded image path. When no avatar is set, initials derived from the profile
- * name are shown instead.
+ * Pre-defined avatar options using the server's supported preset vocabulary.
  */
 object AvatarOptions {
-    val emojis = listOf(
-        "\uD83D\uDE00", // grinning face
-        "\uD83D\uDE0E", // smiling face with sunglasses
-        "\uD83E\uDD13", // nerd face
-        "\uD83E\uDD78", // disguised face
-        "\uD83D\uDC7E", // alien monster
-        "\uD83D\uDC31", // cat face
-        "\uD83D\uDC36", // dog face
-        "\uD83E\uDD8A", // fox
-        "\uD83E\uDD81", // lion
-        "\uD83D\uDC3B", // bear
-        "\uD83D\uDC27", // penguin
-        "\uD83E\uDD89", // owl
-        "\uD83C\uDF1F", // glowing star
-        "\uD83C\uDF08", // rainbow
-        "\uD83C\uDFA8", // artist palette
-        "\uD83C\uDFAC", // clapper board
-        "\uD83C\uDFB5", // musical note
-        "\uD83D\uDE80", // rocket
-        "\uD83C\uDF0D", // globe
-        "\uD83C\uDF53", // strawberry
+    val presets = listOf(
+        "preset:dicebear:fun-emoji:cosmic-otter",
+        "preset:dicebear:fun-emoji:comet-cat",
+        "preset:dicebear:fun-emoji:star-bear",
+        "preset:dicebear:fun-emoji:neon-pup",
+        "preset:dicebear:fun-emoji:orbit-bunny",
+        "preset:dicebear:fun-emoji:solar-owl",
+        "preset:dicebear:fun-emoji:nova-gecko",
+        "preset:dicebear:fun-emoji:pixel-penguin",
+        "preset:dicebear:fun-emoji:mango-fox",
+        "preset:dicebear:fun-emoji:bubble-lion",
+        "preset:dicebear:fun-emoji:marble-panda",
+        "preset:dicebear:fun-emoji:starlight-tiger",
+        "preset:dicebear:fun-emoji:candy-dragon",
+        "preset:dicebear:fun-emoji:ember-parrot",
+        "preset:dicebear:fun-emoji:mochi-robot",
+        "preset:dicebear:fun-emoji:twinkle-sprite",
+        "preset:dicebear:fun-emoji:mint-puffin",
+        "preset:dicebear:fun-emoji:velvet-panther",
+        "preset:dicebear:fun-emoji:sunbeam-falcon",
+        "preset:dicebear:fun-emoji:lunar-meteor",
     )
 
     /** Deterministic colour for a given avatar string so the same profile always gets the same colour. */
@@ -78,7 +72,7 @@ object AvatarOptions {
 /**
  * Displays a profile avatar as an image, emoji, or initials inside a coloured circle.
  *
- * @param avatar Avatar string stored on the profile (nullable).
+ * @param avatar Avatar ref + server-resolved URL for the profile.
  * @param name Profile name, used for initials fallback.
  * @param size Circle diameter.
  * @param selected Whether to show a highlight border.
@@ -86,7 +80,7 @@ object AvatarOptions {
  */
 @Composable
 fun ProfileAvatar(
-    avatar: String?,
+    avatar: ProfileAvatarRef,
     name: String,
     modifier: Modifier = Modifier,
     size: Dp = 72.dp,
@@ -94,14 +88,9 @@ fun ProfileAvatar(
     onClick: (() -> Unit)? = null,
 ) {
     val displayText = profileAvatarDisplayText(avatar = avatar, name = name)
-    // iOS ProfileAvatarView uses a single flat prairieSurfaceVariant (#0E0F12).
+    // iOS ProfileAvatarView uses a single flat siloSurfaceVariant (#0E0F12).
     val bgColor = Color(0xFF0E0F12)
-    val serverUrl = rememberProfileServerUrl()
-    val resolvedAvatarUrl = remember(avatar, serverUrl) {
-        avatar
-            ?.takeIf(::isImageAvatar)
-            ?.let { resolveAvatarUrl(serverUrl, it) }
-    }
+    val avatarImage = rememberProfileAvatarImage(avatar)
 
     val borderModifier = if (selected) {
         Modifier.border(3.dp, AuthColors.Primary, CircleShape)
@@ -118,9 +107,9 @@ fun ProfileAvatar(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        if (resolvedAvatarUrl != null) {
+        if (avatarImage != null) {
             ThumbhashImage(
-                url = resolvedAvatarUrl,
+                url = avatarImage.url,
                 thumbhash = null,
                 contentDescription = "$name avatar",
                 modifier = Modifier
@@ -128,11 +117,12 @@ fun ProfileAvatar(
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop,
                 transparent = true,
+                cacheKey = avatarImage.cacheKey,
+                onError = avatarImage.onLoadFailed,
             )
         } else {
             // iOS: emoji at size*0.45; initials at size*0.34 semibold, onSurface.
-            val isEmoji = !avatar.isNullOrBlank() && !isImageAvatar(avatar)
-            if (isEmoji) {
+            if (isEmojiAvatar(avatar)) {
                 Text(
                     text = displayText,
                     fontSize = (size.value * 0.45).sp,
@@ -150,31 +140,23 @@ fun ProfileAvatar(
 }
 
 /**
- * Smaller selectable emoji avatar used in the avatar picker grid on
- * create/edit screens. Mirrors iOS phone `EditProfileView`'s emoji grid:
- * 40dp rounded-rect cell (radius 8), emoji at 28pt, selection shown by a
- * tinted background (prairiePrimary at 30%).
+ * Smaller selectable server-backed avatar used in the create/edit picker grid.
  */
 @Composable
 fun AvatarPickerItem(
-    emoji: String,
+    avatarRef: String,
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isSelected) AuthColors.Primary.copy(alpha = 0.3f) else Color.Transparent,
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = emoji,
-            fontSize = 28.sp,
-        )
-    }
+    ProfileAvatar(
+        // Picker entries are always preset refs, never uploads, so there is no
+        // server URL to carry alongside them.
+        avatar = ProfileAvatarRef(avatarRef),
+        name = "Profile avatar",
+        modifier = modifier,
+        size = 40.dp,
+        selected = isSelected,
+        onClick = onClick,
+    )
 }

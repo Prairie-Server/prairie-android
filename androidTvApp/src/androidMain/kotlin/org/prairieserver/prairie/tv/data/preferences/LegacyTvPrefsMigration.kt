@@ -10,8 +10,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import org.prairieserver.prairie.common.settings.AndroidServerSettingsCache
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.EffectiveSetting
 import org.prairieserver.prairie.model.settings.PlaybackSettingsKeys
+import org.prairieserver.prairie.model.settings.QualityPresets
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.settings.SubtitleFontSizePreset
 import kotlinx.coroutines.flow.first
@@ -114,21 +116,62 @@ class LegacyTvPrefsMigration(
         val effective = getEffectiveSettings(
             listOf(
                 PlaybackSettingsKeys.PreferredQuality,
+                // Quality is two rows now, and `setQuality` writes both. Asking
+                // only about the resolution would let a device that has a
+                // server-side bitrate cap but no resolution override pass the
+                // guard, and the legacy preset's bitrate — or JSON null, when
+                // the legacy value is Auto — would overwrite that cap. Both
+                // axes are queried so both can be guarded.
+                PlaybackSettingsKeys.MaxBitrateKbps,
                 PlaybackSettingsKeys.AutoPlayNext,
+                // Both spellings of the intro preference. The legacy boolean is
+                // migrated into the enum that superseded it, so an override on
+                // either one means this device has already answered the
+                // question and the stale local pref must not overwrite it.
                 PlaybackSettingsKeys.AutoSkipIntro,
+                PlaybackSettingsKeys.IntroSkipMode,
                 PlaybackSettingsKeys.AutoSkipCredits,
                 PlaybackSettingsKeys.SubtitleAppearance,
             ),
         )
 
-        if (effective[PlaybackSettingsKeys.PreferredQuality]?.hasDeviceOverride != true) {
-            playerSettingsStore.setPreferredQuality(legacyQuality)
+        val qualityOverridden =
+            effective[PlaybackSettingsKeys.PreferredQuality]?.hasDeviceOverride == true ||
+                effective[PlaybackSettingsKeys.MaxBitrateKbps]?.hasDeviceOverride == true
+        if (!qualityOverridden) {
+            // Both axes, never just the resolution. Quality is a
+            // (resolution, bitrate) pair now, and the legacy enum's bare
+            // "720p" carries an implied cap — the same one the server's own
+            // migration assigns it (internal/settingsmigrate/plan.go
+            // decomposes 720p to {720p, 2000}). Writing the resolution alone
+            // would leave a pair no preset covers, so the picker would render
+            // nothing as selected with the cursor parked on Auto, and the
+            // sentinel is marked on this pass so it could never be re-migrated.
+            //
+            // The legacy enum's wire values are exactly the base preset ids,
+            // so the id lookup lands on the same bitrate the server assigns
+            // (1080p -> 6000, 720p -> 2000, 480p -> 1500) rather than on
+            // whichever tier of that resolution happens to sort first.
+            val resolution = QualityPresets.normalizeResolution(legacyQuality)
+            val preset = QualityPresets.byId(resolution)
+            playerSettingsStore.setQuality(
+                preset?.resolution ?: resolution,
+                preset?.bitrateKbps,
+            )
         }
         if (effective[PlaybackSettingsKeys.AutoPlayNext]?.hasDeviceOverride != true) {
             playerSettingsStore.setAutoPlayNext(legacyAutoPlayNext)
         }
-        if (effective[PlaybackSettingsKeys.AutoSkipIntro]?.hasDeviceOverride != true) {
-            playerSettingsStore.setAutoSkipIntro(legacyAutoSkipIntro)
+        val introSkipOverridden =
+            effective[PlaybackSettingsKeys.IntroSkipMode]?.hasDeviceOverride == true ||
+                effective[PlaybackSettingsKeys.AutoSkipIntro]?.hasDeviceOverride == true
+        if (!introSkipOverridden) {
+            // true -> always, false -> ask; the same mapping the server's own
+            // migration uses. "never" is unreachable from a boolean, which is
+            // exactly why the enum replaced it.
+            playerSettingsStore.setIntroSkipMode(
+                IntroSkipMode.fromLegacyBoolean(legacyAutoSkipIntro),
+            )
         }
         if (effective[PlaybackSettingsKeys.AutoSkipCredits]?.hasDeviceOverride != true) {
             playerSettingsStore.setAutoSkipCredits(legacyAutoSkipCredits)

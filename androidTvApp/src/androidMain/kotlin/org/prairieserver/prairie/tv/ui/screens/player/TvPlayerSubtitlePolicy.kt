@@ -6,6 +6,7 @@ import org.prairieserver.prairie.model.catalog.SubtitleTrack
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.playback.SubtitleIdentity
 import org.prairieserver.prairie.model.playback.SubtitleMediaIdentity
+import org.prairieserver.prairie.model.playback.isLocalDownloadedSubtitle
 import org.prairieserver.prairie.model.playback.rebaseDownloadedSubtitleUrl
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.audioTrackFingerprint
@@ -13,7 +14,9 @@ import org.prairieserver.prairie.playback.SUBTITLE_OFF_FINGERPRINT
 import org.prairieserver.prairie.playback.decodeSubtitleIdentityPreference
 import org.prairieserver.prairie.playback.encodeCatalogSubtitlePreference
 import org.prairieserver.prairie.playback.encodeSubtitleIdentityPreference
+import org.prairieserver.prairie.playback.matchesSubtitleMediaIdentity
 import org.prairieserver.prairie.playback.resolveCatalogSubtitlePreferenceOrdinal
+import org.prairieserver.prairie.playback.resolveDownloadedSubtitlePreferenceOrdinal
 import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
 import org.prairieserver.prairie.playback.subtitleTrackFingerprint
 import org.prairieserver.prairie.repository.port.TrackSelectionFingerprintUpdate
@@ -55,6 +58,14 @@ internal fun resolveTvFreshSubtitlePreference(
         typed is SubtitleIdentity.ServerBurnIn ||
         typed is SubtitleIdentity.Embedded
     ) {
+        val authoritativeMatches = hydratedRows.filter { row ->
+            tvSubtitleIdentity(row) == typed
+        }
+        if (authoritativeMatches.size == 1) {
+            return TvFreshSubtitlePreferenceResolution(
+                tvSubtitleIdentity(authoritativeMatches.single()),
+            )
+        }
         val ordinal = resolveCatalogSubtitlePreferenceOrdinal(catalogTracks, saved) ?: return null
         val rebuilt = encodeCatalogSubtitlePreference(catalogTracks, ordinal)
             ?.let(::decodeSubtitleIdentityPreference)
@@ -63,13 +74,14 @@ internal fun resolveTvFreshSubtitlePreference(
     }
 
     if (typed is SubtitleIdentity.Downloaded) {
-        val row = hydratedRows
-            .filter { it.downloadId == typed.downloadId }
-            .singleOrNull()
+        val ordinal = resolveDownloadedSubtitlePreferenceOrdinal(typed, hydratedRows)
             ?: return null
-        val rebuilt = tvSubtitleIdentity(row)
-        return (rebuilt as? SubtitleIdentity.Downloaded)
-            ?.let(::TvFreshSubtitlePreferenceResolution)
+        val rebuilt = tvSubtitleIdentity(hydratedRows[ordinal])
+        return TvFreshSubtitlePreferenceResolution(
+            identity = rebuilt,
+            migratedPreference = encodeSubtitleIdentityPreference(rebuilt)
+                .takeIf { rebuilt != typed },
+        )
     }
 
     if (typed is SubtitleIdentity.LocalMedia3) {
@@ -83,7 +95,7 @@ internal fun resolveTvFreshSubtitlePreference(
             return TvFreshSubtitlePreferenceResolution(typed)
         }
         val candidates = localRows.filter { row ->
-            row.tvMediaIdentity().matchesPersisted(typed.media)
+            row.tvMediaIdentity().matchesSubtitleMediaIdentity(typed.media)
         }
         if (candidates.size != 1) return null
         return TvFreshSubtitlePreferenceResolution(typed)
@@ -111,19 +123,6 @@ internal fun resolveTvFreshSubtitlePreference(
         identity = rebuilt,
         migratedPreference = encodeSubtitleIdentityPreference(rebuilt),
     )
-}
-
-internal fun resolveTvPersistedAudioPlayerOrdinal(
-    fingerprint: String?,
-    catalogAudioTracks: List<AudioTrack>,
-    mountedAudioTracks: List<PlayerTrackEntry>,
-): Int? {
-    val catalogOrdinal = resolveAudioTrackOrdinal(catalogAudioTracks, fingerprint)
-        ?.takeIf { it >= 0 }
-        ?: return null
-    return mountedAudioTracks
-        .singleOrNull { it.index == catalogOrdinal }
-        ?.index
 }
 
 /**
@@ -243,11 +242,63 @@ internal fun tvAudioTrackPersistenceUpdate(
     committedAudioTrackIndex: Int?,
     audioTracks: List<AudioTrack>,
 ): TrackSelectionFingerprintUpdate =
+    // An ORDINAL into audioTracks: audio carries no index on the wire, so
+    // matching on AudioTrack.index found nothing for any ordinal above 0 and
+    // silently Preserved — the chosen track was never persisted, so reopening
+    // the item lost it.
     committedAudioTrackIndex
-        ?.let { selected -> audioTracks.singleOrNull { it.index == selected } }
+        ?.let(audioTracks::getOrNull)
         ?.let(::audioTrackFingerprint)
         ?.let(TrackSelectionFingerprintUpdate::Set)
         ?: TrackSelectionFingerprintUpdate.Preserve
+
+/**
+ * Whether a commit may write the durable per-item subtitle preference.
+ *
+ * The transaction adapter cannot tell an automatic pick from a viewer's choice
+ * once it is committed — both arrive at the persistence port as the same
+ * [SubtitleIdentity] — so the caller carries [automaticIdentity]: the identity
+ * the APP selected on the viewer's behalf, if it is still the committed one. An
+ * automatic pick must never be written back as though the viewer had made it,
+ * or every later launch would "restore" a choice nobody made.
+ */
+internal fun tvSubtitlePersistenceUpdate(
+    committedIdentity: SubtitleIdentity,
+    automaticIdentity: SubtitleIdentity?,
+): TrackSelectionFingerprintUpdate =
+    if (automaticIdentity != null && committedIdentity == automaticIdentity) {
+        TrackSelectionFingerprintUpdate.Preserve
+    } else {
+        TrackSelectionFingerprintUpdate.Set(
+            encodeSubtitleIdentityPreference(committedIdentity),
+        )
+    }
+
+/**
+ * Safety net for a text track selected by something that is not the subtitle
+ * transaction adapter — device caption settings, a selector quirk, a renderer
+ * default. Returns the identity to adopt, or null when there is nothing to
+ * reconcile.
+ *
+ * This is NOT the mechanism by which subtitles get selected; reaching a
+ * non-null result means an authority we believed removed is still acting, which
+ * is why the caller logs it loudly. It deliberately stands down while anything
+ * is in flight: mid-transaction the track list is being republished and the
+ * pending identity is about to become the committed one, so "disagreement"
+ * there is just latency, not a second authority.
+ */
+internal fun tvExternalSubtitleAdoption(
+    subtitleTracks: List<PlayerTrackEntry>,
+    subtitleRows: List<PlayerSubtitleInfo>,
+    committedIdentity: SubtitleIdentity,
+    pendingIdentity: SubtitleIdentity?,
+    selectionInFlight: Boolean,
+): SubtitleIdentity? {
+    if (selectionInFlight || pendingIdentity != null) return null
+    val selected = subtitleTracks.firstOrNull { it.isSelected } ?: return null
+    return tvMountedSubtitleIdentity(selected, subtitleTracks, subtitleRows)
+        .takeIf { it != committedIdentity }
+}
 
 @Suppress("UNUSED_PARAMETER")
 internal fun authoritativeTvSubtitleRows(
@@ -272,15 +323,18 @@ internal fun resolveTvRemoteSubtitleIntent(
         ?.let(::tvSubtitleIdentity)
 }
 
+/**
+ * Remote `set_audio_track` carries an ordinal, and the server addresses audio
+ * by ordinal too, so this is an identity mapping guarded by range. It used to
+ * read `.index`, which audio never carries, so every remote pick requested 0.
+ */
 internal fun resolveTvRemoteAudioIntent(
     playerOrdinal: Int,
     audioTracks: List<AudioTrack>,
-): Int? = audioTracks.getOrNull(playerOrdinal)?.index
+): Int? = playerOrdinal.takeIf { it in audioTracks.indices }
 
 private fun PlayerSubtitleInfo.isDownloadedTvPolicyRow(): Boolean =
-    downloadId != null ||
-        source.equals("downloaded", ignoreCase = true) ||
-        catalogSource.equals("downloaded", ignoreCase = true)
+    isLocalDownloadedSubtitle()
 
 private fun PlayerSubtitleInfo.tvMediaIdentity(): SubtitleMediaIdentity = when (
     val identity = tvSubtitleIdentity(this)
@@ -291,16 +345,4 @@ private fun PlayerSubtitleInfo.tvMediaIdentity(): SubtitleMediaIdentity = when (
     is SubtitleIdentity.Downloaded -> identity.media
     is SubtitleIdentity.LocalMedia3 -> identity.media
     SubtitleIdentity.Off -> SubtitleMediaIdentity()
-}
-
-private fun SubtitleMediaIdentity.matchesPersisted(saved: SubtitleMediaIdentity): Boolean {
-    val discriminators = listOf(
-        saved.trackId?.let { trackId == it },
-        saved.label?.let { label == it },
-        saved.language?.let { language == it },
-        saved.codecFamily?.let { codecFamily == it },
-        saved.forced?.let { forced == it },
-        saved.hearingImpaired?.let { hearingImpaired == it },
-    ).filterNotNull()
-    return discriminators.isNotEmpty() && discriminators.all { it }
 }

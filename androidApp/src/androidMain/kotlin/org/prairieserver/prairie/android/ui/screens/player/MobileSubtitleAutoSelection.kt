@@ -1,21 +1,17 @@
 package org.prairieserver.prairie.android.ui.screens.player
 
-import org.prairieserver.prairie.common.player.isBitmapSubtitleCodecOrMime
-import org.prairieserver.prairie.common.player.downloadedSubtitleArtifactTrackId
-import org.prairieserver.prairie.common.player.subtitleLabelIndicatesHearingImpaired
 import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.playback.SubtitleIdentity
-import org.prairieserver.prairie.model.playback.SubtitleMediaIdentity
-import org.prairieserver.prairie.playback.canonicalSubtitleCodecFamily
-import org.prairieserver.prairie.playback.isClientMountableBitmapCodecFamily
 import org.prairieserver.prairie.playback.canonicalSubtitleLanguage
-
-private val hearingImpairedSubtitleTokenRegex = Regex(
-    pattern = """(^|[^a-z0-9])(cc|sdh|hi)([^a-z0-9]|$)""",
-    option = RegexOption.IGNORE_CASE,
-)
+import org.prairieserver.prairie.playback.hasPositiveSubtitleDiscriminator
+import org.prairieserver.prairie.playback.isBitmapSubtitleCodecFamily
+import org.prairieserver.prairie.playback.matchesSubtitleMediaIdentity
+import org.prairieserver.prairie.playback.playbackSubtitleIdentity
+import org.prairieserver.prairie.playback.resolveDownloadedSubtitlePreferenceOrdinal
+import org.prairieserver.prairie.playback.subtitleLabelIndicatesHearingImpaired
+import org.prairieserver.prairie.playback.subtitleMediaIdentityOrNull
 
 internal sealed class MobileSubtitleAutoSelection {
     data object NoChange : MobileSubtitleAutoSelection()
@@ -23,68 +19,8 @@ internal sealed class MobileSubtitleAutoSelection {
     data class Select(val ordinal: Int) : MobileSubtitleAutoSelection()
 }
 
-internal fun mobileSubtitleIdentity(subtitle: PlayerSubtitleInfo): SubtitleIdentity {
-    val source = subtitle.source?.trim()?.lowercase()
-    val catalogSource = subtitle.catalogSource?.trim()?.lowercase()
-    val downloaded = subtitle.downloadId != null ||
-        source == "downloaded" ||
-        catalogSource == "downloaded"
-    val media = SubtitleMediaIdentity(
-        trackId = subtitle.downloadId?.let(::downloadedSubtitleArtifactTrackId)
-            ?: subtitle.mediaTrackId,
-        label = subtitle.catalogLabel ?: subtitle.label,
-        language = canonicalSubtitleLanguage(subtitle.language),
-        codecFamily = canonicalSubtitleCodecFamily(
-            subtitle.codec ?: subtitleCodecFromUrl(subtitle.url),
-        ),
-        forced = subtitle.forced,
-        hearingImpaired = subtitleLabelIndicatesHearingImpaired(
-            subtitle.catalogLabel ?: subtitle.label,
-        ).takeIf { it },
-    )
-    if (downloaded) {
-        val downloadId = subtitle.downloadId
-        return if (downloadId != null) {
-            SubtitleIdentity.Downloaded(downloadId, media)
-        } else {
-            SubtitleIdentity.LocalMedia3(media)
-        }
-    }
-
-    val embedded = (source == "embedded" && subtitle.url.isBlank()) ||
-        (source == null && catalogSource == "embedded" && subtitle.url.isBlank())
-    if (embedded) {
-        // PGS stays client-mounted (the server sidecars it as `.sup`); VobSub
-        // and DVB have no sidecar route and always burn in.
-        return if (
-            isBitmapSubtitleCodecOrMime(media.codecFamily) &&
-            !isClientMountableBitmapCodecFamily(media.codecFamily)
-        ) {
-            SubtitleIdentity.ServerBurnIn(subtitle.index, media)
-        } else {
-            SubtitleIdentity.Embedded(
-                serverIndex = subtitle.index,
-                media = media,
-            )
-        }
-    }
-
-    val external = source == "external" ||
-        catalogSource == "external" ||
-        source == "server_artifact" ||
-        subtitle.url.isNotBlank()
-    val mountableBitmapArtifact = subtitle.url.isNotBlank() &&
-        isClientMountableBitmapCodecFamily(media.codecFamily)
-    return if (
-        external &&
-        isBitmapSubtitleCodecOrMime(media.codecFamily) &&
-        !mountableBitmapArtifact
-    ) {
-        SubtitleIdentity.ServerBurnIn(subtitle.index, media)
-    } else {
-        SubtitleIdentity.ServerSidecar(subtitle.index, media)
-    }
-}
+internal fun mobileSubtitleIdentity(subtitle: PlayerSubtitleInfo): SubtitleIdentity =
+    playbackSubtitleIdentity(subtitle)
 
 internal fun resolveMobileSubtitleOrdinal(
     identity: SubtitleIdentity,
@@ -92,13 +28,7 @@ internal fun resolveMobileSubtitleOrdinal(
 ): Int? {
     if (identity == SubtitleIdentity.Off) return -1
     if (identity is SubtitleIdentity.Downloaded) {
-        return subtitles.indices
-            .filter { index ->
-                val row = subtitles[index]
-                row.downloadId == identity.downloadId &&
-                    mobileSubtitleIdentity(row) is SubtitleIdentity.Downloaded
-            }
-            .singleOrNull()
+        return resolveDownloadedSubtitlePreferenceOrdinal(identity, subtitles)
     }
 
     val exactMatches = subtitles.indices.filter { index ->
@@ -121,84 +51,35 @@ internal fun resolveMobileSubtitleOrdinal(
                 val rowIdentity = mobileSubtitleIdentity(row)
                 identity.media.trackId != null &&
                     rowIdentity is SubtitleIdentity.Embedded &&
-                    rowIdentity.media.matchesMobileIdentity(identity.media)
+                    rowIdentity.media.matchesSubtitleMediaIdentity(identity.media)
             }
             is SubtitleIdentity.Downloaded -> {
                 val rowIdentity = mobileSubtitleIdentity(row)
                 row.downloadId == identity.downloadId &&
                     rowIdentity is SubtitleIdentity.Downloaded &&
-                    rowIdentity.media.matchesMobileIdentity(identity.media)
+                    rowIdentity.media.matchesSubtitleMediaIdentity(identity.media)
             }
             is SubtitleIdentity.LocalMedia3 -> {
                 val rowIdentity = mobileSubtitleIdentity(row)
                 identity.media.trackId != null &&
                     rowIdentity is SubtitleIdentity.LocalMedia3 &&
-                    rowIdentity.media.matchesMobileIdentity(identity.media)
+                    rowIdentity.media.matchesSubtitleMediaIdentity(identity.media)
             }
         }
     }
     if (exactMatches.size == 1) return exactMatches.single()
     if (exactMatches.size > 1) return null
 
-    val targetMedia = identity.mediaIdentityForMobileFallback() ?: return null
-    if (!targetMedia.hasPositiveMobileDiscriminator()) return null
+    val targetMedia = identity.subtitleMediaIdentityOrNull() ?: return null
+    if (!targetMedia.hasPositiveSubtitleDiscriminator()) return null
     val typedMatches = subtitles.indices.filter { index ->
         val rowIdentity = mobileSubtitleIdentity(subtitles[index])
-        val rowMedia = rowIdentity.mediaIdentityForMobileFallback() ?: return@filter false
-        identity::class == rowIdentity::class && rowMedia.matchesMobileIdentity(targetMedia)
+        val rowMedia = rowIdentity.subtitleMediaIdentityOrNull() ?: return@filter false
+        identity::class == rowIdentity::class &&
+            rowMedia.matchesSubtitleMediaIdentity(targetMedia)
     }
     return typedMatches.singleOrNull()
 }
-
-private fun SubtitleIdentity.mediaIdentityForMobileFallback(): SubtitleMediaIdentity? = when (this) {
-    is SubtitleIdentity.ServerSidecar -> media
-    is SubtitleIdentity.ServerBurnIn -> media
-    is SubtitleIdentity.Embedded -> media
-    is SubtitleIdentity.LocalMedia3 -> media
-    SubtitleIdentity.Off,
-    is SubtitleIdentity.Downloaded,
-    -> null
-}
-
-private fun SubtitleMediaIdentity.matchesMobileIdentity(expected: SubtitleMediaIdentity): Boolean {
-    val expectedTrackId = expected.trackId?.trim()?.takeIf(String::isNotBlank)
-    if (expectedTrackId != null && trackId?.trim() != expectedTrackId) return false
-    val expectedLabel = expected.label.normalizedMobileLabel()
-    if (expectedLabel != null && label.normalizedMobileLabel() != expectedLabel) return false
-    val expectedLanguage = canonicalSubtitleLanguage(expected.language)
-    val expectedCodec = canonicalSubtitleCodecFamily(expected.codecFamily)
-    if (
-        expectedLanguage != null &&
-        canonicalSubtitleLanguage(language) != expectedLanguage
-    ) {
-        return false
-    }
-    if (
-        expectedCodec != null &&
-        canonicalSubtitleCodecFamily(codecFamily) != expectedCodec
-    ) {
-        return false
-    }
-    if (expected.forced != null && forced != expected.forced) return false
-    if (
-        expected.hearingImpaired != null &&
-        hearingImpaired != expected.hearingImpaired
-    ) {
-        return false
-    }
-    return true
-}
-
-private fun SubtitleMediaIdentity.hasPositiveMobileDiscriminator(): Boolean =
-    !trackId.isNullOrBlank() ||
-        !label.isNullOrBlank() ||
-        canonicalSubtitleLanguage(language) != null ||
-        !codecFamily.isNullOrBlank() ||
-        forced == true ||
-        hearingImpaired == true
-
-private fun String?.normalizedMobileLabel(): String? =
-    this?.trim()?.takeIf(String::isNotBlank)?.lowercase()
 
 internal fun resolveMobileAutoSubtitleSelection(
     audioTracks: List<AudioTrack>,
@@ -229,9 +110,10 @@ internal fun resolveMobileAutoSubtitleSelection(
         return MobileSubtitleAutoSelection.NoChange
     }
 
-    val selectedAudioLanguage = audioTracks
-        .firstOrNull { it.index == selectedAudioIndex }
-        ?: audioTracks.getOrNull(selectedAudioIndex)
+    // An ORDINAL into audioTracks: audio carries no index on the wire, so the
+    // index search that used to come first matched nothing above row zero and
+    // only worked because of the ordinal fallback behind it.
+    val selectedAudioLanguage = audioTracks.getOrNull(selectedAudioIndex)
     val selectedAudioMatches = canonicalSubtitleLanguage(selectedAudioLanguage?.language) == targetLanguage
 
     if (mode == "auto" && selectedAudioMatches) {
@@ -377,22 +259,12 @@ private fun bestForcedAutoSubtitleOrdinal(
 }
 
 private fun PlayerSubtitleInfo.isEffectivelyHearingImpaired(): Boolean =
-    label.indicatesHearingImpairedSubtitle() ||
-        source.indicatesHearingImpairedSubtitle() ||
-        url.indicatesHearingImpairedSubtitle()
-
-private fun String?.indicatesHearingImpairedSubtitle(): Boolean {
-    val value = this?.takeIf { it.isNotBlank() } ?: return false
-    val lower = value.lowercase()
-    return lower.contains("closed caption") ||
-        lower.contains("hearing impaired") ||
-        lower.contains("hearing-impaired") ||
-        lower.contains("hearing") ||
-        hearingImpairedSubtitleTokenRegex.containsMatchIn(value)
-}
+    subtitleLabelIndicatesHearingImpaired(label) ||
+        subtitleLabelIndicatesHearingImpaired(source) ||
+        subtitleLabelIndicatesHearingImpaired(url)
 
 private fun PlayerSubtitleInfo.isBitmap(): Boolean =
-    isBitmapSubtitleCodecOrMime(codec ?: subtitleCodecFromUrl(url))
+    isBitmapSubtitleCodecFamily(codec ?: subtitleCodecFromUrl(url))
 
 private fun subtitleCodecFromUrl(url: String?): String? =
     url

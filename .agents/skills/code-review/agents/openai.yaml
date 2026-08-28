@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review Prairie Android diffs for bugs and regressions"
+  default_prompt: "Use $code-review to review origin/main...HEAD and report Critical / Important findings."

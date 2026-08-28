@@ -43,12 +43,9 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -66,14 +63,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -81,11 +77,20 @@ import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
-import org.prairieserver.prairie.android.ui.components.HeroBackdropImage
-import org.prairieserver.prairie.android.ui.components.HeroTintBackground
 import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
 import org.prairieserver.prairie.android.ui.components.MediaRowsSkeleton
 import org.prairieserver.prairie.android.ui.components.PosterGridSkeleton
+import org.prairieserver.prairie.android.ui.components.TabTopBarActions
+import org.prairieserver.prairie.android.ui.components.SortFilterControlsRow
+import org.prairieserver.prairie.android.ui.components.SortMenuOption
+import org.prairieserver.prairie.android.ui.components.topBarGlass
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.HazeState
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.mutableIntStateOf
 import org.prairieserver.prairie.android.ui.components.rememberShimmerProgress
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.FilterList
@@ -102,14 +107,13 @@ import org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType
 import org.prairieserver.prairie.catalog.filter.CatalogFacet
 import org.prairieserver.prairie.catalog.filter.CatalogFilterQueryBuilder
 import org.prairieserver.prairie.catalog.filter.CatalogFilterState
+import org.prairieserver.prairie.common.ui.components.avatarRef
 import org.prairieserver.prairie.model.catalog.CatalogFiltersResponse
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
-import org.prairieserver.prairie.android.ui.screens.home.FeaturedCarousel
 import org.prairieserver.prairie.android.ui.screens.home.HomeSectionRow
 import org.prairieserver.prairie.android.ui.screens.profiles.ProfileAvatar
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceElevated
 import org.prairieserver.prairie.android.ui.util.formatCardDate
-import org.prairieserver.prairie.android.ui.util.rememberDominantColor
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.catalog.MediaItemUserState
@@ -117,7 +121,6 @@ import org.prairieserver.prairie.model.personal.UserLibrary
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.section.LibraryCollection
 import org.prairieserver.prairie.model.section.ResolvedSection
-import org.prairieserver.prairie.model.section.splitFeatured
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
@@ -143,7 +146,21 @@ enum class LibraryBrowseSort(
 ) {
     RecentlyAdded("Recently Added", "added_at", "desc"),
     Title("Title", "title", "asc"),
-    ReleaseDate("Release Date", "release_date", "desc"),
+    ReleaseDate("Release Date", "release_date", "desc");
+
+    companion object {
+        /**
+         * The sort rides the persisted [CatalogFilterState] (same as
+         * BrowseViewModel), so restoring saved browse prefs also restores the
+         * chip label. [CatalogFilterState]'s own defaults are exactly
+         * [RecentlyAdded]'s pair, so a state saved before the sort travelled
+         * with it — or one naming a field this client does not offer — falls
+         * back to [RecentlyAdded].
+         */
+        fun fromFilterState(state: CatalogFilterState): LibraryBrowseSort =
+            entries.firstOrNull { it.sortField == state.sort && it.sortOrder == state.order }
+                ?: RecentlyAdded
+    }
 }
 
 data class LibrariesUiState(
@@ -194,6 +211,10 @@ class LibrariesViewModel(
     private var recommendedLoadedLibraryId: Int? = null
     private var browseLoadedLibraryId: Int? = null
     private var collectionsLoadedLibraryId: Int? = null
+    private var recommendedRequestGeneration = 0L
+    private var catalogRequestGeneration = 0L
+    private var catalogQueryGeneration = 0L
+    private var collectionsRequestGeneration = 0L
     private val pageSize = 42
 
     init {
@@ -241,6 +262,13 @@ class LibrariesViewModel(
                     // whatever filters are already active.
                     val restoreBrowsePrefs =
                         selectedLibraryId != null && selectedLibraryId != previousLibraryId
+                    // Null when there is nothing to restore, so the branches
+                    // below keep the live state untouched.
+                    val restoredFilterState = if (restoreBrowsePrefs) {
+                        browsePrefs?.savedState(selectedLibraryId) ?: CatalogFilterState()
+                    } else {
+                        null
+                    }
 
                     _uiState.update {
                         it.copy(
@@ -248,9 +276,12 @@ class LibrariesViewModel(
                             libraries = libraries,
                             selectedLibraryId = selectedLibraryId,
                             librariesError = null,
-                            filterState = if (restoreBrowsePrefs)
-                                (browsePrefs?.savedState(selectedLibraryId) ?: CatalogFilterState())
-                            else it.filterState,
+                            filterState = restoredFilterState ?: it.filterState,
+                            // The sort lives inside the persisted filter state,
+                            // so derive the chip from what was restored.
+                            browseSort = restoredFilterState
+                                ?.let(LibraryBrowseSort::fromFilterState)
+                                ?: it.browseSort,
                             preserveFilters = if (restoreBrowsePrefs)
                                 (browsePrefs?.preserveEnabled(selectedLibraryId) ?: true)
                             else it.preserveFilters,
@@ -290,6 +321,10 @@ class LibrariesViewModel(
         recommendedLoadedLibraryId = null
         browseLoadedLibraryId = null
         collectionsLoadedLibraryId = null
+        // Restore this library's persisted filter/sort state (iOS parity) so a
+        // preserved selection doesn't flash the unfiltered grid; default to a
+        // clean filter — and therefore RecentlyAdded — when nothing is saved.
+        val restoredFilterState = browsePrefs?.savedState(libraryId) ?: CatalogFilterState()
         _uiState.update {
             it.copy(
                 selectedLibraryId = libraryId,
@@ -298,10 +333,8 @@ class LibrariesViewModel(
                 catalogItems = emptyList(),
                 catalogTotal = 0,
                 catalogHasMore = false,
-                // Restore this library's persisted filter/preserve state (iOS
-                // parity) so a preserved selection doesn't flash the unfiltered
-                // grid; default to a clean filter when nothing is saved.
-                filterState = browsePrefs?.savedState(libraryId) ?: CatalogFilterState(),
+                filterState = restoredFilterState,
+                browseSort = LibraryBrowseSort.fromFilterState(restoredFilterState),
                 availableFilters = null,
                 preserveFilters = browsePrefs?.preserveEnabled(libraryId) ?: true,
                 selectedNamePrefix = null,
@@ -322,16 +355,22 @@ class LibrariesViewModel(
     /** Apply a new facet/match filter selection, persist it (when preserve is
      *  on), and reload the catalog. Mirrors BrowseViewModel.applyFilterState. */
     fun applyFilterState(state: CatalogFilterState) {
-        if (state == _uiState.value.filterState) return
+        val current = _uiState.value.filterState
+        // [selectBrowseSort] owns sort/order. Callers derive `state` from a
+        // composition snapshot that can be a frame stale — the Reset control
+        // changes the sort and clears the facets in the same frame — so take
+        // only the facet/match parts and keep the sort already committed here.
+        val reconciled = state.copy(sort = current.sort, order = current.order)
+        if (reconciled == current) return
         _uiState.update {
             it.copy(
-                filterState = state,
+                filterState = reconciled,
                 catalogItems = emptyList(),
                 catalogTotal = 0,
                 catalogHasMore = false,
             )
         }
-        browsePrefs?.saveState(_uiState.value.selectedLibraryId, state)
+        browsePrefs?.saveState(_uiState.value.selectedLibraryId, reconciled)
         _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
     }
 
@@ -343,14 +382,23 @@ class LibrariesViewModel(
     }
 
     fun selectBrowseSort(sort: LibraryBrowseSort) {
+        // The sort rides the persisted filter state so "Preserve sort & filters"
+        // actually restores it, instead of the chips coming back while the sort
+        // snaps to Recently Added.
+        val nextFilterState = _uiState.value.filterState.copy(
+            sort = sort.sortField,
+            order = sort.sortOrder,
+        )
         _uiState.update {
             it.copy(
                 browseSort = sort,
+                filterState = nextFilterState,
                 catalogItems = emptyList(),
                 catalogTotal = 0,
                 catalogHasMore = false,
             )
         }
+        browsePrefs?.saveState(_uiState.value.selectedLibraryId, nextFilterState)
         _uiState.value.selectedLibraryId?.let { loadCatalog(it, reset = true, force = true) }
     }
 
@@ -400,41 +448,62 @@ class LibrariesViewModel(
     private fun loadRecommended(libraryId: Int, force: Boolean) {
         if (!force && recommendedLoadedLibraryId == libraryId) return
         recommendedLoadedLibraryId = libraryId
+        val requestGeneration = ++recommendedRequestGeneration
         viewModelScope.launch {
+            if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
             _uiState.update {
-                it.copy(
-                    isLoadingSections = true,
-                    sectionsError = null,
-                    sections = emptyList(),
-                )
+                if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                    it.copy(
+                        isLoadingSections = true,
+                        sectionsError = null,
+                        sections = emptyList(),
+                    )
+                } else {
+                    it
+                }
             }
 
             when (val result = sectionRepository.getLibrarySections(libraryId)) {
                 is ApiResult.Success -> {
+                    if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingSections = false,
-                            sections = result.data.sections.filter { section -> section.items.isNotEmpty() },
-                            sectionsError = null,
-                        )
+                        if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingSections = false,
+                                sections = result.data.sections.filter { section -> section.items.isNotEmpty() },
+                                sectionsError = null,
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.Error -> {
+                    if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingSections = false,
-                            sections = emptyList(),
-                            sectionsError = result.message.ifBlank { "Failed to load recommendations" },
-                        )
+                        if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingSections = false,
+                                sections = emptyList(),
+                                sectionsError = result.message.ifBlank { "Failed to load recommendations" },
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.NetworkError -> {
+                    if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingSections = false,
-                            sections = emptyList(),
-                            sectionsError = "Network error: ${result.exception.message ?: "unknown"}",
-                        )
+                        if (isRecommendedRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingSections = false,
+                                sections = emptyList(),
+                                sectionsError = "Network error: ${result.exception.message ?: "unknown"}",
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
             }
@@ -446,18 +515,37 @@ class LibrariesViewModel(
             return
         }
         browseLoadedLibraryId = libraryId
+        val requestState = _uiState.value
+        val requestIdentity = CatalogRequestIdentity(
+            libraryId = libraryId,
+            browseSort = requestState.browseSort,
+            selectedNamePrefix = requestState.selectedNamePrefix,
+            filterState = requestState.filterState,
+        )
+        val requestGeneration = ++catalogRequestGeneration
+        val queryGeneration =
+            if (reset) ++catalogQueryGeneration else catalogQueryGeneration
+        val offset = if (reset) 0 else requestState.catalogItems.size
         viewModelScope.launch {
-            val state = _uiState.value
-            val offset = if (reset) 0 else state.catalogItems.size
+            if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
 
-            if (reset && state.availableFilters == null) {
+            if (reset && requestState.availableFilters == null) {
                 launch {
                     // includeTechnical: resolution + audio/subtitle-language facets
                     // are only fetched on request (iOS parity). Keep the FULL
                     // response so the filter sheet has every facet, not just genres.
                     when (val filters = catalogRepository.getFilters(libraryId, includeTechnical = true)) {
                         is ApiResult.Success -> {
-                            _uiState.update { it.copy(availableFilters = filters.data) }
+                            if (!isCatalogQueryCurrent(queryGeneration, requestIdentity)) {
+                                return@launch
+                            }
+                            _uiState.update {
+                                if (isCatalogQueryCurrent(queryGeneration, requestIdentity, it)) {
+                                    it.copy(availableFilters = filters.data)
+                                } else {
+                                    it
+                                }
+                            }
                         }
                         else -> Unit
                     }
@@ -465,38 +553,34 @@ class LibrariesViewModel(
             }
 
             _uiState.update {
-                if (reset) {
-                    it.copy(
-                        isLoadingCatalog = true,
-                        isLoadingMoreCatalog = false,
-                        catalogError = null,
-                    )
+                if (!isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                    it
+                } else if (reset) {
+                    it.copy(isLoadingCatalog = true, isLoadingMoreCatalog = false, catalogError = null)
                 } else {
-                    it.copy(
-                        isLoadingMoreCatalog = true,
-                        catalogError = null,
-                    )
+                    it.copy(isLoadingMoreCatalog = true, catalogError = null)
                 }
             }
 
             when (
                 val result = catalogRepository.browse(
                     libraryId = libraryId,
-                    sort = state.browseSort.sortField,
-                    order = state.browseSort.sortOrder,
+                    sort = requestState.browseSort.sortField,
+                    order = requestState.browseSort.sortOrder,
                     offset = offset,
                     limit = pageSize,
-                    namePrefix = state.selectedNamePrefix,
+                    namePrefix = requestState.selectedNamePrefix,
                     // Full facet filtering (genre/decade/rating/studio/language/...)
                     // via the shared query builder — replaces the single-genre param.
-                    queryGroups = CatalogFilterQueryBuilder.buildGroups(state.filterState),
-                    match = CatalogFilterQueryBuilder.matchParam(state.filterState)
-                        .takeIf { state.filterState.hasActiveFilters },
+                    queryGroups = CatalogFilterQueryBuilder.buildGroups(requestState.filterState),
+                    match = CatalogFilterQueryBuilder.matchParam(requestState.filterState)
+                        .takeIf { requestState.filterState.hasActiveFilters },
                 )
             ) {
                 is ApiResult.Success -> {
                     // Overlay local optimistic watched/favorite (mirrors Home/Browse).
                     val overlaid = overlayLocalState(result.data.items)
+                    if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
                     // Audiobook libraries expose book-native facets
                     // (author/narrator/series) — detected from the first item.
                     val detectedMediaType = overlaid.firstOrNull()?.let { first ->
@@ -507,33 +591,47 @@ class LibrariesViewModel(
                         }
                     }
                     _uiState.update {
-                        it.copy(
-                            isLoadingCatalog = false,
-                            isLoadingMoreCatalog = false,
-                            catalogItems = if (reset) overlaid else it.catalogItems + overlaid,
-                            catalogTotal = result.data.total,
-                            catalogHasMore = result.data.hasMore,
-                            browseMediaType = detectedMediaType ?: it.browseMediaType,
-                            catalogError = null,
-                        )
+                        if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                            it.copy(
+                                isLoadingCatalog = false,
+                                isLoadingMoreCatalog = false,
+                                catalogItems = if (reset) overlaid else it.catalogItems + overlaid,
+                                catalogTotal = result.data.total,
+                                catalogHasMore = result.data.hasMore,
+                                browseMediaType = detectedMediaType ?: it.browseMediaType,
+                                catalogError = null,
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.Error -> {
+                    if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCatalog = false,
-                            isLoadingMoreCatalog = false,
-                            catalogError = result.message.ifBlank { "Failed to load catalog" },
-                        )
+                        if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                            it.copy(
+                                isLoadingCatalog = false,
+                                isLoadingMoreCatalog = false,
+                                catalogError = result.message.ifBlank { "Failed to load catalog" },
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.NetworkError -> {
+                    if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCatalog = false,
-                            isLoadingMoreCatalog = false,
-                            catalogError = "Network error: ${result.exception.message ?: "unknown"}",
-                        )
+                        if (isCatalogRequestCurrent(requestGeneration, requestIdentity, it)) {
+                            it.copy(
+                                isLoadingCatalog = false,
+                                isLoadingMoreCatalog = false,
+                                catalogError = "Network error: ${result.exception.message ?: "unknown"}",
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
             }
@@ -565,49 +663,108 @@ class LibrariesViewModel(
             return
         }
         collectionsLoadedLibraryId = libraryId
+        val requestGeneration = ++collectionsRequestGeneration
         viewModelScope.launch {
+            if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
             _uiState.update {
-                it.copy(
-                    isLoadingCollections = true,
-                    collectionsError = null,
-                    collections = emptyList(),
-                )
+                if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                    it.copy(
+                        isLoadingCollections = true,
+                        collectionsError = null,
+                        collections = emptyList(),
+                    )
+                } else {
+                    it
+                }
             }
             when (val result = sectionRepository.getLibraryCollections(libraryId)) {
                 is ApiResult.Success -> {
+                    if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCollections = false,
-                            collections = result.data,
-                            collectionsError = null,
-                        )
+                        if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingCollections = false,
+                                collections = result.data,
+                                collectionsError = null,
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.Error -> {
+                    if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCollections = false,
-                            collectionsError = result.message.ifBlank { "Failed to load collections" },
-                        )
+                        if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingCollections = false,
+                                collectionsError = result.message.ifBlank { "Failed to load collections" },
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 is ApiResult.NetworkError -> {
+                    if (!isCollectionsRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
-                        it.copy(
-                            isLoadingCollections = false,
-                            collectionsError = "Network error: ${result.exception.message ?: "unknown"}",
-                        )
+                        if (isCollectionsRequestCurrent(requestGeneration, libraryId, it)) {
+                            it.copy(
+                                isLoadingCollections = false,
+                                collectionsError = "Network error: ${result.exception.message ?: "unknown"}",
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
             }
         }
     }
-}
 
-// Chrome metrics: status bar + this constant ≈ visible chrome height (header
-// row + tab selector). Used to push tab content below the floating chrome and
-// to drive the carousel's [extraTopInset] on the Recommended tab.
-private val LibrariesChromeContentHeight: Dp = 110.dp
+    private fun isRecommendedRequestCurrent(
+        generation: Long,
+        libraryId: Int,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == recommendedRequestGeneration && state.selectedLibraryId == libraryId
+
+    private fun isCatalogRequestCurrent(
+        generation: Long,
+        identity: CatalogRequestIdentity,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == catalogRequestGeneration &&
+            identity.matches(state)
+
+    private fun isCatalogQueryCurrent(
+        generation: Long,
+        identity: CatalogRequestIdentity,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == catalogQueryGeneration &&
+            identity.matches(state)
+
+    private fun CatalogRequestIdentity.matches(state: LibrariesUiState): Boolean =
+        state.selectedLibraryId == libraryId &&
+            state.browseSort == browseSort &&
+            state.selectedNamePrefix == selectedNamePrefix &&
+            state.filterState == filterState
+
+    private fun isCollectionsRequestCurrent(
+        generation: Long,
+        libraryId: Int,
+        state: LibrariesUiState = _uiState.value,
+    ): Boolean =
+        generation == collectionsRequestGeneration && state.selectedLibraryId == libraryId
+
+    private data class CatalogRequestIdentity(
+        val libraryId: Int,
+        val browseSort: LibraryBrowseSort,
+        val selectedNamePrefix: String?,
+        val filterState: CatalogFilterState,
+    )
+}
 
 // Distance the Recommended tab must scroll for the chrome scrim to fully
 // fade in. Mirrors `chromeScrimFadeDistance` on iOS.
@@ -616,14 +773,13 @@ private const val ChromeFadeDistanceDp = 80f
 @Composable
 fun LibrariesScreen(
     onItemClick: (String) -> Unit,
-    onPlayClick: (String, Double?) -> Unit,
     onCollectionClick: (String, Int) -> Unit,
     viewModel: LibrariesViewModel,
     activeProfile: Profile?,
     onLibrarySelectorClick: () -> Unit,
     onSearchClick: () -> Unit,
     onRequestsClick: (() -> Unit)?,
-    onLiveTvClick: (() -> Unit)?,
+    onWatchTogetherClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -633,24 +789,8 @@ fun LibrariesScreen(
     val state by viewModel.uiState.collectAsState()
     val selectedLibrary = state.libraries.firstOrNull { it.id == state.selectedLibraryId }
 
-    // Hero backdrop sampled from the active featured carousel page. Mirrors
-    // iOS `LibraryRecommendedView` — the parent owns the URL so the page-level
-    // tint + blur extend past the carousel.
-    var heroBackdropUrl by rememberSaveable(state.selectedLibraryId) {
-        mutableStateOf<String?>(null)
-    }
-    var heroBackdropThumbhash by rememberSaveable(state.selectedLibraryId) {
-        mutableStateOf<String?>(null)
-    }
-
-    val heroTint by rememberDominantColor(
-        imageUrl = heroBackdropUrl,
-        fallback = MaterialTheme.colorScheme.background,
-    )
-
     // Recommended tab scroll state — drives the chrome scrim opacity so the
-    // header reads as part of the artwork while the hero is at rest, then
-    // resolves to a solid scrim once the user scrolls past.
+    // header fades in its scrim once the user scrolls the rows underneath it.
     val recommendedListState = rememberLazyListState()
     val density = LocalDensity.current
     val chromeFadePx = remember(density) {
@@ -671,86 +811,97 @@ fun LibrariesScreen(
         1f
     }
 
-    val showHero = state.selectedTab == LibrariesSubtab.Recommended &&
-        state.sections.any { it.featured } &&
-        heroBackdropUrl != null
+    // The chrome floats over the content, which scrolls up beneath its
+    // feathered glass edge. Its height is measured (the selector wraps to two
+    // lines) and handed to each subtab as the inset its own top must clear.
+    val chromeHaze = rememberHazeState()
+    var chromeHeightPx by remember { mutableIntStateOf(0) }
+    val chromeHeight = with(density) { chromeHeightPx.toDp() }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        if (showHero) {
-            HeroTintBackground(tint = heroTint)
-            HeroBackdropImage(
-                url = heroBackdropUrl,
-                thumbhash = heroBackdropThumbhash,
-            )
-        }
-
-        when {
-            state.isLoadingLibraries && state.libraries.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-            state.librariesError != null && state.libraries.isEmpty() -> {
-                ErrorView(
-                    message = state.librariesError ?: "Failed to load libraries",
-                    onRetry = viewModel::refresh,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            selectedLibrary == null -> {
-                EmptyStateView(
-                    title = "No libraries available",
-                    subtitle = "Libraries visible to this profile will show up here",
-                    icon = Icons.Default.VideoLibrary,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            else -> {
-                when (state.selectedTab) {
-                    LibrariesSubtab.Recommended -> RecommendedTabContent(
-                        state = state,
-                        listState = recommendedListState,
-                        onItemClick = onItemClick,
-                        onPlayClick = onPlayClick,
-                        onRetry = viewModel::retryCurrentTab,
-                        onActiveBackdropChange = { url, thumbhash ->
-                            heroBackdropUrl = url
-                            heroBackdropThumbhash = thumbhash
-                        },
-                    )
-                    LibrariesSubtab.Browse -> BrowseTabContent(
-                        state = state,
-                        onItemClick = onItemClick,
-                        onRetry = viewModel::retryCurrentTab,
-                        onLoadMore = viewModel::loadMoreCatalog,
-                        onSortChanged = viewModel::selectBrowseSort,
-                        onNamePrefixChanged = viewModel::selectNamePrefix,
-                        onDensityChanged = viewModel::selectViewDensity,
-                        onApplyFilter = viewModel::applyFilterState,
-                        onSetPreserve = viewModel::setPreserveFilters,
-                    )
-                    LibrariesSubtab.Collections -> CollectionsTabContent(
-                        state = state,
-                        onCollectionClick = { collectionId ->
-                            state.selectedLibraryId?.let { libraryId ->
-                                onCollectionClick(collectionId, libraryId)
-                            }
-                        },
-                        onRetry = viewModel::retryCurrentTab,
-                    )
+        LibraryContentViewport(
+            modifier = Modifier
+                .fillMaxSize()
+                // Background inside the source so the glass captures an
+                // opaque scene rather than compositing over the sharp content.
+                .hazeSource(chromeHaze)
+                .background(MaterialTheme.colorScheme.background)
+                .clipToBounds(),
+        ) {
+            // Hold content until the chrome has been measured once so the
+            // first frame does not lay rows out under the header and jump.
+            if (chromeHeightPx > 0) {
+                val topInset = chromeHeight
+                when {
+                    state.isLoadingLibraries && state.libraries.isEmpty() -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(top = topInset),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    state.librariesError != null && state.libraries.isEmpty() -> {
+                        ErrorView(
+                            message = state.librariesError ?: "Failed to load libraries",
+                            onRetry = viewModel::refresh,
+                            modifier = Modifier.fillMaxSize().padding(top = topInset),
+                        )
+                    }
+                    selectedLibrary == null -> {
+                        EmptyStateView(
+                            title = "No libraries available",
+                            subtitle = "Libraries visible to this profile will show up here",
+                            icon = Icons.Default.VideoLibrary,
+                            modifier = Modifier.fillMaxSize().padding(top = topInset),
+                        )
+                    }
+                    state.selectedTab == LibrariesSubtab.Recommended -> {
+                        RecommendedTabContent(
+                            state = state,
+                            listState = recommendedListState,
+                            topInset = topInset,
+                            onItemClick = onItemClick,
+                            onRetry = viewModel::retryCurrentTab,
+                        )
+                    }
+                    state.selectedTab == LibrariesSubtab.Browse -> {
+                        BrowseTabContent(
+                            state = state,
+                            topInset = topInset,
+                            onItemClick = onItemClick,
+                            onRetry = viewModel::retryCurrentTab,
+                            onLoadMore = viewModel::loadMoreCatalog,
+                            onSortChanged = viewModel::selectBrowseSort,
+                            onNamePrefixChanged = viewModel::selectNamePrefix,
+                            onDensityChanged = viewModel::selectViewDensity,
+                            onApplyFilter = viewModel::applyFilterState,
+                            onSetPreserve = viewModel::setPreserveFilters,
+                        )
+                    }
+                    else -> {
+                        CollectionsTabContent(
+                            state = state,
+                            topInset = topInset,
+                            onCollectionClick = { collectionId ->
+                                state.selectedLibraryId?.let { libraryId ->
+                                    onCollectionClick(collectionId, libraryId)
+                                }
+                            },
+                            onRetry = viewModel::retryCurrentTab,
+                        )
+                    }
                 }
             }
         }
 
         LibrariesFloatingChrome(
             scrimProgress = chromeScrimProgress,
+            hazeState = chromeHaze,
             selectedLibrary = selectedLibrary,
             canSwitch = state.libraries.size > 1,
             activeProfile = activeProfile,
@@ -759,41 +910,46 @@ fun LibrariesScreen(
             onTabSelected = viewModel::selectTab,
             onSearchClick = onSearchClick,
             onRequestsClick = onRequestsClick,
-            onLiveTvClick = onLiveTvClick,
+            onWatchTogetherClick = onWatchTogetherClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
             onSignOutClick = onSignOutClick,
+            modifier = Modifier.onSizeChanged { chromeHeightPx = it.height },
         )
     }
+}
+
+@Composable
+private fun LibraryContentViewport(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        content = content,
+    )
 }
 
 @Composable
 private fun RecommendedTabContent(
     state: LibrariesUiState,
     listState: androidx.compose.foundation.lazy.LazyListState,
+    topInset: Dp,
     onItemClick: (String) -> Unit,
-    onPlayClick: (String, Double?) -> Unit,
     onRetry: () -> Unit,
-    onActiveBackdropChange: (url: String?, thumbhash: String?) -> Unit,
 ) {
     when {
         state.isLoadingSections && state.sections.isEmpty() -> {
             MediaRowsSkeleton(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = LibrariesChromeContentHeight)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                modifier = Modifier.fillMaxSize().padding(top = topInset),
             )
         }
         state.sectionsError != null && state.sections.isEmpty() -> {
             ErrorView(
                 message = state.sectionsError ?: "Failed to load recommendations",
                 onRetry = onRetry,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = LibrariesChromeContentHeight)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                modifier = Modifier.fillMaxSize().padding(top = topInset),
             )
         }
         state.sections.isEmpty() -> {
@@ -801,51 +957,24 @@ private fun RecommendedTabContent(
                 title = "No recommendations yet",
                 subtitle = "Try switching libraries or browsing the full catalog",
                 icon = libraryIcon(state.libraries.firstOrNull { it.id == state.selectedLibraryId }?.type.orEmpty()),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = LibrariesChromeContentHeight)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                modifier = Modifier.fillMaxSize().padding(top = topInset),
             )
         }
         else -> {
-            val (featuredSection, regularSections) = remember(state.sections) {
-                state.sections.splitFeatured().let { it.featured to it.rest }
-            }
-
+            // No hero carousel (matches iOS): a `featured` section is just
+            // another row, kept in the order the server configured it.
             // iOS `LibraryRecommendedView`: LazyVStack(spacing: largePadding = 24)
             // between section rows.
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
+                // Rows start below the floating chrome and scroll up under it.
+                contentPadding = PaddingValues(top = topInset + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                if (featuredSection != null && featuredSection.items.isNotEmpty()) {
-                    item(key = "library-featured") {
-                        FeaturedCarousel(
-                            items = featuredSection.items,
-                            onPlayClick = onPlayClick,
-                            onInfoClick = onItemClick,
-                            onActiveBackdropChange = onActiveBackdropChange,
-                            // Push the deck below the taller Libraries chrome
-                            // (header + tab selector). Carousel already adds
-                            // `statusBar + 64dp`; this covers the tab row.
-                            extraTopInset = 50.dp,
-                        )
-                    }
-                } else {
-                    // No featured → reserve runway under the chrome so the
-                    // first row doesn't slide under the floating header.
-                    item(key = "no-featured") {
-                        Spacer(
-                            modifier = Modifier
-                                .windowInsetsPadding(WindowInsets.statusBars)
-                                .height(LibrariesChromeContentHeight + 8.dp),
-                        )
-                    }
-                }
 
                 items(
-                    items = regularSections,
+                    items = state.sections,
                     key = { section -> section.id },
                 ) { section ->
                     // No "See All" — iOS has no such affordance (H3, Jim
@@ -867,6 +996,7 @@ private fun RecommendedTabContent(
 @Composable
 private fun BrowseTabContent(
     state: LibrariesUiState,
+    topInset: Dp,
     onItemClick: (String) -> Unit,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
@@ -877,103 +1007,83 @@ private fun BrowseTabContent(
     onSetPreserve: (Boolean) -> Unit,
 ) {
     var showFilterSheet by remember { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = LibrariesChromeContentHeight),
-    ) {
-        // Sort chips + a Filter button that opens the shared FilterSheet. Genre
-        // is now a Categories facet inside the sheet (no inline genre rail, L3),
-        // and view-density moved into the sheet's "View" section (L4).
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                LibraryBrowseSort.entries.forEach { sort ->
-                    FilterChip(
-                        selected = state.browseSort == sort,
-                        onClick = { onSortChanged(sort) },
-                        label = { Text(sort.label) },
-                        colors = libraryChipColors(state.browseSort == sort),
-                    )
-                }
-            }
-            BadgedBox(
-                badge = {
-                    if (state.filterState.activeFacetCount > 0) {
-                        Badge { Text("${state.filterState.activeFacetCount}") }
-                    }
+    val isCustomised = state.browseSort != LibraryBrowseSort.RecentlyAdded ||
+        state.filterState.hasActiveFilters ||
+        state.selectedNamePrefix != null
+
+    // Sort ▾ / Filter (n) / Reset — the same control row as the saved lists —
+    // plus removable chips for active facets. Rendered as the grid's header
+    // so it scrolls with the content under the chrome's glass.
+    val controlsHeader: @Composable () -> Unit = {
+        Column(modifier = Modifier.padding(bottom = 4.dp)) {
+            SortFilterControlsRow(
+                sortLabel = state.browseSort.label,
+                sortActive = state.browseSort != LibraryBrowseSort.RecentlyAdded,
+                sortOptions = LibraryBrowseSort.entries.map { SortMenuOption(id = it.name, label = it.label) },
+                selectedSortId = state.browseSort.name,
+                onSelectSort = { id -> onSortChanged(LibraryBrowseSort.valueOf(id)) },
+                filterCount = state.filterState.activeFacetCount,
+                onOpenFilters = { showFilterSheet = true },
+                showReset = isCustomised,
+                onReset = {
+                    onSortChanged(LibraryBrowseSort.RecentlyAdded)
+                    onApplyFilter(state.filterState.resetFilters())
+                    onNamePrefixChanged(null)
                 },
-            ) {
-                IconButton(onClick = { showFilterSheet = true }) {
-                    Icon(
-                        imageVector = Icons.Default.FilterList,
-                        contentDescription = "Filters",
-                    )
-                }
-            }
-        }
-
-        // Active filter chips — removable capsules, one per selected facet value.
-        if (state.filterState.hasActiveFilters) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CatalogFacet.available(state.browseMediaType).forEach { facet ->
-                    state.filterState.valuesFor(facet).sorted().forEach { value ->
-                        LibraryActiveFilterChip(
-                            label = facetValueLabel(facet, value),
-                            onRemove = { onApplyFilter(state.filterState.toggle(facet, value)) },
-                        )
+            )
+            if (state.filterState.hasActiveFilters) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CatalogFacet.available(state.browseMediaType).forEach { facet ->
+                        state.filterState.valuesFor(facet).sorted().forEach { value ->
+                            LibraryActiveFilterChip(
+                                label = facetValueLabel(facet, value),
+                                onRemove = { onApplyFilter(state.filterState.toggle(facet, value)) },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
 
+    Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.isLoadingCatalog && state.catalogItems.isEmpty() -> {
                 PosterGridSkeleton(
                     progress = rememberShimmerProgress(),
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().padding(top = topInset),
                 )
             }
             state.catalogError != null && state.catalogItems.isEmpty() -> {
-                ErrorView(
-                    message = state.catalogError ?: "Failed to load catalog",
-                    onRetry = onRetry,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                // Controls stay mounted so a rejected sort/filter/letter can be
+                // changed from here rather than only retried.
+                Column(modifier = Modifier.fillMaxSize().padding(top = topInset)) {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { controlsHeader() }
+                    ErrorView(
+                        message = state.catalogError ?: "Failed to load catalog",
+                        onRetry = onRetry,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
             state.catalogItems.isEmpty() -> {
-                EmptyStateView(
-                    title = "No items found",
-                    subtitle = "Try adjusting the sort or switching libraries",
-                    icon = libraryIcon(state.libraries.firstOrNull { it.id == state.selectedLibraryId }?.type.orEmpty()),
-                    modifier = Modifier.fillMaxSize(),
-                )
+                Column(modifier = Modifier.fillMaxSize().padding(top = topInset)) {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { controlsHeader() }
+                    EmptyStateView(
+                        title = if (isCustomised) "No matches" else "No items found",
+                        subtitle = if (isCustomised) "No titles match the current sort or filters." else "Try switching libraries",
+                        icon = libraryIcon(state.libraries.firstOrNull { it.id == state.selectedLibraryId }?.type.orEmpty()),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
             else -> {
-                Text(
-                    text = "${state.catalogTotal} items",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
                 CatalogGrid(
                     items = state.catalogItems,
                     isLoadingMore = state.isLoadingMoreCatalog,
@@ -990,6 +1100,9 @@ private fun BrowseTabContent(
                     selectedNamePrefix = state.selectedNamePrefix,
                     onNamePrefixSelected = onNamePrefixChanged,
                     viewDensity = state.catalogDensity,
+                    bottomContentInset = LocalBottomChromeInset.current,
+                    topContentInset = topInset,
+                    header = controlsHeader,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -1048,27 +1161,22 @@ private fun LibraryActiveFilterChip(
 @Composable
 private fun CollectionsTabContent(
     state: LibrariesUiState,
+    topInset: Dp,
     onCollectionClick: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
-    val contentTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
-        LibrariesChromeContentHeight
     when {
         state.isLoadingCollections && state.collections.isEmpty() -> {
             PosterGridSkeleton(
                 progress = rememberShimmerProgress(),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = contentTopPadding),
+                modifier = Modifier.fillMaxSize().padding(top = topInset),
             )
         }
         state.collectionsError != null && state.collections.isEmpty() -> {
             ErrorView(
                 message = state.collectionsError ?: "Failed to load collections",
                 onRetry = onRetry,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = contentTopPadding),
+                modifier = Modifier.fillMaxSize().padding(top = topInset),
             )
         }
         state.collections.isEmpty() -> {
@@ -1076,23 +1184,22 @@ private fun CollectionsTabContent(
                 title = "No collections found",
                 subtitle = "This library does not have any collections yet",
                 icon = Icons.Default.VideoLibrary,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = contentTopPadding),
+                modifier = Modifier.fillMaxSize().padding(top = topInset),
             )
         }
         else -> {
-            // iOS `LibraryCollectionsView`: adaptive 110pt poster grid with
-            // shared column/row spacing and 16pt padding insets.
+            // iOS `LibraryCollectionsView`: adaptive poster grid with shared
+            // column/row spacing and 16pt padding insets. Follows the Library
+            // grid's view density so both tabs show the same column count.
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
+                columns = GridCells.Adaptive(state.catalogDensity.minCardWidth),
                 horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
                 verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
-                    top = contentTopPadding,
+                    top = topInset + 16.dp,
                     bottom = 24.dp + LocalBottomChromeInset.current,
                 ),
             ) {
@@ -1118,7 +1225,7 @@ private fun InlineLibraryCollectionCard(
 ) {
     // iOS `LibraryCollectionCard`: VStack(spacing: 6) of a 2:3.3 poster
     // (smallCornerRadius = 6) carrying a bottom-trailing count badge, a
-    // prairieCaption (12) name (2 lines), and a prairieSmall (11) secondary
+    // siloCaption (12) name (2 lines), and a siloSmall (11) secondary
     // type label.
     Column(
         modifier = Modifier.clickable(onClick = onClick),
@@ -1170,6 +1277,7 @@ private fun InlineLibraryCollectionCard(
 @Composable
 private fun LibrariesFloatingChrome(
     scrimProgress: Float,
+    hazeState: HazeState,
     selectedLibrary: UserLibrary?,
     canSwitch: Boolean,
     activeProfile: Profile?,
@@ -1178,11 +1286,12 @@ private fun LibrariesFloatingChrome(
     onTabSelected: (LibrariesSubtab) -> Unit,
     onSearchClick: () -> Unit,
     onRequestsClick: (() -> Unit)?,
-    onLiveTvClick: (() -> Unit)?,
+    onWatchTogetherClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
     onSignOutClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
     val animatedFill by animateFloatAsState(
@@ -1190,22 +1299,21 @@ private fun LibrariesFloatingChrome(
         label = "librariesChromeFill",
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                // iOS chrome scrim: LinearGradient(black@0.55 → black@0.25 →
-                // clear) faded in by the scroll-driven opacity.
-                Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.55f * animatedFill),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.25f * animatedFill),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0f),
-                    ),
-                ),
-            )
-            .padding(top = statusBarPadding.calculateTopPadding() + 8.dp),
-    ) {
+    Box(modifier = modifier.fillMaxWidth()) {
+        // Progressive glass, faded in by the scroll-driven opacity on the
+        // Recommended tab and always on for Browse / Collections. Its bottom
+        // edge feathers to clear so rows dissolve into the chrome.
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer { alpha = animatedFill }
+                .topBarGlass(hazeState, progressive = true),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = statusBarPadding.calculateTopPadding() + 8.dp),
+        ) {
         // Top row: library selector on the left, action icons on the right.
         Row(
             modifier = Modifier
@@ -1220,28 +1328,16 @@ private fun LibrariesFloatingChrome(
                 modifier = Modifier.weight(1f),
             )
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ChromeIconButton(onClick = onSearchClick) {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                ChromeProfileMenu(
-                    activeProfile = activeProfile,
-                    onRequestsClick = onRequestsClick,
-                    onLiveTvClick = onLiveTvClick,
-                    onSettingsClick = onSettingsClick,
-                    onSwitchProfileClick = onSwitchProfileClick,
-                    onSwitchServerClick = onSwitchServerClick,
-                    onSignOutClick = onSignOutClick,
-                )
-            }
+            TabTopBarActions(
+                activeProfile = activeProfile,
+                onSearchClick = onSearchClick,
+                onRequestsClick = onRequestsClick,
+                onWatchTogetherClick = onWatchTogetherClick,
+                onSettingsClick = onSettingsClick,
+                onSwitchProfileClick = onSwitchProfileClick,
+                onSwitchServerClick = onSwitchServerClick,
+                onSignOutClick = onSignOutClick,
+            )
         }
 
         // iOS: top bar bottom inset = smallPadding (8).
@@ -1255,8 +1351,9 @@ private fun LibrariesFloatingChrome(
             modifier = Modifier.padding(horizontal = 16.dp),
         )
 
-        // iOS: tab selector bottom inset = padding (16).
-        Spacer(modifier = Modifier.height(16.dp))
+            // iOS: tab selector bottom inset = padding (16).
+            Spacer(modifier = Modifier.height(16.dp))
+        }
     }
 }
 
@@ -1273,7 +1370,7 @@ private fun LibrarySelectorButton(
     modifier: Modifier = Modifier,
 ) {
     // iOS `LibrarySelectorButton`: VStack(spacing: 1) of a name+chevron row
-    // (prairieTitle = 18pt bold) above a prairieCaption (12pt) type label.
+    // (siloTitle = 18pt bold) above a siloCaption (12pt) type label.
     Column(
         modifier = modifier
             .clickable(enabled = canSwitch && library != null, onClick = onClick)
@@ -1309,120 +1406,6 @@ private fun LibrarySelectorButton(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-    }
-}
-
-@Composable
-private fun ChromeIconButton(
-    onClick: () -> Unit,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    // iOS `TopBarIconButton`/`ProfileAvatarMenu`: plain 40pt hit target with
-    // no surface fill or border — just the icon/avatar over the chrome scrim.
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-        content = content,
-    )
-}
-
-@Composable
-private fun ChromeProfileMenu(
-    activeProfile: Profile?,
-    onRequestsClick: (() -> Unit)?,
-    onLiveTvClick: (() -> Unit)?,
-    onSettingsClick: () -> Unit,
-    onSwitchProfileClick: () -> Unit,
-    onSwitchServerClick: () -> Unit,
-    onSignOutClick: () -> Unit,
-) {
-    var menuExpanded by rememberSaveable { mutableStateOf(false) }
-    Box {
-        ChromeIconButton(onClick = { menuExpanded = true }) {
-            if (activeProfile != null) {
-                ProfileAvatar(
-                    avatar = activeProfile.avatar,
-                    name = activeProfile.name,
-                    size = 36.dp,
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Person,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false },
-        ) {
-            if (onRequestsClick != null) {
-                DropdownMenuItem(
-                    text = { Text("Requests") },
-                    onClick = {
-                        menuExpanded = false
-                        onRequestsClick()
-                    },
-                )
-            }
-            if (onLiveTvClick != null) {
-                DropdownMenuItem(
-                    text = { Text("Live TV") },
-                    onClick = {
-                        menuExpanded = false
-                        onLiveTvClick()
-                    },
-                )
-            }
-            if (onRequestsClick != null || onLiveTvClick != null) {
-                HorizontalDivider()
-            }
-            DropdownMenuItem(
-                text = { Text("Settings") },
-                onClick = {
-                    menuExpanded = false
-                    onSettingsClick()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Switch Profile") },
-                onClick = {
-                    menuExpanded = false
-                    onSwitchProfileClick()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Switch Server") },
-                onClick = {
-                    menuExpanded = false
-                    onSwitchServerClick()
-                },
-            )
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        text = "Sign Out",
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                },
-                onClick = {
-                    menuExpanded = false
-                    onSignOutClick()
-                },
-            )
-        }
     }
 }
 
@@ -1504,7 +1487,7 @@ private fun LibrarySubtabChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    // iOS `LibraryPageTabSelector` chip: Capsule, prairieCaption (12pt),
+    // iOS `LibraryPageTabSelector` chip: Capsule, siloCaption (12pt),
     // selected = onSurface (white #EDEDED) fill / background (black) label and
     // semibold weight; unselected = surfaceElevated (#15171C) fill / secondary
     // label and regular weight. Padding h16 v8.
@@ -1538,9 +1521,9 @@ private fun LibrarySelectorRow(
     onClick: () -> Unit,
 ) {
     // iOS `LibraryPickerRow`: cornerRadius (8) card, selected fill onSurface@10%
-    // else surfaceElevated, hairline prairieOutline (white@12%) border. Row
+    // else surfaceElevated, hairline siloOutline (white@12%) border. Row
     // padding h16 v14; circle 40 onSurface@12% with an 18pt icon; name
-    // prairieHeadline (16) above a prairieCaption (12) secondary label;
+    // siloHeadline (16) above a siloCaption (12) secondary label;
     // a 14pt checkmark on the selected row.
     Surface(
         onClick = onClick,

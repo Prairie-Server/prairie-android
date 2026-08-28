@@ -38,6 +38,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -58,10 +62,12 @@ import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.player.AudioCapabilityManager
 import org.prairieserver.prairie.common.player.FinalPlaybackPositionWriter
 import org.prairieserver.prairie.common.player.PlaybackAnalyticsListener
+import org.prairieserver.prairie.common.network.PrairieClientBuildIdentity
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.SleepTimerController
+import org.prairieserver.prairie.common.player.StartParams
 import org.prairieserver.prairie.common.player.VideoSessionStartV3
 import org.prairieserver.prairie.common.player.video.VideoPlaybackSessionCoordinator
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartRequest
@@ -69,14 +75,20 @@ import org.prairieserver.prairie.common.player.video.VideoPlaybackStartResult
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.domain.player.IntroAutoSkipController
+import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.libass.LibassBridge
+import org.prairieserver.prairie.model.catalog.AudioTrack
+import org.prairieserver.prairie.model.catalog.SubtitleTrack
+import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
+import org.prairieserver.prairie.model.playback.ClientPlaybackContext
 import org.prairieserver.prairie.model.playback.PlayMethod
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
-import org.prairieserver.prairie.model.playback.PlaybackEngineKind
 import org.prairieserver.prairie.model.playback.PlaybackPlanV3
 import org.prairieserver.prairie.model.playback.PlaybackSessionResponse
 import org.prairieserver.prairie.model.playback.PlaybackStreamProtocol
 import org.prairieserver.prairie.model.playback.PlaybackStreamV3
+import org.prairieserver.prairie.model.playback.PlaybackTrackIdentityV3
+import org.prairieserver.prairie.model.playback.SelectedPlaybackTracksV3
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.server.ServerEntry
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
@@ -95,7 +107,11 @@ import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.PlaybackRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SubtitlesRepository
+import org.prairieserver.prairie.repository.port.LocalTrackSelection
 import org.prairieserver.prairie.repository.port.NoOpUserItemStatePort
+import org.prairieserver.prairie.repository.port.UserItemStatePort
+import org.prairieserver.prairie.playback.audioTrackFingerprint
+import org.prairieserver.prairie.playback.encodeCatalogSubtitlePreference
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -104,7 +120,14 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private val dispatcher = UnconfinedTestDispatcher()
+    // StandardTestDispatcher, NOT Unconfined. Unconfined resumes continuations
+    // inline on whichever thread completed the suspending call, and reentrant
+    // resumptions land in that thread's internal unconfined event loop — a queue
+    // the test scheduler cannot reach. Waiting for such a continuation from
+    // another dispatcher was a genuine race: measured 2 failures in 6 idle runs.
+    // A standard dispatcher gives every continuation an explicit scheduler queue
+    // that `runTest` drains while the test body is suspended.
+    private val dispatcher = StandardTestDispatcher()
     private lateinit var db: PrairieDatabase
 
     @BeforeTest
@@ -206,7 +229,13 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
                     message = "stale failure",
                 ),
             )
-            fixture.viewModel.awaitState { it.sessionId == "new-session" }
+            // Drain, do not wait on a predicate. `awaitState { sessionId ==
+            // "new-session" }` was already true the moment it was called, so it
+            // returned without the stale error having been handled at all — the
+            // assertions below then proved nothing. Draining the scheduler makes
+            // "the stale error was processed AND still did not overwrite" the
+            // thing actually under test.
+            advanceUntilIdle()
 
             val state = fixture.viewModel.uiState.value
             assertEquals("new", state.contentId)
@@ -274,6 +303,7 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
             context,
             AudioCapabilityManager(context),
             LibassBridge(false),
+            PrairieClientBuildIdentity(buildNumber = "5", channel = "release"),
         )
         return PlayerFixture(
             viewModel = PlayerViewModel(
@@ -295,7 +325,6 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
                 introAutoSkipController = IntroAutoSkipController(scope),
                 sessionLifecycle = PlaybackSessionLifecycle(
                     manager,
-                    profileRepository,
                     healthApi,
                     personalDataRepository,
                     scope,
@@ -369,11 +398,11 @@ class MobileVideoPlaybackStarterCancellationTest {
                     context,
                     AudioCapabilityManager(context),
                     LibassBridge(false),
+                    PrairieClientBuildIdentity(buildNumber = "5", channel = "release"),
                 ),
                 playerSettingsStore = FakePlayerSettingsStore(),
                 sessionLifecycle = PlaybackSessionLifecycle(
                     manager,
-                    profileRepository,
                     HealthApi(client),
                     PersonalDataRepository(PersonalDataApi(client)),
                     backgroundScope,
@@ -453,6 +482,259 @@ class MobileVideoPlaybackStarterCancellationTest {
         }
 }
 
+/**
+ * The phone starter must take its subtitle preferences from the server's
+ * resolved `effective_*` fields, the way TvVideoPlaybackStarter does.
+ *
+ * The settings screens write these preferences canonically now
+ * (`PUT /settings/values/{key}?scope=profile`); nothing on the server mirrors
+ * a canonical write back into `user_profiles`, so the profile columns
+ * `GET /profiles` serves are stale from the first edit. Reading them here is
+ * how the same profile ends up auto-selecting a different subtitle track on
+ * the phone than on the TV.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
+class MobileVideoPlaybackStarterSubtitlePreferenceTest {
+    private val dispatcher = UnconfinedTestDispatcher()
+
+    @BeforeTest
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @AfterTest
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun serverResolvedSubtitlePreferencesWinOverTheStaleProfileColumns() = runTest(dispatcher) {
+        val ready = start(
+            effective = """
+                "effective_subtitle_language": "ja",
+                "effective_subtitle_mode": "always",
+                "effective_show_forced_subtitles": false,
+            """.trimIndent(),
+            // What GET /profiles still serves after a canonical-only write.
+            profile = Profile(
+                id = PROFILE_ID,
+                name = "Profile",
+                subtitleLanguage = "en",
+                subtitleMode = "off",
+                showForcedSubtitles = true,
+            ),
+        )
+
+        assertEquals("ja", ready.preferredTextLanguage)
+        assertEquals("always", ready.preferredSubtitleMode)
+        assertFalse(ready.showForcedSubtitles)
+    }
+
+    @Test
+    fun profileColumnsRemainTheFallbackWhenTheServerSendsNoResolvedValues() =
+        runTest(dispatcher) {
+            val ready = start(
+                effective = "",
+                profile = Profile(
+                    id = PROFILE_ID,
+                    name = "Profile",
+                    subtitleLanguage = "de",
+                    subtitleMode = "always",
+                    showForcedSubtitles = false,
+                ),
+            )
+
+            assertEquals("de", ready.preferredTextLanguage)
+            assertEquals("always", ready.preferredSubtitleMode)
+            assertFalse(ready.showForcedSubtitles)
+        }
+
+    @Test
+    fun persistedPerFileTracksAreIncludedInTheInitialV3Allocation() = runTest(dispatcher) {
+        val audioTracks = listOf(
+            AudioTrack(codec = "aac", language = "en", title = "Stereo"),
+            AudioTrack(codec = "truehd", language = "en", title = "Atmos"),
+        )
+        // Catalog order intentionally differs from the server's combined
+        // external-then-embedded subtitle index space. English is catalog
+        // ordinal 0 but combined index 1.
+        val subtitleTracks = listOf(
+            SubtitleTrack(index = 12, codec = "subrip", language = "en", title = "English"),
+            SubtitleTrack(index = 0, codec = "srt", language = "fr", title = "French", external = true),
+        )
+        val persisted = LocalTrackSelection(
+            audioFingerprint = audioTrackFingerprint(audioTracks[1]),
+            subtitleFingerprint = encodeCatalogSubtitlePreference(subtitleTracks, 0),
+        )
+        val localState = object : UserItemStatePort by NoOpUserItemStatePort {
+            override suspend fun localTrackSelection(contentId: String, fileId: Int) = persisted
+        }
+        var allocation: MobileVideoSessionAllocation? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            versionFields = """
+                "audio_tracks": [
+                  {"codec":"aac","language":"en","title":"Stereo"},
+                  {"codec":"truehd","language":"en","title":"Atmos"}
+                ],
+                "subtitle_tracks": [
+                  {"index":12,"codec":"subrip","language":"en","title":"English","external":false},
+                  {"index":0,"codec":"srt","language":"fr","title":"French","external":true}
+                ]
+            """.trimIndent(),
+            userItemStatePort = localState,
+            onAllocation = { allocation = it },
+        )
+
+        assertEquals(1, allocation?.audioTrackIndex)
+        assertEquals(1, allocation?.subtitleTrackIndex)
+    }
+
+    @Test
+    fun explicitPlaybackSubtitleIndexWinsAndPassesThroughUnchanged() = runTest(dispatcher) {
+        var allocation: MobileVideoSessionAllocation? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            versionFields = """
+                "subtitle_tracks": [
+                  {"index":12,"codec":"subrip","language":"en","title":"English","external":false},
+                  {"index":0,"codec":"srt","language":"fr","title":"French","external":true}
+                ]
+            """.trimIndent(),
+            explicitSubtitleTrackIndex = 1,
+            onAllocation = { allocation = it },
+        )
+
+        assertEquals(1, allocation?.subtitleTrackIndex)
+    }
+
+    @Test
+    fun serverSelectedSubtitleIndexIsRetainedForSessionRenewal() = runTest(dispatcher) {
+        var adoptedParams: StartParams? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            readyStart = allocatedReady("subtitle-session", selectedSubtitleIndex = 4),
+            onAdoption = { adoptedParams = it },
+        )
+
+        assertEquals(4, adoptedParams?.subtitleTrackIndex)
+    }
+
+    @Test
+    fun unknownSourceDurationStaysUnknownAtTheStarterBoundary() = runTest(dispatcher) {
+        val ready = start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+        )
+
+        assertNull(ready.durationSeconds)
+    }
+
+    private suspend fun TestScope.start(
+        effective: String,
+        profile: Profile,
+        versionFields: String = "",
+        explicitSubtitleTrackIndex: Int? = null,
+        userItemStatePort: UserItemStatePort = NoOpUserItemStatePort,
+        onAllocation: (MobileVideoSessionAllocation) -> Unit = {},
+        readyStart: VideoSessionStartV3.Ready = allocatedReady("subtitle-session"),
+        onAdoption: (StartParams) -> Unit = {},
+    ): VideoPlaybackStartResult.Ready {
+        val client = catalogClient(effective, versionFields)
+        val tokenManager = FakeTokenManager()
+        val profileRepository = FakeProfileRepository(client, tokenManager, profile)
+        val manager = RecordingPlaybackSessionManager(client, tokenManager)
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val starter = MobileVideoPlaybackStarter(
+            catalogRepository = CatalogRepository(CatalogApi(client)),
+            playbackSessionManager = manager,
+            profileRepository = profileRepository,
+            capabilityDetector = PlaybackCapabilityDetector(
+                context,
+                AudioCapabilityManager(context),
+                LibassBridge(false),
+                PrairieClientBuildIdentity(buildNumber = "5", channel = "release"),
+            ),
+            playerSettingsStore = FakePlayerSettingsStore(),
+            sessionLifecycle = PlaybackSessionLifecycle(
+                manager,
+                HealthApi(client),
+                PersonalDataRepository(PersonalDataApi(client)),
+                backgroundScope,
+            ),
+            reachabilityMonitor = ServerReachabilityMonitor(HealthApi(client), backgroundScope),
+            userItemStatePort = userItemStatePort,
+            sessionAllocator = {
+                onAllocation(it)
+                ApiResult.Success(readyStart)
+            },
+            sessionAdopter = { params, _ -> onAdoption(params) },
+        )
+
+        val result = starter.start(
+            VideoPlaybackStartRequest(
+                contentId = "starter",
+                preferredFileId = 41,
+                roomId = null,
+                resumePositionOverride = null,
+                subtitleTrackIndex = explicitSubtitleTrackIndex,
+            ),
+        )
+        assertTrue(result is VideoPlaybackStartResult.Ready, "expected a ready start, got $result")
+        return result
+    }
+
+    private fun catalogClient(effective: String, versionFields: String): HttpClient {
+        val extraVersionFields = versionFields
+            .trim()
+            .takeIf(String::isNotEmpty)
+            ?.let { ",\n$it" }
+            .orEmpty()
+        return HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath == "/api/v1/watch/starter") {
+                    respond(
+                        content = """
+                            {
+                              "content_id": "starter",
+                              "type": "movie",
+                              "title": "Starter",
+                              $effective
+                              "versions": [
+                                {
+                                  "file_id": 41,
+                                  "container": "mkv",
+                                  "duration": 120.0
+                                  $extraVersionFields
+                                }
+                              ]
+                            }
+                        """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = JSON_HEADERS,
+                    )
+                } else {
+                    respond(
+                        content = """{"error":"not_found","message":"not found"}""",
+                        status = HttpStatusCode.NotFound,
+                        headers = JSON_HEADERS,
+                    )
+                }
+            },
+        ) {
+            install(ContentNegotiation) { json(PrairieJson) }
+        }
+    }
+}
+
 private class DeferredNonCooperativeStarter : VideoPlaybackStarter {
     private data class Pending(
         val request: VideoPlaybackStartRequest,
@@ -462,10 +744,14 @@ private class DeferredNonCooperativeStarter : VideoPlaybackStarter {
 
     private val pending = mutableListOf<Pending>()
 
+    /** Replayable so a request that lands before the wait begins is still seen. */
+    private val requestCount = MutableStateFlow(0)
+
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult =
         suspendCoroutine { continuation ->
-            synchronized(pending) {
+            requestCount.value = synchronized(pending) {
                 pending += Pending(request, continuation)
+                pending.size
             }
         }
 
@@ -483,9 +769,7 @@ private class DeferredNonCooperativeStarter : VideoPlaybackStarter {
     }
 
     suspend fun awaitRequestCount(count: Int) {
-        awaitCondition {
-            synchronized(pending) { pending.size >= count }
-        }
+        awaitRealTime { requestCount.first { it >= count } }
     }
 }
 
@@ -498,6 +782,7 @@ private class RecordingPlaybackSessionManager(
 ) {
     private val stopped = mutableListOf<String>()
     private val stopActiveContexts = mutableListOf<Boolean>()
+    private val stoppedSignal = MutableStateFlow<Set<String>>(emptySet())
 
     val stoppedSessions: List<String>
         get() = synchronized(stopped) { stopped.toList() }
@@ -511,22 +796,23 @@ private class RecordingPlaybackSessionManager(
             stopped += sessionId
             stopActiveContexts += contextActive
         }
+        stoppedSignal.update { it + sessionId }
         return ApiResult.Success(Unit)
     }
 
     suspend fun awaitStopped(sessionId: String) {
-        awaitCondition { sessionId in stoppedSessions }
+        awaitRealTime { stoppedSignal.first { sessionId in it } }
     }
 }
 
 private class FakeProfileRepository(
     client: HttpClient,
     tokenManager: TokenManager,
+    private val profile: Profile = Profile(id = PROFILE_ID, name = "Profile"),
 ) : ProfileRepository(ProfileApi(client), tokenManager) {
     override suspend fun getActiveProfileId(): String = PROFILE_ID
 
-    override suspend fun listProfiles(): ApiResult<List<Profile>> =
-        ApiResult.Success(listOf(Profile(id = PROFILE_ID, name = "Profile")))
+    override suspend fun listProfiles(): ApiResult<List<Profile>> = ApiResult.Success(listOf(profile))
 }
 
 private class FakeTokenManager : TokenManager {
@@ -540,7 +826,7 @@ private class FakeTokenManager : TokenManager {
     override suspend fun setProfileId(profileId: String?) = Unit
     override suspend fun getProfileToken(): String? = null
     override suspend fun setProfileToken(token: String?) = Unit
-    override suspend fun getServerUrl(): String = "https://prairie.test"
+    override suspend fun getServerUrl(): String = "https://silo.test"
     override suspend fun setServerUrl(url: String) = Unit
     override suspend fun getCurrentServerId(): String = SERVER_ID
     override suspend fun switchActiveServer(serverId: String?) = Unit
@@ -562,7 +848,7 @@ private class FakeServerRegistry : ServerRegistry {
 }
 
 private class FakePlayerSettingsStore : PlayerSettingsStore {
-    override val autoSkipIntroFlow: Flow<Boolean> = flowOf(false)
+    override val introSkipModeFlow: Flow<IntroSkipMode> = flowOf(IntroSkipMode.ASK)
     override val autoSkipCreditsFlow: Flow<Boolean> = flowOf(false)
     override val autoPlayNextFlow: Flow<Boolean> = flowOf(true)
     override val hdrEnabledFlow: Flow<Boolean> = flowOf(true)
@@ -576,12 +862,12 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val playbackSpeedFlow: Flow<Double> = flowOf(1.0)
     override val audioSyncMsFlow: Flow<Int> = flowOf(0)
     override val subtitleSyncMsFlow: Flow<Int> = flowOf(0)
-    override fun subtitleSyncMsFor(contentId: String?): Flow<Int> = subtitleSyncMsFlow
     override val nextUpPromptSecondsFlow: Flow<Int> = flowOf(30)
     override val sleepTimerDefaultMinutesFlow: Flow<Int> = flowOf(30)
     override val resumeRewindSecondsFlow: Flow<Int> = flowOf(7)
     override val passOutThresholdFlow: Flow<Int> = flowOf(3)
     override val preferredQualityFlow: Flow<String> = flowOf("auto")
+    override val maxBitrateKbpsFlow: Flow<Int?> = flowOf(null)
     override val audioLanguageFlow: Flow<String> = flowOf("")
     override val videoGravityFlow: Flow<String> = flowOf("fit")
     override val orientationModeFlow: Flow<String> = flowOf("auto")
@@ -594,7 +880,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val effectiveSubtitleAppearanceFlow: Flow<SubtitleAppearance> =
         flowOf(SubtitleAppearance.DEFAULT)
 
-    override suspend fun setAutoSkipIntro(value: Boolean) = Unit
+    override suspend fun setIntroSkipMode(value: IntroSkipMode) = Unit
     override suspend fun setAutoSkipCredits(value: Boolean) = Unit
     override suspend fun setAutoPlayNext(value: Boolean) = Unit
     override suspend fun setHdrEnabled(value: Boolean) = Unit
@@ -608,16 +894,17 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setPlaybackSpeed(value: Double) = Unit
     override suspend fun setAudioSyncMs(value: Int) = Unit
     override suspend fun setSubtitleSyncMs(value: Int) = Unit
-    override suspend fun setSubtitleSyncMsFor(contentId: String, value: Int) = Unit
     override suspend fun setNextUpPromptSeconds(value: Int) = Unit
     override suspend fun setSleepTimerDefaultMinutes(value: Int) = Unit
     override suspend fun setResumeRewindSeconds(value: Int) = Unit
     override suspend fun setPassOutThreshold(value: Int) = Unit
     override suspend fun setPreferredQuality(value: String) = Unit
+    override suspend fun setQuality(resolution: String, bitrateKbps: Int?) = Unit
     override suspend fun setAudioLanguage(value: String) = Unit
     override suspend fun setVideoGravity(value: String) = Unit
     override suspend fun setOrientationMode(value: String) = Unit
     override suspend fun setSubtitleAppearance(value: SubtitleAppearance) = Unit
+    override suspend fun flushProjectedSubtitleAppearance() = Unit
     override suspend fun refreshFromServer() = Unit
     override suspend fun setSubtitleDeviceOverrideEnabled(enabled: Boolean) = Unit
     override suspend fun setSubtitleMatchesDevice(enabled: Boolean) = Unit
@@ -627,19 +914,26 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun flushPendingDeviceSettings() = Unit
 }
 
-private fun allocatedReady(sessionId: String): VideoSessionStartV3.Ready {
+private fun allocatedReady(
+    sessionId: String,
+    selectedSubtitleIndex: Int? = null,
+): VideoSessionStartV3.Ready {
+    val selectedSubtitle = selectedSubtitleIndex?.let { index ->
+        PlaybackTrackIdentityV3("file:41:subtitle:$index", index)
+    }
     val plan = PlaybackPlanV3(
         planId = "plan-$sessionId",
+        planAttemptKey = "v3:test:$sessionId",
         sessionId = sessionId,
         delivery = PlaybackDelivery.ORIGINAL_HTTP,
-        engine = PlaybackEngineKind.MEDIA3_DIRECT,
         stream = PlaybackStreamV3(
-            url = "https://prairie.test/stream/$sessionId",
+            url = "https://silo.test/stream/$sessionId",
             protocol = PlaybackStreamProtocol.HTTP_PROGRESSIVE,
             container = "mkv",
         ),
         decisionReason = "test",
         effectiveMediaFileId = 41,
+        selectedTracks = SelectedPlaybackTracksV3(subtitle = selectedSubtitle),
     )
     return VideoSessionStartV3.Ready(
         session = PlaybackSessionResponse(
@@ -654,6 +948,8 @@ private fun allocatedReady(sessionId: String): VideoSessionStartV3.Ready {
         playbackAttemptId = "playback-attempt",
         planAttemptId = "plan-attempt",
         planAttemptKey = "plan-key",
+        capabilities = ClientCodecCapabilities(),
+        clientPlaybackContext = ClientPlaybackContext(formFactor = "mobile", appVersion = "test"),
     )
 }
 
@@ -673,18 +969,34 @@ private fun noOpClient(): HttpClient =
 private suspend fun PlayerViewModel.awaitState(
     predicate: (PlayerViewModel.PlayerUiState) -> Boolean,
 ) {
-    awaitCondition { predicate(uiState.value) }
+    awaitRealTime { uiState.first(predicate) }
 }
 
-private suspend fun awaitCondition(predicate: () -> Boolean) {
-    withContext(Dispatchers.Default.limitedParallelism(1)) {
-        withTimeout(5_000) {
-            while (!predicate()) {
-                delay(5)
-            }
-        }
+/**
+ * Runs [block] under a REAL, generous deadline.
+ *
+ * The deadline has to be real: this load path does unavoidable work on
+ * `Dispatchers.IO` before it ever reaches the fake starter — the offline
+ * preflight in `PlayerViewModel.tryLocalPlayback` and, beneath it,
+ * `LegacyDownloadImporter` both hard-code that dispatcher — and virtual time
+ * cannot advance a real thread. A purely virtual timeout raced straight past
+ * that work and failed every test in this class.
+ *
+ * What must NOT come back is polling. Waiters here suspend on a signal, so a
+ * result that arrives before the wait begins is still seen, and a waiter can no
+ * longer give up on work that simply had not been dispatched yet.
+ */
+private suspend fun <T> awaitRealTime(block: suspend () -> T): T =
+    withContext(Dispatchers.Default) {
+        // The deadline exists to turn a hang into a failure, not to police
+        // latency — a passing test signals in milliseconds and never waits.
+        // Five seconds was tight enough that a full-suite run, with dozens of
+        // Robolectric classes competing for the same JVM, could blow it while
+        // the work was merely slow. That looked exactly like the race this
+        // helper was written to remove, which is worse than useless.
+        withTimeout(30_000) { block() }
     }
-}
+
 
 private const val SERVER_ID = "server"
 private const val PROFILE_ID = "profile"

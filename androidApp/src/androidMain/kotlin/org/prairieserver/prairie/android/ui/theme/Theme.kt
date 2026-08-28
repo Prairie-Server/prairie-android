@@ -9,7 +9,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 // iOS pins .preferredColorScheme(.dark) in ContentView.swift, so Android matches by
-// always emitting the Prairie Dusk scheme regardless of system or preference toggles.
+// always emitting the Plezy OLED scheme regardless of system or preference toggles.
 private val PrairieDarkColorScheme = darkColorScheme(
     primary = PrairiePrimary,
     onPrimary = PrairieBackground,
@@ -33,6 +33,18 @@ private val PrairieDarkColorScheme = darkColorScheme(
     onSurface = PrairieOnSurface,
     surfaceVariant = PrairieSurfaceVariant,
     onSurfaceVariant = PrairieSecondaryText,
+    // `darkColorScheme` leaves the container ladder on M3's purple-tinted
+    // baseline, so anything reaching for `surfaceContainer*` used to land off
+    // the Prairie palette entirely (the cast bars did, and the settings cards
+    // avoided the roles by borrowing `primaryContainer`). Populated so the
+    // roles mean what they say.
+    surfaceContainerLowest = PrairieSurfaceContainerLowest,
+    surfaceContainerLow = PrairieSurfaceContainerLow,
+    surfaceContainer = PrairieSurfaceContainer,
+    surfaceContainerHigh = PrairieSurfaceContainerHigh,
+    surfaceContainerHighest = PrairieSurfaceContainerHighest,
+    surfaceDim = PrairieSurfaceDim,
+    surfaceBright = PrairieSurfaceBright,
     outline = PrairieOutline,
     outlineVariant = PrairieOutline,
     inverseSurface = PrairieOnSurface,

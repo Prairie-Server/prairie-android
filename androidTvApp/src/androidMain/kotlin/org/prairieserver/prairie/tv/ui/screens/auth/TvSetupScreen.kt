@@ -12,9 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -26,16 +23,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -48,16 +47,18 @@ import androidx.tv.material3.Text
 import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.tv.ui.components.TvAuroraBackdrop
 import org.prairieserver.prairie.tv.ui.components.TvAuroraVariant
-import org.prairieserver.prairie.tv.ui.components.TvHeroActionPill
-import org.prairieserver.prairie.tv.ui.components.TvPillVariant
+import org.prairieserver.prairie.tv.ui.components.AuroraPrimaryButton
+import org.prairieserver.prairie.tv.ui.components.rememberTvImeAwareFormScrollState
+import org.prairieserver.prairie.tv.ui.components.tvImeAwareFieldContext
+import org.prairieserver.prairie.tv.ui.components.tvShowImeOnSelect
+import org.prairieserver.prairie.tv.ui.components.TvAuthFormDefaults
 import org.prairieserver.prairie.tv.ui.components.tvOutlinedTextFieldColors
 import org.prairieserver.prairie.tv.ui.theme.Spacing
-import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * First-time server setup — creates the initial admin account on a freshly
- * installed Prairie server. Mirrors the phone's `SetupScreen` logic via
+ * installed Silo server. Mirrors the phone's `SetupScreen` logic via
  * [TvSetupViewModel]; on success the user is already signed in (tokens
  * persisted by [org.prairieserver.prairie.repository.AuthRepository.setup]) so the
  * flow advances to profile selection.
@@ -73,11 +74,7 @@ fun TvSetupScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val usernameFocus = remember { FocusRequester() }
-    val usernameBringIntoView = remember { BringIntoViewRequester() }
-    val emailBringIntoView = remember { BringIntoViewRequester() }
-    val passwordBringIntoView = remember { BringIntoViewRequester() }
-    val submitBringIntoView = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
+    val formScrollState = rememberTvImeAwareFormScrollState()
 
     LaunchedEffect(state.setupSuccess) {
         if (state.setupSuccess) {
@@ -85,11 +82,23 @@ fun TvSetupScreen(
             onSetupComplete()
         }
     }
-    LaunchedEffect(Unit) { runCatching { usernameFocus.requestFocus() } }
+    // A text field on a first-run screen: if this claim is dropped the
+    // remote has nothing to act on and no touch fallback exists.
+    // Snapshot-backed input mode drives the claim: null contentKey while the
+    // viewer is in touch mode (a programmatic claim on a text field pops the
+    // IME; pointer users click the field themselves), and the key change on
+    // flipping back to key input re-runs the claim so the D-pad always has
+    // somewhere to land.
+    val inputMode = LocalInputModeManager.current.inputMode
+    val usernameFocusModifier = rememberTvContentInitialFocus(
+        target = usernameFocus,
+        contentKey = if (inputMode == InputMode.Touch) null else inputMode,
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(usernameFocusModifier)
             .imePadding(),
     ) {
         TvAuroraBackdrop(variant = TvAuroraVariant.Welcome)
@@ -100,7 +109,7 @@ fun TvSetupScreen(
                 .align(Alignment.TopCenter)
                 .width(420.dp)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(formScrollState)
                 .padding(top = 24.dp, bottom = Spacing.lg, start = Spacing.xl, end = Spacing.xl),
         ) {
             BrandHeader()
@@ -108,7 +117,7 @@ fun TvSetupScreen(
             Spacer(modifier = Modifier.height(Spacing.xs))
 
             Text(
-                text = "Welcome to Prairie",
+                text = "Welcome to Silo",
                 style = TvAuthFormTextStyles.Title,
                 color = Color.White,
             )
@@ -118,70 +127,100 @@ fun TvSetupScreen(
                 color = Color.White.copy(alpha = 0.72f),
             )
 
-            OutlinedTextField(
-                value = state.username,
-                onValueChange = viewModel::onUsernameChanged,
-                label = { Text("Username", style = TvAuthFormTextStyles.FieldLabel, color = Color.White) },
-                singleLine = true,
-                textStyle = TvAuthFormTextStyles.FieldText,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Text,
-                    imeAction = ImeAction.Next,
-                ),
-                enabled = !state.isLoading,
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .bringIntoViewRequester(usernameBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { usernameBringIntoView.bringIntoView() }
-                    }
-                    .focusRequester(usernameFocus),
-                colors = tvOutlinedTextFieldColors(),
-            )
+                    .tvImeAwareFieldContext(),
+            ) {
+                Text(
+                    text = "USERNAME",
+                    style = TvAuthFormTextStyles.InputLabel,
+                    color = Color.White.copy(alpha = 0.52f),
+                )
+                OutlinedTextField(
+                    value = state.username,
+                    onValueChange = viewModel::onUsernameChanged,
+                    singleLine = true,
+                    textStyle = TvAuthFormTextStyles.FieldText,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Next,
+                        showKeyboardOnFocus = false,
+                    ),
+                    enabled = !state.isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(TvAuthFormDefaults.FieldHeight)
+                        .tvShowImeOnSelect()
+                        .focusRequester(usernameFocus),
+                    colors = tvOutlinedTextFieldColors(),
+                )
+            }
 
-            OutlinedTextField(
-                value = state.email,
-                onValueChange = viewModel::onEmailChanged,
-                label = { Text("Email", style = TvAuthFormTextStyles.FieldLabel, color = Color.White) },
-                singleLine = true,
-                textStyle = TvAuthFormTextStyles.FieldText,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next,
-                ),
-                enabled = !state.isLoading,
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .bringIntoViewRequester(emailBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { emailBringIntoView.bringIntoView() }
-                    },
-                colors = tvOutlinedTextFieldColors(),
-            )
+                    .tvImeAwareFieldContext(),
+            ) {
+                Text(
+                    text = "EMAIL",
+                    style = TvAuthFormTextStyles.InputLabel,
+                    color = Color.White.copy(alpha = 0.52f),
+                )
+                OutlinedTextField(
+                    value = state.email,
+                    onValueChange = viewModel::onEmailChanged,
+                    singleLine = true,
+                    textStyle = TvAuthFormTextStyles.FieldText,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Next,
+                        showKeyboardOnFocus = false,
+                    ),
+                    enabled = !state.isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(TvAuthFormDefaults.FieldHeight)
+                        .tvShowImeOnSelect(),
+                    colors = tvOutlinedTextFieldColors(),
+                )
+            }
 
-            OutlinedTextField(
-                value = state.password,
-                onValueChange = viewModel::onPasswordChanged,
-                label = { Text("Password", style = TvAuthFormTextStyles.FieldLabel, color = Color.White) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                textStyle = TvAuthFormTextStyles.FieldText,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = { if (!state.isLoading) viewModel.onCreateAccountClick() },
-                ),
-                enabled = !state.isLoading,
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .bringIntoViewRequester(passwordBringIntoView)
-                    .onFocusEvent { fs ->
-                        if (fs.isFocused) scope.launch { passwordBringIntoView.bringIntoView() }
-                    },
-                colors = tvOutlinedTextFieldColors(),
-            )
+                    .tvImeAwareFieldContext(),
+            ) {
+                Text(
+                    text = "PASSWORD",
+                    style = TvAuthFormTextStyles.InputLabel,
+                    color = Color.White.copy(alpha = 0.52f),
+                )
+                OutlinedTextField(
+                    value = state.password,
+                    onValueChange = viewModel::onPasswordChanged,
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    textStyle = TvAuthFormTextStyles.FieldText,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done,
+                        showKeyboardOnFocus = false,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { if (!state.isLoading) viewModel.onCreateAccountClick() },
+                    ),
+                    enabled = !state.isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(TvAuthFormDefaults.FieldHeight)
+                        .tvShowImeOnSelect(),
+                    colors = tvOutlinedTextFieldColors(),
+                )
+            }
 
             if (state.error != null) {
                 Text(
@@ -191,20 +230,15 @@ fun TvSetupScreen(
                 )
             }
 
-            Box(
-                modifier = Modifier
-                    .bringIntoViewRequester(submitBringIntoView)
-                    .onFocusEvent { fs -> if (fs.hasFocus) scope.launch { submitBringIntoView.bringIntoView() } },
-            ) {
-                TvHeroActionPill(
+            Box {
+                AuroraPrimaryButton(
                     label = if (state.isLoading) "Creating account…" else "Create Account",
                     icon = Icons.AutoMirrored.Filled.ArrowForward,
-                    variant = TvPillVariant.Filled,
-                    heightOverride = 32.dp,
-                    horizontalPaddingOverride = 19.dp,
-                    labelStyle = TvAuthFormTextStyles.Button,
                     enabled = !state.isLoading,
                     onClick = viewModel::onCreateAccountClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(TvAuthFormDefaults.PrimaryButtonHeight),
                 )
             }
         }
@@ -245,24 +279,22 @@ internal object TvAuthFormTextStyles {
         lineHeight = 24.sp,
         letterSpacing = 0.sp,
     )
-    val FieldLabel = TextStyle(
+    /** Mono uppercase caption above each input — the auth-flow field idiom
+     *  (server setup and sign-in); Material's floating label renders oversized
+     *  in the border notch at TV type scale. */
+    val InputLabel = TextStyle(
+        fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 19.sp,
+        letterSpacing = 3.sp,
     )
     val FieldText = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 16.sp,
+        fontSize = 17.sp,
+        lineHeight = 22.sp,
         letterSpacing = 0.sp,
         color = Color.White,
-    )
-    val Button = TextStyle(
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.sp,
     )
     val Error = TextStyle(
         fontWeight = FontWeight.SemiBold,

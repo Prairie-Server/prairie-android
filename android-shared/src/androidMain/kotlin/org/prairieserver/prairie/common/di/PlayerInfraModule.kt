@@ -71,6 +71,10 @@ val playerInfraModule = module {
         DefaultServerSettingsFlusher(
             settingsApi = get(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            // Same source the settings store stamps its ops with, so a
+            // retained retry can tell whether the server it was authored
+            // against is still the one requests would reach.
+            getServerUrl = { get<TokenManager>().getServerUrl() },
         )
     }
 
@@ -166,7 +170,15 @@ val playerInfraModule = module {
     single<PlaybackSessionLifecycle> {
         PlaybackSessionLifecycle(
             sessionManager = get(),
-            profileRepository = get(),
+            healthApi = get(),
+            personalDataRepository = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            playbackSessions = get<DiagnosticsPlaybackSessionTracker>(),
+        )
+    }
+    single(AUDIOBOOK_PLAYBACK_SESSION_LIFECYCLE_QUALIFIER) {
+        PlaybackSessionLifecycle(
+            sessionManager = get(AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER),
             healthApi = get(),
             personalDataRepository = get(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),

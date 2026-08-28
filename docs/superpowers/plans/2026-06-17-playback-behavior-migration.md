@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add three playback-behavior features to prairie-android — skip-back-on-resume, pass-out protection, and a remote session-control WebSocket — reusing silo's existing service-owned player.
+**Goal:** Add three playback-behavior features to prairie-android — skip-back-on-resume, pass-out protection, and a remote session-control WebSocket — reusing prairie's existing service-owned player.
 
 **Architecture:** Pure logic lands in `shared`/`android-shared` (unit-testable, reusable by `androidTvApp`); UI stays in `androidApp`. The realtime socket mirrors the existing `WatchTogetherRealtimeClient` (shared, thin I/O + pure decode) bound to `PlayerViewModel` by a `PlaybackRealtimeController` that mirrors `RoomSyncController`. Server protocol already exists (`/sessions/{session_id}/control/ws`); the wire format matches `prairie-server/web/src/player/realtime-protocol.ts`.
 
@@ -973,7 +973,7 @@ fun decidePlaybackAction(command: PlaybackRealtimeEvent.Command): PlaybackAction
 }
 ```
 
-> `JsonPrimitive.isString` distinguishes a JSON string from a bare number; `doubleOrNull` parses numeric primitives. Confirm `position_seconds` is the field the issuer sends (silo uses `position_seconds` consistently in watch-together); the decode test pins it.
+> `JsonPrimitive.isString` distinguishes a JSON string from a bare number; `doubleOrNull` parses numeric primitives. Confirm `position_seconds` is the field the issuer sends (prairie uses `position_seconds` consistently in watch-together); the decode test pins it.
 
 - [ ] **Step 4: Run, verify it passes**
 
@@ -1228,7 +1228,7 @@ git add -A && git commit -m "test(playback): subsystem A verification fixes"
 
 ## Notes for the implementer
 
-- **No lift-and-shift from continuum.** Continuum used Decompose + an app-level ExoPlayer; silo uses Compose Navigation + a service-owned player. Mirror silo's own patterns (`WatchTogetherRealtimeClient`, `RoomSyncController`, `PlayerViewModel`).
+- **No lift-and-shift from continuum.** Continuum used Decompose + an app-level ExoPlayer; prairie uses Compose Navigation + a service-owned player. Mirror prairie's own patterns (`WatchTogetherRealtimeClient`, `RoomSyncController`, `PlayerViewModel`).
 - **Reuse, don't duplicate.** Every remote-control method and event handler calls a method the VM already exposes.
 - **Out of scope (this plan):** `play_media`, `set_audio_track`, `set_subtitle_track`, `set_volume` actioning — these map to `Ignore`/`Reject` for now (the client does not advertise the track/media commands in `Supported`).
 - **TV adoption** of `AutoPlayGuard` and the rewound start position is specified in **Part B** below (the product owner asked Subsystem A to cover TV too).
