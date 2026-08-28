@@ -46,6 +46,7 @@ jsoup = "1.22.2"
 play-services-cast-framework = "21.5.0"
 androidx-mediarouter = "1.7.0"
 androidx-window = "1.4.0"
+kover = "0.9.1"
 
 [libraries]
 # BouncyCastle — TLS-PSK server for the LAN companion-pairing receiver
@@ -161,3 +162,4 @@ android-test = { id = "com.android.test", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmark" }
 google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
