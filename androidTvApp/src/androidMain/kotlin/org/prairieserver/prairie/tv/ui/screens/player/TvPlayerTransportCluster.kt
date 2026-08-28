@@ -3,7 +3,6 @@ package org.prairieserver.prairie.tv.ui.screens.player
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -159,8 +158,9 @@ private fun TransportIconButton(
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     // Uniform sizes across all buttons so the row reads as one transport group.
-    val buttonSize = 33.dp
-    val symbolSize = if (isPrimary) 15.dp else 12.5.dp
+    val metrics = tvTransportControlMetrics(isPrimary)
+    val buttonSize = metrics.buttonSizeDp.dp
+    val symbolSize = metrics.symbolSizeDp.dp
 
     // Focus is signaled by filling the circle white — no scale transform so the
     // buttons never cross the bounds of their circular hit target.
@@ -176,11 +176,6 @@ private fun TransportIconButton(
             .size(buttonSize)
             .clip(CircleShape)
             .background(focusBg)
-            .border(
-                width = 0.5.dp,
-                color = if (isFocused) Color.Transparent else Color.White.copy(alpha = 0.22f),
-                shape = CircleShape,
-            )
             .let { mod -> if (focusRequester != null) mod.focusRequester(focusRequester) else mod }
             .focusable(interactionSource = interactionSource)
             .onPreviewKeyEvent { event ->

@@ -9,7 +9,9 @@ import org.prairieserver.prairie.common.data.sync.SyncEngine
 import org.prairieserver.prairie.common.data.sync.SyncWorker
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsCoordinator
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsUploadWorker
-import org.prairieserver.prairie.common.diagnostics.DiagnosticsUploader
+import org.prairieserver.prairie.common.diagnostics.HostedDiagnosticsDeletionWorker
+import org.prairieserver.prairie.common.diagnostics.HostedDiagnosticsReportDeleter
+import org.prairieserver.prairie.common.diagnostics.PendingReportStore
 import org.prairieserver.prairie.repository.SectionRepository
 import org.koin.core.context.GlobalContext
 
@@ -60,8 +62,16 @@ class TvWorkerFactory : WorkerFactory() {
                 DiagnosticsUploadWorker(
                     appContext = appContext,
                     params = workerParameters,
-                    uploader = koin.get<DiagnosticsUploader>(),
                     coordinator = koin.get<DiagnosticsCoordinator>(),
+                )
+            }
+            HostedDiagnosticsDeletionWorker::class.java.name -> {
+                Log.i(TAG, "Building HostedDiagnosticsDeletionWorker via Koin")
+                HostedDiagnosticsDeletionWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    reports = koin.get<PendingReportStore>(),
+                    deleter = koin.get<HostedDiagnosticsReportDeleter>(),
                 )
             }
             else -> {

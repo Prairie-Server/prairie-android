@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -54,8 +55,10 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.CastMember
+import org.prairieserver.prairie.tv.ui.theme.TvRailScrollBehavior
+import org.prairieserver.prairie.tv.ui.theme.tvRailPinOnFocus
 import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
-import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.siloCardDefaults
 
 internal fun restoredRailIndex(lastFocusedIndex: Int, itemCount: Int): Int? =
     if (itemCount <= 0) null else lastFocusedIndex.coerceIn(0, itemCount - 1)
@@ -100,7 +103,11 @@ fun TvCastCrewSection(
     val photoSize = 100.dp
     var lastFocusedIndex by rememberSaveable { mutableIntStateOf(-1) }
     val rememberedEntryRequester = remember { FocusRequester() }
-    val rememberedEntryIndex = restoredRailIndex(lastFocusedIndex, cast.take(24).size)
+    val castListState = rememberLazyListState()
+    // One list per cast snapshot: a fresh take() per composition re-keys the
+    // LazyRow interval on every focus move.
+    val visibleCast = remember(cast) { cast.take(24) }
+    val rememberedEntryIndex = restoredRailIndex(lastFocusedIndex, visibleCast.size)
 
     Column(
         modifier = modifier,
@@ -111,7 +118,9 @@ fun TvCastCrewSection(
             modifier = Modifier.padding(horizontal = horizontalContentPadding),
         )
 
+        TvRailScrollBehavior {
         LazyRow(
+            state = castListState,
             modifier = Modifier
                 .fillMaxWidth()
                 .focusProperties {
@@ -152,7 +161,7 @@ fun TvCastCrewSection(
             ),
         ) {
             itemsIndexed(
-                cast.take(24),
+                visibleCast,
                 key = { idx, member -> "${member.personId ?: member.name}-${member.order}-$idx" },
                 contentType = { _, _ -> "cast-member" },
             ) { index, member ->
@@ -175,6 +184,7 @@ fun TvCastCrewSection(
                                 Modifier
                             },
                         )
+                        .tvRailPinOnFocus(castListState, index, horizontalContentPadding)
                         .onFocusChanged { state ->
                             if (state.isFocused) {
                                 lastFocusedIndex = index
@@ -186,6 +196,7 @@ fun TvCastCrewSection(
                     onClick = { onCastMemberClick(index, member) },
                 )
             }
+        }
         }
     }
 }
@@ -200,7 +211,7 @@ private fun TvCastCard(
     onClick: () -> Unit = {},
 ) {
     val shape = CircleShape
-    val cardFocus = prairieCardDefaults(shape = shape, focusedScale = 1.05f)
+    val cardFocus = siloCardDefaults(shape = shape, focusedScale = 1.05f)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 

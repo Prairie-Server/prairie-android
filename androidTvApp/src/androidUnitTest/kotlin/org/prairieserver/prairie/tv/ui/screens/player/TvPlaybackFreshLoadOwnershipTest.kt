@@ -129,6 +129,31 @@ class TvPlaybackFreshLoadOwnershipTest {
     }
 
     @Test
+    fun `retryable Ready failures retain the episode handoff before exposing retry UI`() {
+        val source = File(
+            "src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerViewModel.kt",
+        ).readText()
+        val ready = source
+            .substringAfter("is VideoPlayerUiState.Ready ->")
+            .substringBefore("is VideoPlayerUiState.Error ->")
+        val missingSession = ready
+            .substringAfter("?: run {")
+            .substringBefore("unpublishedReadySession.acquire")
+        val failedPublication = ready
+            .substringAfter("if (!jointlyConfirmed) {")
+            .substringBefore("if (result.resolvedEpisodeSelection != null)")
+
+        assertTrue(
+            missingSession.indexOf("episodeSelectionHandoffSlot.retainForRetry(") in
+                0 until missingSession.indexOf("fail(\"Playback start returned no session.\")"),
+        )
+        assertTrue(
+            failedPublication.indexOf("episodeSelectionHandoffSlot.retainForRetry(") in
+                0 until failedPublication.indexOf("fail(\"Playback publication could not be confirmed.\")"),
+        )
+    }
+
+    @Test
     fun `post Ready local selection hydration and publish exceptions rollback exactly once`() =
         runTest {
             for (stage in listOf("local-selection", "hydration", "publish")) {

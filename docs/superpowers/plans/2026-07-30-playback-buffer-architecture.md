@@ -30,7 +30,7 @@ This task alone fixes the reported dropped connections.
 
 **Files:**
 - Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlaybackBufferPolicy.kt`
-- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/SiloPlayerFactory.kt:318-323`
+- Modify: `android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PrairiePlayerFactory.kt:318-323`
 - Test: `android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/PlaybackBufferPolicyTest.kt`
 
 **Interfaces:**
@@ -216,7 +216,7 @@ data class PlaybackBufferDeviceProfile(
 }
 ```
 
-Then update the call site in `SiloPlayerFactory.kt` (around line 318). Replace the `PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced, playbackBufferDeviceProfile())` call and its preceding comment with:
+Then update the call site in `PrairiePlayerFactory.kt` (around line 318). Replace the `PlaybackBufferPolicy.forMode(PlaybackBufferMode.Balanced, playbackBufferDeviceProfile())` call and its preceding comment with:
 
 ```kotlin
         // Start on a small cushion and keep filling in the background. Depth is
@@ -240,7 +240,7 @@ Expected: BUILD SUCCESSFUL. If either fails on an unresolved `PlaybackBufferMode
 
 ```bash
 git add android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PlaybackBufferPolicy.kt \
-        android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/SiloPlayerFactory.kt \
+        android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PrairiePlayerFactory.kt \
         android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/player/PlaybackBufferPolicyTest.kt
 git commit -m "fix(playback): bound the load-idle window so proxies stop dropping the connection"
 ```

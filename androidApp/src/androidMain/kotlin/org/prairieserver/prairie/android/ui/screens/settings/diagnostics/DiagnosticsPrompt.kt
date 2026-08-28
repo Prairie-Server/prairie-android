@@ -9,18 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsPrompt
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 
 @Composable
 fun DiagnosticsPromptDialog(
@@ -29,30 +17,19 @@ fun DiagnosticsPromptDialog(
     onSend: () -> Unit,
     onAlwaysSend: () -> Unit,
     onDontSend: () -> Unit,
+    allowAlwaysSend: Boolean = true,
 ) {
     var confirmAlways by remember { mutableStateOf(false) }
-    if (confirmAlways) {
+    if (confirmAlways && allowAlwaysSend) {
         AlertDialog(
             onDismissRequest = { confirmAlways = false },
             title = { Text("Always send crash reports?") },
             text = { Text("Future eligible reports may be uploaded automatically until you change this setting.") },
             confirmButton = {
-                TextButton(onClick = onAlwaysSend) { Icon(
-                        imageVector = Icons.Default.DoneAll,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
-                    Text("Always send") }
+                TextButton(onClick = onAlwaysSend) { Text("Always send") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmAlways = false }) { Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
-                    Text("Cancel") }
+                TextButton(onClick = { confirmAlways = false }) { Text("Cancel") }
             },
         )
         return
@@ -61,25 +38,31 @@ fun DiagnosticsPromptDialog(
         onDismissRequest = onDontSend,
         title = { Text("Prairie encountered a problem") },
         text = {
-            Text(
+            val reportDescription =
                 if (prompt.reportCount == 1) {
-                    "A ${prompt.reportType.displayName().lowercase()} report is ready. Review it before deciding whether to send it."
+                    "A ${prompt.reportType.displayName().lowercase()} report is ready. " +
+                        "Review it before deciding whether to send it."
                 } else {
-                    "${prompt.reportCount} diagnostics reports are ready. Review them before deciding whether to send them."
+                    "${prompt.reportCount} diagnostics reports are ready. " +
+                        "Review them before deciding whether to send them."
+                }
+            Text(
+                if (allowAlwaysSend) {
+                    reportDescription
+                } else {
+                    "$reportDescription\n\nThe report includes the Prairie app version and build, Android version, " +
+                        "device model, crash details, and diagnostic logs. Its pseudonymous credential is not " +
+                        "linked to an account on your self-hosted server. Username, email, profile, server " +
+                        "address, and playback session IDs are omitted. It never sends automatically and may " +
+                        "be retained for up to 30 days."
                 },
             )
         },
         confirmButton = {
-            TextButton(onClick = onReview) { Icon(
-                        imageVector = Icons.Default.Visibility,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
-                    Text("Review") }
+            TextButton(onClick = onReview) { Text("Review") }
         },
         dismissButton = {
-            ColumnButtons(onSend, { confirmAlways = true }, onDontSend)
+            ColumnButtons(onSend, if (allowAlwaysSend) ({ confirmAlways = true }) else null, onDontSend)
         },
     )
 }
@@ -87,28 +70,12 @@ fun DiagnosticsPromptDialog(
 @Composable
 private fun ColumnButtons(
     onSend: () -> Unit,
-    onAlwaysSend: () -> Unit,
+    onAlwaysSend: (() -> Unit)?,
     onDontSend: () -> Unit,
 ) {
-    TextButton(onClick = onSend) { Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
-                    Text("Send") }
-    TextButton(onClick = onAlwaysSend) { Icon(
-                        imageVector = Icons.Default.DoneAll,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
-                    Text("Always send") }
-    TextButton(onClick = onDontSend) { Icon(
-                        imageVector = Icons.Default.Block,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
-                    Text("Don't send") }
+    TextButton(onClick = onSend) { Text("Send") }
+    onAlwaysSend?.let { action ->
+        TextButton(onClick = action) { Text("Always send") }
+    }
+    TextButton(onClick = onDontSend) { Text("Don't send") }
 }

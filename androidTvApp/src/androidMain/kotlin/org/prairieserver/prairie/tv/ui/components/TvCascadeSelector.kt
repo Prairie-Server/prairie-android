@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -82,10 +83,23 @@ internal val CascadeRowIconSize = 15.dp
 internal val CascadeRowPaddingHorizontal = 9.dp
 internal val CascadeRowPaddingVertical = 8.dp
 internal val CascadeRowCornerRadius = 7.dp
+
 internal val CascadeFlyoutRowTextSize = 14.sp
 internal val CascadeFlyoutRowIconSize = 9.dp
 internal val CascadeFlyoutRowPaddingHorizontal = 8.dp
 internal val CascadeFlyoutRowPaddingVertical = 6.5.dp
+
+/** Resolves per-row state by stable identity while preserving the current display order. */
+internal fun <K, V> stableIdentityValues(
+    ids: List<K>,
+    valuesById: MutableMap<K, V>,
+    create: () -> V,
+): Map<K, V> = buildMap {
+    ids.forEach { id ->
+        put(id, valuesById.getOrPut(id, create))
+    }
+}
+
 internal val CascadeFlyoutRowCornerRadius = 6.dp
 
 private val CascadeRowSpacing = 7.dp
@@ -118,7 +132,7 @@ fun TvForYouSelector(
 
     LaunchedEffect(entersPanel, focusEntryToken) {
         if (entersPanel && focusEntryToken > 0) {
-            runCatching { watchlistFocus.requestFocus() }
+            runCatching { recommendationsFocus.requestFocus() }
         }
     }
 
@@ -130,12 +144,14 @@ fun TvForYouSelector(
             .focusGroup(),
     ) {
         CascadePanelHeader("FOR YOU")
+        // Recommendations first: it is the tab's landing content, so entry
+        // focus sits on what the viewer is already looking at.
         CascadeActionRow(
-            title = "Watchlist",
-            icon = Icons.Filled.Bookmark,
+            title = "Recommendations",
+            icon = Icons.Filled.AutoAwesome,
             entersPanel = entersPanel,
-            focusRequester = watchlistFocus,
-            onSelect = onWatchlist,
+            focusRequester = recommendationsFocus,
+            onSelect = onRecommendations,
         )
         CascadeActionRow(
             title = "Favorites",
@@ -145,11 +161,11 @@ fun TvForYouSelector(
             onSelect = onFavorites,
         )
         CascadeActionRow(
-            title = "Recommendations",
-            icon = Icons.Filled.AutoAwesome,
+            title = "Watchlist",
+            icon = Icons.Filled.Bookmark,
             entersPanel = entersPanel,
-            focusRequester = recommendationsFocus,
-            onSelect = onRecommendations,
+            focusRequester = watchlistFocus,
+            onSelect = onWatchlist,
         )
         CascadePanelFooter(isSingleLibrary = true)
     }
@@ -178,7 +194,6 @@ fun TvForYouSelector(
  *   returns to the anchored library row.
  * - **Select/Enter** on a library row commits that scope ([onCommitLibrary]);
  *   on a section row commits scope + section ([onCommitSection]).
- * - **Back/Escape** closes ([onClose]).
  */
 @Composable
 fun TvCascadeSelector(
@@ -191,7 +206,6 @@ fun TvCascadeSelector(
     onCommitLibrary: (UserLibrary) -> Unit,
     onCommitSection: (UserLibrary, TvLibraryPill) -> Unit,
     onPanelFocusChanged: (Boolean) -> Unit,
-    onClose: () -> Unit,
     /** Gates the Collections pill per anchored library (QA 2026-07-08). */
     libraryHasCollections: (Int) -> Boolean = { true },
     modifier: Modifier = Modifier,
@@ -201,6 +215,11 @@ fun TvCascadeSelector(
     // One stable FocusRequester per library id and per pill, surviving recomposition.
     val libraryRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
     val pillRequesters = remember { mutableStateMapOf<TvLibraryPill, FocusRequester>() }
+    val visibleLibraryRequesters = stableIdentityValues(
+        ids = libraries.map(UserLibrary::id),
+        valuesById = libraryRequesters,
+        create = ::FocusRequester,
+    )
 
     // Each library row's top edge in the level-1 column's coordinate space; the
     // flyout offsets down to the anchored row's value to align tops (§5.3).
@@ -328,37 +347,39 @@ fun TvCascadeSelector(
         if (!isSingleLibrary) {
             val rowsContent: @Composable () -> Unit = {
                 libraries.forEach { library ->
-                    val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
-                    CascadeLibraryRow(
-                        library = library,
-                        type = type,
-                        isCurrent = library.id == currentScopeId,
-                        entersPanel = entersPanel,
-                        focusRequester = requester,
-                        onFocusChanged = { focused ->
-                            focusedRowId = if (focused) {
-                                library.id
-                            } else {
-                                focusedRowId.takeUnless { it == library.id }
-                            }
-                        },
-                        onTopChanged = { top -> rowTops[library.id] = top },
-                        onMoveRight = {
-                            anchorId = library.id
-                            val firstPill = pills.firstOrNull()
-                            if (firstPill != null) {
-                                flyoutVisible = true
-                                focusFirstPillToken++
+                    key(library.id) {
+                        val requester = visibleLibraryRequesters.getValue(library.id)
+                        CascadeLibraryRow(
+                            library = library,
+                            type = type,
+                            isCurrent = library.id == currentScopeId,
+                            entersPanel = entersPanel,
+                            focusRequester = requester,
+                            onFocusChanged = { focused ->
+                                focusedRowId = if (focused) {
+                                    library.id
+                                } else {
+                                    focusedRowId.takeUnless { it == library.id }
+                                }
+                            },
+                            onTopChanged = { top -> rowTops[library.id] = top },
+                            onMoveRight = {
+                                anchorId = library.id
+                                val firstPill = pills.firstOrNull()
+                                if (firstPill != null) {
+                                    flyoutVisible = true
+                                    focusFirstPillToken++
+                                    true
+                                } else {
+                                    false
+                                }
+                            },
+                            onSelect = {
+                                onCommitLibrary(library)
                                 true
-                            } else {
-                                false
-                            }
-                        },
-                        onSelect = {
-                            onCommitLibrary(library)
-                            true
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
             }
 
@@ -374,8 +395,8 @@ fun TvCascadeSelector(
                         state = lazyListState,
                         modifier = Modifier.heightIn(max = CascadeMaxListHeight),
                     ) {
-                        items(libraries) { library ->
-                            val requester = libraryRequesters.getOrPut(library.id) { FocusRequester() }
+                        items(libraries, key = { it.id }) { library ->
+                            val requester = visibleLibraryRequesters.getValue(library.id)
                             CascadeLibraryRow(
                                 library = library,
                                 type = type,
@@ -473,7 +494,7 @@ fun TvCascadeSelector(
 }
 
 @Composable
-private fun CascadePanelHeader(text: String) {
+internal fun CascadePanelHeader(text: String) {
     Text(
         text = text,
         color = PrairieOnSurface.copy(alpha = 0.38f),
@@ -508,11 +529,18 @@ private fun CascadeFlyoutHeader(text: String) {
 
 @Composable
 private fun CascadePanelFooter(isSingleLibrary: Boolean) {
-    val caption = if (isSingleLibrary) {
-        "Press opens the section · Menu closes"
-    } else {
-        "Press opens the library · → jumps to a section · Menu closes"
-    }
+    CascadePanelFooter(
+        caption = if (isSingleLibrary) {
+            "Press opens the section · Menu closes"
+        } else {
+            "Press opens the library · → jumps to a section · Menu closes"
+        },
+    )
+}
+
+/** Hairline + hint caption closing a Skyline panel; shared with the anchored selector menu. */
+@Composable
+internal fun CascadePanelFooter(caption: String) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier

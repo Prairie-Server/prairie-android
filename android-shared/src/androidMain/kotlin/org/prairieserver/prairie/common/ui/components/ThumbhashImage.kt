@@ -5,25 +5,41 @@ import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
+import coil3.decode.DataSource
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import org.prairieserver.prairie.util.ArtworkUrl
 
 private val DefaultPlaceholderColor = Color(0xFF1A1D27)
+
+/**
+ * Optional feed-scoped gate for presenting newly decoded full-size artwork.
+ * The value is a [State] so a scrolling container can provide one stable object
+ * without recomposing its entire subtree whenever motion starts or stops.
+ */
+val LocalImagePresentationDeferral = staticCompositionLocalOf<State<Boolean>?> { null }
 
 /**
  * Process-wide cache of decoded ThumbHash placeholders, keyed by base64 hash.
@@ -46,9 +62,6 @@ private fun decodeThumbhashPainter(hash: String): BitmapPainter? =
  * posters/backdrops blur up instead of popping in from a flat color. Falls back
  * to a neutral placeholder when no thumbhash is supplied or decoding fails.
  *
- * Prefers AVIF siblings of canonical `.webp` artwork on API 31+ (platform AVIF
- * decode), then WebP, then PNG when earlier formats are missing or fail.
- *
  * @param url The remote image URL to load.
  * @param thumbhash Base64-encoded ThumbHash for the instant blurred preview.
  * @param contentDescription Accessibility description for the image.
@@ -62,6 +75,12 @@ private fun decodeThumbhashPainter(hash: String): BitmapPainter? =
  *   with a coordinated transition can supply their shared timing token.
  * @param onSuccess Optional signal that the full image has decoded. Useful for
  *   keeping a semantic fallback visible until transparent artwork is ready.
+ * @param cacheKey Overrides the memory/disk cache key, which otherwise defaults
+ *   to [url]. Needed when the URL is not stable for the same bytes — a
+ *   presigned profile-avatar URL re-signs its query on every fetch, so keying
+ *   by the URL would miss the cache every time. Must still be unique per image.
+ * @param onError Optional signal that the fetch or decode failed, so the caller
+ *   can retire the URL and fall back rather than leave an empty box.
  */
 @Composable
 fun ThumbhashImage(
@@ -70,12 +89,17 @@ fun ThumbhashImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    /** Where a non-filling ([ContentScale.Fit]) image sits inside its bounds. */
+    alignment: Alignment = Alignment.Center,
     transparent: Boolean = false,
     decodeSizePx: Int? = null,
     crossfadeMillis: Int = 300,
     onSuccess: (() -> Unit)? = null,
+    cacheKey: String? = null,
+    onError: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val deferPresentationWhile = LocalImagePresentationDeferral.current
 
     // Cached placeholders resolve synchronously (instant on scroll-back); a cold
     // hash decodes off the composition thread and blurs up a frame later, so the
@@ -108,36 +132,97 @@ fun ThumbhashImage(
         return
     }
 
-    val candidates = remember(url) {
-        ArtworkUrl.candidates(url)
-    }
-    var failedCount by remember(url) { mutableStateOf(0) }
-    val current = candidates[failedCount.coerceIn(0, (candidates.size - 1).coerceAtLeast(0))]
-
-    val model = remember(current, decodeSizePx, crossfadeMillis) {
+    val model = remember(url, decodeSizePx, crossfadeMillis, cacheKey) {
         ImageRequest.Builder(context)
-            .data(current)
+            .data(url)
             .apply {
                 if (crossfadeMillis > 0) crossfade(crossfadeMillis) else crossfade(false)
             }
             .apply { decodeSizePx?.let { size(it) } }
+            .apply {
+                cacheKey?.let {
+                    memoryCacheKey(it)
+                    diskCacheKey(it)
+                }
+            }
             .build()
     }
 
-    AsyncImage(
-        model = model,
-        contentDescription = contentDescription,
-        contentScale = contentScale,
-        placeholder = placeholder,
-        onSuccess = { onSuccess?.invoke() },
-        onError = {
-            if (failedCount < candidates.lastIndex) {
-                failedCount += 1
+    if (deferPresentationWhile == null) {
+        AsyncImage(
+            model = model,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            alignment = alignment,
+            placeholder = placeholder,
+            onSuccess = { onSuccess?.invoke() },
+            onError = { onError?.invoke() },
+            modifier = when {
+                transparent || placeholder != null -> modifier
+                else -> modifier.background(DefaultPlaceholderColor)
+            },
+        )
+        return
+    }
+
+    // Keep request/decode/cache work moving during a fling, but do not ask the
+    // renderer to import a newly completed hardware bitmap until the feed is
+    // idle. drawWithContent is important here: merely covering the AsyncImage
+    // with its placeholder would still draw (and upload) the bitmap underneath.
+    // Once committed, the artwork stays committed through later gestures.
+    var fullImageReady by remember(url) { mutableStateOf(false) }
+    var fullImagePresented by remember(url) { mutableStateOf(false) }
+    val currentOnSuccess by rememberUpdatedState(onSuccess)
+    val presentFullImage = {
+        if (!fullImagePresented) {
+            fullImagePresented = true
+            currentOnSuccess?.invoke()
+        }
+    }
+
+    LaunchedEffect(url, deferPresentationWhile, fullImageReady) {
+        if (!fullImageReady || fullImagePresented) return@LaunchedEffect
+        snapshotFlow { deferPresentationWhile.value }.first { isMoving -> !isMoving }
+        presentFullImage()
+    }
+
+    Box(modifier = modifier) {
+        if (!fullImagePresented) {
+            when {
+                placeholder != null -> Image(
+                    painter = placeholder,
+                    contentDescription = null,
+                    contentScale = contentScale,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                !transparent -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(DefaultPlaceholderColor),
+                )
             }
-        },
-        modifier = when {
-            transparent || placeholder != null -> modifier
-            else -> modifier.background(DefaultPlaceholderColor)
-        },
-    )
+        }
+
+        AsyncImage(
+            model = model,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            alignment = alignment,
+            onSuccess = { state ->
+                fullImageReady = true
+                if (
+                    state.result.dataSource == DataSource.MEMORY_CACHE ||
+                    !deferPresentationWhile.value
+                ) {
+                    presentFullImage()
+                }
+            },
+            onError = { onError?.invoke() },
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    if (fullImagePresented) drawContent()
+                },
+        )
+    }
 }

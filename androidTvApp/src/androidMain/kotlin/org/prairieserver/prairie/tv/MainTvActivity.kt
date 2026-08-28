@@ -39,6 +39,7 @@ import org.prairieserver.prairie.common.startup.warmProfileSelectionStartup
 import org.prairieserver.prairie.common.ui.components.StartupSplashVideo
 import org.prairieserver.prairie.common.ui.components.StartupSplashResizeMode
 import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.tv.ui.focus.TvFocusLog
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.requiresApproval
 import org.prairieserver.prairie.repository.AuthRepository
@@ -46,7 +47,7 @@ import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
-import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
+import org.prairieserver.prairie.tv.cast.TvSiloCastReceiver
 import org.prairieserver.prairie.tv.ui.navigation.TvAppNavigation
 import org.prairieserver.prairie.tv.ui.navigation.TvRoute
 import org.prairieserver.prairie.tv.ui.screens.player.TvPlayerRemoteKeyBridge
@@ -76,6 +77,14 @@ class MainTvActivity : ComponentActivity() {
         /** Shared with [TvAppNavigation]'s consumer so intake and consumption
          * of a deep link line up in one logcat filter. */
         const val DEEP_LINK_TAG = "PrairieDeepLink"
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // "Keys do nothing" with no other PrairieTvFocus lines afterwards means
+        // input is going to whichever window took focus (typically the Google
+        // TV launcher), not to this app — an OS/emulator condition, not ours.
+        TvFocusLog.d { "window focus ${if (hasFocus) "GAINED" else "LOST"}" }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,6 +122,9 @@ class MainTvActivity : ComponentActivity() {
                             // overlay is up: no input-dispatch-timeout ANR, and
                             // no keys leak into the app pre-rendering below —
                             // even after its content grabs focus.
+                            if (splashVisible) {
+                                TvFocusLog.d { "key swallowed by splash gate" }
+                            }
                             splashVisible
                         },
                 ) {
@@ -193,7 +205,7 @@ class MainTvActivity : ComponentActivity() {
             if (isAuthenticatedForCast() &&
                 lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
             ) {
-                val receiver = get<TvPrairieCastReceiver>(TvPrairieCastReceiver::class.java)
+                val receiver = get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java)
                 receiver.start()
                 // The lifecycle check above is a TOCTOU: the activity can stop
                 // between the check and start(), so onStop()'s stop() lands
@@ -226,17 +238,17 @@ class MainTvActivity : ComponentActivity() {
     }
 
     /**
-     * Pushes a Prairie deep-link Uri into the shared [pendingDeepLink] flow for
-     * [TvAppNavigation] to consume. Non-Prairie schemes (and intents without data)
+     * Pushes a Silo deep-link Uri into the shared [pendingDeepLink] flow for
+     * [TvAppNavigation] to consume. Non-Silo schemes (and intents without data)
      * are ignored so unrelated launch intents don't clobber a queued URI.
      * Nullable parameter to accommodate the cold-launch call site where the
      * Activity's intent may be null.
      */
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        // `prairie` is the only scheme the manifest registers; anything else is
+        // `silo` is the only scheme the manifest registers; anything else is
         // an unrelated launch intent and must not clobber a queued URI.
-        if (data.scheme == "prairie") {
+        if (data.scheme == "silo") {
             Log.i(DEEP_LINK_TAG, "deep link queued: ${data.host}/${data.lastPathSegment}")
             pendingDeepLink.value = data
         }
@@ -252,7 +264,7 @@ class MainTvActivity : ComponentActivity() {
         super.onStop()
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.stopForeground()
-        get<TvPrairieCastReceiver>(TvPrairieCastReceiver::class.java).stop()
+        get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).stop()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
     }
@@ -308,7 +320,7 @@ class MainTvActivity : ComponentActivity() {
             // onStop()'s stop() already ran, leaving NSD advertising + the cast
             // socket up while backgrounded. Mirrors the onStart() guard.
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
-                val receiver = get<TvPrairieCastReceiver>(TvPrairieCastReceiver::class.java)
+                val receiver = get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java)
                 receiver.start()
                 // Same TOCTOU compensation as onStart(): if the activity
                 // stopped between the check and start(), undo the start —

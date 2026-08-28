@@ -3,7 +3,10 @@ package org.prairieserver.prairie.tv.ui.screens.profiles
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.profile.Profile
+import org.prairieserver.prairie.model.profile.authorizedProfileToken
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.repository.ProfileCommitResult
 import org.prairieserver.prairie.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,15 +42,49 @@ class TvProfileSelectionViewModel(
     private val _uiState = MutableStateFlow(TvProfileSelectionUiState())
     val uiState: StateFlow<TvProfileSelectionUiState> = _uiState.asStateFlow()
 
+    /** Monotonic generation for PIN verification; see [onPinEntered]. */
+    private var pinAttempt: Int = 0
+
+    /** Monotonic generation for profile-list loads; see [loadProfiles]. */
+    private var loadAttempt: Int = 0
+
     init {
         loadProfiles()
     }
 
+    /**
+     * The identity the displayed grid was fetched under.
+     *
+     * Every selection is qualified with it, protected or not. Passing null for
+     * unprotected picks disabled the guard for exactly the case with no PIN
+     * round trip to re-establish scope — so if another account became active
+     * between the grid being accepted and the commit entering the barrier, one
+     * account's profile id was written into the other's token slot.
+     */
+    private var gridScope: AuthScopeSnapshot? = null
+
     fun loadProfiles() {
+        val load = ++loadAttempt
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            when (val result = profileRepository.listProfiles()) {
+            val scope = profileRepository.captureIdentityScope()
+            val listed = profileRepository.listProfiles()
+            // Two separate reasons to drop this response: a newer load
+            // superseded it, or the identity it was fetched under is gone.
+            if (load != loadAttempt) return@launch
+            if (!profileRepository.identityScopeUnchanged(scope)) {
+                // The displayed grid is gone, so its scope must go with it.
+                gridScope = null
+                _uiState.update { it.copy(isLoading = false, profiles = emptyList()) }
+                return@launch
+            }
+            when (val result = listed) {
                 is ApiResult.Success -> {
+                    // The scope moves with the grid, and ONLY with it. See the
+                    // phone ViewModel: assigning it before the result meant a
+                    // failed reload under a NEW identity left the OLD grid
+                    // qualified by the NEW scope.
+                    gridScope = scope
                     _uiState.update {
                         it.copy(isLoading = false, profiles = result.data)
                     }
@@ -89,6 +126,16 @@ class TvProfileSelectionViewModel(
             // Manage-mode taps open edit, handled by the screen composable.
             return
         }
+        // Focus/Select can already be dispatched when a scope mismatch clears
+        // the grid. A null gridScope deliberately means no grid metadata, but
+        // it also disables the repository guard, so reject cards that are no
+        // longer part of the accepted grid.
+        if (_uiState.value.profiles.none { it.id == profile.id }) return
+        // Bump before branching: ANY accepted selection supersedes a
+        // verification still in flight, including choosing an unprotected
+        // profile while a protected one is mid-verify.
+        pinAttempt++
+
         if (profile.hasPin) {
             // Open the PIN dialog; actual selection happens in onPinEntered.
             _uiState.update {
@@ -96,10 +143,15 @@ class TvProfileSelectionViewModel(
             }
             return
         }
-        commitSelection(profile)
+        // Qualified by the grid's scope. An unprotected pick has no PIN round
+        // trip to re-establish identity, so without this it was the one path
+        // that committed unguarded.
+        commitSelection(profile, expectedScope = gridScope)
     }
 
     fun onPinDialogDismissed() {
+        // Abandon any in-flight verification for the dismissed profile.
+        pinAttempt++
         _uiState.update {
             it.copy(pinProfile = null, pinError = null, isVerifyingPin = false)
         }
@@ -107,16 +159,28 @@ class TvProfileSelectionViewModel(
 
     fun onPinEntered(pin: String) {
         val profile = _uiState.value.pinProfile ?: return
+        val attempt = ++pinAttempt
         _uiState.update { it.copy(isVerifyingPin = true, pinError = null) }
         viewModelScope.launch {
-            when (val r = profileRepository.verifyPin(profile.id, pin)) {
+            // Pin the answer to the identity that was asked. TV can install a
+            // temporary remote-playback identity mid-flight, and this profile's
+            // proof must never land in that overlay.
+            val scope = profileRepository.captureIdentityScope()
+            val r = profileRepository.verifyPin(profile.id, pin)
+            // Cancelling (or picking another profile) during the round trip
+            // must abandon this answer — otherwise Back still entered the
+            // profile, and on TV a "Change Server" mid-flight could land this
+            // profile's token on a different server.
+            if (attempt != pinAttempt) return@launch
+
+            when (r) {
                 is ApiResult.Success -> {
                     // The server returns 200 with valid=false for a wrong PIN, so
-                    // gate selection on .valid (matches phone) — never commit on a
-                    // bare 200.
-                    if (r.data.valid) {
-                        // Repository stores the profile token and active profile.
-                        commitSelection(profile)
+                    // gate on the issued token (matches phone) — never commit on
+                    // a bare 200, nor on a valid=true carrying no proof.
+                    val token = r.data.authorizedProfileToken()
+                    if (token != null) {
+                        commitSelection(profile, token, scope)
                         _uiState.update { it.copy(pinProfile = null, isVerifyingPin = false) }
                     } else {
                         _uiState.update { it.copy(isVerifyingPin = false, pinError = "Incorrect PIN") }
@@ -138,9 +202,31 @@ class TvProfileSelectionViewModel(
         }
     }
 
-    private fun commitSelection(profile: Profile) {
+    private fun commitSelection(
+        profile: Profile,
+        profileToken: String? = null,
+        expectedScope: AuthScopeSnapshot? = null,
+    ) {
         viewModelScope.launch {
-            profileRepository.selectProfile(profile.id)
+            val result = profileRepository.selectProfile(profile.id, profileToken, expectedScope)
+            if (result == ProfileCommitResult.ScopeChanged) {
+                // Identity moved under us — don't route into this profile, and
+                // drop the grid with it. A retained grid keeps D-pad focus on
+                // profiles belonging to a session we no longer hold.
+                _uiState.update {
+                    it.copy(
+                        profiles = emptyList(),
+                        selectedProfileId = null,
+                        pinProfile = null,
+                        isVerifyingPin = false,
+                        pinError = null,
+                        deleteCandidate = null,
+                        isManageMode = false,
+                    )
+                }
+                loadProfiles()
+                return@launch
+            }
             _uiState.update { it.copy(selectedProfileId = profile.id) }
         }
     }

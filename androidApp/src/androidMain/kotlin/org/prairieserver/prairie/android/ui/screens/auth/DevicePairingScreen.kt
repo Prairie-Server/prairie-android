@@ -149,7 +149,7 @@ fun DevicePairingScreen(
                     }
                     OutlinedButton(
                         onClick = viewModel::deny,
-                        enabled = state.canSubmit,
+                        enabled = state.canDecide,
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.Close, contentDescription = null)
@@ -161,7 +161,7 @@ fun DevicePairingScreen(
 
                 Button(
                     onClick = viewModel::approve,
-                    enabled = state.canSubmit,
+                    enabled = state.canDecide,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = AuthColors.Primary),
                 ) {

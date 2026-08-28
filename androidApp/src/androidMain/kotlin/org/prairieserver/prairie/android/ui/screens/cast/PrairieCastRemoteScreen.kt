@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.TvOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,6 +56,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -72,6 +74,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -79,13 +83,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.android.cast.RemoteControlBatteryOptimization
 import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.cast.PrairieCastPlaybackState
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 
 // Fixed dark palette: the remote renders over OLED black + blurred artwork
-// regardless of the app theme, matching prairie-apple's forced-dark remote.
+// regardless of the app theme, matching silo-apple's forced-dark remote.
 private val RemoteOnSurface = Color(0xFFF2F2F5)
 private val RemoteSecondary = Color(0xFFB9BAC3)
 private val RemoteChipFill = Color(0x33FFFFFF)
@@ -93,8 +102,8 @@ private val RemoteSurfaceElevated = Color(0xFF23252E)
 private val RemoteError = Color(0xFFB3261E)
 
 /**
- * Native "now-playing" remote for controlling Prairie playback on a TV.
- * Mirrors prairie-apple's `PrairieControlRemoteView`: blurred-artwork backdrop,
+ * Native "now-playing" remote for controlling Silo playback on a TV.
+ * Mirrors silo-apple's `PrairieControlRemoteView`: blurred-artwork backdrop,
  * poster, scrubber with optimistic clock, transport, volume, and
  * capability-gated secondary menus — with distinct connecting /
  * reconnecting / idle-connected / playing / error states.
@@ -107,11 +116,36 @@ fun PrairieCastRemoteScreen(
     val state by controller.state.collectAsState()
     val playback = state.playbackState
     val artwork = rememberPrairieCastArtwork(playback?.contentId)
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var showTargetPicker by remember { mutableStateOf(false) }
+    var showBatteryPrompt by remember { mutableStateOf(false) }
+    var batteryExempt by remember {
+        mutableStateOf(RemoteControlBatteryOptimization.isExempt(context))
+    }
 
     DisposableEffect(controller) {
         controller.setRemoteScreenVisible(true)
         onDispose { controller.setRemoteScreenVisible(false) }
+    }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                batteryExempt = RemoteControlBatteryOptimization.isExempt(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(state.hasActiveSession, batteryExempt) {
+        if (state.hasActiveSession &&
+            !batteryExempt &&
+            RemoteControlBatteryOptimization.shouldShowPrompt(context)
+        ) {
+            showBatteryPrompt = true
+        }
     }
 
     Box(
@@ -129,6 +163,10 @@ fun PrairieCastRemoteScreen(
                 onDisconnect = {
                     controller.disconnect()
                     onBack()
+                },
+                showBatterySettings = !batteryExempt,
+                onBatterySettings = {
+                    RemoteControlBatteryOptimization.openSettings(context)
                 },
             )
 
@@ -169,6 +207,38 @@ fun PrairieCastRemoteScreen(
             controller = controller,
         )
     }
+
+    if (showBatteryPrompt) {
+        AlertDialog(
+            onDismissRequest = {
+                RemoteControlBatteryOptimization.markPromptShown(context)
+                showBatteryPrompt = false
+            },
+            title = { Text(stringResource(R.string.remote_battery_title)) },
+            text = { Text(stringResource(R.string.remote_battery_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        RemoteControlBatteryOptimization.markPromptShown(context)
+                        showBatteryPrompt = false
+                        RemoteControlBatteryOptimization.openSettings(context)
+                    },
+                ) {
+                    Text(stringResource(R.string.remote_battery_settings))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        RemoteControlBatteryOptimization.markPromptShown(context)
+                        showBatteryPrompt = false
+                    },
+                ) {
+                    Text(stringResource(R.string.remote_battery_not_now))
+                }
+            },
+        )
+    }
 }
 
 /** Full-bleed blurred-artwork backdrop, falling back to flat OLED black. */
@@ -199,6 +269,8 @@ private fun RemoteTopBar(
     onChooseTv: () -> Unit,
     onStopPlayback: () -> Unit,
     onDisconnect: () -> Unit,
+    showBatterySettings: Boolean,
+    onBatterySettings: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Row(
@@ -241,6 +313,18 @@ private fun RemoteTopBar(
                         onStopPlayback()
                     },
                 )
+                if (showBatterySettings) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.remote_battery_settings)) },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.SettingsRemote, contentDescription = null)
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onBatterySettings()
+                        },
+                    )
+                }
                 HorizontalDivider()
                 DropdownMenuItem(
                     text = { Text("Disconnect", color = MaterialTheme.colorScheme.error) },

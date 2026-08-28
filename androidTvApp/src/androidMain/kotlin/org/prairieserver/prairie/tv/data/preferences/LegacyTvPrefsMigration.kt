@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import org.prairieserver.prairie.common.settings.AndroidServerSettingsCache
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.EffectiveSetting
 import org.prairieserver.prairie.model.settings.PlaybackSettingsKeys
 import org.prairieserver.prairie.model.settings.QualityPresets
@@ -123,7 +124,12 @@ class LegacyTvPrefsMigration(
                 // axes are queried so both can be guarded.
                 PlaybackSettingsKeys.MaxBitrateKbps,
                 PlaybackSettingsKeys.AutoPlayNext,
+                // Both spellings of the intro preference. The legacy boolean is
+                // migrated into the enum that superseded it, so an override on
+                // either one means this device has already answered the
+                // question and the stale local pref must not overwrite it.
                 PlaybackSettingsKeys.AutoSkipIntro,
+                PlaybackSettingsKeys.IntroSkipMode,
                 PlaybackSettingsKeys.AutoSkipCredits,
                 PlaybackSettingsKeys.SubtitleAppearance,
             ),
@@ -156,8 +162,16 @@ class LegacyTvPrefsMigration(
         if (effective[PlaybackSettingsKeys.AutoPlayNext]?.hasDeviceOverride != true) {
             playerSettingsStore.setAutoPlayNext(legacyAutoPlayNext)
         }
-        if (effective[PlaybackSettingsKeys.AutoSkipIntro]?.hasDeviceOverride != true) {
-            playerSettingsStore.setAutoSkipIntro(legacyAutoSkipIntro)
+        val introSkipOverridden =
+            effective[PlaybackSettingsKeys.IntroSkipMode]?.hasDeviceOverride == true ||
+                effective[PlaybackSettingsKeys.AutoSkipIntro]?.hasDeviceOverride == true
+        if (!introSkipOverridden) {
+            // true -> always, false -> ask; the same mapping the server's own
+            // migration uses. "never" is unreachable from a boolean, which is
+            // exactly why the enum replaced it.
+            playerSettingsStore.setIntroSkipMode(
+                IntroSkipMode.fromLegacyBoolean(legacyAutoSkipIntro),
+            )
         }
         if (effective[PlaybackSettingsKeys.AutoSkipCredits]?.hasDeviceOverride != true) {
             playerSettingsStore.setAutoSkipCredits(legacyAutoSkipCredits)

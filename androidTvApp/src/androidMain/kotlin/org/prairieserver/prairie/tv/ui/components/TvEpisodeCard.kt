@@ -44,7 +44,7 @@ import org.prairieserver.prairie.overlays.OverlayData
 import org.prairieserver.prairie.tv.ui.theme.ProgressFill
 import org.prairieserver.prairie.tv.ui.theme.ProgressTrack
 import org.prairieserver.prairie.tv.ui.theme.RowDimens
-import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.siloCardDefaults
 
 /**
  * 16:9 thumbnail card for "Continue Watching", "Next Up", and episode list rows.
@@ -78,8 +78,8 @@ fun TvEpisodeCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val cardShape = RoundedCornerShape(8.dp)
-    val cardFocus = prairieCardDefaults(shape = cardShape, focusedScale = 1.04f)
+    val cardShape = TvEpisodeCardShape
+    val cardFocus = siloCardDefaults(shape = cardShape, focusedScale = 1.04f)
     val episodeBadge = formatEpisodeTag(seasonNumber, episodeNumber)
 
     var menuExpanded by remember { mutableStateOf(false) }
@@ -228,3 +228,6 @@ private fun formatEpisodeTag(season: Int?, episode: Int?): String? {
  * that to Android TV as 180×100dp.
  */
 val TvEpisodeCardWidth: Dp = RowDimens.BackdropWidth
+
+/** Hoisted so every card shares one instance instead of allocating a shape per composition. */
+private val TvEpisodeCardShape = RoundedCornerShape(8.dp)

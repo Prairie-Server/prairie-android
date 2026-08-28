@@ -8,7 +8,7 @@ import org.prairieserver.prairie.common.downloads.DownloadSubscriptionWorker
 import org.prairieserver.prairie.common.downloads.OfflineMediaResolver
 import org.prairieserver.prairie.common.downloads.DownloadStorage
 import org.prairieserver.prairie.common.downloads.DownloadWorker
-import org.prairieserver.prairie.common.cast.SiloCastNsdBrowser
+import org.prairieserver.prairie.common.cast.PrairieCastNsdBrowser
 import org.prairieserver.prairie.common.pairing.PairingDeviceId
 import org.prairieserver.prairie.common.pairing.CompanionDeviceLoginApprover
 import org.prairieserver.prairie.common.pairing.CompanionPairingCoordinator
@@ -21,15 +21,20 @@ import org.prairieserver.prairie.common.pairing.TlsPskPairingClientTransport
 import org.prairieserver.prairie.common.player.AudioCapabilityManager
 import org.prairieserver.prairie.common.player.AudioTrackManager
 import org.prairieserver.prairie.common.player.AndroidSubtitlePresentation
-import org.prairieserver.prairie.common.player.SiloPlayerFactory
+import org.prairieserver.prairie.common.player.PrairiePlayerFactory
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
+import org.prairieserver.prairie.common.player.audio.PassthroughSuppressionScope
+import org.prairieserver.prairie.common.di.AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER
+import org.prairieserver.prairie.common.di.AUDIOBOOK_PLAYBACK_SESSION_LIFECYCLE_QUALIFIER
 import org.prairieserver.prairie.common.player.SubtitleManager
 import org.prairieserver.prairie.common.player.cast.CastPlaybackPreparer
 import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendFactory
 import org.prairieserver.prairie.common.player.video.VideoPlaybackSessionCoordinator
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
+import org.prairieserver.prairie.android.BuildConfig
 import org.prairieserver.prairie.common.network.AndroidDeviceMetadataProvider
+import org.prairieserver.prairie.common.network.PrairieClientBuildIdentity
 import org.prairieserver.prairie.common.network.CleartextConsentStore
 import org.prairieserver.prairie.common.network.DataStoreCleartextConsentStore
 import org.prairieserver.prairie.common.settings.AndroidServerSettingsCache
@@ -45,16 +50,9 @@ import org.prairieserver.prairie.android.push.AndroidPushTokenProvider
 import org.prairieserver.prairie.android.push.FirebaseAndroidPushTokenProvider
 import org.prairieserver.prairie.android.push.PushMessageHandler
 import org.prairieserver.prairie.android.push.PushNotificationPresenter
-import org.prairieserver.prairie.android.ui.screens.admin.AdminEntryViewModel
-import org.prairieserver.prairie.android.ui.screens.admin.AdminLogsViewModel
-import org.prairieserver.prairie.android.ui.screens.admin.AdminScansViewModel
-import org.prairieserver.prairie.android.ui.screens.admin.AdminSessionsViewModel
 import org.prairieserver.prairie.android.ui.screens.browse.BrowseViewModel
 import org.prairieserver.prairie.android.ui.screens.collections.CollectionDetailViewModel
 import org.prairieserver.prairie.android.ui.screens.collections.LibraryCollectionsViewModel
-import org.prairieserver.prairie.viewmodel.AdminStatsViewModel
-import org.prairieserver.prairie.viewmodel.AdminUserEditViewModel
-import org.prairieserver.prairie.viewmodel.AdminUsersViewModel
 import org.prairieserver.prairie.viewmodel.CalendarViewModel
 import org.prairieserver.prairie.viewmodel.CollectionsViewModel
 import org.prairieserver.prairie.android.ui.screens.detail.ItemDetailViewModel
@@ -73,8 +71,6 @@ import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionVie
 import org.prairieserver.prairie.android.ui.screens.servers.ServerListViewModel
 import org.prairieserver.prairie.android.ui.screens.downloads.DownloadsViewModel
 import org.prairieserver.prairie.viewmodel.HomeViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.viewmodel.FavoritesViewModel
 import org.prairieserver.prairie.viewmodel.HistoryViewModel
@@ -83,6 +79,8 @@ import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
 import org.prairieserver.prairie.viewmodel.WatchlistViewModel
 import org.prairieserver.prairie.android.ui.screens.player.MobileVideoPlaybackStarter
 import org.prairieserver.prairie.android.ui.screens.player.PlayerViewModel
@@ -90,10 +88,10 @@ import org.prairieserver.prairie.android.ui.screens.reading.ReadingHubViewModel
 import org.prairieserver.prairie.android.ui.screens.search.SearchViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
-import org.prairieserver.prairie.android.cast.SharedPrefsSiloCastLastTargetStore
-import org.prairieserver.prairie.android.cast.SiloCastController
-import org.prairieserver.prairie.android.cast.SiloCastLastTargetStore
-import org.prairieserver.prairie.android.cast.SiloCastSessionManager
+import org.prairieserver.prairie.android.cast.SharedPrefsPrairieCastLastTargetStore
+import org.prairieserver.prairie.android.cast.PrairieCastController
+import org.prairieserver.prairie.android.cast.PrairieCastLastTargetStore
+import org.prairieserver.prairie.android.cast.PrairieCastSessionManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
@@ -122,14 +120,14 @@ val androidModule = module {
     // Persistent (EncryptedSharedPreferences-backed) replacement for the
     // commonMain in-memory TokenManager. Koin 3.1+ replaces same-key bindings
     // when the redefining module is loaded after the original — sharedModules()
-    // is registered first in SiloApplication, so this wins.
+    // is registered first in PrairieApplication, so this wins.
     single<TokenManager> { EncryptedTokenManagerImpl(get(), get(), get()) }
     single { org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourLocalCache(androidContext()) }
 
     // Offline-first Room store (Track B). Bound after sharedModules() so the
     // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
     // up the Room-backed port and writes optimistic projection + outbox rows.
-    single { org.prairieserver.prairie.common.data.db.SiloDatabase.build(androidContext()) }
+    single { org.prairieserver.prairie.common.data.db.PrairieDatabase.build(androidContext()) }
     single<org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler> {
         val appContext = androidContext().applicationContext
         org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler {
@@ -179,22 +177,30 @@ val androidModule = module {
 
     // App-wide services
     single<AndroidServerSettingsCache> { AndroidServerSettingsCache(androidContext()) }
+    // The one place the phone app's BuildConfig crosses into android-shared:
+    // every collaborator that reports client identity (headers, playback
+    // context, diagnostics) resolves this rather than deriving its own answer.
+    single { PrairieClientBuildIdentity(BuildConfig.BUILD_NUMBER, BuildConfig.RELEASE_CHANNEL) }
     single<org.prairieserver.prairie.network.DeviceMetadataProvider> {
-        AndroidDeviceMetadataProvider(androidContext(), platform = "android")
+        AndroidDeviceMetadataProvider(
+            androidContext(),
+            platform = "android",
+            buildIdentity = get(),
+        )
     }
-    single { SiloCastNsdBrowser(androidContext()) }
+    single { PrairieCastNsdBrowser(androidContext()) }
     single { CompanionPairingNsdBrowser(androidContext()) }
     single<CompanionPairingServerStore> { RegistryCompanionPairingServerStore(get(), get()) }
-    single<CompanionDeviceLoginApprover> { RepositoryCompanionDeviceLoginApprover(get()) }
+    single<CompanionDeviceLoginApprover> { RepositoryCompanionDeviceLoginApprover(get(), get()) }
     single<CompanionPairingTransportFactory> {
         CompanionPairingTransportFactory { target ->
             TlsPskPairingClientTransport.connect(target.host, target.port)
         }
     }
     single { CompanionPairingCoordinator(get(), get(), get()) }
-    single<SiloCastLastTargetStore> { SharedPrefsSiloCastLastTargetStore(androidContext()) }
+    single<PrairieCastLastTargetStore> { SharedPrefsPrairieCastLastTargetStore(androidContext()) }
     single {
-        SiloCastController(
+        PrairieCastController(
             browser = get(),
             serverRegistry = get(),
             tokenManager = get(),
@@ -218,6 +224,7 @@ val androidModule = module {
         PushNotificationPresenter(
             context = androidContext(),
             notificationsRepository = get(),
+            tokenManager = get(),
         )
     }
     single { PushMessageHandler(presenter = get()) }
@@ -238,9 +245,9 @@ val androidModule = module {
         )
     }
     single { AudioCapabilityManager(androidContext()) }
-    single { PlaybackCapabilityDetector(androidContext(), get(), get()) }
+    single { PlaybackCapabilityDetector(androidContext(), get(), get(), get()) }
     single {
-        SiloPlayerFactory(
+        PrairiePlayerFactory(
             context = androidContext(),
             tokenManager = get(),
             subtitleManager = get(),
@@ -253,10 +260,18 @@ val androidModule = module {
         )
     }
     single { PlaybackSessionManager(get(), get(), get()) }
+    single(AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER) {
+        PlaybackSessionManager(
+            playbackRepository = get(),
+            tokenManager = get(),
+            networkEvidenceProvider = get(),
+            passthroughSuppression = PassthroughSuppressionScope.None,
+        )
+    }
     // Google Cast (Chromecast) — phone only. The session manager owns the Cast
     // SDK lifecycle; the preparer opens the separate Tier-2 cast-capability
     // playback session so the raw phone stream is never cast.
-    single { SiloCastSessionManager(androidContext()) }
+    single { PrairieCastSessionManager(androidContext()) }
     single {
         CastPlaybackPreparer(
             playbackRepository = get(),
@@ -273,6 +288,7 @@ val androidModule = module {
             playerSettingsStore = get(),
             sessionLifecycle = get(),
             reachabilityMonitor = get(),
+            userItemStatePort = get(),
         )
     }
     factory {
@@ -283,7 +299,7 @@ val androidModule = module {
 
     // Offline downloads — public MediaStore bytes plus private sidecars.
     // Media files keep original names so other Android readers/players can
-    // discover them under Downloads/Prairie.
+    // discover them under Downloads/Silo.
     single { DownloadStorage(androidContext()) }
     // Download metadata now lives in Room (replaces the .record.json sidecars).
     single { org.prairieserver.prairie.common.downloads.DownloadMetadataStore(get()) }
@@ -293,7 +309,7 @@ val androidModule = module {
     single { DownloadEnqueuer(androidContext(), get(), get(), get(), get(), get(), get(), get()) }
     single { DownloadSubscriptionEvaluatorFactory(get(), get(), get()) }
     // CoroutineWorker constructed by Koin's WorkerFactory — see
-    // SiloApplication.onCreate `workManagerFactory()` call.
+    // PrairieApplication.onCreate `workManagerFactory()` call.
     worker {
         DownloadWorker(
             appContext = androidContext(),
@@ -378,14 +394,22 @@ val androidModule = module {
     }
     viewModel { params ->
         ItemDetailViewModel(
-            get(), get(), get(), get(), get(), get(), params.get(),
+            get(), get(), get(), get(), get(), get(), get(), params.get(),
             getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>() ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
         )
     }
     viewModel { params -> PersonDetailViewModel(get(), params.get()) }
     viewModel { params -> LibraryCollectionsViewModel(get(), params.get()) }
-    viewModel { FavoritesViewModel(get()) }
-    viewModel { WatchlistViewModel(get()) }
+    viewModel { FavoritesViewModel(get(), get()) }
+    viewModel { WatchlistViewModel(get(), get()) }
+    // Sort/filter for one saved list; callers scope it to the Activity keyed
+    // by source so the For You grid and the standalone screens share it.
+    viewModel { params ->
+        org.prairieserver.prairie.android.ui.screens.personal.PersonalListControlsViewModel(
+            source = params.get(),
+            catalogRepository = get(),
+        )
+    }
     viewModel { HistoryViewModel(get()) }
     viewModel { CollectionsViewModel(get()) }
     viewModel { params -> CollectionDetailViewModel(get(), get(), params.get()) }
@@ -399,6 +423,7 @@ val androidModule = module {
             repository = get(),
             timezoneId = java.util.TimeZone.getDefault().id,
             todayProvider = { java.time.LocalDate.now().toString() },
+            filterStore = org.prairieserver.prairie.android.ui.screens.calendar.CalendarPrefsStore(androidContext()),
         )
     }
     viewModel { params ->
@@ -409,15 +434,8 @@ val androidModule = module {
             tmdbId = args.second,
         )
     }
-    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { DiagnosticsViewModel(get()) }
-    viewModel { AdminEntryViewModel(get(), get()) }
-    viewModel { AdminStatsViewModel(get()) }
-    viewModel { AdminUsersViewModel(get()) }
-    viewModel { AdminUserEditViewModel(get()) }
-    viewModel { AdminSessionsViewModel(get()) }
-    viewModel { AdminLogsViewModel(get()) }
-    viewModel { AdminScansViewModel(get(), get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
     viewModel { ServerSetupViewModel(get(), get()) }
@@ -457,8 +475,8 @@ val androidModule = module {
     viewModel {
         org.prairieserver.prairie.common.player.AudiobookPlayerViewModel(
             catalogRepository = get(),
-            playbackSessionManager = get(),
-            playbackSessionLifecycle = get(),
+            playbackSessionManager = get(AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER),
+            playbackSessionLifecycle = get(AUDIOBOOK_PLAYBACK_SESSION_LIFECYCLE_QUALIFIER),
             capabilityDetector = get(),
             bookmarksStore = get(),
             userItemStatePort = get(),
@@ -485,13 +503,6 @@ val androidModule = module {
     }
     viewModel { org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherEntryViewModel(get()) }
     viewModel { org.prairieserver.prairie.android.ui.screens.watchtogether.SuggestToRoomViewModel(get()) }
-    viewModel {
-        LiveTvViewModel(
-            repository = get(),
-            nowMillisProvider = { System.currentTimeMillis() },
-        )
-    }
-    viewModel { LiveTvPlayerViewModel(get()) }
     viewModel { params ->
         org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherLobbyViewModel(
             roomId = params.get(),
@@ -499,4 +510,12 @@ val androidModule = module {
             roomSession = get(),
         )
     }
+
+    viewModel {
+        LiveTvViewModel(
+            repository = get(),
+            nowMillisProvider = { System.currentTimeMillis() },
+        )
+    }
+    viewModel { LiveTvPlayerViewModel(get()) }
 }

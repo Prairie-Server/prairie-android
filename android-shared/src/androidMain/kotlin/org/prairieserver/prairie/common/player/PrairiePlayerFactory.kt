@@ -44,8 +44,11 @@ import org.prairieserver.prairie.common.player.audio.DelayAudioProcessor
 import org.prairieserver.prairie.common.player.audio.PassthroughSuppressingAudioSink
 import org.prairieserver.prairie.common.player.subtitle.OffsetSubtitleParserFactory
 import org.prairieserver.prairie.common.player.subtitle.PgsSupExtractor
+import org.prairieserver.prairie.common.player.subtitle.SidecarPlaybackFloor
+import org.prairieserver.prairie.common.player.subtitle.SidecarSubtitleMediaSource
 import org.prairieserver.prairie.common.player.subtitle.SubtitleOffsetHolder
-import org.prairieserver.prairie.common.player.video.SiloMediaCodecVideoRenderer
+import org.prairieserver.prairie.common.player.subtitle.StreamingWebvttExtractor
+import org.prairieserver.prairie.common.player.video.PrairieMediaCodecVideoRenderer
 import org.prairieserver.prairie.common.player.video.PlaybackRuntimeCorrectionState
 import org.prairieserver.prairie.libass.LibassBridge
 import org.prairieserver.prairie.model.playback.AudioPassthroughCapabilities
@@ -70,7 +73,7 @@ import java.util.ArrayList
  * Bluetooth pair, profile language change) without rebuilding the player.
  */
 @UnstableApi
-class SiloPlayerFactory(
+class PrairiePlayerFactory(
     private val context: Context,
     private val tokenManager: TokenManager,
     private val subtitleManager: SubtitleManager,
@@ -187,7 +190,7 @@ class SiloPlayerFactory(
         // Build a single-processor chain that hosts the per-profile audio
         // delay processor. The chain is owned by the factory and shared
         // across players because Koin gives us a single DelayAudioProcessor
-        // instance; in practice SiloPlaybackService creates exactly
+        // instance; in practice PrairiePlaybackService creates exactly
         // one ExoPlayer per process so there's no contention.
         val audioSink: AudioSink = PassthroughSuppressingAudioSink(DefaultAudioSink.Builder(context)
             .setAudioProcessorChain(
@@ -226,7 +229,7 @@ class SiloPlayerFactory(
                 val platformRenderer = (firstNewRenderer until out.size)
                     .firstOrNull { out[it] is MediaCodecVideoRenderer }
                     ?: return
-                out[platformRenderer] = SiloMediaCodecVideoRenderer(
+                out[platformRenderer] = PrairieMediaCodecVideoRenderer(
                     context = context,
                     codecAdapterFactory = codecAdapterFactory,
                     mediaCodecSelector = mediaCodecSelector,
@@ -277,7 +280,7 @@ class SiloPlayerFactory(
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
-        val mediaLoadErrorHandlingPolicy = SiloMediaLoadErrorHandlingPolicy(
+        val mediaLoadErrorHandlingPolicy = PrairieMediaLoadErrorHandlingPolicy(
             isResumableProgressiveDirectPlay = ::isResumableDirectPlayUri,
         )
         fun correctedMediaSourceFactory(
@@ -301,7 +304,7 @@ class SiloPlayerFactory(
             .setExtractorFactory(hlsExtractorFactory)
             .setSubtitleParserFactory(embeddedSubtitleParserFactory)
             .setLoadErrorHandlingPolicy(mediaLoadErrorHandlingPolicy)
-        val mediaSourceFactory = SiloMediaSourceFactory(
+        val mediaSourceFactory = PrairieMediaSourceFactory(
             defaultFactory = correctedMediaSourceFactory(DolbyVisionTransformMode.DISABLED),
             correctedFactory = ::correctedMediaSourceFactory,
             hlsFactory = hlsMediaSourceFactory,
@@ -375,6 +378,11 @@ class SiloPlayerFactory(
      * Apply capability-aware track selection presets to [player]. Call at
      * player construction and again whenever [AudioPassthroughCapabilities]
      * changes (HDMI hot-plug, BT pair, user-toggled "force Atmos" setting).
+     *
+     * Returns whether parameters were actually assigned. A skip — teardown
+     * guard or no-op parameters — must be visible to callers that track
+     * "presets have been applied once", or a skipped first run silently
+     * reclassifies the real first application as a later change.
      */
     fun applyTrackSelectionPresets(
         player: Player,
@@ -383,16 +391,34 @@ class SiloPlayerFactory(
         preferredAudioLanguage: String? = null,
         preferredTextLanguage: String? = null,
         hdrEnabled: Boolean = true,
-    ) {
+    ): Boolean {
+        // ExoPlayer resolves a track reselection by seeking the current media
+        // period. With no media period — idle, empty timeline, or torn down
+        // while this was in flight — that path dereferences a null holder and
+        // kills playback outright:
+        //
+        //   NullPointerException: MediaPeriodHolder.info
+        //     at ExoPlayerImplInternal.seekToCurrentPosition
+        //     at ExoPlayerImplInternal.reselectTracksInternalAndSeek
+        //
+        // Capability changes are exactly what lands here at the wrong moment:
+        // an HDMI route drop fires this while the screen is being left, so the
+        // player is already past the point of having anything to reselect.
+        // Presets are re-applied on the next construction anyway, so skipping
+        // costs nothing.
+        if (shouldSkipTrackReselection(player.playbackState, player.currentTimeline.isEmpty)) return false
+
         val base = player.trackSelectionParameters
         val next = if (isTv) {
+            // preferredTextLanguage is deliberately NOT forwarded on TV: the
+            // subtitle transaction adapter is the only authority that may
+            // enable a text track there (see TrackSelectionPresets.buildTvParameters).
             TrackSelectionPresets.buildTvParameters(
                 context = context,
                 base = base,
                 audioCaps = audioCaps,
                 displayHdr = displayHdr,
                 preferredAudioLanguage = preferredAudioLanguage,
-                preferredTextLanguage = preferredTextLanguage,
                 allowHdr = hdrEnabled,
             )
         } else {
@@ -406,13 +432,14 @@ class SiloPlayerFactory(
             )
         }
         player.trackSelectionParameters = next
+        return true
     }
 
     /**
      * Build a [MediaItem] the player can consume directly via `setMediaItem`.
      * The MIME type hint on the item is what lets [DefaultMediaSourceFactory]
      * pick HLS vs. progressive without requiring the stream URL to carry the
-     * right extension — Prairie's transcode URLs don't always end in .m3u8.
+     * right extension — Silo's transcode URLs don't always end in .m3u8.
      *
      * Sidecar subtitles are attached via `setSubtitleConfigurations`; the
      * selected media source factory wires them through a merging source.
@@ -456,7 +483,7 @@ class SiloPlayerFactory(
             .apply { contentId?.takeIf(String::isNotBlank)?.let(::setMediaId) }
             .setSubtitleConfigurations(subtitleConfigurations)
             .setTag(
-                SiloMediaTransformTag(
+                PrairieMediaTransformTag(
                     dolbyVisionMode = when {
                         org.prairieserver.prairie.model.playback.CLIENT_DV7_TO_DV81 in transformations ->
                             DolbyVisionTransformMode.PROFILE7_TO_PROFILE81
@@ -522,7 +549,7 @@ class SiloPlayerFactory(
     private fun buildAbsoluteUrl(serverUrl: String, streamUrl: String): String =
         resolvePlaybackStreamUrl(serverUrl, streamUrl)
 
-    private class SiloMediaSourceFactory(
+    private class PrairieMediaSourceFactory(
         private val defaultFactory: MediaSource.Factory,
         private val correctedFactory: (
             DolbyVisionTransformMode,
@@ -575,7 +602,7 @@ class SiloPlayerFactory(
             val contentSource = if (contentType == C.CONTENT_TYPE_HLS) {
                 hlsFactory.createMediaSource(contentItem)
             } else {
-                val tag = localConfiguration.tag as? SiloMediaTransformTag
+                val tag = localConfiguration.tag as? PrairieMediaTransformTag
                 mediaSourceFactory(tag).createMediaSource(contentItem)
             }
             if (subtitleConfigurations.isEmpty()) return contentSource
@@ -588,7 +615,7 @@ class SiloPlayerFactory(
             return MergingMediaSource(*sources.toTypedArray())
         }
 
-        private fun mediaSourceFactory(tag: SiloMediaTransformTag?): MediaSource.Factory =
+        private fun mediaSourceFactory(tag: PrairieMediaTransformTag?): MediaSource.Factory =
             correctedFactory(
                 tag?.dolbyVisionMode ?: DolbyVisionTransformMode.DISABLED,
                 tag?.expectedDynamicRange,
@@ -619,18 +646,30 @@ class SiloPlayerFactory(
                     subtitleParserFactory.getCueReplacementBehavior(baseFormat),
                 )
                 .build()
-            val extractorsFactory = if (configuration.mimeType == MimeTypes.APPLICATION_PGS) {
-                ExtractorsFactory {
+            // Shared with the non-gating wrapper below: it publishes the live
+            // position, the extractor treats anything before it as history.
+            val playbackFloor = SidecarPlaybackFloor()
+            val extractorsFactory = when (configuration.mimeType) {
+                MimeTypes.APPLICATION_PGS -> ExtractorsFactory {
                     arrayOf(
                         PgsSupExtractor(
                             subtitleParserFactory,
                             subtitleOffsetProvider,
                             outputFormat,
+                            playbackFloor::get,
                         ),
                     )
                 }
-            } else {
-                ExtractorsFactory {
+                MimeTypes.TEXT_VTT -> ExtractorsFactory {
+                    arrayOf(
+                        StreamingWebvttExtractor(
+                            subtitleParserFactory.create(outputFormat),
+                            outputFormat,
+                            MAX_SUBTITLE_BYTES,
+                        ),
+                    )
+                }
+                else -> ExtractorsFactory {
                     arrayOf(
                         SubtitleExtractor(
                             subtitleParserFactory.create(outputFormat),
@@ -639,7 +678,12 @@ class SiloPlayerFactory(
                     )
                 }
             }
-            return ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
+            val subtitleDataSourceFactory = if (configuration.mimeType in replayableTextSubtitleMimeTypes) {
+                ReplayableSubtitleDataSourceFactory(dataSourceFactory)
+            } else {
+                dataSourceFactory
+            }
+            val progressive = ProgressiveMediaSource.Factory(subtitleDataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
                 .createMediaSource(
                     MediaItem.Builder()
@@ -647,7 +691,19 @@ class SiloPlayerFactory(
                         .setMimeType(configuration.mimeType)
                         .build(),
                 )
+            // A sidecar must not decide when playback starts or what loads
+            // next — left as a plain merged child it starves the video until
+            // its own download reaches the resume point. See the wrapper.
+            return SidecarSubtitleMediaSource(progressive, playbackFloor)
         }
+    }
+
+    private companion object {
+        val replayableTextSubtitleMimeTypes = setOf(
+            MimeTypes.TEXT_SSA,
+            MimeTypes.APPLICATION_SUBRIP,
+            MimeTypes.APPLICATION_TTML,
+        )
     }
 }
 
@@ -659,7 +715,7 @@ class SiloPlayerFactory(
  * prefixed with the server base URL; stream-relative paths are prefixed with
  * the server base URL and the `/api/v1` mount.
  *
- * Shared by [SiloPlayerFactory] (video) and the audiobook player so both
+ * Shared by [PrairiePlayerFactory] (video) and the audiobook player so both
  * resolve identically. Players that hand a relative URI straight to Media3 hit
  * OkHttp's "Malformed URL" because [RoutedDataSource] only prefixes the base
  * when the factory's serverUrl is set — which the audiobook path never did.
@@ -718,3 +774,17 @@ internal fun mediaItemMimeType(
         PlayMethod.DIRECT -> videoContainerMimeType(container)
     }
 }
+
+/**
+ * Whether a track reselection must be withheld from the player.
+ *
+ * ExoPlayer applies a reselection by seeking the current media period. With no
+ * media period — idle, or an empty timeline — that seek dereferences a null
+ * holder and ends playback with an ExoPlaybackException rather than being a
+ * no-op. Capability changes (HDMI hot-plug, audio route loss) can fire while a
+ * player is being torn down, which is exactly that window.
+ *
+ * Kept separate from the player so the rule can be tested without a Context.
+ */
+internal fun shouldSkipTrackReselection(playbackState: Int, timelineEmpty: Boolean): Boolean =
+    playbackState == Player.STATE_IDLE || timelineEmpty

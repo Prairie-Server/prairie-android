@@ -140,33 +140,22 @@ class PlaybackSubtitleChoicesTest {
     }
 
     @Test
-    fun rebaseDownloadedSubtitleUrlRetargetsSessionPath() {
-        assertEquals(
-            "/stream/new-session/subtitles/3.vtt?token=a",
-            rebaseDownloadedSubtitleUrl(
-                "/stream/old-session/subtitles/3.vtt?token=a",
-                "new-session",
-            ),
+    fun authoritativeInventoryNeverSynthesizesCatalogOnlyRows() {
+        val catalog = listOf(
+            SubtitleTrack(index = 3, language = "en", title = "English"),
+            SubtitleTrack(index = 7, language = "ja", title = "Signs"),
         )
-        assertEquals(
-            "https://srv.example/stream/abc/subtitles/0.srt#frag",
-            rebaseDownloadedSubtitleUrl(
-                "https://srv.example/stream/xyz/subtitles/0.srt#frag",
-                "abc",
-            ),
-        )
-    }
 
-    @Test
-    fun rebaseDownloadedSubtitleUrlRejectsUnsafeTargetsAndNonMatches() {
-        val original = "/stream/old/subtitles/1.vtt"
-        assertEquals(original, rebaseDownloadedSubtitleUrl(original, ""))
-        assertEquals(original, rebaseDownloadedSubtitleUrl(original, "bad/id"))
-        assertEquals(original, rebaseDownloadedSubtitleUrl(original, "bad?id"))
-        assertEquals(original, rebaseDownloadedSubtitleUrl(original, "bad#id"))
         assertEquals(
-            "/static/subtitles/1.vtt",
-            rebaseDownloadedSubtitleUrl("/static/subtitles/1.vtt", "new-session"),
+            emptyList(),
+            enrichAuthoritativePlaybackSubtitleChoices(catalog, plannedTracks = emptyList()),
         )
+
+        val authoritative = enrichAuthoritativePlaybackSubtitleChoices(
+            catalogTracks = catalog,
+            plannedTracks = listOf(PlayerSubtitleInfo(index = 1, url = "/signs.vtt")),
+        )
+        assertEquals(listOf(1), authoritative.map(PlayerSubtitleInfo::index))
+        assertEquals("Signs", authoritative.single().catalogLabel)
     }
 }

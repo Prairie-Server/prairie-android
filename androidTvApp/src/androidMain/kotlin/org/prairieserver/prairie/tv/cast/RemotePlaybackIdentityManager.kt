@@ -74,7 +74,8 @@ class RemotePlaybackIdentityManager(
         val started = deviceLoginApi.startRemotePlaybackAt(
             serverUrl = offer.serverURL,
             deviceName = deviceNameProvider(),
-            devicePlatform = "android_tv",
+            // Matches the X-Prairie-Device-Platform header spelling.
+            devicePlatform = "android-tv",
         ).successOrThrow()
         require(started.clientPurpose == "remote_playback" && started.temporary == true) {
             "The server did not create a temporary remote playback session."
@@ -115,7 +116,17 @@ class RemotePlaybackIdentityManager(
                                     refreshToken = refreshToken,
                                     profileId = profileId,
                                     profileToken = profileToken,
+                                    // The SESSION deadline — hours past the
+                                    // access token it was issued with, so it
+                                    // must never be read as a token expiry.
                                     expiresAtEpochMs = expiresAtMs,
+                                    // The token's own deadline, kept separate.
+                                    // Null when the server omits expires_in,
+                                    // which keeps this overlay reactive-only
+                                    // rather than guessing off the session.
+                                    accessTokenExpiresAtEpochMs = poll.expiresIn
+                                        ?.let { System.currentTimeMillis() + it * 1000L },
+                                    accessTokenLifetimeMs = poll.expiresIn?.times(1000L),
                                 ),
                             )
                             val active = ActiveIdentity(

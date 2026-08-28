@@ -160,19 +160,36 @@ internal class DiagnosticsLogRenderer(
                 "seek_last_ms" to AttributeKind.INTEGER,
                 "seek_total_ms" to AttributeKind.INTEGER,
                 "seek_max_ms" to AttributeKind.INTEGER,
+                "session_id" to AttributeKind.STRING,
+                "play_method" to AttributeKind.STRING,
+                "reason" to AttributeKind.STRING,
+                "position_ms" to AttributeKind.INTEGER,
             ),
             DiagnosticsLogCategory.FOCUS to mapOf(
                 "target" to AttributeKind.STRING,
                 "action" to AttributeKind.STRING,
+                // Registered because contentEntryFailed() reports it. An
+                // unregistered attribute THROWS while strictAttributeRegistry
+                // is on (debug builds), so the warning added to make silent
+                // focus failures visible crashed the app the moment it fired.
+                "route" to AttributeKind.STRING,
             ),
             DiagnosticsLogCategory.NETWORK to mapOf(
                 "method" to AttributeKind.STRING,
                 "path" to AttributeKind.STRING,
                 "status" to AttributeKind.INTEGER,
                 "duration_ms" to AttributeKind.INTEGER,
+                "outcome" to AttributeKind.STRING,
+                "error_code" to AttributeKind.STRING,
+                "attempt" to AttributeKind.INTEGER,
             ),
             DiagnosticsLogCategory.LIFECYCLE to mapOf(
                 "state" to AttributeKind.STRING,
+                "phase" to AttributeKind.STRING,
+                "duration_ms" to AttributeKind.INTEGER,
+                "outcome" to AttributeKind.STRING,
+                "reason" to AttributeKind.STRING,
+                "launch_type" to AttributeKind.STRING,
                 "route" to AttributeKind.STRING,
                 "frame_count" to AttributeKind.INTEGER,
                 "slow_frame_count" to AttributeKind.INTEGER,

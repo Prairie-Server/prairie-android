@@ -48,7 +48,7 @@ import org.prairieserver.prairie.overlays.OverlayData
 import org.prairieserver.prairie.tv.ui.theme.ProgressTrack
 import org.prairieserver.prairie.tv.ui.theme.ProgressFill
 import org.prairieserver.prairie.tv.ui.theme.RowDimens
-import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.siloCardDefaults
 import org.prairieserver.prairie.tv.ui.util.tvArtworkAspectRatioForMediaType
 
 /**
@@ -96,8 +96,8 @@ fun TvMediaCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val cardShape = RoundedCornerShape(8.dp)
-    val cardFocus = prairieCardDefaults(shape = cardShape)
+    val cardShape = TvMediaCardShape
+    val cardFocus = siloCardDefaults(shape = cardShape)
 
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -152,7 +152,6 @@ fun TvMediaCard(
                         data = overlay,
                         prefs = overlayState.prefs,
                         variant = CardOverlayVariant.Poster,
-                        scale = TvCardOverlayScale,
                         forceOpaqueBackground = false,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -236,5 +235,8 @@ fun TvMediaCard(
  */
 val TvCardWidth: Dp = RowDimens.PosterWidth
 
-/** Optical TV scale: compact like tvOS badges, still readable at sofa distance. */
+/** Optical scale for wide TV thumbnails; poster cards scale from their actual width. */
 const val TvCardOverlayScale: Float = 0.7f
+
+/** Hoisted so every card shares one instance instead of allocating a shape per composition. */
+private val TvMediaCardShape = RoundedCornerShape(8.dp)

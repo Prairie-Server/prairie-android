@@ -24,14 +24,22 @@ internal fun contentDeepLinkRouteOrNull(rawUri: String?): String? {
         ?: return null
     if (!uri.scheme.equals("prairie", ignoreCase = true)) return null
 
-    val contentId = uri.path.orEmpty()
+    // Read the RAW path and decode exactly one segment. `URI.path` is already
+    // percent-decoded, so taking it and interpolating the result back into a
+    // route re-parsed the decoded bytes as route syntax: an id containing an
+    // encoded `?` or `/` could truncate the id or inject an argument. The
+    // route constructors below re-encode, so this must hand them the decoded
+    // id exactly once.
+    val contentId = uri.rawPath.orEmpty()
         .trim('/')
         .substringBefore('/')
+        .let(::decodePathSegment)
+        .orEmpty()
         .trim()
 
     return when (uri.host?.lowercase()) {
         "downloads" -> Route.Downloads.route
-        "item" -> contentId.takeIf { it.isNotBlank() }?.let { "item/$it" }
+        "item" -> contentId.takeIf { it.isNotBlank() }?.let { Route.ItemDetail(it).route }
         "play" -> contentId.takeIf { it.isNotBlank() }?.let {
             Route.Player(
                 contentId = it,
@@ -55,4 +63,16 @@ private fun URI.queryParameter(name: String): String? = rawQuery
 
 private fun decodeQueryComponent(value: String): String? = runCatching {
     URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+}.getOrNull()
+
+/**
+ * Percent-decoding for a PATH segment. Deliberately not [decodeQueryComponent]:
+ * `URLDecoder` implements form encoding, where `+` means space — but in a path
+ * a `+` is a literal plus, so an id containing one would be corrupted.
+ */
+private fun decodePathSegment(value: String): String? = runCatching {
+    // Escape `+` first: URLDecoder implements form encoding where `+` means
+    // space, but in a path a `+` is a literal plus. android.net.Uri.decode
+    // would do this correctly, but it is stubbed in plain JVM unit tests.
+    URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8.name())
 }.getOrNull()

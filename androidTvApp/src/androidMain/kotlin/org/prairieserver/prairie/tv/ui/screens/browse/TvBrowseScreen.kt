@@ -25,8 +25,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +44,9 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import org.prairieserver.prairie.tv.ui.focus.TvRestoreFocusOnModalDismiss
 import org.prairieserver.prairie.tv.ui.components.TvCatalogEmptyState
 import org.prairieserver.prairie.tv.ui.components.TvCatalogGrid
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
@@ -71,8 +79,22 @@ fun TvBrowseScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showFilterSheet by remember { mutableStateOf(false) }
+    // The sheet is a modal focus owner, so something has to hand focus back
+    // when it closes. Left to the focus system, the successor is picked
+    // geometrically and lands on whatever the dimmed page happened to have.
+    val filterOpenerFocus = remember { FocusRequester() }
+    var filterOpenerFocused by remember { mutableStateOf(false) }
+    val filterOpenerModifier = Modifier
+        .focusRequester(filterOpenerFocus)
+        .onFocusChanged { filterOpenerFocused = it.isFocused }
+    TvRestoreFocusOnModalDismiss(
+        visible = showFilterSheet,
+        opener = filterOpenerFocus,
+        isOpenerFocused = { filterOpenerFocused },
+    )
 
     val firstItemFocusRequester = remember { FocusRequester() }
+    var browseGridHasFocus by remember { mutableStateOf(false) }
     var initialFocusRequested by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.items.isNotEmpty()) {
@@ -81,7 +103,12 @@ fun TvBrowseScreen(
         // a slow first load (empty here) would permanently skip grid focus.
         if (initialFocusRequested || state.items.isEmpty()) return@LaunchedEffect
         kotlinx.coroutines.delay(120)
-        runCatching { firstItemFocusRequester.requestFocus() }
+        requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { withFrameNanos { } },
+            requestFocus = firstItemFocusRequester::requestFocus,
+            isFocused = { browseGridHasFocus },
+        )
         initialFocusRequested = true
     }
 
@@ -90,6 +117,7 @@ fun TvBrowseScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onFocusChanged { browseGridHasFocus = it.hasFocus }
             .background(MaterialTheme.colorScheme.background),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -99,6 +127,7 @@ fun TvBrowseScreen(
                     sortLabel = sortLabel,
                     filter = state.filter,
                     onOpenFilters = { showFilterSheet = true },
+                    filterOpenerModifier = filterOpenerModifier,
                     modifier = Modifier.padding(
                         top = TvTopMenuLayout.contentTopInset,
                         start = Spacing.safeArea,
@@ -122,6 +151,7 @@ fun TvBrowseScreen(
                     sortLabel = sortLabel,
                     filter = state.filter,
                     onOpenFilters = { showFilterSheet = true },
+                    filterOpenerModifier = filterOpenerModifier,
                     modifier = Modifier.padding(
                         top = TvTopMenuLayout.contentTopInset,
                         start = Spacing.safeArea,
@@ -136,6 +166,7 @@ fun TvBrowseScreen(
                     onItemClick = onOpenItemDetail,
                     onLoadMore = viewModel::loadMore,
                     onOpenFilters = { showFilterSheet = true },
+                    filterOpenerModifier = filterOpenerModifier,
                     firstItemFocusRequester = firstItemFocusRequester,
                 )
             }
@@ -251,6 +282,7 @@ private fun BrowseGrid(
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
     onOpenFilters: () -> Unit,
+    filterOpenerModifier: Modifier,
     firstItemFocusRequester: FocusRequester,
 ) {
     // Shared catalog grid: pagination, focus-restorer, header + empty state.
@@ -282,6 +314,7 @@ private fun BrowseGrid(
                 sortLabel = sortLabel,
                 filter = state.filter,
                 onOpenFilters = onOpenFilters,
+                filterOpenerModifier = filterOpenerModifier,
             )
         },
         emptyState = {
@@ -300,6 +333,7 @@ private fun BrowseHeader(
     sortLabel: String,
     filter: TvBrowseFilter,
     onOpenFilters: () -> Unit,
+    filterOpenerModifier: Modifier,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -330,6 +364,7 @@ private fun BrowseHeader(
             filter = filter,
             sortLabel = sortLabel,
             onOpenFilters = onOpenFilters,
+            filterOpenerModifier = filterOpenerModifier,
         )
     }
 }
@@ -344,6 +379,7 @@ private fun FilterRow(
     filter: TvBrowseFilter,
     sortLabel: String,
     onOpenFilters: () -> Unit,
+    filterOpenerModifier: Modifier,
     modifier: Modifier = Modifier,
 ) {
     FlowRow(
@@ -353,7 +389,11 @@ private fun FilterRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        FilterEntryButton(label = "Filter", onClick = onOpenFilters)
+        FilterEntryButton(
+            label = "Filter",
+            onClick = onOpenFilters,
+            modifier = filterOpenerModifier,
+        )
 
         if (filter.genre != null) {
             ActiveFilterPill(label = "Genre: ${filter.genre}")

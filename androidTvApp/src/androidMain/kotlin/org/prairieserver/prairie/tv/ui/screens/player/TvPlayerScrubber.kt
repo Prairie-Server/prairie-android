@@ -68,8 +68,10 @@ import kotlin.math.roundToInt
  *
  * - **Tap left/right** (idle): ±10 s quick skip via [onSkipBack] / [onSkipForward].
  * - **Tap left/right** (timeline scrub): ±10 s nudge of the in-flight preview.
- * - **Hold left/right**: enter timeline auto-seek at ±2x → tap again to bump
- *   the rate up to ±32x.
+ * - **Hold left/right**: enter timeline auto-seek at ±2x, doubling every
+ *   900 ms up to a ceiling derived from the item's runtime — ±256x for a
+ *   22-minute episode, ±1024x for a feature — or tap again to bump the rate
+ *   by hand. See [TvSeekRateLadder.maxRateFor].
  * - **OK / Select**: commit an in-flight preview (or enter timeline scrub).
  * - **Back / Down**: cancel the preview / move focus to transport.
  *
@@ -102,9 +104,12 @@ fun TvPlayerScrubber(
     scrubPreviewSec: Double,
     chapters: List<ChapterInfo>,
     cancelOnBlur: Boolean,
-    // Intro / skip region [startSec, endSec] drawn as a cyan band on the track
-    // when known (mirrors tvOS TVPlayerScrubber.introRegion). Null = no band.
+    // Detected marker bands [startSec, endSec] drawn on the track when known.
+    // Null = no band. Mirrors tvOS TVPlayerScrubber.introRegion.
     introRangeSec: ClosedRange<Double>? = null,
+    creditsRangeSec: ClosedRange<Double>? = null,
+    recapRangeSec: ClosedRange<Double>? = null,
+    previewRangeSec: ClosedRange<Double>? = null,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
     onBeginScrub: () -> Unit,
@@ -112,6 +117,16 @@ fun TvPlayerScrubber(
     onCommitScrub: () -> Unit,
     onCancelScrub: () -> Unit,
     onRequestFocus: FocusRequester,
+    /**
+     * Toggle play/pause. Center on the bar is bound to this, not to entering a
+     * scrub: the Google TV remote has no dedicated play/pause key, so Center
+     * with the overlay up is the only one-press pause a viewer has — and it is
+     * what every other TV player does. Scrubbing does not need it; Left/Right
+     * skip and long-press engages auto-seek.
+     */
+    onPlayPause: () -> Unit,
+    /** See TvPlayerIdleOverlay.canToggleAfterCommit. */
+    canToggleAfterCommit: Boolean = true,
     onMoveDownToTransport: () -> Unit,
     onExitWhenIdle: () -> Unit,
     onRateChanged: (Int) -> Unit = {},
@@ -132,12 +147,9 @@ fun TvPlayerScrubber(
     var autoSeekRate by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
     var autoSeekJob by remember { mutableStateOf<Job?>(null) }
-    // Time-based ramp ladder. Sustained press climbs through ±[1, 2, 4, 8] at
-    // fixed elapsed-time milestones (1.0s / 2.0s / 3.0s); subsequent repeat
-    // bumps via `bumpRate` can carry past 8 up to 32.
+    // Speeds and ramp live in TvSeekRateLadder so the chip's number and the
+    // distance actually travelled cannot drift apart again.
     var holdRampJob by remember { mutableStateOf<Job?>(null) }
-
-    val rates = remember { listOf(-32, -16, -8, -4, -2, -1, 1, 2, 4, 8, 16, 32) }
 
     fun setRate(rate: Int) {
         autoSeekRate = rate
@@ -156,46 +168,49 @@ fun TvPlayerScrubber(
         if (!isScrubbing) onBeginScrub()
         isTimelineScrubbing = true
         val sign = if (direction < 0) -1 else 1
-        setRate(sign)
+        setRate(TvSeekRateLadder.BASE_RATE * sign)
         autoSeekJob?.cancel()
         autoSeekJob = scope.launch {
             while (isActive) {
                 // Delay first so onBeginScrub's position seed lands in
                 // currentPreviewSec before the first tick reads it (otherwise the
                 // first update would overwrite the seed and scanning starts at ~0).
-                delay(100)
+                delay(TvSeekRateLadder.TICK_MILLIS)
                 val rate = autoSeekRate
                 if (rate == 0) break
-                val base = currentPreviewSec + 2.0 * rate
+                val base = currentPreviewSec + TvSeekRateLadder.tickSeconds(rate)
                 onUpdateScrub(base)
             }
         }
-        // Time-based progression: 1.0s -> ±2, 2.0s -> ±4, 3.0s -> ±8. Stops at
-        // 8 — repeat-key bumps can still climb to ±16/±32. Cancelled in
-        // stopAutoSeek when the user releases / commits / cancels.
+        // Sustained progression through the ladder. Each step only fires if the
+        // viewer is still holding the same direction at the rate the previous
+        // step left — otherwise a release and a fresh press the other way would
+        // be overwritten by a timer from the abandoned hold.
         holdRampJob?.cancel()
         holdRampJob = scope.launch {
-            delay(1000)
-            // Only bump if the user is still holding the same direction (rate
-            // sign matches). Avoids races where the user released and a
-            // separate press flipped direction before the timer fired.
-            if (autoSeekRate == sign) setRate(2 * sign)
-            delay(1000)
-            if (autoSeekRate == 2 * sign) setRate(4 * sign)
-            delay(1000)
-            if (autoSeekRate == 4 * sign) setRate(8 * sign)
+            var previous = TvSeekRateLadder.BASE_RATE * sign
+            repeat(TvSeekRateLadder.rampSteps(durationSec)) { step ->
+                delay(TvSeekRateLadder.RAMP_STEP_MILLIS)
+                // Only continue while the viewer is still holding at the rate
+                // the previous step left; a release and a fresh press the other
+                // way must not be overwritten by this hold's timer.
+                if (autoSeekRate != previous) return@launch
+                val next = TvSeekRateLadder.sustainedRate(step, sign, durationSec)
+                if (next == previous) return@launch
+                setRate(next)
+                previous = next
+            }
         }
     }
 
     fun bumpRate(delta: Int) {
-        val idx = rates.indexOf(autoSeekRate)
-        if (idx < 0) return
-        val next = (idx + delta).coerceIn(0, rates.size - 1)
+        val next = TvSeekRateLadder.bumped(autoSeekRate, delta, durationSec)
+        if (next == autoSeekRate) return
         // User-driven rate change cancels the time-based ramp so it doesn't
         // overwrite the manual pick a beat later.
         holdRampJob?.cancel()
         holdRampJob = null
-        setRate(rates[next])
+        setRate(next)
     }
 
     // Cancel any in-flight scrub on focus loss when the shell asks us to
@@ -345,13 +360,21 @@ fun TvPlayerScrubber(
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                             if (isUp) {
                                 stopAutoSeek()
-                                if (isTimelineScrubbing || isScrubbing) {
+                                // Center means "here": land any scrub in
+                                // flight, then flip playback. Racing forward at
+                                // 32x it stops on the frame you asked for;
+                                // hunting a spot while paused it plays on from
+                                // it. Entering a scrub MODE here — what this
+                                // used to do — spent the viewer's only
+                                // one-press pause on something Left/Right
+                                // already do, and the Google TV remote has no
+                                // dedicated play/pause key to fall back on.
+                                val committed = isTimelineScrubbing || isScrubbing
+                                if (committed) {
                                     isTimelineScrubbing = false
                                     onCommitScrub()
-                                } else {
-                                    onBeginScrub()
-                                    isTimelineScrubbing = true
                                 }
+                                if (!committed || canToggleAfterCommit) onPlayPause()
                                 true
                             } else if (isDown) true else false
                         }
@@ -395,26 +418,31 @@ fun TvPlayerScrubber(
                     ),
             )
 
-            // Intro / skip region — cyan band on the track (tvOS introRegion).
-            // Drawn above the bare track but below the played fill / ticks so
-            // the playhead still reads clearly over it.
-            if (introRangeSec != null && durationSec > 0) {
-                val introStart = (introRangeSec.start / durationSec).toFloat().coerceIn(0f, 1f)
-                val introEnd = (introRangeSec.endInclusive / durationSec).toFloat().coerceIn(0f, 1f)
-                if (introEnd > introStart) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .offset(x = barWidthDp * introStart)
-                            .fillMaxWidth(introEnd - introStart)
-                            .height(trackHeight)
-                            .clip(RoundedCornerShape(percent = 50))
-                            .background(
-                                Color.Cyan.copy(
-                                    alpha = if (isTimelineScrubbing || isFocused) 0.45f else 0.34f,
-                                ),
-                            ),
-                    )
+            // Marker bands — intro/recap/credits/preview, each a tinted band on
+            // the track. Drawn above the bare track but below the played fill /
+            // ticks so the playhead still reads clearly over it.
+            if (durationSec > 0) {
+                val bandAlpha = if (isTimelineScrubbing || isFocused) 0.45f else 0.34f
+                val markers = listOfNotNull(
+                    introRangeSec?.let { it to Color.Cyan },
+                    recapRangeSec?.let { it to Color(0xFF8BC34A) },
+                    creditsRangeSec?.let { it to Color(0xFFFFB74D) },
+                    previewRangeSec?.let { it to Color(0xFFBA68C8) },
+                )
+                for ((range, color) in markers) {
+                    val start = (range.start / durationSec).toFloat().coerceIn(0f, 1f)
+                    val end = (range.endInclusive / durationSec).toFloat().coerceIn(0f, 1f)
+                    if (end > start) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .offset(x = barWidthDp * start)
+                                .fillMaxWidth(end - start)
+                                .height(trackHeight)
+                                .clip(RoundedCornerShape(percent = 50))
+                                .background(color.copy(alpha = bandAlpha)),
+                        )
+                    }
                 }
             }
 
@@ -452,7 +480,9 @@ fun TvPlayerScrubber(
                     if (frac > 0.001f) {
                         Box(
                             modifier = Modifier
-                                .align(Alignment.Center)
+                                // CenterStart, not Center: `offset` is anchor-relative,
+                                // so Center adds half the bar width to every tick.
+                                .align(Alignment.CenterStart)
                                 .offset(x = barWidthDp * frac - 1.5.dp)
                                 .width(if (isTimelineScrubbing) 3.dp else 2.dp)
                                 .height(trackHeight + 8.dp)

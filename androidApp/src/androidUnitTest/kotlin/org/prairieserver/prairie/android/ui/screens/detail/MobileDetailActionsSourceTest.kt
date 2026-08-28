@@ -1,27 +1,29 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
 import androidx.lifecycle.SavedStateHandle
-import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.common.downloads.DownloadEnqueuer
+import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.LeafItemUserData
+import org.prairieserver.prairie.model.catalog.Season
 import org.prairieserver.prairie.model.download.DownloadsListResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.CatalogApi
 import org.prairieserver.prairie.network.api.DownloadsApi
 import org.prairieserver.prairie.network.api.EbookReaderApi
 import org.prairieserver.prairie.network.api.PersonalDataApi
+import org.prairieserver.prairie.network.api.RecommendationApi
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.DownloadsRepository
 import org.prairieserver.prairie.repository.EbookReaderRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
+import org.prairieserver.prairie.repository.RecommendationRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -103,6 +105,34 @@ class MobileDetailActionsSourceTest {
     }
 
     @Test
+    fun cachedSeasonSwitchDoesNotReloadEpisodes() = runItemDetailTest {
+        val catalogRequests = mutableListOf<String>()
+        val catalogRepository = CatalogRepository(
+            CatalogApi(
+                HttpClient(
+                    MockEngine { request ->
+                        catalogRequests += request.url.encodedPath
+                        respond("{}")
+                    },
+                ),
+            ),
+        )
+        val viewModel = itemDetailViewModel(
+            personalDataRepository = RecordingPersonalDataRepository(mutableListOf()),
+            catalogRepository = catalogRepository,
+        )
+        viewModel.seedSeriesDetail()
+
+        viewModel.selectSeason(2)
+        viewModel.selectSeason(1)
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), catalogRequests)
+        assertEquals(1, viewModel.uiState.value.selectedSeasonNumber)
+        assertEquals(listOf("season-1-episode-1"), viewModel.uiState.value.episodes.map { it.contentId })
+    }
+
+    @Test
     fun moviePlayPinsDisplayedVersionWhenTrackOverrideIsSelected() {
         assertTrue(itemDetail.contains("val playbackFileId = explicitFileId ?: detail.versions"))
         assertTrue(itemDetail.contains(".getOrNull(effectiveSelectedVersionIndex)"))
@@ -112,37 +142,70 @@ class MobileDetailActionsSourceTest {
         assertTrue(itemDetail.contains("explicitSubtitleIndex,"))
     }
 
-    // Cancel viewModelScope coroutines BEFORE resetting Main: they dispatch
-    // on Dispatchers.Main, and one still alive when resetMain/setMain runs
-    // throws IllegalStateException from TestMainDispatcher — the CI flake
-    // that failed watchedToggleRevertsOnLatestFailureOnly.
-    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
-
     private fun runItemDetailTest(block: suspend kotlinx.coroutines.test.TestScope.() -> Unit) = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             block()
         } finally {
-            createdViewModels.forEach { it.viewModelScope.cancel() }
-            createdViewModels.clear()
             Dispatchers.resetMain()
         }
     }
 
     private fun itemDetailViewModel(
         personalDataRepository: RecordingPersonalDataRepository,
+        catalogRepository: CatalogRepository = CatalogRepository(CatalogApi(dummyHttpClient())),
     ): ItemDetailViewModel =
         ItemDetailViewModel(
-            catalogRepository = CatalogRepository(CatalogApi(dummyHttpClient())),
+            catalogRepository = catalogRepository,
             personalDataRepository = personalDataRepository,
             downloadsRepository = DownloadsRepository(EmptyDownloadsApi()),
             downloadEnqueuer = unsafeInstance(),
             ebookReaderRepository = EbookReaderRepository(EbookReaderApi(dummyHttpClient())),
+            recommendationRepository = RecommendationRepository(RecommendationApi(dummyHttpClient())),
             metadataAiRepository = org.prairieserver.prairie.repository.MetadataAiRepository(
                 org.prairieserver.prairie.network.api.DefaultMetadataAiApi(dummyHttpClient()),
             ),
             savedStateHandle = SavedStateHandle(),
-        ).also { createdViewModels += it }
+        )
+
+    @Suppress("UNCHECKED_CAST")
+    private fun ItemDetailViewModel.seedSeriesDetail() {
+        val field = ItemDetailViewModel::class.java.getDeclaredField("_uiState")
+        field.isAccessible = true
+        val flow = field.get(this) as MutableStateFlow<ItemDetailUiState>
+        val seasonOneEpisodes = listOf(
+            EpisodeListItem(
+                contentId = "season-1-episode-1",
+                seasonNumber = 1,
+                episodeNumber = 1,
+            ),
+        )
+        val seasonTwoEpisodes = listOf(
+            EpisodeListItem(
+                contentId = "season-2-episode-1",
+                seasonNumber = 2,
+                episodeNumber = 1,
+            ),
+        )
+        flow.value = ItemDetailUiState(
+            isLoading = false,
+            detail = ItemDetail(
+                contentId = "series-1",
+                type = "series",
+                title = "Series",
+            ),
+            seasons = listOf(
+                Season(contentId = "season-1", seasonNumber = 1),
+                Season(contentId = "season-2", seasonNumber = 2),
+            ),
+            selectedSeasonNumber = 1,
+            episodes = seasonOneEpisodes,
+            episodesBySeason = mapOf(
+                1 to seasonOneEpisodes,
+                2 to seasonTwoEpisodes,
+            ),
+        )
+    }
 
     @Suppress("UNCHECKED_CAST")
     private fun ItemDetailViewModel.seedDetail(played: Boolean) {

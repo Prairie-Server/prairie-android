@@ -4,9 +4,11 @@ package org.prairieserver.prairie.tv.di
 
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.SettingsRepository
+import org.prairieserver.prairie.tv.BuildConfig
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
 import org.prairieserver.prairie.tv.data.preferences.TvLibrarySelectionStore
 import org.prairieserver.prairie.common.network.AndroidDeviceMetadataProvider
+import org.prairieserver.prairie.common.network.PrairieClientBuildIdentity
 import org.prairieserver.prairie.common.network.CleartextConsentStore
 import org.prairieserver.prairie.common.network.DataStoreCleartextConsentStore
 import org.prairieserver.prairie.common.settings.AndroidServerSettingsCache
@@ -24,10 +26,13 @@ import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendFactory
 import org.prairieserver.prairie.tv.ui.screens.settings.TvSettingsViewModel
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
-import org.prairieserver.prairie.common.player.SiloPlayerFactory
+import org.prairieserver.prairie.common.player.PrairiePlayerFactory
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
+import org.prairieserver.prairie.common.player.audio.PassthroughSuppressionScope
+import org.prairieserver.prairie.common.di.AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER
+import org.prairieserver.prairie.common.di.AUDIOBOOK_PLAYBACK_SESSION_LIFECYCLE_QUALIFIER
 import org.prairieserver.prairie.common.player.SubtitleManager
-import org.prairieserver.prairie.common.cast.SiloCastNsdAdvertiser
+import org.prairieserver.prairie.common.cast.PrairieCastNsdAdvertiser
 import org.prairieserver.prairie.common.player.video.VideoPlaybackSessionCoordinator
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
 import org.prairieserver.prairie.tv.cast.TvSiloCastReceiver
@@ -36,20 +41,20 @@ import org.prairieserver.prairie.tv.ui.screens.player.TvPlayerLaunchArgs
 import org.prairieserver.prairie.tv.ui.screens.auth.TvLoginViewModel
 import org.prairieserver.prairie.tv.ui.screens.auth.TvServerSetupViewModel
 import org.prairieserver.prairie.tv.ui.screens.collections.TvCollectionDetailViewModel
-import org.prairieserver.prairie.viewmodel.AdminStatsViewModel
 import org.prairieserver.prairie.viewmodel.CalendarViewModel
 import org.prairieserver.prairie.viewmodel.CollectionsViewModel
 import org.prairieserver.prairie.tv.ui.screens.detail.TvItemDetailViewModel
 import org.prairieserver.prairie.viewmodel.HomeViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvViewModel
-import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvViewModel
+import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
 import org.prairieserver.prairie.tv.ui.screens.libraries.TvLibrariesViewModel
 import org.prairieserver.prairie.tv.ui.screens.library.TvLibraryCollectionDetailViewModel
 import org.prairieserver.prairie.tv.ui.screens.library.TvLibraryDetailViewModel
+import org.prairieserver.prairie.tv.ui.screens.personal.TvPersonalListControlsViewModel
 import org.prairieserver.prairie.viewmodel.FavoritesViewModel
 import org.prairieserver.prairie.viewmodel.HistoryViewModel
 import org.prairieserver.prairie.viewmodel.WatchlistViewModel
@@ -71,9 +76,9 @@ import org.koin.dsl.module
  * TV-specific Koin module.
  *
  * Provides the TV flavor of player infrastructure (currently a duplicate of the
- * phone module — see the TODO on [SiloPlayerFactory]) and the TV ViewModels.
+ * phone module — see the TODO on [PrairiePlayerFactory]) and the TV ViewModels.
  * The shared [org.prairieserver.prairie.di.sharedModules] is added alongside this one in
- * [org.prairieserver.prairie.tv.SiloTvApplication].
+ * [org.prairieserver.prairie.tv.PrairieTvApplication].
  */
 val androidTvModule = module {
     single<CleartextConsentStore> { DataStoreCleartextConsentStore(androidContext()) }
@@ -89,13 +94,13 @@ val androidTvModule = module {
     // Persistent (EncryptedSharedPreferences-backed) replacement for the
     // commonMain in-memory TokenManager. Koin 3.1+ replaces same-key bindings
     // when the redefining module is loaded after the original — sharedModules()
-    // is registered first in SiloTvApplication, so this wins.
+    // is registered first in PrairieTvApplication, so this wins.
     single<TokenManager> { EncryptedTokenManagerImpl(get(), get(), get()) }
 
     // Offline-first Room store (Track B). Bound after sharedModules() so the
     // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
     // up the Room-backed port and writes optimistic projection + outbox rows.
-    single { org.prairieserver.prairie.common.data.db.SiloDatabase.build(androidContext()) }
+    single { org.prairieserver.prairie.common.data.db.PrairieDatabase.build(androidContext()) }
     single<org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler> {
         val appContext = androidContext().applicationContext
         org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler {
@@ -140,8 +145,16 @@ val androidTvModule = module {
     }
 
     single<AndroidServerSettingsCache> { AndroidServerSettingsCache(androidContext()) }
+    // The one place the TV app's BuildConfig crosses into android-shared; see
+    // androidModule for why every identity reporter resolves this instead of
+    // deriving its own answer.
+    single { PrairieClientBuildIdentity(BuildConfig.BUILD_NUMBER, BuildConfig.RELEASE_CHANNEL) }
     single<org.prairieserver.prairie.network.DeviceMetadataProvider> {
-        AndroidDeviceMetadataProvider(androidContext(), platform = "android-tv")
+        AndroidDeviceMetadataProvider(
+            androidContext(),
+            platform = "android-tv",
+            buildIdentity = get(),
+        )
     }
     // Player infrastructure (duplicate-for-now; extract to :android-player later).
     single {
@@ -159,9 +172,9 @@ val androidTvModule = module {
         )
     }
     single { AudioCapabilityManager(androidContext()) }
-    single { PlaybackCapabilityDetector(androidContext(), get(), get()) }
+    single { PlaybackCapabilityDetector(androidContext(), get(), get(), get()) }
     single {
-        SiloPlayerFactory(
+        PrairiePlayerFactory(
             context = androidContext(),
             tokenManager = get(),
             subtitleManager = get(),
@@ -174,6 +187,14 @@ val androidTvModule = module {
         )
     }
     single { PlaybackSessionManager(get(), get(), get()) }
+    single(AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER) {
+        PlaybackSessionManager(
+            playbackRepository = get(),
+            tokenManager = get(),
+            networkEvidenceProvider = get(),
+            passthroughSuppression = PassthroughSuppressionScope.None,
+        )
+    }
     factory<VideoPlaybackStarter>(named("tvVideoPlaybackStarter")) {
         TvVideoPlaybackStarter(
             catalogRepository = get(),
@@ -195,10 +216,17 @@ val androidTvModule = module {
     // graph has no downloads (streaming-only), so register the resolver inline:
     // it just always finds no local media and the VM falls back to the server
     // stream. The stores are local-only JSON under filesDir.
+    // Registered rather than constructed inline because the orphaned-server
+    // purge resolves it from the graph at startup. It is streaming-only here,
+    // so there are no download bytes to delete — but the purge also clears the
+    // Room rows of removed servers (resume positions, cached home and catalog
+    // rows, pending outbox ops), and without this definition the whole purge
+    // fails at startup and none of that is ever reclaimed.
+    single { org.prairieserver.prairie.common.downloads.DownloadStorage(androidContext()) }
     single {
         org.prairieserver.prairie.common.downloads.OfflineMediaResolver(
             org.prairieserver.prairie.common.downloads.DownloadMetadataStore(get()),
-            org.prairieserver.prairie.common.downloads.DownloadStorage(androidContext()),
+            get(),
             get(),
         )
     }
@@ -214,8 +242,8 @@ val androidTvModule = module {
     viewModel {
         org.prairieserver.prairie.common.player.AudiobookPlayerViewModel(
             catalogRepository = get(),
-            playbackSessionManager = get(),
-            playbackSessionLifecycle = get(),
+            playbackSessionManager = get(AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER),
+            playbackSessionLifecycle = get(AUDIOBOOK_PLAYBACK_SESSION_LIFECYCLE_QUALIFIER),
             capabilityDetector = get(),
             bookmarksStore = get(),
             userItemStatePort = get(),
@@ -261,13 +289,13 @@ val androidTvModule = module {
     // Watch Next launcher integration (TV-only). Repository wraps the
     // TvProvider ContentResolver; the worker is constructed by
     // TvWorkerFactory, installed via WorkManager.initialize in
-    // SiloTvApplication (Koin's worker DSL is not used — see
+    // PrairieTvApplication (Koin's worker DSL is not used — see
     // TvWorkerFactory for why).
     single { WatchNextRepository(androidContext()) }
     single { WatchNextSeeder(androidContext(), get()) }
 
     // Deep-link bridge between MainTvActivity (producer) and TvAppNavigation
-    // (consumer). The Activity writes incoming Prairie app-scheme URIs here on
+    // (consumer). The Activity writes incoming Silo app-scheme URIs here on
     // cold-launch (read from launching intent in onCreate) and warm-launch
     // (onNewIntent); the navigation Composable observes the flow and routes
     // to ItemDetail / Player once the user is past the auth chain. Using a
@@ -291,7 +319,7 @@ val androidTvModule = module {
             },
             // Always `setup`: advertising only runs while the server-setup
             // screen is showing, and Apple is authoritative for the wire —
-            // prairie-apple's TVPairingAdvertiser hardcodes st=setup and its
+            // silo-apple's TVPairingAdvertiser hardcodes st=setup and its
             // companion card FILTERS to state == .setup, so a registry-based
             // `login` (always true after a sign-out, since the registry keeps
             // entries) made the TV invisible to phones exactly when the user
@@ -305,7 +333,7 @@ val androidTvModule = module {
             receiver = get(),
             // Always `setup`: advertising only runs while the server-setup
             // screen is showing, and Apple is authoritative for the wire —
-            // prairie-apple's TVPairingAdvertiser hardcodes st=setup and its
+            // silo-apple's TVPairingAdvertiser hardcodes st=setup and its
             // companion card FILTERS to state == .setup, so a registry-based
             // `login` (always true after a sign-out, since the registry keeps
             // entries) made the TV invisible to phones exactly when the user
@@ -313,7 +341,7 @@ val androidTvModule = module {
             receiverStateProvider = { org.prairieserver.prairie.pairing.PairingReceiverState.Setup },
         )
     }
-    single { SiloCastNsdAdvertiser(androidContext()) }
+    single { PrairieCastNsdAdvertiser(androidContext()) }
     single {
         RemotePlaybackIdentityManager(
             deviceLoginApi = get(),
@@ -348,14 +376,6 @@ val androidTvModule = module {
     }
     viewModel { TvServerListViewModel(get(), get(), get()) }
 
-    // Admin ViewModels
-    viewModel { AdminStatsViewModel(get()) }
-    viewModel { org.prairieserver.prairie.viewmodel.AdminUsersViewModel(get()) }
-    viewModel { org.prairieserver.prairie.viewmodel.AdminUserEditViewModel(get()) }
-    viewModel { org.prairieserver.prairie.tv.ui.screens.admin.TvAdminSessionsViewModel(get()) }
-    viewModel { org.prairieserver.prairie.tv.ui.screens.admin.TvAdminScansViewModel(get(), get()) }
-    viewModel { org.prairieserver.prairie.tv.ui.screens.admin.TvAdminLogsViewModel(get()) }
-    viewModel { org.prairieserver.prairie.tv.ui.screens.settings.TvManageSessionsViewModel(get()) }
     viewModel { params ->
         org.prairieserver.prairie.viewmodel.RequestDetailViewModel(get(), params.get(), params.get())
     }
@@ -376,13 +396,6 @@ val androidTvModule = module {
     viewModel { RequestSearchViewModel(get()) }
     viewModel { MyRequestsViewModel(get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsViewModel(get()) }
-    viewModel {
-        LiveTvViewModel(
-            repository = get(),
-            nowMillisProvider = { System.currentTimeMillis() },
-        )
-    }
-    viewModel { LiveTvPlayerViewModel(get()) }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {
@@ -416,6 +429,7 @@ val androidTvModule = module {
     viewModel { params ->
         TvLibraryCollectionDetailViewModel(
             sectionRepository = get(),
+            catalogRepository = get(),
             libraryId = params.get(),
             collectionId = params.get(),
             title = params.get(),
@@ -434,6 +448,8 @@ val androidTvModule = module {
             userItemState = getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>()
                 ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
             recommendationRepository = getOrNull(),
+            tokenManager = get(),
+            identityTransitions = get(),
         )
     }
     // Watch Together entry (create/join orchestration) — backs the entry +
@@ -475,9 +491,16 @@ val androidTvModule = module {
     }
 
     // Personal data grids.
-    viewModel { FavoritesViewModel(get()) }
-    viewModel { WatchlistViewModel(get()) }
+    viewModel { FavoritesViewModel(get(), get()) }
+    viewModel { WatchlistViewModel(get(), get()) }
     viewModel { HistoryViewModel(get()) }
+    // Sort/filter state for the favorites and watchlist grids, keyed by source.
+    viewModel { params ->
+        TvPersonalListControlsViewModel(
+            catalogRepository = get(),
+            source = params.get(),
+        )
+    }
 
     // Collections.
     viewModel { CollectionsViewModel(get()) }
@@ -505,6 +528,14 @@ val androidTvModule = module {
         )
     }
     viewModel { TvDiagnosticsViewModel(get()) }
+
+    viewModel {
+        LiveTvViewModel(
+            repository = get(),
+            nowMillisProvider = { System.currentTimeMillis() },
+        )
+    }
+    viewModel { LiveTvPlayerViewModel(get()) }
 }
 
 private fun tvDeviceName(): String =

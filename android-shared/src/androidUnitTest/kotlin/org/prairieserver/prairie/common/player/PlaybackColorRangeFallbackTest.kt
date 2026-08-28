@@ -1,7 +1,6 @@
 package org.prairieserver.prairie.common.player
 
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
-import org.prairieserver.prairie.model.playback.PlaybackEngineKind
 import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
 import org.prairieserver.prairie.model.playback.PlaybackRouteFamily
 import org.prairieserver.prairie.model.playback.PlaybackSourceMetadata
@@ -47,7 +46,6 @@ class PlaybackColorRangeFallbackTest {
         PlaybackExecutionPlan(
             planId = "plan",
             delivery = delivery,
-            engine = PlaybackEngineKind.MEDIA3_DIRECT,
             routeFamily = PlaybackRouteFamily.PLATFORM_NATIVE,
             source = PlaybackSourceMetadata(colorRange = colorRange),
         )

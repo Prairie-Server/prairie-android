@@ -10,31 +10,34 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.components.TvMediaCardActions
 import org.prairieserver.prairie.tv.ui.components.TvSkylineSectionFeed
 import org.prairieserver.prairie.tv.ui.components.isTvProgressRow
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.viewmodel.HomeViewModel
-import org.koin.compose.viewmodel.koinViewModel
-import androidx.compose.material.icons.filled.Refresh
-import androidx.tv.material3.Icon
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Spacer
 
 internal fun shouldShowHomeEmptyState(
     isLoading: Boolean,
@@ -99,6 +102,7 @@ fun TvHomeScreen(
             )
         else -> TvHomeContent(
             sections = visibleSections,
+            sectionsFullyResolved = state.sectionsFullyResolved,
             onItemClick = onItemClick,
             onSeeAll = onSeeAll,
             onOpenForYou = onOpenForYou,
@@ -126,13 +130,20 @@ private fun TvHomeEmptyState(
     onInitialContentFocus: () -> Unit,
 ) {
     val refreshFocusRequester = focusRequester ?: remember { FocusRequester() }
+    var homeContentHasFocus by remember { mutableStateOf(false) }
     LaunchedEffect(focusRequest) {
-        runCatching { refreshFocusRequester.requestFocus() }
-        onInitialContentFocus()
+        val landed = requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { withFrameNanos { } },
+            requestFocus = refreshFocusRequester::requestFocus,
+            isFocused = { homeContentHasFocus },
+        )
+        if (landed == TvObservedFocusResult.Focused) onInitialContentFocus()
     }
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onFocusChanged { homeContentHasFocus = it.hasFocus }
             .background(MaterialTheme.colorScheme.background)
             .padding(48.dp),
         contentAlignment = Alignment.Center,
@@ -156,12 +167,6 @@ private fun TvHomeEmptyState(
                 modifier = Modifier.focusRequester(refreshFocusRequester),
                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
                 Text("Refresh", style = MaterialTheme.typography.labelLarge)
             }
         }
@@ -186,9 +191,12 @@ private fun TvHomeContent(
     onToggleWatchlist: (String, Boolean) -> Unit = { _, _ -> },
     onDismissContinueWatching: (String, String) -> Unit = { _, _ -> },
     onDismissNextUp: (String, String) -> Unit = { _, _ -> },
+    sectionsFullyResolved: Boolean = true,
 ) {
     TvSkylineSectionFeed(
+        surfaceKey = "home",
         sections = sections,
+        sectionsComplete = sectionsFullyResolved,
         onItemClick = onItemClick,
         focusRequest = focusRequest,
         detailReturnFocusRequest = detailReturnFocusRequest,

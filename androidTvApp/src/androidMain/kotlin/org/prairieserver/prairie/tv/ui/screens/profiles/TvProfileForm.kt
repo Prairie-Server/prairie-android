@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,12 +17,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChildCare
@@ -64,15 +64,16 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
-import org.prairieserver.prairie.common.ui.components.isImageAvatar
+import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
+import org.prairieserver.prairie.common.ui.components.isEmojiAvatar
 import org.prairieserver.prairie.common.ui.components.profileAvatarDisplayText
-import org.prairieserver.prairie.common.ui.components.rememberProfileServerUrl
-import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
+import org.prairieserver.prairie.common.ui.components.rememberProfileAvatarImage
 import org.prairieserver.prairie.tv.ui.components.TvAuroraBackdrop
 import org.prairieserver.prairie.tv.ui.components.TvAuroraVariant
 import org.prairieserver.prairie.tv.ui.components.TvHeroActionPill
 import org.prairieserver.prairie.tv.ui.components.TvPillVariant
 import org.prairieserver.prairie.tv.ui.components.TvTextInputDialog
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
 
 private val ProfileEditorHeaderPadding = 80.dp
 private val ProfileEditorContentPadding = 80.dp
@@ -103,6 +104,12 @@ data class TvProfileFormState(
     val subtitle: String = "Pick a look and give it a name.",
     val name: String,
     val selectedAvatar: String?,
+    /**
+     * Server-supplied URL for [selectedAvatar] as it was LOADED, so an uploaded
+     * avatar shows in the preview tile. Null for create, and ignored once the
+     * picker moves the selection off the stored ref.
+     */
+    val selectedAvatarUrl: String? = null,
     val avatarStyleId: String,
     val selectedAvatarSeed: String?,
     val avatarBatch: Int,
@@ -284,7 +291,7 @@ fun TvProfileForm(
                                                         event.type == KeyEventType.KeyDown &&
                                                         event.key == Key.DirectionDown
                                                     ) {
-                                                        runCatching { nameFocusRequester.requestFocus() }
+                                                        nameFocusRequester.claimFocusOrReport(target = "profile_name", action = "dpad_down")
                                                         true
                                                     } else {
                                                         false
@@ -319,7 +326,7 @@ fun TvProfileForm(
                                             event.type == KeyEventType.KeyDown &&
                                             event.key == Key.DirectionDown
                                         ) {
-                                            runCatching { pinFocusRequester.requestFocus() }
+                                            pinFocusRequester.claimFocusOrReport(target = "profile_pin", action = "dpad_down")
                                             true
                                         } else {
                                             false
@@ -362,7 +369,7 @@ fun TvProfileForm(
                                             event.type == KeyEventType.KeyDown &&
                                             event.key == Key.DirectionDown
                                         ) {
-                                            runCatching { childFocusRequester.requestFocus() }
+                                            childFocusRequester.claimFocusOrReport(target = "profile_child", action = "dpad_down")
                                             true
                                         } else {
                                             false
@@ -486,7 +493,7 @@ private fun TvProfileFormSection(
 
 @Composable
 private fun TvProfilePreviewColumn(
-    avatar: String?,
+    avatar: ProfileAvatarRef,
     name: String,
     hasPin: Boolean,
     isChild: Boolean,
@@ -516,20 +523,15 @@ private fun TvProfilePreviewColumn(
 
 @Composable
 private fun TvProfileTilePreview(
-    avatar: String?,
+    avatar: ProfileAvatarRef,
     name: String,
     hasPin: Boolean,
     isChild: Boolean,
 ) {
-    val serverUrl = rememberProfileServerUrl()
     val avatarText = remember(avatar, name) { profileAvatarDisplayText(avatar, name) }
-    val avatarUrl = remember(avatar, serverUrl) {
-        avatar
-            ?.takeIf(::isImageAvatar)
-            ?.let { resolveAvatarUrl(serverUrl, it) ?: resolveAvatarUrl("", it) }
-    }
+    val avatarImage = rememberProfileAvatarImage(avatar)
     val shape = RoundedCornerShape(18.dp)
-    val tint = remember(name, avatar) { profilePreviewTint("$name-$avatar") }
+    val tint = remember(name, avatar) { profilePreviewTint("$name-${avatar.avatar}") }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -539,14 +541,16 @@ private fun TvProfileTilePreview(
                 .border(1.dp, Color.White.copy(alpha = 0.14f), shape),
             contentAlignment = Alignment.Center,
         ) {
-            if (avatarUrl != null) {
+            if (avatarImage != null) {
                 ThumbhashImage(
-                    url = avatarUrl,
+                    url = avatarImage.url,
                     thumbhash = null,
                     contentDescription = name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                     transparent = true,
+                    cacheKey = avatarImage.cacheKey,
+                    onError = avatarImage.onLoadFailed,
                 )
                 Box(
                     modifier = Modifier
@@ -561,7 +565,7 @@ private fun TvProfileTilePreview(
             } else {
                 Text(
                     text = avatarText,
-                    fontSize = if (!avatar.isNullOrBlank() && !isImageAvatar(avatar)) 70.sp else 60.sp,
+                    fontSize = if (isEmojiAvatar(avatar)) 70.sp else 60.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = 0.94f),
                 )
@@ -886,14 +890,19 @@ private fun TvProfileBadge(icon: androidx.compose.ui.graphics.vector.ImageVector
     }
 }
 
-private fun TvProfileFormState.previewAvatarRef(): String? =
-    TvProfileAvatarPresets.effectiveAvatarRef(
+private fun TvProfileFormState.previewAvatarRef(): ProfileAvatarRef {
+    val ref = TvProfileAvatarPresets.effectiveAvatarRef(
         styleId = avatarStyleId,
         selectedSeed = selectedAvatarSeed,
         batch = avatarBatch,
         name = name,
         fallbackAvatar = selectedAvatar,
     )
+    // The stored URL describes the stored ref only. Once the picker has moved
+    // the preview onto a preset, pairing it with the old URL would show the
+    // upload while the form is about to save something else.
+    return ProfileAvatarRef(ref, selectedAvatarUrl?.takeIf { ref == selectedAvatar })
+}
 
 private fun profilePreviewTint(key: String): Color {
     val palette = listOf(

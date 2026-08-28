@@ -2,7 +2,7 @@ package org.prairieserver.prairie.common.player.route
 
 /**
  * What kind of playback engine + media source combination is in use.
- * Mirrors Apple's tvOS route taxonomy (see `/opt/prairie-apple/docs/tvos-player/05-route-capability-matrix.md`).
+ * Mirrors Apple's tvOS route taxonomy (see `/opt/silo-apple/docs/tvos-player/05-route-capability-matrix.md`).
  *
  * Today's Android player decides MIME-driven via DefaultMediaSourceFactory.
  * This enum is observational — it labels what's actually running so the HUD
@@ -10,7 +10,13 @@ package org.prairieserver.prairie.common.player.route
  * client-side route selector.
  */
 enum class PlaybackRoute(val displayName: String) {
-    /** ProgressiveMediaSource + RenderersFactory with FFmpeg audio extension (`EXTENSION_RENDERER_MODE_PREFER`). */
+    /**
+     * ProgressiveMediaSource + RenderersFactory with the FFmpeg audio extension
+     * enabled (`EXTENSION_RENDERER_MODE_ON`). The platform renderer is ordered
+     * first, but order only breaks ties: the track selector takes whichever
+     * renderer reports the greatest format support, so FFmpeg still wins a
+     * format the platform decoder reports as exceeding its capabilities.
+     */
     PrairiePlayer("PrairiePlayer"),
 
     /** ProgressiveMediaSource + platform-only renderers (`EXTENSION_RENDERER_MODE_OFF`). Narrower codec breadth. */

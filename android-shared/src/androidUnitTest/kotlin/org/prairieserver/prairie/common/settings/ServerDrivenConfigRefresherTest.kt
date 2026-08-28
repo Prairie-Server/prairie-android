@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.common.settings
 
+import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.LibraryPlaybackPref
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.network.ApiResult
@@ -146,7 +147,7 @@ private class FakeLibraryPlaybackPrefsStore : LibraryPlaybackPrefsStore {
 }
 
 private class FakePlayerSettingsStore : PlayerSettingsStore {
-    override val autoSkipIntroFlow: Flow<Boolean> = flowOf(false)
+    override val introSkipModeFlow: Flow<IntroSkipMode> = flowOf(IntroSkipMode.ASK)
     override val autoSkipCreditsFlow: Flow<Boolean> = flowOf(false)
     override val autoPlayNextFlow: Flow<Boolean> = flowOf(true)
     override val hdrEnabledFlow: Flow<Boolean> = flowOf(true)
@@ -177,7 +178,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val subtitleUsesDeviceOverrideFlow: Flow<Boolean> = flowOf(false)
     var refreshCalls = 0
 
-    override suspend fun setAutoSkipIntro(value: Boolean) = Unit
+    override suspend fun setIntroSkipMode(value: IntroSkipMode) = Unit
     override suspend fun setAutoSkipCredits(value: Boolean) = Unit
     override suspend fun setAutoPlayNext(value: Boolean) = Unit
     override suspend fun setHdrEnabled(value: Boolean) = Unit

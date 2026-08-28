@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import org.prairieserver.prairie.android.ui.components.siloKeyboardActions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -251,7 +252,7 @@ fun AuroraTextField(
     placeholder: String = "",
     keyboardType: KeyboardType = KeyboardType.Text,
     imeAction: ImeAction = ImeAction.Next,
-    onImeAction: () -> Unit = {},
+    onImeAction: (() -> Unit)? = null,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -306,7 +307,7 @@ fun AuroraTextField(
                         cursorBrush = SolidColor(if (isFocused) AuroraActiveInk else AuroraAccent),
                         visualTransformation = visualTransformation,
                         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
-                        keyboardActions = KeyboardActions(onAny = { onImeAction() }),
+                        keyboardActions = siloKeyboardActions(onImeAction),
                         interactionSource = interactionSource,
                     )
                 }

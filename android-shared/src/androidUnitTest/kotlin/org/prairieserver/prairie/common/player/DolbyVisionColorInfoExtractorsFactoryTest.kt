@@ -21,7 +21,7 @@ import kotlin.test.assertSame
 class DolbyVisionColorInfoExtractorsFactoryTest {
     @Test
     fun transformTagCarriesExpectedColorRange() {
-        val tag = SiloMediaTransformTag(
+        val tag = PrairieMediaTransformTag(
             dolbyVisionMode = DolbyVisionTransformMode.DISABLED,
             expectedDynamicRange = "hlg",
             expectedColorRange = "pc",

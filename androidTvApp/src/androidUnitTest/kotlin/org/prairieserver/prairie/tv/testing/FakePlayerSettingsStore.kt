@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.tv.testing
 
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -16,7 +17,7 @@ internal class FakePlayerSettingsStore : PlayerSettingsStore {
     val setterCalls = mutableListOf<String>()
     var flushCount = 0
 
-    override val autoSkipIntroFlow = MutableStateFlow(false)
+    override val introSkipModeFlow = MutableStateFlow(IntroSkipMode.ASK)
     override val autoSkipCreditsFlow = MutableStateFlow(false)
     override val autoPlayNextFlow = MutableStateFlow(true)
     override val hdrEnabledFlow = MutableStateFlow(true)
@@ -46,8 +47,8 @@ internal class FakePlayerSettingsStore : PlayerSettingsStore {
     override val subtitleAppearanceFlow = MutableStateFlow(SubtitleAppearance.DEFAULT)
     override val subtitleUsesDeviceOverrideFlow = MutableStateFlow(false)
 
-    override suspend fun setAutoSkipIntro(value: Boolean) {
-        setterCalls += "setAutoSkipIntro"; autoSkipIntroFlow.value = value
+    override suspend fun setIntroSkipMode(value: IntroSkipMode) {
+        setterCalls += "setIntroSkipMode"; introSkipModeFlow.value = value
     }
     override suspend fun setAutoSkipCredits(value: Boolean) {
         setterCalls += "setAutoSkipCredits"; autoSkipCreditsFlow.value = value

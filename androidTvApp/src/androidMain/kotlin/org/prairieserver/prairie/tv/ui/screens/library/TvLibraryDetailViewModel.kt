@@ -60,6 +60,22 @@ data class TvCollectionSection(
  * direction hints). Wire values are the canonical server sort fields.
  */
 enum class TvLibrarySortOption(val label: String, val wireValue: String) {
+    /**
+     * "Send no sort at all" — the server then keeps the source's intrinsic
+     * order (a library collection's manual / MDBList / smart order). Only
+     * offered where such an order exists ([availableForCollection]); the
+     * Browse grid has none, so it never lists this.
+     */
+    CollectionOrder("Collection Order", ""),
+    /**
+     * The same "send no sort" behaviour for personal lists (favorites /
+     * watchlist), where the stored order is most-recently-saved-first. It is a
+     * distinct entry with its own wire value rather than a relabelled
+     * [CollectionOrder]: two entries sharing the empty wire value would make
+     * [fromWire] and the panel's current-selection lookup ambiguous. The
+     * personal query builder maps it back to "no sort".
+     */
+    ListOrder("Recently Saved", "__list_order"),
     Title("Title", "title"),
     DateAdded("Date Added", "added_at"),
     // Server expects "year" for release-date sort (matches phone); the old
@@ -72,8 +88,16 @@ enum class TvLibrarySortOption(val label: String, val wireValue: String) {
     Narrator("Narrator", "narrator"),
     SeriesName("Series", "series");
 
+    /**
+     * False for the "keep the source's own order" entries: they send no sort,
+     * so there is no asc/desc to show, flip, or arrow.
+     */
+    val hasDirection: Boolean get() = this != CollectionOrder && this != ListOrder
+
     /** Short hint for the active direction (tvOS `directionLabel`). */
     fun directionLabel(order: String): String = when (this) {
+        // No direction to report — the order is whatever the source defines.
+        CollectionOrder, ListOrder -> "Default"
         Title, Author, Narrator, SeriesName -> if (order == "asc") "A–Z" else "Z–A"
         ReleaseDate, DateAdded -> if (order == "asc") "Oldest" else "Newest"
         Runtime -> if (order == "asc") "Shortest" else "Longest"
@@ -91,6 +115,25 @@ enum class TvLibrarySortOption(val label: String, val wireValue: String) {
             } else {
                 listOf(Title, DateAdded, ReleaseDate, Rating, Runtime, Resolution)
             }
+
+        /**
+         * Sort keys for a library collection's detail grid. Leads with
+         * [CollectionOrder] because that is the collection's own curation and
+         * the state the page opens in; the rest follow the owning library's
+         * media type, so an audiobook collection offers Author/Narrator/Series
+         * rather than the video-only Year/Rating/Resolution keys (Codex).
+         */
+        fun availableForCollection(libraryType: String): List<TvLibrarySortOption> =
+            listOf(CollectionOrder) + availableFor(libraryType)
+
+        /**
+         * Sort keys for a personal list (favorites / watchlist). Leads with
+         * [ListOrder] — the stored order the list opens in. [DateAdded] here
+         * means "date added to the list", which is what the server sorts
+         * `added_at` by for these sources.
+         */
+        fun availableForPersonalList(): List<TvLibrarySortOption> =
+            listOf(ListOrder, Title, DateAdded, ReleaseDate, Rating, Runtime)
     }
 }
 
@@ -205,7 +248,14 @@ class TvLibraryDetailViewModel(
         val nextFilter = state.browseFilter.forTab(tab)
         val filterChanged = nextFilter != state.browseFilter
         val audiobookGroupBy = tab.audiobookGroupBy
-        if (state.selectedTab == tab && !filterChanged) return
+        // Re-selecting the section that is already active is a no-op. The
+        // screen re-issues the committed section every time it re-enters
+        // composition — backing out of item detail / the player returns to a
+        // surviving ViewModel and fires the section-apply effect again — so
+        // re-applying `forTab` here would reset the viewer's customised sort
+        // and facets back to the tab's defaults (Title A–Z). Only a genuine
+        // tab CHANGE applies the new tab's defaults.
+        if (state.selectedTab == tab) return
         _uiState.update {
             it.copy(
                 selectedTab = tab,
@@ -804,8 +854,11 @@ private val TvLibraryTab.audiobookCatalogField: String?
 
 // Mirrors the server's per-field natural direction (tvOS `defaultOrder`):
 // name-like fields ascend, magnitude/recency fields descend.
-private val TvLibrarySortOption.defaultOrder: String
+internal val TvLibrarySortOption.defaultOrder: String
     get() = when (this) {
+        // Unused — these send no sort, so no order goes with them.
+        TvLibrarySortOption.CollectionOrder,
+        TvLibrarySortOption.ListOrder,
         TvLibrarySortOption.Title,
         TvLibrarySortOption.Author,
         TvLibrarySortOption.Narrator,

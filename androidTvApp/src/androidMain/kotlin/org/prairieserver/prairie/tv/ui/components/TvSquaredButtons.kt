@@ -225,6 +225,7 @@ internal fun SquaredPillSurface(
     onClick: () -> Unit,
     modifier: Modifier,
     focusRequester: FocusRequester?,
+    enabled: Boolean = true,
     contentPadding: PaddingValues,
     content: @Composable (foreground: Color) -> Unit,
 ) {
@@ -339,6 +340,7 @@ internal fun SquaredPillSurface(
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(
+                enabled = enabled,
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,

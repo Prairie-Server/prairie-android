@@ -1,83 +1,38 @@
 package org.prairieserver.prairie.android.ui.screens.settings
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import org.prairieserver.prairie.update.AppUpdateStatus
-import org.prairieserver.prairie.update.changelogUrlOrNull
-import org.prairieserver.prairie.update.latestVersionLabel
-import org.prairieserver.prairie.update.releaseUrlOrNull
-import org.prairieserver.prairie.update.statusLabel
+import org.prairieserver.prairie.android.BuildConfig
+import org.prairieserver.prairie.common.network.clientVersionLabel
 
 /**
- * Connection + About section. Mirrors the iOS phone Settings `Server` row and
- * About version block: server management plus current version / update status.
+ * Connection section. Mirrors the iOS phone Settings `Server` row: a
+ * single teal-badged `server.rack` row whose trailing value is the
+ * active server label, with a disclosure chevron that opens the server
+ * list.
  */
 @Composable
 fun ServerInfoSection(
     serverUrl: String,
-    appVersionName: String,
-    appUpdateStatus: AppUpdateStatus,
     onManageServersClick: () -> Unit = {},
-    onOpenUrl: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val latest = appUpdateStatus.latestVersionLabel()
-    val releaseUrl = appUpdateStatus.releaseUrlOrNull()
-    val changelogUrl = appUpdateStatus.changelogUrlOrNull()
     SettingsSectionCard(modifier = modifier) {
-        SettingsRowLabel(
-            title = "Server",
-            icon = Icons.Default.Dns,
-            badgeColor = SettingsBadgeTeal,
+        SettingsNavigationRow(
+            label = "Server",
+            description = "The Prairie server this device is signed in to.",
             value = serverUrl.ifBlank { "Not connected" },
             onClick = onManageServersClick,
-            showChevron = true,
         )
-        SettingsRowLabel(
-            title = "Version",
-            icon = Icons.Default.Info,
-            badgeColor = SettingsBadgeGray,
-            value = appVersionName,
+        SettingsNavigationRow(
+            label = "Version",
+            description = "The app build running on this device.",
+            // Includes the build number so a support report and the server's
+            // admin Activity page name the exact same build, in the "1.0.0 (5)"
+            // form Play, TestFlight and the server's own diagnostics page all
+            // use. Unstamped local builds show the bare version rather than a
+            // meaningless "(0)", matching what those builds report.
+            value = clientVersionLabel(BuildConfig.VERSION_NAME, BuildConfig.BUILD_NUMBER),
         )
-        SettingsRowLabel(
-            title = "Update status",
-            icon = Icons.Default.SystemUpdate,
-            badgeColor = if (appUpdateStatus is AppUpdateStatus.UpdateAvailable) {
-                SettingsBadgeTeal
-            } else {
-                SettingsBadgeGray
-            },
-            value = appUpdateStatus.statusLabel(),
-            onClick = releaseUrl?.let { url ->
-                onOpenUrl?.let { handler -> { handler(url) } }
-            },
-            showChevron = releaseUrl != null && onOpenUrl != null,
-        )
-        if (latest != null &&
-            appUpdateStatus !is AppUpdateStatus.Checking &&
-            appUpdateStatus !is AppUpdateStatus.Unavailable
-        ) {
-            SettingsRowLabel(
-                title = "Latest version",
-                icon = Icons.Default.Info,
-                badgeColor = SettingsBadgeGray,
-                value = latest,
-            )
-        }
-        if (changelogUrl != null && onOpenUrl != null) {
-            SettingsRowLabel(
-                title = "Changelog",
-                icon = Icons.AutoMirrored.Filled.MenuBook,
-                badgeColor = SettingsBadgeGray,
-                value = "View",
-                onClick = { onOpenUrl(changelogUrl) },
-                showChevron = true,
-            )
-        }
     }
 }

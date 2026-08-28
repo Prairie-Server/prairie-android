@@ -693,6 +693,12 @@ class PrairieAuthPluginPinTest {
         override suspend fun getProfileId(): String = "server-b-profile"
 
         override suspend fun getProfileToken(): String = "server-b-profile-token"
+
+        // Interface delegation forwards the DEFAULT getProfileIdentity() to the
+        // delegate, silently bypassing the two overrides above — so anything
+        // reading the identity as a pair would test the wrong values.
+        override suspend fun getProfileIdentity(): ProfileIdentity =
+            ProfileIdentity(getProfileId(), getProfileToken())
     }
 
     private class InFlightSwitchingTokenManager(
@@ -715,6 +721,9 @@ class PrairieAuthPluginPinTest {
         override suspend fun getRefreshToken(): String = "$activeServer-refresh"
 
         override suspend fun getProfileId(): String = "$activeServer-profile"
+
+        override suspend fun getProfileIdentity(): ProfileIdentity =
+            ProfileIdentity(getProfileId(), getProfileToken())
 
         override suspend fun getProfileToken(): String = "$activeServer-profile-token"
 

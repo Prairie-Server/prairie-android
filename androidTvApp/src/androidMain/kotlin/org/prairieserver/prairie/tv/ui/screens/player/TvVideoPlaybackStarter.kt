@@ -11,13 +11,25 @@ import org.prairieserver.prairie.common.player.video.VideoPlaybackStartRequest
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartResult
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
 import org.prairieserver.prairie.common.player.video.PlaybackDiagnosticsCode
+import org.prairieserver.prairie.common.player.video.EpisodeSelectionHandoff
+import org.prairieserver.prairie.common.player.video.EpisodeSubtitleIntent
+import org.prairieserver.prairie.common.player.video.ResolvedEpisodeSelection
+import org.prairieserver.prairie.common.player.video.resolveEpisodeSourceIntent
+import org.prairieserver.prairie.common.player.video.EpisodeAudioCandidate
+import org.prairieserver.prairie.common.player.video.EpisodeAudioIntent
+import org.prairieserver.prairie.common.player.video.resolveEpisodeAudioIntent
+import org.prairieserver.prairie.common.player.video.resolveEpisodeSubtitleIntent
 import org.prairieserver.prairie.common.player.video.resolvedPlaybackDelivery
 import org.prairieserver.prairie.common.player.video.shouldReachServerForPlayback
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.dolbyVisionPolicySnapshot
+import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.playback.applyResumeRewind
 import org.prairieserver.prairie.model.playback.buildPlaybackSubtitleChoices
+import org.prairieserver.prairie.model.playback.enrichAuthoritativePlaybackSubtitleChoices
+import org.prairieserver.prairie.model.playback.isExplicitStartOver
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartRequestPosition
+import org.prairieserver.prairie.model.playback.resolvePlaybackStartPosition
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.orNullIfBlank
 import org.prairieserver.prairie.playback.selectPlaybackVersion
@@ -72,13 +84,21 @@ class TvVideoPlaybackStarter(
             val preferredQuality = request.preferredQualityOverride
                 ?: playerSettingsStore.preferredQualityFlow.first()
             val playbackQualityIntent = request.playbackQualityIntent ?: preferredQuality
-            val version = request.preferredFileId
-                ?.let { id -> watchDetail.versions.firstOrNull { it.fileId == id } }
-                ?: selectPlaybackVersion(
-                    watchDetail.versions,
-                    watchDetail.userData?.lastFileId,
-                    preferredQuality,
-                )
+            val resolvedEpisodeSelection = resolveTvPlaybackStartSelection(
+                preferredFileId = request.preferredFileId,
+                episodeSelectionHandoff = request.episodeSelectionHandoff,
+                targetVersions = watchDetail.versions,
+                targetLastFileId = watchDetail.userData?.lastFileId,
+                preferredQuality = preferredQuality,
+            )
+            val version = watchDetail.versions.first { it.fileId == resolvedEpisodeSelection.fileId }
+            // The server rejects -1, while the Ready result retains it for the
+            // client-side Media3 selection that represents explicit Off.
+            val serverSubtitleTrackIndex = resolveTvServerSubtitleTrackIndex(
+                episodeSelectionHandoff = request.episodeSelectionHandoff,
+                resolvedEpisodeSelection = resolvedEpisodeSelection,
+                requestedSubtitleTrackIndex = request.subtitleTrackIndex,
+            )
             val activeProfile = profileRepository.getActiveProfile()
             val profileId = activeProfile?.id ?: profileRepository.getActiveProfileId()
                 ?: return failure(
@@ -96,12 +116,15 @@ class TvVideoPlaybackStarter(
                 )
 
             val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
-            val capabilities = capabilityDetector.detect(dolbyVision = dolbyVision)
-            val playbackContext = capabilityDetector.detectPlaybackContext(
-                formFactor = "tv",
-                appVersion = BuildConfig.VERSION_NAME,
-                dolbyVision = dolbyVision,
-            )
+            val capabilities = request.recoveryStartParams?.capabilities
+                ?: capabilityDetector.detect(dolbyVision = dolbyVision)
+            val playbackContext = request.recoveryStartParams?.clientPlaybackContext
+                ?: capabilityDetector.detectPlaybackContext(
+                    formFactor = "tv",
+                    appVersion = BuildConfig.VERSION_NAME,
+                    dolbyVision = dolbyVision,
+                    capabilities = capabilities,
+                )
             // Skip-back-on-resume — see MobileVideoPlaybackStarter for the rationale.
             // Suppressed for Start Over / retry (request flag) and Watch Together
             // (roomId); the one rewound value drives both the server seek and the
@@ -130,8 +153,14 @@ class TvVideoPlaybackStarter(
                     profileId = profileId,
                     capabilities = capabilities,
                     clientPlaybackContext = playbackContext,
-                    audioTrackIndex = request.audioTrackIndex,
-                    subtitleTrackIndex = request.subtitleTrackIndex,
+                    // An explicit request wins; otherwise the audio the viewer
+                    // chose in the previous episode travels here. Without this
+                    // the carry-over resolved a track and then threw it away,
+                    // and a dubbed household was returned to the server default
+                    // at every automatic transition.
+                    audioTrackIndex = request.audioTrackIndex
+                        ?: resolvedEpisodeSelection.audioTrackIndex,
+                    subtitleTrackIndex = serverSubtitleTrackIndex,
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
                     // The bandwidth half of the quality choice. The server
@@ -181,27 +210,43 @@ class TvVideoPlaybackStarter(
             // The server may reanchor an HLS stream at a non-zero movie time
             // while exposing a player timeline that begins at zero. Preserve
             // both coordinates so Media3 and the UI each receive the right one.
-            val playerStartPos = readyV3.plan.timeline.playerStartSeconds
+            val serverPlayerStartPos = readyV3.plan.timeline.playerStartSeconds
                 .takeIf { it.isFinite() && it >= 0.0 }
                 ?: resolved.position.coerceAtLeast(0.0)
-            val sourceStartPos = readyV3.plan.timeline.sourceStartSeconds
+            val playerStartPos = resolvePlaybackStartPosition(
+                // A reanchored stream may legitimately expose player time 0
+                // for a non-zero source time. Only Start Over's explicit zero
+                // may override that server-defined player coordinate.
+                overridePosition = request.resumePositionOverride
+                    .takeIf(::isExplicitStartOver),
+                sessionPosition = serverPlayerStartPos,
+                detailPosition = null,
+            )
+            val serverSourceStartPos = readyV3.plan.timeline.sourceStartSeconds
                 .takeIf { it.isFinite() && it >= 0.0 }
-                ?: startRequestPosition
-                ?: playerStartPos
+                ?: resolved.position.coerceAtLeast(0.0)
+            val sourceStartPos = resolveTvSourceStartPosition(
+                startRequestPosition = startRequestPosition,
+                serverSourceStartPosition = serverSourceStartPos,
+                playerStartPosition = playerStartPos,
+            )
 
             val adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
                 params = StartParams(
                     contentId = request.contentId,
                     fileId = effectiveFileId,
-                    capabilities = capabilities,
+                    capabilities = readyV3.capabilities,
                     audioTrackIndex = resolved.audioTrackIndex,
-                    subtitleTrackIndex = request.subtitleTrackIndex,
+                    subtitleTrackIndex = if (request.episodeSelectionHandoff != null) {
+                        serverSubtitleTrackIndex
+                    } else {
+                        request.subtitleTrackIndex
+                    },
                     qualityPreference = playbackQualityIntent,
                     startPosition = sourceStartPos,
-                    clientPlaybackContext = playbackContext,
+                    clientPlaybackContext = readyV3.clientPlaybackContext,
                 ),
                 session = resolved,
-                renewMissingSessionWithLegacyStart = false,
                 deferPublication = true,
                 expectedOwnershipEpoch = ownershipEpoch,
             )
@@ -229,15 +274,17 @@ class TvVideoPlaybackStarter(
                 container = readyV3.plan.stream.container ?: effectiveVersion?.container,
                 title = watchDetail.title,
                 subtitle = null,
-                artworkUrl = watchDetail.posterUrl?.takeIf { it.isNotBlank() }
-                    ?: watchDetail.backdropUrl?.takeIf { it.isNotBlank() },
+                artworkUrl = watchDetail.backdropUrl?.takeIf { it.isNotBlank() }
+                    ?: watchDetail.posterUrl?.takeIf { it.isNotBlank() },
                 startPositionSeconds = playerStartPos,
                 sourceStartPositionSeconds = sourceStartPos,
                 serverUrl = serverUrl,
                 accessToken = accessToken,
                 mediaFileId = effectiveFileId,
-                durationSeconds = resolved.durationSeconds ?: effectiveVersion?.duration ?: 0.0,
-                subtitleUrls = buildPlaybackSubtitleChoices(
+                // Protocol v3 source duration is authoritative. Unknown stays
+                // unknown; catalog/player runtimes must not fill this field.
+                durationSeconds = resolved.durationSeconds,
+                subtitleUrls = enrichAuthoritativePlaybackSubtitleChoices(
                     catalogTracks = effectiveVersion?.subtitleTracks.orEmpty(),
                     plannedTracks = resolved.subtitleUrls.orEmpty(),
                 ),
@@ -255,10 +302,13 @@ class TvVideoPlaybackStarter(
                     ?: true,
                 intro = watchDetail.intro,
                 credits = watchDetail.credits,
+                recap = watchDetail.recap,
+                preview = watchDetail.preview,
                 chapters = effectiveVersion?.chapters.orEmpty(),
                 seriesId = watchDetail.seriesId,
                 seasonNumber = watchDetail.seasonNumber,
                 episodeNumber = watchDetail.episodeNumber,
+                resolvedEpisodeSelection = resolvedEpisodeSelection,
             )
         } catch (e: CancellationException) {
             throw e
@@ -287,4 +337,83 @@ class TvVideoPlaybackStarter(
     private companion object {
         const val TAG = "TvVideoPlaybackStarter"
     }
+}
+
+internal fun resolveTvSourceStartPosition(
+    startRequestPosition: Double?,
+    serverSourceStartPosition: Double,
+    playerStartPosition: Double,
+): Double = resolvePlaybackStartPosition(
+    overridePosition = startRequestPosition,
+    sessionPosition = serverSourceStartPosition,
+    detailPosition = playerStartPosition,
+)
+
+/**
+ * Resolves session-only episode intent after the target detail is available.
+ *
+ * The target subtitle list depends on the chosen version, so source precedence
+ * is decided first; the existing shared source/subtitle resolvers then provide
+ * the semantic matching without duplicating their policy here.
+ */
+fun resolveTvPlaybackStartSelection(
+    preferredFileId: Int?,
+    episodeSelectionHandoff: EpisodeSelectionHandoff?,
+    targetVersions: List<FileVersion>,
+    targetLastFileId: Int?,
+    preferredQuality: String?,
+): ResolvedEpisodeSelection {
+    require(targetVersions.isNotEmpty()) { "targetVersions must not be empty" }
+
+    val semanticFileId = resolveEpisodeSourceIntent(
+        intent = episodeSelectionHandoff?.source,
+        targetVersions = targetVersions,
+    )
+    val selectedVersion = preferredFileId
+        ?.let { preferredId -> targetVersions.firstOrNull { it.fileId == preferredId } }
+        ?: semanticFileId
+            ?.let { handoffFileId -> targetVersions.firstOrNull { it.fileId == handoffFileId } }
+        ?: selectPlaybackVersion(targetVersions, targetLastFileId, preferredQuality)
+    val resolvedSubtitle = resolveEpisodeSubtitleIntent(
+        intent = episodeSelectionHandoff?.subtitle ?: EpisodeSubtitleIntent.auto(),
+        targetSubtitles = buildPlaybackSubtitleChoices(
+            catalogTracks = selectedVersion.subtitleTracks.orEmpty(),
+            plannedTracks = emptyList(),
+        ),
+    )
+    // Audio travels the same way subtitles do — by what the track IS, not where
+    // it sat. The next episode's list is a different list, so a remembered
+    // position would land on whatever happens to occupy it.
+    val resolvedAudioIndex = resolveEpisodeAudioIntent(
+        intent = episodeSelectionHandoff?.audio ?: EpisodeAudioIntent.auto(),
+        // The list position IS the address. Audio tracks carry no index on the
+        // wire (subtitles do), so AudioTrack.index is its 0 default on every
+        // row: building candidates from it collapsed every one of them to 0.
+        candidates = selectedVersion.audioTracks.orEmpty().mapIndexed { ordinal, track ->
+            EpisodeAudioCandidate(
+                index = ordinal,
+                language = track.language,
+                codecFamily = track.codec,
+                channelCount = track.channels?.takeIf { it > 0 },
+                title = track.title,
+            )
+        },
+    )
+    return ResolvedEpisodeSelection(
+        fileId = selectedVersion.fileId,
+        subtitleTrackIndex = resolvedSubtitle.trackIndex,
+        subtitleIntentSpecified = resolvedSubtitle.intentSpecified,
+        audioTrackIndex = resolvedAudioIndex,
+    )
+}
+
+/** Converts the client-side selection to the server's non-negative index contract. */
+fun resolveTvServerSubtitleTrackIndex(
+    episodeSelectionHandoff: EpisodeSelectionHandoff?,
+    resolvedEpisodeSelection: ResolvedEpisodeSelection,
+    requestedSubtitleTrackIndex: Int?,
+): Int? = if (episodeSelectionHandoff != null) {
+    resolvedEpisodeSelection.subtitleTrackIndex?.takeIf { it >= 0 }
+} else {
+    requestedSubtitleTrackIndex?.takeIf { it >= 0 }
 }

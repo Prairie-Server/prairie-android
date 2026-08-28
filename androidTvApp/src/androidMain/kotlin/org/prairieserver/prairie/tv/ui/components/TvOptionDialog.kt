@@ -191,9 +191,8 @@ private fun TvOptionDialogRow(
     val restContent = if (enabled) Color.White else Color.White.copy(alpha = 0.42f)
 
     Surface(
-        onClick = {
-            if (enabled) onClick()
-        },
+        onClick = onClick,
+        enabled = enabled,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(

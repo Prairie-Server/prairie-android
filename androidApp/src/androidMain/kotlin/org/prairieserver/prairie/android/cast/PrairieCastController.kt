@@ -284,6 +284,14 @@ class PrairieCastController(
         clock.setOptimisticPlaying(!isPlaying(), nowMs())
     }
 
+    /** Idempotent transport command used by Android system media controls. */
+    fun setPlaying(playing: Boolean) {
+        sendControl(
+            if (playing) PrairieCastControlCommand.play() else PrairieCastControlCommand.pause(),
+        )
+        clock.setOptimisticPlaying(playing, nowMs())
+    }
+
     fun seek(seconds: Double) {
         sendControl(PrairieCastControlCommand.seek(seconds))
         clock.setOptimisticTime(seconds, nowMs())

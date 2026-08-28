@@ -1,10 +1,12 @@
 package org.prairieserver.prairie.android.ui.navigation
 
 import android.net.Uri
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import org.prairieserver.prairie.common.player.video.VideoPlayerRouteArgs
 
 /**
- * All navigation routes for the Prairie app.
+ * All navigation routes for the Silo app.
  *
  * Screens that take parameters use companion objects with a ROUTE constant
  * containing the placeholder (e.g. "item/{contentId}") for use with NavHost,
@@ -14,23 +16,7 @@ sealed class Route(val route: String) {
 
     // --- Auth flow (no bottom nav) ---
     data object ServerSetup : Route("server_setup")
-
-    /**
-     * Multi-server picker / first-run LAN discovery.
-     *
-     * Navigate with [autoScanRoute] when landing from cold start or
-     * "Change server" so the list kicks off a LAN health scan. Management
-     * from settings can use the bare [route] (autoScan defaults false).
-     */
-    data object ServerList : Route("server_list") {
-        const val ROUTE = "server_list?autoScan={autoScan}"
-        const val ARG_AUTO_SCAN = "autoScan"
-        /** Cold-start destination: server list with auto LAN scan. */
-        const val START = "server_list?autoScan=true"
-
-        fun autoScanRoute(autoScan: Boolean = true): String =
-            "server_list?autoScan=$autoScan"
-    }
+    data object ServerList : Route("server_list")
     data object Login : Route("login")
     data object Setup : Route("setup")
     data object Signup : Route("signup")
@@ -53,12 +39,20 @@ sealed class Route(val route: String) {
     data class PairDevice(
         val token: String? = null,
         val code: String? = null,
+        /**
+         * Origin of the server that issued this pairing request, when the link
+         * named one. Carried so the screen can refuse — and explain — rather
+         * than looking the code up against whichever server is active.
+         */
+        val serverOrigin: String? = null,
     ) : Route(
         buildString {
             append("pair_device")
             val params = listOfNotNull(
                 token?.takeIf { it.isNotBlank() }?.let { "token=${Uri.encode(it)}" },
                 code?.takeIf { it.isNotBlank() }?.let { "code=${Uri.encode(it)}" },
+                serverOrigin?.takeIf { it.isNotBlank() }
+                    ?.let { "serverOrigin=${Uri.encode(it)}" },
             )
             if (params.isNotEmpty()) {
                 append("?")
@@ -67,7 +61,7 @@ sealed class Route(val route: String) {
         },
     ) {
         companion object {
-            const val ROUTE = "pair_device?token={token}&code={code}"
+            const val ROUTE = "pair_device?token={token}&code={code}&serverOrigin={serverOrigin}"
         }
     }
 
@@ -95,7 +89,6 @@ sealed class Route(val route: String) {
         }
     }
     data object Settings : Route("settings")
-    data object CardOverlays : Route("settings/card_overlays")
     data object Diagnostics : Route("settings/diagnostics")
     data class DiagnosticsReport(val reportId: String) :
         Route("settings/diagnostics/report/${Uri.encode(reportId)}") {
@@ -104,8 +97,11 @@ sealed class Route(val route: String) {
         }
     }
 
-    // Canonical tab routes — Home is the start destination and the bottom-nav /
-    // popUpTo anchor; Libraries and Recommendations back the other media tabs.
+    // Canonical tab routes. Home is the USUAL start destination, but not
+    // always: an offline launch with downloads starts on Downloads instead, so
+    // the bottom-nav popUpTo anchor is read from the live back stack
+    // ([bottomMostTabRoute]) rather than assumed to be Home. Libraries and
+    // Recommendations back the other media tabs.
     data object Home : Route("home")
     data object Libraries : Route("libraries")
     data object Recommendations : Route("recommendations")
@@ -123,32 +119,16 @@ sealed class Route(val route: String) {
         }
     }
 
-    // --- Live TV (profile-menu entry, not a bottom-nav tab) ---
-    data object LiveTv : Route("livetv")
-    data class LiveTvPlayer(
-        val channelId: String,
-        val channelName: String = "",
-    ) : Route(
-        buildString {
-            append("livetv/player/${Uri.encode(channelId)}")
-            if (channelName.isNotBlank()) {
-                append("?name=${Uri.encode(channelName)}")
-            }
-        },
-    ) {
-        companion object {
-            const val ROUTE = "livetv/player/{channelId}?name={name}"
-            const val ARG_CHANNEL_ID = "channelId"
-            const val ARG_NAME = "name"
-        }
-    }
-
     // --- Detail screens (back navigation, no bottom nav) ---
     data class ItemDetail(
         val contentId: String,
         val seasonNumber: Int? = null,
     ) : Route(
-        if (seasonNumber != null) "item/$contentId?seasonNumber=$seasonNumber" else "item/$contentId"
+        if (seasonNumber != null) {
+            "item/${contentId.routeEncode()}?seasonNumber=$seasonNumber"
+        } else {
+            "item/${contentId.routeEncode()}"
+        }
     ) {
         companion object {
             const val ROUTE = "item/{contentId}?seasonNumber={seasonNumber}"
@@ -174,7 +154,11 @@ sealed class Route(val route: String) {
         val collectionId: String,
         val libraryId: Int? = null,
     ) : Route(
-        if (libraryId != null) "collection/$collectionId?libraryId=$libraryId" else "collection/$collectionId"
+        if (libraryId != null) {
+            "collection/${collectionId.routeEncode()}?libraryId=$libraryId"
+        } else {
+            "collection/${collectionId.routeEncode()}"
+        }
     ) {
         companion object {
             const val ROUTE = "collection/{collectionId}?libraryId={libraryId}"
@@ -182,7 +166,7 @@ sealed class Route(val route: String) {
     }
 
     // --- Player / casting (fullscreen or hidden shell routes, no menu entries) ---
-    data object PrairieCastRemote : Route("prairiecast/remote")
+    data object PrairieCastRemote : Route("silocast/remote")
 
     data class Player(
         val contentId: String,
@@ -194,7 +178,7 @@ sealed class Route(val route: String) {
         val roomId: String? = null,
     ) : Route(
         buildString {
-            append("player/$contentId")
+            append("player/${contentId.routeEncode()}")
             val queryParams = listOfNotNull(
                 fileId?.let { "fileId=$it" },
                 // normalizeQuality is a closed wire-value set, so no URI
@@ -235,7 +219,7 @@ sealed class Route(val route: String) {
         // resolves which part contains it; null resumes from the stored position.
         val startPosition: Double? = null,
     ) : Route(
-        "audiobook/$contentId" +
+        "audiobook/${contentId.routeEncode()}" +
             listOfNotNull(
                 fileId?.let { "fileId=$it" },
                 if (fromStart) "fromStart=true" else null,
@@ -254,7 +238,7 @@ sealed class Route(val route: String) {
 
     // --- Book reader (fullscreen, dispatches by BookFormat) ---
     data class BookReader(val contentId: String, val fileId: Int? = null) : Route(
-        "reader/$contentId" + fileId?.let { "?fileId=$it" }.orEmpty(),
+        "reader/${contentId.routeEncode()}" + fileId?.let { "?fileId=$it" }.orEmpty(),
     ) {
         companion object {
             const val ROUTE = "reader/{contentId}?fileId={fileId}"
@@ -269,9 +253,6 @@ sealed class Route(val route: String) {
     // --- Personal data ---
     data object Favorites : Route("favorites")
     data object Watchlist : Route("watchlist")
-
-    /** Admin stats dashboard (Apple-parity surface; role-gated entry in Settings). */
-    data object Admin : Route("admin")
     data object History : Route("history")
     data object PersonalLists : Route("personal_lists")
     data class Collections(val libraryId: Int? = null) : Route(
@@ -283,3 +264,17 @@ sealed class Route(val route: String) {
     }
 
 }
+
+/**
+ * Percent-encode a value for use as a route path segment.
+ *
+ * Deliberately `java.net.URLEncoder` rather than `android.net.Uri.encode`:
+ * routes are built in plain JVM unit tests, where `android.net.Uri` is stubbed
+ * and silently returns null — a route would become "item/null" and the test
+ * would assert against nonsense. Mirrors the TV app's `routeEncode`.
+ *
+ * `URLEncoder` is form encoding, where a space becomes `+`; a path segment
+ * needs `%20`, hence the fixup.
+ */
+private fun String.routeEncode(): String =
+    URLEncoder.encode(this, StandardCharsets.UTF_8.toString()).replace("+", "%20")

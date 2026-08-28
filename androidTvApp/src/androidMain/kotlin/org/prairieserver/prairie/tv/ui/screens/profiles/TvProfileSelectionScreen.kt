@@ -64,11 +64,20 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
-import org.prairieserver.prairie.common.ui.components.isImageAvatar
+import org.prairieserver.prairie.common.ui.components.avatarRef
+import org.prairieserver.prairie.common.ui.components.isEmojiAvatar
 import org.prairieserver.prairie.common.ui.components.profileAvatarDisplayText
-import org.prairieserver.prairie.common.ui.components.rememberProfileServerUrl
-import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
+import org.prairieserver.prairie.common.ui.components.rememberProfileAvatarImage
 import org.prairieserver.prairie.model.profile.Profile
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.TvFocusTargetState
+import org.prairieserver.prairie.tv.ui.focus.tvProfileFocusTarget
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.focus.TvFrameRelocationMaxAttempts
 import org.prairieserver.prairie.tv.ui.components.TvAuroraBackdrop
 import org.prairieserver.prairie.tv.ui.components.AuroraJourneyProgress
 import org.prairieserver.prairie.tv.ui.components.TvAuroraVariant
@@ -81,7 +90,7 @@ import org.prairieserver.prairie.tv.ui.components.TvPillVariant
 import org.prairieserver.prairie.tv.ui.components.TvPinEntryDialog
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.navRailLabel
-import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.siloCardDefaults
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val ProfileGridColumns = 4
@@ -91,9 +100,9 @@ private val AddProfilePlusSize = 44.dp
 private val AddProfilePlusStrokeWidth = 2.dp
 private val ProfileUtilityChromeTop = 40.dp
 private val ProfileUtilityChromeEnd = 64.dp
-private val ProfileUtilityChangeServerWidth = 164.dp
-private val ProfileUtilityManageWidth = 104.dp
-private val ProfileUtilitySignOutWidth = 100.dp
+// The utility pills size to their own labels. Fixed widths clipped them:
+// "Sign Out" rendered as "Sign" at 100dp, and the label a control shows is the
+// one thing about it that cannot be allowed to be wrong.
 private val ProfileUtilityChipHeight = 28.dp
 private val ProfileHeaderTop = 92.dp
 private val ProfileGridWidth = 772.dp
@@ -155,7 +164,6 @@ fun TvProfileSelectionScreen(
                         label = if (state.isManageMode) "Done" else "Manage",
                         icon = Icons.Filled.Edit,
                         variant = TvPillVariant.Hollow,
-                        modifier = Modifier.width(ProfileUtilityManageWidth),
                         heightOverride = ProfileUtilityChipHeight,
                         horizontalPaddingOverride = 10.dp,
                         labelStyle = MaterialTheme.typography.labelMedium,
@@ -165,7 +173,6 @@ fun TvProfileSelectionScreen(
                         label = "Change Server",
                         icon = Icons.Filled.Dns,
                         variant = TvPillVariant.Hollow,
-                        modifier = Modifier.width(ProfileUtilityChangeServerWidth),
                         heightOverride = ProfileUtilityChipHeight,
                         horizontalPaddingOverride = 10.dp,
                         labelStyle = MaterialTheme.typography.labelMedium,
@@ -175,7 +182,6 @@ fun TvProfileSelectionScreen(
                         label = "Sign Out",
                         icon = Icons.Filled.Logout,
                         variant = TvPillVariant.Hollow,
-                        modifier = Modifier.width(ProfileUtilitySignOutWidth),
                         heightOverride = ProfileUtilityChipHeight,
                         horizontalPaddingOverride = 10.dp,
                         labelStyle = MaterialTheme.typography.labelMedium,
@@ -188,21 +194,14 @@ fun TvProfileSelectionScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        // The journey row adds 40dp above the legacy title band;
-                        // offset that addition so the title/grid keep their
-                        // established vertical footprint and utility chips stay
-                        // isolated in the top chrome.
+                        // No journey row here any more, so the title band sits
+                        // at its own top inset rather than offsetting one.
                         .padding(
-                            top = ProfileHeaderTop - 40.dp,
+                            top = ProfileHeaderTop,
                             start = Spacing.safeArea,
                             end = Spacing.safeArea,
                         ),
                 ) {
-                    AuroraJourneyProgress(
-                        currentStep = 3,
-                        modifier = Modifier.width(230.dp),
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "Who's watching?",
                         style = MaterialTheme.typography.displayLarge,
@@ -217,15 +216,60 @@ fun TvProfileSelectionScreen(
 
                     Spacer(modifier = Modifier.height(32.dp))
 
-                    val firstCardFocus = remember { FocusRequester() }
-                    LaunchedEffect(state.profiles) {
-                        if (state.profiles.isNotEmpty()) {
-                            runCatching { firstCardFocus.requestFocus() }
-                        }
+                    // The screen reloads on every resume, so re-anchoring on
+                    // the first tile overrode the viewer's position on every
+                    // return. Keep a requester per profile ID and move focus
+                    // only where tvProfileFocusTarget says it belongs.
+                    val tileFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+                    var focusedProfileId by remember { mutableStateOf<String?>(null) }
+                    var previousProfileIds by remember { mutableStateOf(emptyList<String>()) }
+                    var hasAnchored by remember { mutableStateOf(false) }
+                    val profileIds = state.profiles.map { it.id }
+
+                    LaunchedEffect(profileIds) {
+                        val target = tvProfileFocusTarget(
+                            previousIds = previousProfileIds,
+                            currentIds = profileIds,
+                            focusedId = focusedProfileId,
+                            hasMaterialized = hasAnchored,
+                        )
+                        previousProfileIds = profileIds
+                        // Requesters are keyed by ID, so a deleted profile's
+                        // would otherwise be retained for the screen's lifetime.
+                        tileFocusRequesters.keys.retainAll(profileIds.toSet())
+                        if (target == null) return@LaunchedEffect
+                        // Placement can trail the data by a frame or two.
+                        val result = requestFocusUntilObserved(
+                            maxAttempts = TvFrameRelocationMaxAttempts,
+                            awaitAttempt = { withFrameNanos { } },
+                            requestFocus = {
+                                tileFocusRequesters[target]?.requestFocus() ?: false
+                            },
+                            isFocused = { focusedProfileId == target },
+                            targetState = {
+                                // The viewer moved to another tile themselves
+                                // while we were retrying. Stop chasing rather
+                                // than fight them for the rest of the budget.
+                                val focused = focusedProfileId
+                                if (focused != null && focused != target) {
+                                    TvFocusTargetState.Disposed
+                                } else {
+                                    TvFocusTargetState.Ready
+                                }
+                            },
+                        )
+                        // Only a landed anchor counts. Setting this up front
+                        // meant a second list arriving mid-retry cancelled the
+                        // first pass and left the replacement believing the
+                        // screen was already anchored, so it never anchored.
+                        if (result == TvObservedFocusResult.Focused) hasAnchored = true
                     }
                     ProfileTileGrid(
                         profiles = state.profiles,
-                        firstCardFocus = firstCardFocus,
+                        focusRequesterFor = { id ->
+                            tileFocusRequesters.getOrPut(id) { FocusRequester() }
+                        },
+                        onProfileFocused = { focusedProfileId = it },
                         isManageMode = state.isManageMode,
                         onProfileSelected = viewModel::onProfileSelected,
                         onEditProfile = { onEditProfile(it.id) },
@@ -251,7 +295,7 @@ fun TvProfileSelectionScreen(
     if (pinProfile != null) {
         TvPinEntryDialog(
             profileName = pinProfile.name,
-            profileAvatar = pinProfile.avatar,
+            profileAvatar = pinProfile.avatarRef(),
             errorMessage = state.pinError,
             isVerifying = state.isVerifyingPin,
             onPinEntered = viewModel::onPinEntered,
@@ -285,7 +329,10 @@ fun TvProfileSelectionScreen(
 @Composable
 private fun ProfileTileGrid(
     profiles: List<Profile>,
-    firstCardFocus: FocusRequester,
+    focusRequesterFor: (String) -> FocusRequester,
+    // Null means no profile tile owns focus — the Add tile has it, or focus
+    // left the grid entirely. Restoration must not re-request a tile then.
+    onProfileFocused: (String?) -> Unit,
     isManageMode: Boolean,
     onProfileSelected: (Profile) -> Unit,
     onEditProfile: (Profile) -> Unit,
@@ -295,7 +342,9 @@ private fun ProfileTileGrid(
     val itemCount = profiles.size + 1
     val rowCount = (itemCount + ProfileGridColumns - 1) / ProfileGridColumns
     Column(
-        modifier = Modifier.width(ProfileGridWidth),
+        modifier = Modifier
+            .width(ProfileGridWidth)
+            .onFocusChanged { if (!it.hasFocus) onProfileFocused(null) },
         verticalArrangement = Arrangement.spacedBy(56.dp),
     ) {
         repeat(rowCount) { rowIndex ->
@@ -326,14 +375,19 @@ private fun ProfileTileGrid(
                                         }
                                     },
                                     onDelete = { onDeleteProfile(profile) },
-                                    modifier = if (itemIndex == 0) {
-                                        Modifier.focusRequester(firstCardFocus)
-                                    } else {
-                                        Modifier
-                                    },
+                                    modifier = Modifier
+                                        .focusRequester(focusRequesterFor(profile.id))
+                                        .onFocusChanged {
+                                            if (it.isFocused) onProfileFocused(profile.id)
+                                        },
                                 )
                             }
-                            itemIndex == profiles.size -> TvAddProfileCard(onClick = onAddProfile)
+                            itemIndex == profiles.size -> TvAddProfileCard(
+                                onClick = onAddProfile,
+                                modifier = Modifier.onFocusChanged {
+                                    if (it.isFocused) onProfileFocused(null)
+                                },
+                            )
                         }
                     }
                 }
@@ -351,18 +405,14 @@ private fun TvProfileCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val serverUrl = rememberProfileServerUrl()
-    val avatarText = remember(profile.avatar, profile.name) {
-        profileAvatarDisplayText(profile.avatar, profile.name)
+    val avatar = profile.avatarRef()
+    val avatarText = remember(avatar, profile.name) {
+        profileAvatarDisplayText(avatar, profile.name)
     }
-    val avatarUrl = remember(profile.avatar, serverUrl) {
-        profile.avatar
-            ?.takeIf(::isImageAvatar)
-            ?.let { resolveAvatarUrl(serverUrl, it) }
-    }
+    val avatarImage = rememberProfileAvatarImage(avatar)
 
     val shape = RoundedCornerShape(ProfileTileCornerRadius)
-    val cardFocus = prairieCardDefaults(shape = shape)
+    val cardFocus = siloCardDefaults(shape = shape)
     val tileTint = profile.tintColor()
     // Per-profile tinted focus halo ("this profile is alive"), mirroring tvOS
     // ProfileTile's colored glow.
@@ -401,14 +451,16 @@ private fun TvProfileCard(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                if (avatarUrl != null) {
+                if (avatarImage != null) {
                     ThumbhashImage(
-                        url = avatarUrl,
+                        url = avatarImage.url,
                         thumbhash = null,
                         contentDescription = profile.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                         transparent = true,
+                        cacheKey = avatarImage.cacheKey,
+                        onError = avatarImage.onLoadFailed,
                     )
                     Box(
                         modifier = Modifier
@@ -423,7 +475,7 @@ private fun TvProfileCard(
                 } else {
                     Text(
                         text = avatarText,
-                        fontSize = if (!profile.avatar.isNullOrBlank() && !isImageAvatar(profile.avatar)) {
+                        fontSize = if (isEmojiAvatar(avatar)) {
                             70.sp
                         } else {
                             60.sp
@@ -491,14 +543,14 @@ private fun TvProfileCard(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvAddProfileCard(onClick: () -> Unit) {
+private fun TvAddProfileCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(ProfileTileCornerRadius)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val surfaceAlpha = if (isFocused) 0.14f else 0.06f
     val strokeAlpha = if (isFocused) 0.70f else 0.28f
     val plusAlpha = if (isFocused) 1.0f else 0.60f
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
             interactionSource = interactionSource,

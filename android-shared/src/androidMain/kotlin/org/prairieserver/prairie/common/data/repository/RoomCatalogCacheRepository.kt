@@ -1,6 +1,6 @@
 package org.prairieserver.prairie.common.data.repository
 
-import org.prairieserver.prairie.common.data.db.SiloDatabase
+import org.prairieserver.prairie.common.data.db.PrairieDatabase
 import org.prairieserver.prairie.common.data.db.entity.CatalogCacheEntity
 import org.prairieserver.prairie.model.catalog.CatalogResponse
 import org.prairieserver.prairie.model.catalog.EpisodesResponse
@@ -22,7 +22,7 @@ import kotlinx.serialization.json.Json
  * rather than crashing the browse screen.
  */
 class RoomCatalogCacheRepository(
-    db: SiloDatabase,
+    db: PrairieDatabase,
     private val snapshotProvider: suspend () -> AuthScopeSnapshot?,
     private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
     private val now: () -> Long = { System.currentTimeMillis() },

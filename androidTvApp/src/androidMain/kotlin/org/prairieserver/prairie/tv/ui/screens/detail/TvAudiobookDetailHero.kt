@@ -35,6 +35,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.tv.ui.navigation.TvSubtitleLaunchSelection
+import org.prairieserver.prairie.tv.ui.navigation.explicitTvSubtitleLaunchSelection
 import org.prairieserver.prairie.tv.ui.components.TvPoster
 import org.prairieserver.prairie.tv.ui.components.TvPrimaryPillButton
 import org.prairieserver.prairie.tv.ui.components.TvSecondaryPillButton
@@ -48,7 +50,7 @@ internal fun TvAudiobookDetailHero(
     detail: ItemDetail,
     state: TvItemDetailUiState,
     playFocus: FocusRequester,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     overview: String?,
     modifier: Modifier = Modifier,
 ) {
@@ -172,7 +174,8 @@ internal fun TvAudiobookDetailHero(
                                 detail.contentId,
                                 null,
                                 state.selectedAudioIndex,
-                                state.selectedSubtitleIndex,
+                                state.audioPickedThisSession,
+                                explicitTvSubtitleLaunchSelection(state.selectedSubtitleIndex),
                                 detail.type,
                                 startPosition,
                             )
@@ -186,7 +189,8 @@ internal fun TvAudiobookDetailHero(
                                 detail.contentId,
                                 null,
                                 state.selectedAudioIndex,
-                                state.selectedSubtitleIndex,
+                                state.audioPickedThisSession,
+                                explicitTvSubtitleLaunchSelection(state.selectedSubtitleIndex),
                                 detail.type,
                                 0.0,
                             )

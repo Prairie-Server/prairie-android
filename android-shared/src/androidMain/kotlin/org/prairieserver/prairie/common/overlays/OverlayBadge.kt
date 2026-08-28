@@ -108,14 +108,14 @@ internal fun OverlayBadge(
         box = box.background(paintedBackground, shape)
     }
     if (border != Color.Unspecified) {
-        box = box.border(1.dp, border, shape)
+        box = box.border(1.dp * preset.scale, border, shape)
     }
     box = box
         .padding(horizontal = preset.horizontalPadding, vertical = preset.verticalPadding)
 
     Row(
         modifier = box,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp * preset.scale),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val iconId = state.iconId
@@ -138,8 +138,14 @@ internal fun OverlayBadge(
                 renderedIcon = true
             }
         }
+        // A brand token (HDR10, ATMOS, …) already spells its text as the
+        // mark itself; when the label says the same thing, showing both
+        // reads "HDR10 HDR10". Mirrors web's `labelRedundantWithIcon`.
+        val labelRedundantWithIcon = renderedIcon &&
+            iconId != null &&
+            overlayBrandToken(iconId)?.equals(state.label.trim(), ignoreCase = true) == true
         // Apple: render text unless icon-only AND an icon was shown.
-        if (!state.iconOnly || !renderedIcon) {
+        if ((!state.iconOnly || !renderedIcon) && !labelRedundantWithIcon) {
             BadgeText(text = state.label, preset = preset, color = foreground)
         }
     }
@@ -170,7 +176,11 @@ private fun BadgeText(
             letterSpacing = preset.letterSpacing,
             textAlign = TextAlign.Center,
             shadow = if (preset.textShadow) {
-                Shadow(color = Color.Black.copy(alpha = 0.85f), offset = Offset(0f, 1f), blurRadius = 1f)
+                Shadow(
+                    color = Color.Black.copy(alpha = 0.85f),
+                    offset = Offset(0f, preset.scale),
+                    blurRadius = preset.scale,
+                )
             } else {
                 null
             },

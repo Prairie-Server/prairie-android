@@ -1,12 +1,12 @@
 package org.prairieserver.prairie.network.api
 
 import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.network.skipPrairieAuth
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import org.prairieserver.prairie.network.skipPrairieAuth
 
 @Serializable
 data class HealthStatus(
@@ -21,6 +21,10 @@ open class HealthApi(private val client: HttpClient) {
 
     open suspend fun checkHealth(): ApiResult<HealthStatus> = safeApiCall {
         client.get("/api/v1/health") {
+            // Public: never send credentials, so a dead session cannot make a
+            // reachability check fail. Matches the explicit-server variants of
+            // the other public endpoints.
+            skipPrairieAuth()
             timeout {
                 connectTimeoutMillis = HEALTH_TIMEOUT_MS
                 requestTimeoutMillis = HEALTH_TIMEOUT_MS

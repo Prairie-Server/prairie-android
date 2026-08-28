@@ -7,6 +7,7 @@ import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.model.navigation.isAudiobookLikeLibraryType
 import org.prairieserver.prairie.model.navigation.tvMediaModeCapabilities
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.tv.ui.util.visibleOnTv
@@ -294,7 +295,10 @@ class TvSearchViewModel(
                         it.copy(
                             isLoading = false,
                             isLoadingMore = false,
-                            error = "Network error: ${result.exception.message ?: "unknown"}",
+                            // Never the raw exception: it carries the full
+                            // request URL and read like a stack trace on a
+                            // ten-foot screen.
+                            error = result.errorMessage("Search failed"),
                         )
                     }
                     return

@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -22,11 +23,14 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.ExperimentalComposeUiApi
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.overlays.OverlayData
 import org.prairieserver.prairie.overlays.OverlayDataExtractor
+import org.prairieserver.prairie.tv.ui.theme.TvRailScrollBehavior
+import org.prairieserver.prairie.tv.ui.theme.tvRailPinOnFocus
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 
 /** Visual style of cards inside a [TvMediaRow]. */
@@ -98,18 +102,31 @@ fun TvMediaRow(
      *  of card 0. Callers should only pass it while a restore is pending. */
     restoreFocusIndex: Int = -1,
     restoreFocusRequester: FocusRequester? = null,
+    /** Nonzero only while an exact-card return is pending. The row uses its
+     *  private horizontal state to compose [restoreFocusIndex] before focus is
+     *  requested; ordinary row rendering never changes horizontal position. */
+    restoreFocusRequest: Int = 0,
+    onRestoreFocusTargetPlaced: ((Int, Int) -> Unit)? = null,
+    onRestoreFocusTargetDisposed: ((Int, Int) -> Unit)? = null,
     /** Fired (on focus GAIN only) with whichever card the user focuses, so the
      *  Skyline marquee + backdrop can preview the focused item. */
     onItemFocused: ((SectionItem) -> Unit)? = null,
     /** Indexed focus callback for callers that maintain a rolling prefetch
      *  window around the currently focused card. */
     onItemFocusedAtIndex: ((SectionItem, Int) -> Unit)? = null,
+    /** Reports whether this row or any descendant card currently owns focus. */
+    onRowFocusChanged: ((Boolean) -> Unit)? = null,
     cardActions: (SectionItem) -> TvMediaCardActions = { TvMediaCardActions() },
 ) {
     if (items.isEmpty()) return
     val rowState = rememberLazyListState()
     val rowItems = remember(items, showProgress, style, cardLayout) {
-        items.map { item ->
+        // Deduplicate before keying. A repeated contentId inside one row makes
+        // the lazy list throw ("Key ... was already used"), which is fatal —
+        // and a row has no reason to show the same title twice anyway. Feeds
+        // can legitimately overlap, so this is a property of the row, not a
+        // bug to fix upstream of it.
+        items.distinctBy { it.contentId }.map { item ->
             TvMediaRowItemModel(
                 item = item,
                 progress = if (showProgress) item.progressFraction() else null,
@@ -122,6 +139,33 @@ fun TvMediaRow(
                 contentType = "${cardLayout.name}:${style.name}:${item.type}",
             )
         }
+    }
+    // The caller counts positions in the list it handed us; we render a
+    // deduplicated one, which can be shorter. Translate through contentId so a
+    // duplicate earlier in the row cannot shift the restored card.
+    val restoreFocusContentId = items.getOrNull(restoreFocusIndex)?.contentId
+    // Outbound focus reports also speak the caller's list. distinctBy keeps
+    // first occurrences, so a rendered item's first raw index is itself.
+    val rawIndexByContentId = remember(items) {
+        buildMap {
+            items.forEachIndexed { rawIndex, item ->
+                putIfAbsent(item.contentId, rawIndex)
+            }
+        }
+    }
+    val resolvedRestoreFocusIndex = remember(rowItems, restoreFocusContentId) {
+        restoreFocusContentId
+            ?.let { contentId -> rowItems.indexOfFirst { it.item.contentId == contentId } }
+            ?: -1
+    }
+
+    LaunchedEffect(restoreFocusRequest, resolvedRestoreFocusIndex, restoreFocusContentId) {
+        prepareTvMediaRowFocusRestore(
+            requestId = restoreFocusRequest,
+            restoreFocusIndex = resolvedRestoreFocusIndex,
+            itemCount = rowItems.size,
+            scrollToItem = rowState::scrollToItem,
+        )
     }
 
     LaunchedEffect(firstItemFocusRequest) {
@@ -144,6 +188,7 @@ fun TvMediaRow(
                 modifier = Modifier.padding(start = startPadding, end = endPadding),
             )
         }
+        TvRailScrollBehavior {
         LazyRow(
             state = rowState,
             // focusRestorer remembers the last-focused card inside this row.
@@ -157,6 +202,15 @@ fun TvMediaRow(
                 .then(
                     if (rowContainerFocusRequester != null) {
                         Modifier.focusRequester(rowContainerFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                )
+                .then(
+                    if (onRowFocusChanged != null) {
+                        Modifier.onFocusChanged { state ->
+                            onRowFocusChanged(state.hasFocus)
+                        }
                     } else {
                         Modifier
                     },
@@ -178,6 +232,18 @@ fun TvMediaRow(
                 contentType = { _, rowItem -> rowItem.contentType },
             ) { index, rowItem ->
                 val item = rowItem.item
+                val isRestoreFocusTarget =
+                    restoreFocusRequest > 0 && index == resolvedRestoreFocusIndex
+                if (isRestoreFocusTarget && onRestoreFocusTargetDisposed != null) {
+                    // Report the position the caller asked about, not ours. It
+                    // compares this against the index it passed in, and after
+                    // deduplication the two coordinate spaces can differ.
+                    DisposableEffect(restoreFocusRequest, restoreFocusIndex) {
+                        onDispose {
+                            onRestoreFocusTargetDisposed(restoreFocusRequest, restoreFocusIndex)
+                        }
+                    }
+                }
                 // Always anchor firstItemFocusRequester to index 0 so it can
                 // serve as a stable fallback target for focusRestorer and for
                 // imperative requestFocus() calls from parent screens.
@@ -185,8 +251,18 @@ fun TvMediaRow(
                 val appliedCardModifier = itemCardModifier.then(
                     if (index == 0) firstItemCardModifier else Modifier,
                 ).then(
-                    if (restoreFocusRequester != null && index == restoreFocusIndex) {
+                    if (restoreFocusRequester != null && index == resolvedRestoreFocusIndex) {
                         Modifier.focusRequester(restoreFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                ).then(
+                    if (isRestoreFocusTarget && onRestoreFocusTargetPlaced != null) {
+                        // Caller's coordinates, matching Disposed below: the
+                        // consumer compares this against the index it passed in.
+                        Modifier.onGloballyPositioned {
+                            onRestoreFocusTargetPlaced(restoreFocusRequest, restoreFocusIndex)
+                        }
                     } else {
                         Modifier
                     },
@@ -208,19 +284,36 @@ fun TvMediaRow(
                     } else {
                         Modifier
                     },
-                ).then(
+                ).tvRailPinOnFocus(rowState, index, startPadding)
+                .then(
                     if (onItemFocused != null || onItemFocusedAtIndex != null) {
                         Modifier.onFocusChanged { st ->
                             if (st.isFocused) {
                                 onItemFocused?.invoke(item)
-                                onItemFocusedAtIndex?.invoke(item, index)
+                                onItemFocusedAtIndex?.invoke(
+                                    item,
+                                    rawIndexByContentId[item.contentId] ?: index,
+                                )
                             }
                         }
                     } else {
                         Modifier
                     },
                 )
-                val itemActions = cardActions(item)
+                // Memoised per item: the producer builds a fresh action bundle
+                // (four fresh lambdas) on every call, and TvMediaCardActions is
+                // a data class comparing those lambdas by identity — so without
+                // this no visible card could ever skip recomposition once its
+                // row recomposed (which the feed does on every focus move).
+                //
+                // Keyed on the PRODUCER as well as the item: what the bundle
+                // contains depends on what the producer closes over, not only on
+                // the item — Home decides whether to expose "remove from continue
+                // watching" from the section it is building actions for. An
+                // item-only key would keep a stale bundle (and stale callback
+                // owners) after a refresh that reclassifies the section while
+                // leaving the item equal (Codex).
+                val itemActions = remember(item, cardActions) { cardActions(item) }
                 when (cardLayout) {
                     TvRowCardLayout.ReferenceShelf -> TvReferenceShelfCard(
                         title = rowItem.shelfTitle,
@@ -271,7 +364,19 @@ fun TvMediaRow(
                 }
             }
         }
+        }
     }
+}
+
+internal suspend fun prepareTvMediaRowFocusRestore(
+    requestId: Int,
+    restoreFocusIndex: Int,
+    itemCount: Int,
+    scrollToItem: suspend (Int) -> Unit,
+): Boolean {
+    if (requestId <= 0 || restoreFocusIndex !in 0 until itemCount) return false
+    scrollToItem(restoreFocusIndex)
+    return true
 }
 
 /** Fraction [0..1] of item consumed for "continue watching" progress bars. */

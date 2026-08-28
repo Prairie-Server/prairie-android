@@ -8,6 +8,8 @@ import kotlinx.serialization.Serializable
 data class DiscoverRow(
     val type: String,
     val label: String,
+    @SerialName("section_kind") val sectionKind: String? = null,
+    @SerialName("section_key") val sectionKey: String? = null,
     val items: List<SectionItem> = emptyList(),
 )
 

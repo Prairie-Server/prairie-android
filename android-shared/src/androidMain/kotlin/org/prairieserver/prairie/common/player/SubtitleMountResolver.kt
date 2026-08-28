@@ -3,13 +3,14 @@ package org.prairieserver.prairie.common.player
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.playback.SubtitleIdentity
 import org.prairieserver.prairie.model.playback.SubtitleMediaIdentity
+import org.prairieserver.prairie.model.playback.isLocalDownloadedSubtitle
 import org.prairieserver.prairie.playback.canonicalSubtitleCodecFamily
 import org.prairieserver.prairie.playback.canonicalSubtitleLanguage
+import org.prairieserver.prairie.playback.downloadedSubtitleArtifactTrackId
 import org.prairieserver.prairie.playback.isTextSubtitleCodecFamily
+import org.prairieserver.prairie.playback.subtitleLabelIndicatesHearingImpaired
 
-private const val SUBTITLE_ARTIFACT_TRACK_ID_PREFIX = "prairie-subtitle:"
-private const val DOWNLOADED_SUBTITLE_ARTIFACT_TRACK_ID_PREFIX =
-    "prairie-downloaded-subtitle:"
+private const val SUBTITLE_ARTIFACT_TRACK_ID_PREFIX = "silo-subtitle:"
 
 /**
  * Stable Media3 identity for a server-authored subtitle artifact.
@@ -19,16 +20,12 @@ private const val DOWNLOADED_SUBTITLE_ARTIFACT_TRACK_ID_PREFIX =
 fun subtitleArtifactTrackId(serverIndex: Int): String =
     "$SUBTITLE_ARTIFACT_TRACK_ID_PREFIX$serverIndex"
 
-/** Stable Media3 identity derived only from the persistent downloaded-subtitle row ID. */
-fun downloadedSubtitleArtifactTrackId(downloadId: Int): String =
-    "$DOWNLOADED_SUBTITLE_ARTIFACT_TRACK_ID_PREFIX$downloadId"
-
 /**
  * True when a mounted Media3 `Format.id` denotes [expected].
  *
  * A sidecar merged with the primary stream comes back from Media3 carrying the
- * MergingMediaSource child index: the id we authored as `prairie-subtitle:0` is
- * reported as `1:prairie-subtitle:0`, while the primary stream's own tracks read
+ * MergingMediaSource child index: the id we authored as `silo-subtitle:0` is
+ * reported as `1:silo-subtitle:0`, while the primary stream's own tracks read
  * `0:3`, `0:4` and so on. Comparing with `==` therefore never matches a merged
  * sidecar, so the mount waits for a track that appears to be absent and the
  * whole subtitle transaction times out and rolls back.
@@ -96,11 +93,25 @@ fun resolveMountedSubtitle(
     } else {
         typedMatches.filter { normalizedLabel(it.label) == targetLabel }
     }
-    return when {
-        labelMatches.size == 1 -> MountedSubtitleMatch(labelMatches.single())
-        typedMatches.size == 1 -> MountedSubtitleMatch(typedMatches.single())
-        else -> null
+    if (labelMatches.size == 1) return MountedSubtitleMatch(labelMatches.single())
+    if (typedMatches.size == 1) return MountedSubtitleMatch(typedMatches.single())
+    if (targetLabel != null) return null
+
+    // An UNTITLED row among several same-language, same-family tracks. The
+    // catalog writes a codec-name placeholder ("SUBRIP", "PGS") for a stream
+    // that carries no title, and Media3 exposes that same stream with no label
+    // at all — so "untitled ↔ untitled" is the identity here, not a coincidence.
+    // A titled sibling ("Forced", "SDH") is a different track by definition,
+    // and when the row itself carries no SDH signal a track flagged SDH is
+    // not it either. Seen on a Shield: the plain English SubRip of a disc with
+    // Forced + plain + SDH resolved to nothing and the pick failed to apply.
+    val untitled = typedMatches.filter { it.isUntitled() }
+    val narrowed = if (media.hearingImpaired == true) {
+        untitled
+    } else {
+        untitled.filterNot { it.hearingImpaired == true }
     }
+    return narrowed.singleOrNull()?.let(::MountedSubtitleMatch)
 }
 
 /**
@@ -242,30 +253,42 @@ private fun String?.normalizedNonServerTrackId(): String? =
 
 private fun String?.isReservedArtifactTrackId(): Boolean =
     this?.startsWith(SUBTITLE_ARTIFACT_TRACK_ID_PREFIX) == true ||
-        this?.startsWith(DOWNLOADED_SUBTITLE_ARTIFACT_TRACK_ID_PREFIX) == true
+        this?.startsWith(
+            org.prairieserver.prairie.playback.DOWNLOADED_SUBTITLE_ARTIFACT_TRACK_ID_PREFIX,
+        ) == true
 
 internal fun PlayerSubtitleInfo.isDownloadedSubtitleArtifact(): Boolean =
-    source.normalizedValue().equals("downloaded", ignoreCase = true) ||
-        catalogSource.normalizedValue().equals("downloaded", ignoreCase = true)
+    isLocalDownloadedSubtitle()
 
 private fun PlayerSubtitleInfo.effectiveSubtitleSource(): String? =
     source.normalizedValue() ?: catalogSource.normalizedValue()
 
+/**
+ * A label that is only the stream's codec name is the catalog's placeholder
+ * for "no title" — it identifies nothing and must not be compared as a title.
+ */
+private val PLACEHOLDER_SUBTITLE_LABELS = setOf(
+    "subrip", "srt", "subtitle", "subtitles", "text", "utf8", "utf-8", "mov_text",
+    "ass", "ssa", "webvtt", "vtt", "pgs", "hdmv_pgs_subtitle", "pgssub",
+    "dvdsub", "dvd_subtitle", "vobsub", "dvbsub", "dvb_subtitle",
+)
+
+/**
+ * A mounted track with no title of its own. Media3 leaves such a track's
+ * label empty, but the clients synthesise one from the language for display
+ * ("EN"), so a label that is only the language — code or canonical — is no
+ * title either.
+ */
+private fun MountedSubtitleTrack.isUntitled(): Boolean {
+    val label = normalizedLabel(this.label) ?: return true
+    val language = this.language.normalizedValue()?.lowercase() ?: return false
+    return label == language ||
+        canonicalSubtitleLanguage(label) == canonicalSubtitleLanguage(language)
+}
+
 private fun normalizedLabel(label: String?): String? =
-    label.normalizedValue()?.lowercase()
+    label.normalizedValue()?.lowercase()?.takeUnless { it in PLACEHOLDER_SUBTITLE_LABELS }
 
 fun normalizedSubtitleCodecFamily(codecOrMime: String?): String? {
     return canonicalSubtitleCodecFamily(codecOrMime)
-}
-
-fun subtitleLabelIndicatesHearingImpaired(label: String?): Boolean {
-    val value = label?.lowercase() ?: return false
-    if (
-        value.contains("closed caption") ||
-        value.contains("hearing impaired") ||
-        value.contains("hearing-impaired")
-    ) {
-        return true
-    }
-    return Regex("""(^|[^a-z0-9])(cc|sdh|hi)([^a-z0-9]|$)""").containsMatchIn(value)
 }

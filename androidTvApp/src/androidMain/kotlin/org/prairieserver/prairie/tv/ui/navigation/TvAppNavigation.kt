@@ -7,13 +7,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -25,6 +29,7 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.tv.MainTvActivity
+import org.prairieserver.prairie.tv.ui.components.TvSelectToShowImeHost
 import org.prairieserver.prairie.tv.ui.shell.TvMainShell
 import org.prairieserver.prairie.tv.ui.screens.audiobook.TvAudiobookPlayerScreen
 import org.prairieserver.prairie.tv.ui.screens.auth.TvLoginScreen
@@ -44,10 +49,13 @@ import org.prairieserver.prairie.tv.ui.screens.servers.TvServerListScreen
 import org.prairieserver.prairie.tv.ui.screens.servers.TvServerSwitchDestination
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsPromptScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsReportScreen
-import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsSettingsScreen
+import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsSurfacePresence
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
 import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherLobbyScreen
 import org.prairieserver.prairie.tv.ui.screens.watchtogether.tvWatchTogetherDestination
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.watchtogether.WatchTogetherEntryTarget
+import org.prairieserver.prairie.watchtogether.watchTogetherEntryTarget
 import org.prairieserver.prairie.common.overlays.ProvideCardOverlays
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
@@ -63,8 +71,19 @@ import org.koin.core.qualifier.named
 
 private const val RETURN_TO_MANAGE_SERVERS_KEY = "return_to_manage_servers"
 
-internal fun tvShouldShowDiagnosticsPrompt(currentRoute: String?): Boolean =
-    currentRoute != TvRoute.Diagnostics.route && currentRoute != TvRoute.DiagnosticsReport.ROUTE
+/**
+ * The crash prompt must never cover a diagnostics surface — the viewer is
+ * already looking at the thing it is asking about, and it would sit on top of
+ * its own Review target.
+ *
+ * The report detail is still a route, so it is matched by name. The settings
+ * surface is no longer a route (it is a pane inside `Main`), so it reports its
+ * own presence instead: see [TvDiagnosticsSurfacePresence].
+ */
+internal fun tvShouldShowDiagnosticsPrompt(
+    currentRoute: String?,
+    diagnosticsSurfaceVisible: Boolean = false,
+): Boolean = currentRoute != TvRoute.DiagnosticsReport.ROUTE && !diagnosticsSurfaceVisible
 
 /**
  * Upper bound on re-navigations for one queued deep link. Arrival-gated
@@ -73,6 +92,202 @@ internal fun tvShouldShowDiagnosticsPrompt(currentRoute: String?): Boolean =
  * become current must not retry forever.
  */
 private const val MAX_DEEP_LINK_NAV_ATTEMPTS = 3
+
+/**
+ * True when item detail for exactly [contentId]/[seasonNumber] is already the
+ * top of the stack.
+ *
+ * `launchSingleTop` cannot answer this: it matches on the destination NODE, and
+ * every item-detail route shares one node. Using it here meant navigating from
+ * detail A to related item B reused A's entry instead of pushing, so Back from
+ * B skipped A entirely. Comparing the concrete arguments keeps the double-Select
+ * protection that was actually wanted while letting a different item push.
+ *
+ * Navigation decodes path arguments, so these compare against the decoded id the
+ * callers pass — not the percent-encoded form in the route string.
+ */
+internal fun tvIsAlreadyShowingItemDetail(
+    currentRoute: String?,
+    currentContentId: String?,
+    currentSeasonNumber: Int?,
+    contentId: String,
+    seasonNumber: Int?,
+): Boolean =
+    currentRoute == TvRoute.ItemDetail.ROUTE &&
+        currentContentId == contentId &&
+        currentSeasonNumber == seasonNumber
+
+/** Destinations that own an active playback session. */
+private val tvPlayerRoutes = setOf(TvRoute.Player.ROUTE, TvRoute.AudiobookPlayer.ROUTE)
+
+/**
+ * What to do with a playback request given what is already on top.
+ *
+ * `launchSingleTop` is the wrong tool here for the same reason it was wrong for
+ * item detail — it matches the destination node, not its arguments — and it is
+ * worse for a player: AndroidX implements single-top by reusing the existing
+ * back-stack entry with new arguments, so the entry's ViewModelStore survives
+ * and the previous title's player ViewModel (and its session) can live on beside
+ * the new one.
+ *
+ * Suppression means: *the entry this exact request created is still the top
+ * one*. [TvPlaybackNavigation] records the requested route together with the id
+ * of the entry it produced, and both must still hold. Note this identifies the
+ * entry, not its current arguments — see below for why nothing is allowed to
+ * rewrite a player entry in place.
+ *
+ * Weaker keys were tried and are wrong. The route alone ignores what is
+ * actually on top — cast launches and auto-advance navigate to players without
+ * coming through here, so it can name a player that is long gone. Route plus
+ * content id still collides when one of those puts up the SAME title with
+ * different arguments (an auto-advance handoff), suppressing a real request.
+ *
+ * The entry id closes both, because those paths pop and push. It is NOT
+ * self-sufficient: a `launchSingleTop` navigation mutates an entry's arguments
+ * while keeping its id, which would leave a stale record looking current. That
+ * is why Watch Together — the one player-bound path that did this — now routes
+ * through here too, and why no playback navigation uses `launchSingleTop`.
+ *
+ * It is recorded only when the navigation actually produced a NEW entry, so a
+ * navigation dropped during teardown leaves nothing behind to suppress its own
+ * retry — including when the player already up happens to be the same title.
+ */
+internal data class TvPlaybackNavigation(val destination: String, val entryId: String)
+
+internal enum class TvPlaybackNavAction { Push, ReplaceCurrentPlayer, Suppress }
+
+internal fun tvPlaybackNavAction(
+    currentRoute: String?,
+    currentEntryId: String?,
+    lastPlaybackNavigation: TvPlaybackNavigation?,
+    destination: String,
+): TvPlaybackNavAction = when {
+    currentRoute !in tvPlayerRoutes -> TvPlaybackNavAction.Push
+    // A double Select whose second press landed while the first navigation was
+    // still animating: same request, same entry, nothing to do.
+    lastPlaybackNavigation != null &&
+        lastPlaybackNavigation.destination == destination &&
+        lastPlaybackNavigation.entryId == currentEntryId -> TvPlaybackNavAction.Suppress
+    // A genuinely different playback request while a player is up: take over
+    // the entry rather than stacking players Back would walk back through.
+    else -> TvPlaybackNavAction.ReplaceCurrentPlayer
+}
+
+/**
+ * The navigation to remember after a playback request, or null if nothing
+ * usable arrived.
+ *
+ * [entryIdBefore] is what was on top before navigating. Requiring a different
+ * id afterwards is what distinguishes "our request landed" from "the navigation
+ * was dropped and the player already there happens to match" — the latter would
+ * otherwise be recorded as ours and suppress the retry.
+ */
+internal fun tvRecordedPlaybackNavigation(
+    destination: String,
+    contentId: String,
+    entryIdBefore: String?,
+    arrivedEntryId: String?,
+    arrivedContentId: String?,
+): TvPlaybackNavigation? =
+    if (arrivedEntryId != null && arrivedEntryId != entryIdBefore && arrivedContentId == contentId) {
+        TvPlaybackNavigation(destination = destination, entryId = arrivedEntryId)
+    } else {
+        null
+    }
+
+/** The content id argument for whichever player destination [route] is. */
+private fun tvPlayerContentIdArg(route: String?): String? = when (route) {
+    TvRoute.Player.ROUTE -> TvRoute.Player.ARG_CONTENT_ID
+    TvRoute.AudiobookPlayer.ROUTE -> TvRoute.AudiobookPlayer.ARG_CONTENT_ID
+    else -> null
+}
+
+/** Navigates to a playback destination, collapsing an identical repeat. */
+private fun NavHostController.navigateToTvPlayback(
+    destination: String,
+    contentId: String,
+    lastPlaybackNavigation: MutableState<TvPlaybackNavigation?>,
+) {
+    val top = currentBackStackEntry
+    val topRoute = top?.destination?.route
+    when (
+        tvPlaybackNavAction(
+            currentRoute = topRoute,
+            currentEntryId = top?.id,
+            lastPlaybackNavigation = lastPlaybackNavigation.value,
+            destination = destination,
+        )
+    ) {
+        TvPlaybackNavAction.Suppress -> return
+        TvPlaybackNavAction.Push -> navigate(destination)
+        TvPlaybackNavAction.ReplaceCurrentPlayer ->
+            navigate(destination) { topRoute?.let { popUpTo(it) { inclusive = true } } }
+    }
+    // Record only what actually arrived. `navigate` can be dropped (see the
+    // deep-link collector), and remembering a request that never landed would
+    // let it suppress its own retry.
+    //
+    // A NEW entry id is the load-bearing part. Checking only the destination and
+    // content id would accept the player that was already there — replacing
+    // `A?roomId=x` with solo `A` and having the navigation dropped would record
+    // the untouched Watch Together entry as if it were ours, and the retry would
+    // then suppress.
+    val arrived = currentBackStackEntry
+    lastPlaybackNavigation.value = tvRecordedPlaybackNavigation(
+        destination = destination,
+        contentId = contentId,
+        entryIdBefore = top?.id,
+        arrivedEntryId = arrived?.id,
+        arrivedContentId = tvPlayerContentIdArg(arrived?.destination?.route)
+            ?.let { arg -> arrived?.arguments?.getString(arg) },
+    )
+}
+
+/**
+ * Watch Together enters either a lobby or a player. The player case is an
+ * ordinary playback navigation and must go through [navigateToTvPlayback] —
+ * it used `launchSingleTop`, which mutates the existing player entry's
+ * arguments while PRESERVING its id, so a recorded solo request could still
+ * look current afterwards and suppress the user's next real request.
+ */
+private fun NavHostController.navigateToTvWatchTogether(
+    room: RoomSnapshot,
+    lastPlaybackNavigation: MutableState<TvPlaybackNavigation?>,
+) {
+    val destination = tvWatchTogetherDestination(room)
+    val contentId = room.selectedContentId
+    if (watchTogetherEntryTarget(room) == WatchTogetherEntryTarget.Player && contentId != null) {
+        navigateToTvPlayback(
+            destination = destination,
+            contentId = contentId,
+            lastPlaybackNavigation = lastPlaybackNavigation,
+        )
+    } else {
+        navigate(destination) { launchSingleTop = true }
+    }
+}
+
+/** Pushes item detail, collapsing only an exact repeat of the current page. */
+private fun NavHostController.navigateToTvItemDetail(
+    contentId: String,
+    seasonNumber: Int? = null,
+) {
+    val top = currentBackStackEntry
+    if (
+        tvIsAlreadyShowingItemDetail(
+            currentRoute = top?.destination?.route,
+            currentContentId = top?.arguments?.getString(TvRoute.ItemDetail.ARG_CONTENT_ID),
+            currentSeasonNumber = top?.arguments
+                ?.getString(TvRoute.ItemDetail.ARG_SEASON_NUMBER)
+                ?.toIntOrNull(),
+            contentId = contentId,
+            seasonNumber = seasonNumber,
+        )
+    ) {
+        return
+    }
+    navigate(TvRoute.ItemDetail(contentId, seasonNumber).route)
+}
 
 /**
  * Top-level TV navigation graph.
@@ -113,6 +328,9 @@ fun TvAppNavigation(
 ) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
+    // The playback request [navigateToTvPlayback] last put on the stack, and
+    // the entry it produced. Only used to collapse an immediate repeat.
+    val lastPlaybackNavigation = remember { mutableStateOf<TvPlaybackNavigation?>(null) }
     val tokenManager: TokenManager = koinInject()
     val authRepository: AuthRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
@@ -136,11 +354,17 @@ fun TvAppNavigation(
                 audioTrackIndex = playback.audioTrackIndex,
                 subtitleTrackIndex = playback.subtitleTrackIndex,
             ).route
-            val replaceCurrentPlayer = navController.currentDestination?.route == TvRoute.Player.ROUTE
+            // Replace whichever player is on top, not just the video one. This
+            // only knew about TvRoute.Player, so a cast launch during an
+            // audiobook stacked over it and Back resurrected the audiobook
+            // player — restoring a session the viewer thought they had left.
+            val replacedPlayerRoute = navController.currentDestination?.route
+                ?.takeIf { it == TvRoute.Player.ROUTE || it == TvRoute.AudiobookPlayer.ROUTE }
+            // No launchSingleTop: popUpTo is evaluated first, so once the
+            // player entry is popped there is nothing left for single-top to
+            // match. Every Launch request deliberately (re)starts playback.
             navController.navigate(destination) {
-                if (replaceCurrentPlayer) {
-                    popUpTo(TvRoute.Player.ROUTE) { inclusive = true }
-                }
+                replacedPlayerRoute?.let { popUpTo(it) { inclusive = true } }
             }
         }
     }
@@ -213,12 +437,35 @@ fun TvAppNavigation(
             // Arrived: the current destination is this link's target, so the
             // link is spent. This is the only place a successful content link
             // is cleared — see the bookkeeping comment above.
-            val arrived = entry.arguments?.getString(TvRoute.ItemDetail.ARG_CONTENT_ID) == contentId &&
-                when (uri.host) {
-                    "item" -> route.startsWith("item/")
-                    "play" -> route.startsWith("player/") || route.startsWith("audiobook/")
-                    else -> false
-                }
+            val itemType = uri.getQueryParameter("type")
+            val playbackArgs = if (uri.host == "play") {
+                parseTvPlaybackDeepLinkArgs(uri::getQueryParameter)
+            } else {
+                null
+            }
+            val arrived = when (uri.host) {
+                "item" ->
+                    route == TvRoute.ItemDetail.ROUTE &&
+                        entry.arguments?.getString(TvRoute.ItemDetail.ARG_CONTENT_ID) == contentId
+                "play" -> tvPlaybackDeepLinkArrived(
+                    currentRoute = route,
+                    currentContentId = entry.arguments?.getString(TvRoute.Player.ARG_CONTENT_ID),
+                    currentFileId = entry.arguments
+                        ?.getString(TvRoute.Player.ARG_FILE_ID)
+                        ?.toIntOrNull(),
+                    currentQuality = entry.arguments?.getString(TvRoute.Player.ARG_QUALITY),
+                    currentAudioTrackIndex = entry.arguments
+                        ?.getString(TvRoute.Player.ARG_AUDIO_TRACK_INDEX)
+                        ?.toIntOrNull(),
+                    currentSubtitleTrackIndex = entry.arguments
+                        ?.getString(TvRoute.Player.ARG_SUBTITLE_TRACK_INDEX)
+                        ?.toIntOrNull(),
+                    itemType = itemType,
+                    contentId = contentId,
+                    requested = checkNotNull(playbackArgs),
+                )
+                else -> false
+            }
             if (arrived) {
                 Log.i(MainTvActivity.DEEP_LINK_TAG, "deep link arrived: ${uri.host}/$contentId")
                 pendingDeepLink.value = null
@@ -238,7 +485,7 @@ fun TvAppNavigation(
                 "deep link navigating (attempt $attempts): ${uri.host}/$contentId from $route",
             )
             when (uri.host) {
-                "item" -> navController.navigate(TvRoute.ItemDetail(contentId).route)
+                "item" -> navController.navigateToTvItemDetail(contentId)
                 "play" -> {
                     // The Watch Next mapper tags play intents with the item type
                     // (`prairie://play/<contentId>?type=<type>`) so audiobook tiles
@@ -247,23 +494,22 @@ fun TvAppNavigation(
                     // [tvPlayDestinationFor] treats a null type as non-audiobook
                     // and falls through to [TvRoute.Player], preserving today's
                     // behavior for movie/episode tiles.
-                    val itemType = uri.getQueryParameter("type")
-                    val playbackArgs = parseTvPlaybackDeepLinkArgs(uri::getQueryParameter)
-                    navController.navigate(
-                        tvPlayDestinationFor(
+                    val requested = checkNotNull(playbackArgs)
+                    // A retried link (arrival-gated above) must not stack a
+                    // second player over one already being created.
+                    navController.navigateToTvPlayback(
+                        destination = tvPlayDestinationFor(
                             itemType = itemType,
                             contentId = contentId,
-                            fileId = playbackArgs.fileId,
+                            fileId = requested.fileId,
                             resumePositionSeconds = null,
-                            audioTrackIndex = playbackArgs.audioTrackIndex,
-                            subtitleTrackIndex = playbackArgs.subtitleTrackIndex,
-                            quality = playbackArgs.quality,
+                            audioTrackIndex = requested.audioTrackIndex,
+                            subtitleTrackIndex = requested.subtitleTrackIndex,
+                            quality = requested.quality,
                         ),
-                    ) {
-                        // A retried link (arrival-gated above) must not stack a
-                        // second player over one already being created.
-                        launchSingleTop = true
-                    }
+                        contentId = contentId,
+                        lastPlaybackNavigation = lastPlaybackNavigation,
+                    )
                 }
             }
         }
@@ -312,44 +558,55 @@ fun TvAppNavigation(
         popEnterTransition = { fadeIn(tween(TvPageFadeDurationMs)) },
         popExitTransition = { fadeOut(tween(TvPageFadeDurationMs)) },
     ) {
+        // The four auth screens are the select-to-show-IME flow: their fields
+        // must not raise the stock keyboard on focus, only on SELECT. The host
+        // wraps them here rather than around the whole NavHost because every
+        // other text surface (search, the text-entry dialogs) does want the
+        // keyboard the moment it is focused.
         composable(TvRoute.ServerSetup.route) {
-            TvServerSetupScreen(
-                onContinueToLogin = { signupEnabled ->
-                    navController.navigate(TvRoute.Login(signupEnabled).route) {
-                        popUpTo(TvRoute.ServerSetup.route) { inclusive = true }
-                    }
-                },
-                onNeedsSetup = { navController.navigate(TvRoute.Setup.route) },
-                // Companion pairing pushed a server AND completed device-login,
-                // so the TV is already authenticated — skip the login screen and
-                // go straight to profile selection (same as a successful sign-in).
-                onPairedSignIn = {
-                    navController.navigate(TvRoute.ProfileSelection.route) {
-                        popUpTo(TvRoute.ServerSetup.route) { inclusive = true }
-                    }
-                },
-            )
+            TvSelectToShowImeHost {
+                TvServerSetupScreen(
+                    onContinueToLogin = { signupEnabled ->
+                        navController.navigate(TvRoute.Login(signupEnabled).route) {
+                            popUpTo(TvRoute.ServerSetup.route) { inclusive = true }
+                        }
+                    },
+                    onNeedsSetup = { navController.navigate(TvRoute.Setup.route) },
+                    // Companion pairing pushed a server AND completed device-login,
+                    // so the TV is already authenticated — skip the login screen and
+                    // go straight to profile selection (same as a successful sign-in).
+                    onPairedSignIn = {
+                        navController.navigate(TvRoute.ProfileSelection.route) {
+                            popUpTo(TvRoute.ServerSetup.route) { inclusive = true }
+                        }
+                    },
+                )
+            }
         }
 
         composable(TvRoute.Setup.route) {
-            TvSetupScreen(
-                onSetupComplete = {
-                    navController.navigate(TvRoute.ProfileSelection.route) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
-            )
+            TvSelectToShowImeHost {
+                TvSetupScreen(
+                    onSetupComplete = {
+                        navController.navigate(TvRoute.ProfileSelection.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                )
+            }
         }
 
         composable(TvRoute.Signup.route) {
-            TvSignupScreen(
-                onSignupComplete = {
-                    navController.navigate(TvRoute.ProfileSelection.route) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
-                onBackToLogin = { navController.popBackStack() },
-            )
+            TvSelectToShowImeHost {
+                TvSignupScreen(
+                    onSignupComplete = {
+                        navController.navigate(TvRoute.ProfileSelection.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    onBackToLogin = { navController.popBackStack() },
+                )
+            }
         }
 
         composable(TvRoute.ServerList.route) {
@@ -400,28 +657,30 @@ fun TvAppNavigation(
             ),
         ) { backStack ->
             val signupEnabled = backStack.arguments?.getBoolean(TvRoute.Login.ARG_SIGNUP_ENABLED) ?: false
-            TvLoginScreen(
-                signupEnabled = signupEnabled,
-                onCreateAccount = { navController.navigate(TvRoute.Signup.route) },
-                // Point this TV at a different server — drop Login so Back from
-                // setup can't return to a credential form with no server bound.
-                onChangeServer = {
-                    navController.navigate(TvRoute.ServerSetup.route) {
-                        popUpTo(TvRoute.Login.ROUTE) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
-                onLoginSuccess = {
-                    navController.navigate(TvRoute.ProfileSelection.route) {
-                        popUpTo(TvRoute.Login.ROUTE) { inclusive = true }
-                    }
-                    // Seed Watch Next now and schedule periodic refresh; the user has
-                    // just authenticated so /api/v1/home/sections will return their
-                    // actual continue-watching / next-up.
-                    watchNextSeeder.seedNow()
-                    watchNextSeeder.enqueuePeriodic()
-                },
-            )
+            TvSelectToShowImeHost {
+                TvLoginScreen(
+                    signupEnabled = signupEnabled,
+                    onCreateAccount = { navController.navigate(TvRoute.Signup.route) },
+                    // Point this TV at a different server — drop Login so Back from
+                    // setup can't return to a credential form with no server bound.
+                    onChangeServer = {
+                        navController.navigate(TvRoute.ServerSetup.route) {
+                            popUpTo(TvRoute.Login.ROUTE) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
+                    onLoginSuccess = {
+                        navController.navigate(TvRoute.ProfileSelection.route) {
+                            popUpTo(TvRoute.Login.ROUTE) { inclusive = true }
+                        }
+                        // Seed Watch Next now and schedule periodic refresh; the user has
+                        // just authenticated so /api/v1/home/sections will return their
+                        // actual continue-watching / next-up.
+                        watchNextSeeder.seedNow()
+                        watchNextSeeder.enqueuePeriodic()
+                    },
+                )
+            }
         }
 
         composable(TvRoute.ProfileSelection.route) {
@@ -436,12 +695,16 @@ fun TvAppNavigation(
                     watchNextSeeder.seedNow()
                     watchNextSeeder.enqueuePeriodic()
                 },
-                onAddProfile = { navController.navigate(TvRoute.CreateProfile.route) },
+                onAddProfile = {
+                    navController.navigate(TvRoute.CreateProfile.route) { launchSingleTop = true }
+                },
                 onEditProfile = { profileId ->
-                    navController.navigate(TvRoute.EditProfile(profileId).route)
+                    navController.navigate(TvRoute.EditProfile(profileId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onChangeServer = {
-                    navController.navigate(TvRoute.ServerList.route)
+                    navController.navigate(TvRoute.ServerList.route) { launchSingleTop = true }
                 },
                 onSignOut = {
                     scope.launch {
@@ -487,32 +750,28 @@ fun TvAppNavigation(
                 },
                 onManageServers = {
                     mainEntry.savedStateHandle[RETURN_TO_MANAGE_SERVERS_KEY] = true
-                    navController.navigate(TvRoute.ServerList.route)
+                    navController.navigate(TvRoute.ServerList.route) { launchSingleTop = true }
                 },
-                onOpenDiagnostics = {
-                    navController.navigate(TvRoute.Diagnostics.route)
+                onOpenDiagnosticsReport = { reportId ->
+                    navController.navigate(TvRoute.DiagnosticsReport(reportId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onOpenItemDetail = { contentId ->
-                    // launchSingleTop collapses a double-OK on the same card into
-                    // one ItemDetail entry (consecutive identical contentId), so
-                    // Back doesn't appear inert against a duplicate. Distinct
-                    // pushes are unaffected — their route args differ.
-                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
-                        launchSingleTop = true
-                    }
+                    navController.navigateToTvItemDetail(contentId)
                 },
                 onOpenWatchTogether = { room ->
-                    navController.navigate(tvWatchTogetherDestination(room)) {
-                        launchSingleTop = true
-                    }
+                    navController.navigateToTvWatchTogether(room, lastPlaybackNavigation)
                 },
-                onOpenLibraryCollectionDetail = { libraryId, collectionId, title ->
+                onOpenLibraryCollectionDetail = { libraryId, collectionId, title, libraryType ->
                     navController.navigate(
-                        TvRoute.LibraryCollectionDetail(libraryId, collectionId, title).route,
+                        TvRoute.LibraryCollectionDetail(libraryId, collectionId, title, libraryType).route,
                     )
                 },
                 onOpenCollectionDetail = { collectionId, title ->
-                    navController.navigate(TvRoute.CollectionDetail(collectionId, title).route)
+                    navController.navigate(TvRoute.CollectionDetail(collectionId, title).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onSignedOut = {
                     scope.launch {
@@ -569,7 +828,9 @@ fun TvAppNavigation(
                 // Server" opens the server list; the user picks an existing
                 // saved server or chooses Add to enter a new URL.
                 onSwitchServer = {
-                    navController.navigate(TvRoute.ServerList.route)
+                    navController.navigate(TvRoute.ServerList.route) {
+                        launchSingleTop = true
+                    }
                 },
                 onPairDevice = {
                     navController.navigate(TvRoute.PairDevice().route) {
@@ -577,28 +838,39 @@ fun TvAppNavigation(
                     }
                 },
                 onPlayItem = { playContentId, itemType, resumePositionSeconds ->
-                    navController.navigate(
-                        tvPlayDestinationFor(
+                    // A fast double Select otherwise stacks a second player,
+                    // starting two sessions and leaving Back on a duplicate.
+                    navController.navigateToTvPlayback(
+                        destination = tvPlayDestinationFor(
                             itemType = itemType,
                             contentId = playContentId,
                             fileId = null,
                             resumePositionSeconds = resumePositionSeconds,
                         ),
+                        contentId = playContentId,
+                        lastPlaybackNavigation = lastPlaybackNavigation,
                     )
                 },
                 onOpenPersonDetail = { personId ->
-                    navController.navigate(TvRoute.PersonDetail(personId).route)
+                    navController.navigate(TvRoute.PersonDetail(personId).route) {
+                        launchSingleTop = true
+                    }
                 },
             )
         }
 
-        composable(TvRoute.Diagnostics.route) {
-            TvDiagnosticsSettingsScreen(
-                onBack = { navController.popBackStack() },
-                onReportSelected = { reportId ->
-                    navController.navigate(TvRoute.DiagnosticsReport(reportId).route)
-                },
-            )
+        // ---- Removed route aliases (defensive) ---- see [TvRemovedRoutes].
+        for (removedRoute in TvRemovedRoutes) {
+            composable(removedRoute) {
+                LaunchedEffect(Unit) {
+                    navController.navigate(TvRoute.Main.route) {
+                        popUpTo(removedRoute) { inclusive = true }
+                        // A restored stack already holds Main below the alias;
+                        // without this the redirect would stack a second one.
+                        launchSingleTop = true
+                    }
+                }
+            }
         }
 
         composable(
@@ -641,57 +913,57 @@ fun TvAppNavigation(
                 // actually binds to that version instead of always defaulting
                 // to the server's first listed file (which for multi-version
                 // titles is often the lower-resolution encode).
-                onPlay = { playContentId, fileId, audioTrackIndex, subtitleTrackIndex, itemType, resumePositionSeconds ->
-                    navController.navigate(
-                        tvPlayDestinationFor(
+                onPlay = { playContentId, fileId, audioTrackIndex, audioPicked, subtitleSelection, itemType, resumePositionSeconds ->
+                    // A fast Select after entering detail can overlap the route
+                    // transition. Collapse an identical second Play request
+                    // instead of creating two player ViewModels and two
+                    // concurrent playback-session starts.
+                    navController.navigateToTvPlayback(
+                        destination = tvPlayDestinationFor(
                             itemType = itemType,
                             contentId = playContentId,
                             fileId = fileId,
                             resumePositionSeconds = resumePositionSeconds,
                             audioTrackIndex = audioTrackIndex,
-                            subtitleTrackIndex = subtitleTrackIndex,
+                            audioPickedThisSession = audioPicked,
+                            subtitleSelection = subtitleSelection,
                         ),
-                    ) {
-                        // A fast Select after entering detail can overlap the
-                        // route transition. Collapse an identical second Play
-                        // request instead of creating two player ViewModels and
-                        // two concurrent playback-session starts.
-                        launchSingleTop = true
-                    }
+                        contentId = playContentId,
+                        lastPlaybackNavigation = lastPlaybackNavigation,
+                    )
                 },
                 onItemDetail = { itemContentId ->
-                    // launchSingleTop suppresses the exact double-tap dupe; a
-                    // distinct related item (always a different contentId) still
-                    // pushes normally.
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
-                        launchSingleTop = true
-                    }
+                    // The helper, not a bare navigate: a DIFFERENT related
+                    // item pushes — which is what makes the return
+                    // restoration reachable — while an exact repeat is
+                    // collapsed by argument, not by destination node.
+                    navController.navigateToTvItemDetail(itemContentId)
                 },
                 // Season switching replaces the current detail entry so paging
                 // through seasons never stacks pages — one Back returns to the
                 // screen the user arrived from.
                 onItemDetailReplace = { itemContentId ->
                     val current = navController.currentBackStackEntry?.destination?.route
+                    // No launchSingleTop: popUpTo is evaluated first, so once
+                    // the current page is popped there is nothing left for
+                    // single-top to match.
                     navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
-                        launchSingleTop = true
                         current?.let { popUpTo(it) { inclusive = true } }
                     }
                 },
                 onSeriesClick = { seriesId ->
-                    navController.navigate(TvRoute.ItemDetail(seriesId).route) {
-                        launchSingleTop = true
-                    }
+                    navController.navigateToTvItemDetail(seriesId)
                 },
                 onSeasonClick = { seriesId, selectedSeason ->
-                    navController.navigate(TvRoute.ItemDetail(seriesId, selectedSeason).route) {
-                        launchSingleTop = true
-                    }
+                    navController.navigateToTvItemDetail(seriesId, selectedSeason)
                 },
                 onWatchTogether = { snapshot ->
-                    navController.navigate(tvWatchTogetherDestination(snapshot))
+                    navController.navigateToTvWatchTogether(snapshot, lastPlaybackNavigation)
                 },
                 onOpenPerson = { personId ->
-                    navController.navigate(TvRoute.PersonDetail(personId).route)
+                    navController.navigate(TvRoute.PersonDetail(personId).route) {
+                        launchSingleTop = true
+                    }
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -707,9 +979,7 @@ fun TvAppNavigation(
             TvPersonDetailScreen(
                 personId = personId,
                 onOpenItemDetail = { itemContentId ->
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
-                        launchSingleTop = true
-                    }
+                    navController.navigateToTvItemDetail(itemContentId)
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -775,7 +1045,22 @@ fun TvAppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                // Declared rather than left to inference so a restored back
+                // stack has a defined value: it decides whether the choice
+                // carries to the next episode.
+                navArgument(TvRoute.Player.ARG_AUDIO_PICKED) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(TvRoute.Player.ARG_SUBTITLE_TRACK_INDEX) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                // Declared for the same reason as ARG_AUDIO_PICKED: it decides
+                // whether the carried subtitle counts as the viewer's choice.
+                navArgument(TvRoute.Player.ARG_SUBTITLE_AUTO_RESOLVED) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -786,6 +1071,11 @@ fun TvAppNavigation(
                     defaultValue = null
                 },
                 navArgument(TvRoute.Player.ARG_RESUME_POSITION) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF_NONCE) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -805,15 +1095,32 @@ fun TvAppNavigation(
             val audioTrackIndex = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_AUDIO_TRACK_INDEX)
                 ?.toIntOrNull()
+            val audioPickedThisSession = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_AUDIO_PICKED) == "true"
             val subtitleTrackIndex = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_SUBTITLE_TRACK_INDEX)
                 ?.toIntOrNull()
+            val subtitleAutoResolved = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_SUBTITLE_AUTO_RESOLVED) == "true"
             val resumePositionOverride = VideoPlayerRouteArgs.parseResumePosition(
                 backStack.arguments?.getString(TvRoute.Player.ARG_RESUME_POSITION),
             )
             val autoAdvanceCount = backStack.arguments
                 ?.getString(TvRoute.Player.ARG_AUTO_ADVANCE_COUNT)
                 ?.toIntOrNull() ?: 0
+            val episodeSelectionHandoffNonce = backStack.arguments
+                ?.getString(TvRoute.Player.ARG_EPISODE_SELECTION_HANDOFF_NONCE)
+                ?.takeIf(::isValidTvEpisodeSelectionHandoffNonce)
+            val episodeSelectionHandoff = remember(
+                backStack,
+                contentId,
+                episodeSelectionHandoffNonce,
+            ) {
+                processTvEpisodeSelectionHandoffRegistry.claim(
+                    nonce = episodeSelectionHandoffNonce,
+                    targetContentId = contentId,
+                )
+            }
             TvPlayerScreen(
                 contentId = contentId,
                 preferredFileId = preferredFileId,
@@ -821,13 +1128,24 @@ fun TvAppNavigation(
                 roomId = roomId,
                 resumePositionOverride = resumePositionOverride,
                 initialAudioTrackIndex = audioTrackIndex,
+                initialAudioPickedThisSession = audioPickedThisSession,
                 initialSubtitleTrackIndex = subtitleTrackIndex,
+                initialSubtitleAutoResolved = subtitleAutoResolved,
                 autoAdvanceCount = autoAdvanceCount,
-                onPlayNext = { nextContentId, nextCount, nextQuality ->
+                episodeSelectionHandoff = episodeSelectionHandoff,
+                onPlayNext = { nextContentId, nextCount, handoff ->
+                    val handoffNonce = processTvEpisodeSelectionHandoffRegistry.register(
+                        targetContentId = nextContentId,
+                        handoff = handoff,
+                    )
                     // Replace the current player in the back stack so an
                     // auto-played chain doesn't pile up episodes behind Back.
                     navController.navigate(
-                        TvRoute.Player(contentId = nextContentId, quality = nextQuality, autoAdvanceCount = nextCount).route,
+                        TvRoute.Player(
+                            contentId = nextContentId,
+                            autoAdvanceCount = nextCount,
+                            episodeSelectionHandoffNonce = handoffNonce,
+                        ).route,
                     ) {
                         popUpTo(TvRoute.Player.ROUTE) { inclusive = true }
                     }
@@ -899,6 +1217,10 @@ fun TvAppNavigation(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(TvRoute.LibraryCollectionDetail.ARG_LIBRARY_TYPE) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) { backStack ->
             val libraryId = backStack.arguments
@@ -910,14 +1232,16 @@ fun TvAppNavigation(
             val title = backStack.arguments
                 ?.getString(TvRoute.LibraryCollectionDetail.ARG_TITLE)
                 .orEmpty()
+            val libraryType = backStack.arguments
+                ?.getString(TvRoute.LibraryCollectionDetail.ARG_LIBRARY_TYPE)
+                .orEmpty()
             TvLibraryCollectionDetailScreen(
                 libraryId = libraryId,
                 collectionId = collectionId,
                 title = title,
+                libraryType = libraryType,
                 onItemClick = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
-                        launchSingleTop = true
-                    }
+                    navController.navigateToTvItemDetail(contentId)
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -943,9 +1267,7 @@ fun TvAppNavigation(
                 collectionId = collectionId,
                 title = title,
                 onItemClick = { contentId ->
-                    navController.navigate(TvRoute.ItemDetail(contentId).route) {
-                        launchSingleTop = true
-                    }
+                    navController.navigateToTvItemDetail(contentId)
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -958,14 +1280,27 @@ fun TvAppNavigation(
         )
     }
     diagnosticsState.prompt
-        ?.takeIf { tvShouldShowDiagnosticsPrompt(currentEntry?.destination?.route) }
+        ?.takeIf {
+            tvShouldShowDiagnosticsPrompt(
+                currentRoute = currentEntry?.destination?.route,
+                diagnosticsSurfaceVisible = TvDiagnosticsSurfacePresence.isVisible,
+            )
+        }
         ?.let { prompt ->
         TvDiagnosticsPromptScreen(
             prompt = prompt,
-            onReview = { navController.navigate(TvRoute.Diagnostics.route) },
+            // "Review" means review *this* report, so it lands on the report
+            // itself rather than on a list the viewer would then have to
+            // navigate. (The diagnostics list is now Settings › Diagnostics.)
+            onReview = {
+                navController.navigate(TvRoute.DiagnosticsReport(prompt.reportId).route) {
+                    launchSingleTop = true
+                }
+            },
             onSend = { diagnosticsViewModel.uploadPrompt(prompt) },
             onAlwaysSend = { diagnosticsViewModel.alwaysSendPrompt(prompt) },
             onDontSend = { diagnosticsViewModel.declinePrompt(prompt) },
+            allowAlwaysSend = diagnosticsState.allowsAutomaticUpload,
         )
     }
     }

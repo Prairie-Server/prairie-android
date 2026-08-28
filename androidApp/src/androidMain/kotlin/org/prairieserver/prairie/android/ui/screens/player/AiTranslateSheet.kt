@@ -12,13 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -26,7 +24,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -41,16 +38,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.util.LanguageNames
 import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.subtitles.SubtitleAiJobKind
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.foundation.layout.width
 
 private val WarnAmber = Color(0xFFEAB308)
 private val ErrorRed = Color(0xFFEF4444)
@@ -79,6 +76,7 @@ fun AiTranslateSheet(
     // Tracks-submenu back affordance: closes this sheet and reopens the parent
     // TracksSheet (wired in PlayerOverlay). Null falls back to a plain dismiss.
     onBack: (() -> Unit)? = null,
+    tabletopPaneHeight: Dp? = null,
 ) {
     val aiStatus = tools.aiStatus
     val sourceTracks = remember(subtitleTracks) { subtitleTracks.filter(::isTranslatableSource) }
@@ -105,15 +103,16 @@ fun AiTranslateSheet(
         if (tools.jobJustCompleted) (onBack ?: onDismiss)()
     }
 
-    ModalBottomSheet(
+    PlayerModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color.Transparent,
-        contentColor = Color.White,
+        tabletopPaneHeight = tabletopPaneHeight,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .playerSheetContent(tabletopPaneHeight)
+                .nestedScroll(PlayerSheetFlingGuard)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
@@ -121,11 +120,13 @@ fun AiTranslateSheet(
                             Color.Black.copy(alpha = 0.92f),
                         ),
                     ),
-                ),
+                )
+                .verticalScroll(rememberScrollState()),
         ) {
             PlayerSheetHeader(
                 title = "Translate with AI",
                 onBack = onBack,
+                onDismiss = onDismiss,
             )
 
             val activeJob = tools.activeJob
@@ -147,12 +148,6 @@ fun AiTranslateSheet(
                             onClick = onCancelJob,
                             modifier = Modifier.padding(top = 12.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Cancel")
                         }
                     }
@@ -267,16 +262,6 @@ fun AiTranslateSheet(
                                 color = Color.White,
                             )
                         } else {
-                            Icon(
-                                imageVector = if (mode == AiMode.Audio) {
-                                    Icons.Default.AutoAwesome
-                                } else {
-                                    Icons.Default.Translate
-                                },
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(if (mode == AiMode.Audio) "Generate" else "Translate")
                         }
                     }

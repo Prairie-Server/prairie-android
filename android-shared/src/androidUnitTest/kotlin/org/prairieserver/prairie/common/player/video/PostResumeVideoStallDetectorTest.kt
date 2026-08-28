@@ -49,7 +49,6 @@ class PostResumeVideoStallDetectorTest {
         detector.onIsPlayingChanged("session", true, 100, 0, 0)
         assertNull(detector.sample("session", 2_000, true, true, true, 1_500, 60_000, 0))
 
-        detector.onFirstFrameRendered()
         detector.onIsPlayingChanged("session", false, 2_100, 58_000, 20)
         detector.onIsPlayingChanged("session", true, 2_200, 58_000, 20)
         assertNull(detector.sample("session", 4_000, true, true, true, 59_000, 60_000, 20))
