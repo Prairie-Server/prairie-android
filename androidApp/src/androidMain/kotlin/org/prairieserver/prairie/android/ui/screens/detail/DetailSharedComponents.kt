@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -61,21 +60,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.prairieserver.prairie.android.ui.theme.PrairieBackground
-import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
-import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
-import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceElevated
+import org.prairieserver.prairie.android.ui.theme.SiloBackground
+import org.prairieserver.prairie.android.ui.theme.SiloOnSurface
+import org.prairieserver.prairie.android.ui.theme.SiloSecondaryText
+import org.prairieserver.prairie.android.ui.theme.SiloSurfaceElevated
 import org.prairieserver.prairie.android.ui.navigation.heroTarget
 import org.prairieserver.prairie.android.ui.theme.PillShape
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.Season
+import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
 
 // ── Tokens ────────────────────────────────────────────────────
 
-internal val DetailPrimaryText = PrairieOnSurface
-internal val DetailSecondaryText = PrairieOnSurface.copy(alpha = 0.78f)
-internal val DetailTertiaryText = PrairieOnSurface.copy(alpha = 0.55f)
+internal val DetailPrimaryText = SiloOnSurface
+internal val DetailSecondaryText = SiloOnSurface.copy(alpha = 0.78f)
+internal val DetailTertiaryText = SiloOnSurface.copy(alpha = 0.55f)
 
 internal val SafePadding = 16.dp
 internal val SmallPadding = 8.dp
@@ -106,7 +106,8 @@ fun DetailHero(
     sourceTokens: List<String>,
     factsLine: List<String>,
     modifier: Modifier = Modifier,
-    dominantColor: Color = PrairieBackground,
+    dominantColor: Color = SiloBackground,
+    directorText: String? = null,
     // Optional viewer-facing description-translation affordance, rendered
     // directly under the overview (Apple parity: DescriptionTranslationView).
     translation: (@Composable () -> Unit)? = null,
@@ -144,6 +145,18 @@ fun DetailHero(
                 OverviewBlock(text = overview)
             }
             translation?.invoke()
+            directorText?.takeIf { it.isNotBlank() }?.let { line ->
+                Text(
+                    text = line,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White.copy(alpha = 0.62f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (factsLine.isNotEmpty()) {
                 FactsRow(tokens = factsLine)
             }
@@ -190,8 +203,8 @@ private fun Backdrop(
                         Brush.verticalGradient(
                             0.00f to Color.Transparent,
                             0.55f to Color.Transparent,
-                            0.85f to PrairieBackground.copy(alpha = 0.6f),
-                            1.00f to PrairieBackground,
+                            0.85f to SiloBackground.copy(alpha = 0.6f),
+                            1.00f to SiloBackground,
                         ),
                     ),
             )
@@ -323,7 +336,7 @@ private fun splitHeroTitle(raw: String): Pair<String, String?> {
 private fun EyebrowChip(text: String) {
     Surface(
         shape = PillShape,
-        color = PrairieSurfaceElevated,
+        color = SiloSurfaceElevated,
     ) {
         Text(
             text = text,
@@ -721,29 +734,13 @@ fun HeroActionStack(
                 TextButton(onClick = {
                     showResumeDialog = false
                     onPlay()
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Resume")
-                }
+                }) { Text("Resume") }
             },
             dismissButton = {
                 TextButton(onClick = {
                     showResumeDialog = false
                     onPlayFromBeginning()
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Replay,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Play from Beginning")
-                }
+                }) { Text("Play from Beginning") }
             },
         )
     }
@@ -778,7 +775,7 @@ fun SectionHeader(
                     lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.6.sp,
-                    color = PrairieOnSurface.copy(alpha = 0.7f),
+                    color = SiloOnSurface.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -798,7 +795,7 @@ fun SectionHeader(
                 text = trailingText,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                color = PrairieSecondaryText,
+                color = SiloSecondaryText,
             )
         }
     }
@@ -826,7 +823,7 @@ fun SeasonChips(
             contentType = { "season-chip" },
         ) { season ->
             val isSelected = season.seasonNumber == selectedSeasonNumber
-            val label = if (season.isSpecials) "Specials" else "Season ${season.seasonNumber}"
+            val label = phoneSeasonLabel(season)
             // iOS PhoneSeasonChips: 14pt (semibold selected / medium
             // unselected), hpad 16, height 36, unselected fill white-0.06.
             Surface(
@@ -871,8 +868,8 @@ object HeroMetadata {
         val s = detail.seasonNumber
         val e = detail.episodeNumber
         return when {
-            s != null && e != null -> "Season $s · Episode $e"
-            s != null -> "Season $s"
+            s != null && e != null -> "${phoneSeasonNumberLabel(s)} · Episode $e"
+            s != null -> phoneSeasonNumberLabel(s)
             else -> null
         }
     }
@@ -916,6 +913,12 @@ object HeroMetadata {
         }
     }
 }
+
+internal fun phoneSeasonLabel(season: Season): String =
+    if (season.isSpecialsForDisplay()) "Specials" else phoneSeasonNumberLabel(season.seasonNumber)
+
+private fun phoneSeasonNumberLabel(seasonNumber: Int): String =
+    if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
 
 // ── Play label helper ─────────────────────────────────────────
 
@@ -992,7 +995,7 @@ fun DetailFactsList(
                     lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.2.sp,
-                    color = PrairieOnSurface.copy(alpha = 0.7f),
+                    color = SiloOnSurface.copy(alpha = 0.7f),
                     modifier = Modifier.width(100.dp),
                 )
                 Text(

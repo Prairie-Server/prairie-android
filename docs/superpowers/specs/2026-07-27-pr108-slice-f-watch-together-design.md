@@ -93,7 +93,7 @@ already-applied command.
 
 ## Credentials
 
-The Silo auth plugin already attaches same-origin `Authorization`,
+The Prairie auth plugin already attaches same-origin `Authorization`,
 `X-Profile-Id`, and `X-Profile-Token` headers to websocket handshakes. Slice F
 removes the redundant access JWT from the websocket URL and verifies the
 header/query boundary with a real handshake test.

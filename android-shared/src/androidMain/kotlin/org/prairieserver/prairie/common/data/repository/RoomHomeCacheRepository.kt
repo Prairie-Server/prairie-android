@@ -1,11 +1,14 @@
 package org.prairieserver.prairie.common.data.repository
 
-import org.prairieserver.prairie.common.data.db.PrairieDatabase
+import org.prairieserver.prairie.common.data.db.SiloDatabase
 import org.prairieserver.prairie.common.data.db.entity.HomeCacheEntity
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
+import org.prairieserver.prairie.network.IdentityTransitionBarrier
 import org.prairieserver.prairie.repository.port.HomeCachePort
 import org.prairieserver.prairie.repository.port.HomeCacheSnapshot
+import org.prairieserver.prairie.repository.port.HomeCacheWriteLease
 import kotlinx.serialization.json.Json
 
 /**
@@ -17,8 +20,9 @@ import kotlinx.serialization.json.Json
  * JSON decodes to null rather than crashing the home screen.
  */
 class RoomHomeCacheRepository(
-    db: PrairieDatabase,
+    db: SiloDatabase,
     private val snapshotProvider: suspend () -> AuthScopeSnapshot?,
+    private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
     private val now: () -> Long = { System.currentTimeMillis() },
 ) : HomeCachePort {
 
@@ -26,8 +30,20 @@ class RoomHomeCacheRepository(
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun cacheHome(sections: List<ResolvedSection>) {
+        cacheHome(
+            sections = sections,
+            lease = HomeCacheWriteLease(identityTransitions.generation.value),
+        )
+    }
+
+    override suspend fun cacheHome(
+        sections: List<ResolvedSection>,
+        lease: HomeCacheWriteLease,
+    ) {
+        if (lease.identityGeneration != identityTransitions.generation.value) return
         val snapshot = snapshotProvider() ?: return
         val profileId = snapshot.profileId ?: return
+        if (lease.identityGeneration != identityTransitions.generation.value) return
         val sectionsJson = json.encodeToString(sections)
         // A Room row must fit SQLite's ~2MB CursorWindow or the *read* throws
         // SQLiteBlobTooBigException. Large reorganized home layouts can exceed

@@ -6,7 +6,7 @@ Bring the server media-request system to Android clients with a shared Kotlin co
 
 ## Source Contract
 
-The server source of truth is the current `/opt/prairie-server` working tree on `root@silo-new`, especially:
+The server source of truth is the current `/opt/prairie-server` working tree on `root@prairie-new`, especially:
 
 - `internal/api/router.go`
 - `internal/api/handlers/requests.go`

@@ -325,6 +325,9 @@ class MainTvActivity : ComponentActivity() {
                 personalDataRepository = get(PersonalDataRepository::class.java),
                 sectionRepository = get(SectionRepository::class.java),
                 homeCache = get(HomeCachePort::class.java),
+                identityTransitions = get<org.prairieserver.prairie.network.IdentityTransitionBarrier>(
+                    org.prairieserver.prairie.network.IdentityTransitionBarrier::class.java,
+                ),
                 serverUrl = get<ServerRegistry>(ServerRegistry::class.java).activeEntry.value?.url,
                 artworkPlan = StartupArtworkPlan.tv(),
             )

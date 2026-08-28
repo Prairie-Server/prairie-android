@@ -21,7 +21,7 @@ OAuth on prairie-server is **plugin-driven generic OIDC** — there are no built
 
 Because the server completes OAuth by redirecting a **browser** to `{PublicURL}/login/oauth-complete?code=…` and offers no app-scheme/PKCE redirect, the client cannot receive the completion through a Chrome Custom Tab without a server-side App Links file per self-hosted domain (rejected: unreliable, larger scope). A **WebView gives full URL interception**, which is exactly what is needed: load the IdP authorize URL, watch each navigation, and capture the completion redirect's `code`. This is the approved mechanism.
 
-**Known limitation:** WebView-based OAuth is fine for self-hosted OIDC (what silo uses) but Google-branded sign-in disallows embedded WebViews (`disallowed_useragent`). Documented, not worked around.
+**Known limitation:** WebView-based OAuth is fine for self-hosted OIDC (what prairie uses) but Google-branded sign-in disallows embedded WebViews (`disallowed_useragent`). Documented, not worked around.
 
 ## Client design
 

@@ -481,7 +481,7 @@ data class AiTranslateUiState(
  * final progress flushing, and session stop. Intro auto-skip and player notices
  * are exposed as separate flows for the screen to consume.
  *
- * Playback itself still goes through [org.prairieserver.prairie.common.player.PrairiePlayerFactory] +
+ * Playback itself still goes through [org.prairieserver.prairie.common.player.SiloPlayerFactory] +
  * [PlaybackSessionManager]. The ViewModel receives track info from the
  * screen (via [onTracksChanged]) because ExoPlayer is owned by the
  * composable.
@@ -734,7 +734,7 @@ class TvPlayerViewModel(
         val isScrubbing: Boolean = false,
         val scrubPreviewSec: Double = 0.0,
         // Sidecar subtitle URLs from the playback session — passed into
-        // [PrairiePlayerFactory.createMediaSource] so the player loads them
+        // [SiloPlayerFactory.createMediaSource] so the player loads them
         // as text tracks (the stream manifest doesn't reference these).
         val subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
         // Server media file id for the active version — required by the
@@ -1019,16 +1019,16 @@ class TvPlayerViewModel(
      * Per-profile audio delay in ms, ±500 clamp. Sourced from
      * [PlayerSettingsStore.audioSyncMsFlow]; mirrored into the active
      * [org.prairieserver.prairie.common.player.audio.DelayAudioProcessor] by
-     * [org.prairieserver.prairie.common.player.PrairiePlaybackService] (E T3).
+     * [org.prairieserver.prairie.common.player.SiloPlaybackService] (E T3).
      * The HUD Audio pane reads this for its delay stepper.
      */
     val audioDelayMs: StateFlow<Int> = playerSettingsStore.audioSyncMsFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     /**
-     * Per-profile subtitle delay in ms, ±500 clamp. Sourced from
+     * Per-device subtitle delay in ms, ±10000 clamp. Sourced from
      * [PlayerSettingsStore.subtitleSyncMsFlow]; mirrored into the active
      * [org.prairieserver.prairie.common.player.subtitle.SubtitleOffsetHolder] by
-     * [org.prairieserver.prairie.common.player.PrairiePlaybackService] (A.3f T2).
+     * [org.prairieserver.prairie.common.player.SiloPlaybackService] (A.3f T2).
      * The HUD Subtitles pane reads this for its delay stepper.
      */
     val subtitleDelayMs: StateFlow<Int> = playerSettingsStore.subtitleSyncMsFlow
@@ -1124,7 +1124,7 @@ class TvPlayerViewModel(
 
         // Reduce the analytics listener's event stream into the HUD's Stats
         // snapshot. The listener is a process-wide singleton shared with
-        // PrairiePlaybackService; we just subscribe — no extra registration.
+        // SiloPlaybackService; we just subscribe — no extra registration.
         viewModelScope.launch {
             playbackAnalytics.events.collect { event ->
                 _uiState.update { it.copy(stats = reducePlayerStats(it.stats, event)) }
@@ -3650,14 +3650,14 @@ class TvPlayerViewModel(
     }
 
     /**
-     * HUD Subtitles pane stepper handler. Coerced to ±500ms in the store; the
+     * HUD Subtitles pane stepper handler. Coerced to ±10000ms in the store; the
      * service binding (A.3f T2) picks up the new value and pushes it into the
      * shared [org.prairieserver.prairie.common.player.subtitle.SubtitleOffsetHolder]
-     * (forcing a flush via `seekTo(currentPosition)` so the change applies
-     * mid-playback by dropping already-buffered cues).
+     * while reparsing the current media item so the change applies to already-
+     * buffered cues.
      */
     fun onSubtitleDelayChanged(delayMs: Int) {
-        viewModelScope.launch { playerSettingsStore.setSubtitleSyncMsFor(contentId, delayMs) }
+        viewModelScope.launch { playerSettingsStore.setSubtitleSyncMs(delayMs) }
     }
 
     // ---- Sleep timer setters ---------------------------------------------------

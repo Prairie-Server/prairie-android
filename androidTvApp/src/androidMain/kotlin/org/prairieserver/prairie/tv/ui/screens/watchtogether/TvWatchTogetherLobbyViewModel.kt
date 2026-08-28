@@ -6,6 +6,8 @@ import org.prairieserver.prairie.model.watchtogether.PromoteSuggestionRequest
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.model.watchtogether.Suggestion
 import org.prairieserver.prairie.model.watchtogether.UpdatePolicyRequest
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.repository.WatchTogetherRepository
 import org.prairieserver.prairie.watchtogether.RoomSession
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,26 +42,43 @@ class TvWatchTogetherLobbyViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, repository.suggestions.value)
     val roomClosedReason: StateFlow<String?> = repository.roomClosedReason
         .stateIn(viewModelScope, SharingStarted.Eagerly, repository.roomClosedReason.value)
+    val errors = repository.errors
 
-    fun vote(suggestionId: String) = viewModelScope.launch { repository.vote(suggestionId) }
-    fun unvote(suggestionId: String) = viewModelScope.launch { repository.unvote(suggestionId) }
+    fun vote(suggestionId: String) =
+        launchOperation("Could not vote") { repository.vote(suggestionId) }
+
+    fun unvote(suggestionId: String) =
+        launchOperation("Could not remove vote") { repository.unvote(suggestionId) }
+
     fun removeSuggestion(suggestionId: String) =
-        viewModelScope.launch { repository.deleteSuggestion(suggestionId) }
+        launchOperation("Could not remove suggestion") {
+            repository.deleteSuggestion(suggestionId)
+        }
 
     /** Host: promote a suggestion to the room selection (moves everyone to the player). */
     fun promote(suggestionId: String) =
-        viewModelScope.launch {
+        launchOperation("Could not start suggestion") {
             repository.promoteSuggestion(PromoteSuggestionRequest(suggestionId = suggestionId))
         }
 
     /** Host: change the guest-control policy. */
     fun updatePolicy(guestControlPolicyWire: String) =
-        viewModelScope.launch {
+        launchOperation("Could not update room policy") {
             repository.updatePolicy(UpdatePolicyRequest(guestControlPolicy = guestControlPolicyWire))
         }
 
     /** Host: close the room for everyone. */
-    fun closeRoom() = viewModelScope.launch { repository.closeRoom() }
+    fun closeRoom() = launchOperation("Could not close room") { repository.closeRoom() }
+
+    private fun <T> launchOperation(
+        fallback: String,
+        operation: suspend () -> ApiResult<T>,
+    ) = viewModelScope.launch {
+        val result = operation()
+        if (result !is ApiResult.Success) {
+            repository.reportDeliveryFailure(result.errorMessage(fallback))
+        }
+    }
 
     /**
      * Leave the room: tear down our own WS and reset shared repo state. Matches

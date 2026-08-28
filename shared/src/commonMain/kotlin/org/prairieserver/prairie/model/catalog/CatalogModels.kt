@@ -372,13 +372,46 @@ data class SeasonsResponse(
     val seasons: List<Season> = emptyList()
 )
 
+fun Season.isSpecialsForDisplay(): Boolean =
+    isSpecials || seasonNumber == 0
+
 fun List<Season>.sortedForDisplay(): List<Season> =
     sortedWith(
-        compareBy<Season> { if (it.isSpecials) 1 else 0 }
+        compareByDescending<Season> { it.isSpecialsForDisplay() }
             .thenBy { it.seasonNumber }
             .thenBy { it.title.orEmpty() }
             .thenBy { it.contentId },
     )
+
+private fun List<Season>.selectedSeasonForDisplay(preferredSeasonNumber: Int?): Season? {
+    return preferredSeasonNumber
+        ?.let { preferred -> firstOrNull { it.seasonNumber == preferred } }
+        ?: firstOrNull { !it.isSpecialsForDisplay() }
+        ?: firstOrNull()
+}
+
+fun List<Season>.initialSeasonForDisplay(preferredSeasonNumber: Int?): Season? =
+    sortedForDisplay().selectedSeasonForDisplay(preferredSeasonNumber)
+
+data class InitialSeasonDisplayPlan(
+    val seasons: List<Season>,
+    val selectedSeasonNumber: Int?,
+) {
+    val episodeRequestSeasonNumber: Int?
+        get() = selectedSeasonNumber
+}
+
+fun List<Season>.initialSeasonDisplayPlan(
+    preferredSeasonNumber: Int?,
+): InitialSeasonDisplayPlan {
+    val seasons = sortedForDisplay()
+    return InitialSeasonDisplayPlan(
+        seasons = seasons,
+        selectedSeasonNumber = seasons
+            .selectedSeasonForDisplay(preferredSeasonNumber)
+            ?.seasonNumber,
+    )
+}
 
 @Serializable
 data class EpisodeListItem(

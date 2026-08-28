@@ -98,7 +98,7 @@ This plan implements **Phase 4 only** of `docs/superpowers/specs/2026-06-12-eboo
   > **CHECK constraint name note:** The original inline `CHECK (...)` in `20260608000300_ebook_reader_state.sql` is unnamed, so Postgres auto-names it `ebook_reader_annotations_check`. The `DROP CONSTRAINT IF EXISTS ebook_reader_annotations_check` above targets that auto-name. Verify the live name before relying on the Down path:
   > ```
   > make migrate-up
-  > docker compose exec -T postgres psql -U silo -d silo -c "\d+ ebook_reader_annotations" | grep -i check
+  > docker compose exec -T postgres psql -U prairie -d prairie -c "\d+ ebook_reader_annotations" | grep -i check
   > ```
   > If the auto-name differs in the target DB, adjust the `DROP CONSTRAINT IF EXISTS` argument in the Up block before applying. The `IF EXISTS` guard keeps the migration safe either way.
 - [ ] Validate annotations parse without a DB:
@@ -113,7 +113,7 @@ This plan implements **Phase 4 only** of `docs/superpowers/specs/2026-06-12-eboo
   ```
 - [ ] Manually verify down/up round-trip in dev (do NOT do this against prod):
   ```
-  go run ./cmd/silo/ --env .env --migrate-down-one   # if supported; else use goose directly per Makefile GOOSE var
+  go run ./cmd/prairie/ --env .env --migrate-down-one   # if supported; else use goose directly per Makefile GOOSE var
   make migrate-up
   ```
   Confirm `\d+ ebook_reader_annotations` shows `locator_range jsonb` and the `_anchor_check` constraint after re-up.

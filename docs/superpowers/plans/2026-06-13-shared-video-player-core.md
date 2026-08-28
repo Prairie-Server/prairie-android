@@ -82,7 +82,7 @@ androidTvApp/src/androidUnitTest/kotlin/com/continuum/app/tv/ui/screens/player/
 - [ ] Run repository status and note unrelated local changes without reverting them.
 
 ```bash
-cd /Users/jimcole/projects/silo/prairie-android
+cd /Users/jimcole/projects/prairie/prairie-android
 git status --short
 git branch --show-current
 ```
@@ -1669,7 +1669,7 @@ Manual flow:
 SHIELD_ID=$(adb devices -l | awk 'tolower($0) ~ /device / && tolower($0) ~ /(shield|nvidia|android_tv)/ { print $1; exit }')
 test -n "$SHIELD_ID"
 adb -s "$SHIELD_ID" logcat -c
-adb -s "$SHIELD_ID" logcat | rg -i "continuum|silo|player|subtitle|media3|exoplayer|resume|error|exception"
+adb -s "$SHIELD_ID" logcat | rg -i "continuum|prairie|player|subtitle|media3|exoplayer|resume|error|exception"
 ```
 
 Expected observation:
@@ -1686,7 +1686,7 @@ Subtitle selection produces Media3 or app logs showing selected text track.
 PIXEL_ID=$(adb devices -l | awk 'tolower($0) ~ /device / && tolower($0) ~ /pixel/ { print $1; exit }')
 test -n "$PIXEL_ID"
 adb -s "$PIXEL_ID" logcat -c
-adb -s "$PIXEL_ID" logcat | rg -i "continuum|silo|player|subtitle|media3|exoplayer|resume|error|exception"
+adb -s "$PIXEL_ID" logcat | rg -i "continuum|prairie|player|subtitle|media3|exoplayer|resume|error|exception"
 ```
 
 Expected observation:

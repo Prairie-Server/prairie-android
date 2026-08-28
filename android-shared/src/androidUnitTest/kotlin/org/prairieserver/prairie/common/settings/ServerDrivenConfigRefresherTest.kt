@@ -164,12 +164,12 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val playbackSpeedFlow: Flow<Double> = flowOf(1.0)
     override val audioSyncMsFlow: Flow<Int> = flowOf(0)
     override val subtitleSyncMsFlow: Flow<Int> = flowOf(0)
-    override fun subtitleSyncMsFor(contentId: String?): Flow<Int> = subtitleSyncMsFlow
     override val nextUpPromptSecondsFlow: Flow<Int> = flowOf(30)
     override val sleepTimerDefaultMinutesFlow: Flow<Int> = flowOf(30)
     override val resumeRewindSecondsFlow: Flow<Int> = flowOf(7)
     override val passOutThresholdFlow: Flow<Int> = flowOf(3)
     override val preferredQualityFlow: Flow<String> = flowOf("auto")
+    override val maxBitrateKbpsFlow: Flow<Int?> = flowOf(null)
     override val audioLanguageFlow: Flow<String> = flowOf("")
     override val videoGravityFlow: Flow<String> = flowOf("fit")
     override val orientationModeFlow: Flow<String> = flowOf("auto")
@@ -193,16 +193,17 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setPlaybackSpeed(value: Double) = Unit
     override suspend fun setAudioSyncMs(value: Int) = Unit
     override suspend fun setSubtitleSyncMs(value: Int) = Unit
-    override suspend fun setSubtitleSyncMsFor(contentId: String, value: Int) = Unit
     override suspend fun setNextUpPromptSeconds(value: Int) = Unit
     override suspend fun setSleepTimerDefaultMinutes(value: Int) = Unit
     override suspend fun setResumeRewindSeconds(value: Int) = Unit
     override suspend fun setPassOutThreshold(value: Int) = Unit
     override suspend fun setPreferredQuality(value: String) = Unit
+    override suspend fun setQuality(resolution: String, bitrateKbps: Int?) = Unit
     override suspend fun setAudioLanguage(value: String) = Unit
     override suspend fun setVideoGravity(value: String) = Unit
     override suspend fun setOrientationMode(value: String) = Unit
     override suspend fun setSubtitleAppearance(value: SubtitleAppearance) = Unit
+    override suspend fun flushProjectedSubtitleAppearance() = Unit
     override suspend fun refreshFromServer() {
         refreshCalls++
     }

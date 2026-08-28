@@ -46,15 +46,15 @@ import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnostic
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsReportScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsSettingsScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
-import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherLobbyScreen
+import org.prairieserver.prairie.tv.ui.screens.watchtogether.tvWatchTogetherDestination
 import org.prairieserver.prairie.common.overlays.ProvideCardOverlays
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
-import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
-import org.prairieserver.prairie.tv.ui.screens.cast.TvPrairieCastStandbyView
+import org.prairieserver.prairie.tv.cast.TvSiloCastReceiver
+import org.prairieserver.prairie.tv.ui.screens.cast.TvSiloCastStandbyView
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -119,15 +119,15 @@ fun TvAppNavigation(
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
-    val prairieCastReceiver: TvPrairieCastReceiver = koinInject()
+    val siloCastReceiver: TvSiloCastReceiver = koinInject()
     val diagnosticsViewModel = koinViewModel<TvDiagnosticsViewModel>()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     val pendingDeepLink: MutableStateFlow<Uri?> =
         koinInject(qualifier = named("pendingDeepLink"))
-    val prairieCastStandby by prairieCastReceiver.standbyState.collectAsState()
+    val siloCastStandby by siloCastReceiver.standbyState.collectAsState()
 
-    LaunchedEffect(prairieCastReceiver) {
-        prairieCastReceiver.launchRequests.collect { request ->
+    LaunchedEffect(siloCastReceiver) {
+        siloCastReceiver.launchRequests.collect { request ->
             val playback = request.playback
             val destination = TvRoute.Player(
                 contentId = playback.contentId,
@@ -501,6 +501,11 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
+                onOpenWatchTogether = { room ->
+                    navController.navigate(tvWatchTogetherDestination(room)) {
+                        launchSingleTop = true
+                    }
+                },
                 onOpenLibraryCollectionDetail = { libraryId, collectionId, title ->
                     navController.navigate(
                         TvRoute.LibraryCollectionDetail(libraryId, collectionId, title).route,
@@ -682,24 +687,8 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
-                // Watch Together: the entry dialog resolves a room snapshot; route
-                // host-with-selection straight to the synced player (carrying
-                // roomId), otherwise into the lobby to wait/vote/pick.
                 onWatchTogether = { snapshot ->
-                    val hostAlone =
-                        snapshot.selfRole == MemberRole.Host && snapshot.memberCount <= 1
-                    val target = if (!snapshot.selectedContentId.isNullOrBlank() && !hostAlone) {
-                        TvRoute.Player(
-                            contentId = snapshot.selectedContentId!!,
-                            fileId = snapshot.selectedFileId,
-                            roomId = snapshot.roomId,
-                            resumePositionSeconds = snapshot.anchorPositionSeconds
-                                .takeIf { it.isFinite() && it > 0.0 },
-                        ).route
-                    } else {
-                        TvRoute.WatchTogetherLobby(roomId = snapshot.roomId).route
-                    }
-                    navController.navigate(target)
+                    navController.navigate(tvWatchTogetherDestination(snapshot))
                 },
                 onOpenPerson = { personId ->
                     navController.navigate(TvRoute.PersonDetail(personId).route)
@@ -962,10 +951,10 @@ fun TvAppNavigation(
             )
         }
     }
-    prairieCastStandby?.let { state ->
-        TvPrairieCastStandbyView(
+    siloCastStandby?.let { state ->
+        TvSiloCastStandbyView(
             state = state,
-            onDisconnect = prairieCastReceiver::disconnectRemoteControl,
+            onDisconnect = siloCastReceiver::disconnectRemoteControl,
         )
     }
     diagnosticsState.prompt

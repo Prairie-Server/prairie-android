@@ -145,7 +145,7 @@ internal class ScopedJsonFileStore(
 
     private fun createExclusiveTemp(parent: File): ExclusiveTemp? {
         repeat(MAX_TEMP_ATTEMPTS) {
-            val candidate = File(parent, ".silo-${UUID.randomUUID()}.tmp")
+            val candidate = File(parent, ".prairie-${UUID.randomUUID()}.tmp")
             var directoryStream: java.nio.file.DirectoryStream<Path>? = null
             try {
                 directoryStream = Files.newDirectoryStream(parent.toPath())

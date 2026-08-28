@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,9 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.screens.auth.AuthColors
 import org.prairieserver.prairie.android.ui.screens.auth.AuthErrorBanner
-import org.prairieserver.prairie.android.ui.screens.auth.PrairieButton
-import org.prairieserver.prairie.android.ui.screens.auth.PrairieTextField
-import org.prairieserver.prairie.model.profile.displayProfileQualityPreference
+import org.prairieserver.prairie.android.ui.screens.auth.SiloButton
+import org.prairieserver.prairie.android.ui.screens.auth.SiloTextField
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -100,9 +100,11 @@ fun CreateProfileScreen(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .imePadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp),
         ) {
             state.error?.let { error ->
@@ -128,11 +130,11 @@ fun CreateProfileScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                for (emoji in AvatarOptions.emojis) {
+                for (avatarRef in AvatarOptions.presets) {
                     AvatarPickerItem(
-                        emoji = emoji,
-                        isSelected = state.selectedAvatar == emoji,
-                        onClick = { viewModel.onAvatarSelected(emoji) },
+                        avatarRef = avatarRef,
+                        isSelected = state.selectedAvatar == avatarRef,
+                        onClick = { viewModel.onAvatarSelected(avatarRef) },
                     )
                 }
             }
@@ -140,7 +142,7 @@ fun CreateProfileScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // -- Name --
-            PrairieTextField(
+            SiloTextField(
                 value = state.name,
                 onValueChange = viewModel::onNameChanged,
                 label = "Profile Name",
@@ -178,7 +180,7 @@ fun CreateProfileScreen(
 
             if (state.pinEnabled) {
                 Spacer(modifier = Modifier.height(8.dp))
-                PrairieTextField(
+                SiloTextField(
                     value = state.pin,
                     onValueChange = viewModel::onPinChanged,
                     label = "4-Digit PIN",
@@ -187,16 +189,6 @@ fun CreateProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-
-            // -- Quality preference --
-            DropdownField(
-                label = "Quality Preference",
-                selected = displayProfileQualityPreference(state.qualityPreference),
-                options = QUALITY_OPTIONS,
-                onSelected = viewModel::onQualitySelected,
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
 
             // -- Subtitle mode --
             DropdownField(
@@ -210,7 +202,7 @@ fun CreateProfileScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            PrairieButton(
+            SiloButton(
                 text = "Create Profile",
                 onClick = viewModel::onCreateClick,
                 isLoading = state.isLoading,
@@ -225,7 +217,7 @@ fun CreateProfileScreen(
 
 @Composable
 internal fun SectionHeader(text: String) {
-    // iOS phone field labels use prairieCaption (12pt regular, secondary).
+    // iOS phone field labels use siloCaption (12pt regular, secondary).
     Text(
         text = text,
         fontSize = 12.sp,
@@ -247,14 +239,14 @@ internal fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            // iOS phone Toggle title: prairieBody (14pt), onSurface.
+            // iOS phone Toggle title: siloBody (14pt), onSurface.
             Text(
                 text = label,
                 fontSize = 14.sp,
                 color = AuthColors.OnBackground,
             )
             if (subtitle != null) {
-                // iOS phone Toggle subtitle: prairieCaption (12pt), secondary.
+                // iOS phone Toggle subtitle: siloCaption (12pt), secondary.
                 Text(
                     text = subtitle,
                     fontSize = 12.sp,

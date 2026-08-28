@@ -76,26 +76,24 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.model.settings.LanguageOptions
+import org.prairieserver.prairie.domain.settings.ProfileSettingsController
+import org.prairieserver.prairie.model.settings.QualityPresets
+import org.prairieserver.prairie.model.settings.SettingKeys
 import org.prairieserver.prairie.model.settings.SubtitleBackgroundStylePreset
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.settings.SubtitleFontSizePreset
 import org.prairieserver.prairie.model.settings.SubtitlePositionPreset
 import org.prairieserver.prairie.model.settings.pointSize
 import org.prairieserver.prairie.tv.BuildConfig
-import org.prairieserver.prairie.tv.data.preferences.PlaybackQuality
 import org.prairieserver.prairie.tv.data.preferences.SubtitleMode
 import org.prairieserver.prairie.tv.ui.screens.player.TvSubtitleAppearanceOptions
 import org.prairieserver.prairie.tv.ui.screens.settings.diagnostics.TvDiagnosticsViewModel
 import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
 import org.prairieserver.prairie.tv.ui.theme.FocusedContent
 import org.prairieserver.prairie.tv.ui.theme.Spacing
-import org.prairieserver.prairie.update.changelogUrlOrNull
-import org.prairieserver.prairie.update.latestVersionLabel
-import org.prairieserver.prairie.update.releaseUrlOrNull
-import org.prairieserver.prairie.update.statusLabel
 import org.koin.compose.viewmodel.koinViewModel
 import kotlinx.coroutines.delay
-import androidx.compose.ui.platform.LocalUriHandler
 
 /**
  * TV Settings — a tvOS-style split rail/detail surface modeled on
@@ -200,7 +198,7 @@ fun TvSettingsScreen(
         onNavigateToDiagnostics = onNavigateToDiagnostics,
         onRequestSignOut = { showSignOutConfirm = true },
         onNavigateToAdmin = onNavigateToAdmin,
-        onQualityChanged = viewModel::onPlaybackQualityChanged,
+        onQualityPresetSelected = viewModel::onQualityPresetSelected,
         onAudioLanguageChanged = viewModel::onAudioLanguageChanged,
         onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
         onAutoSkipIntroChanged = viewModel::onAutoSkipIntroChanged,
@@ -301,7 +299,8 @@ private fun SettingsSplitLayout(
     onNavigateToDiagnostics: () -> Unit,
     onRequestSignOut: () -> Unit,
     onNavigateToAdmin: () -> Unit,
-    onQualityChanged: (PlaybackQuality) -> Unit,
+    /** Receives a [QualityPresets] preset id. */
+    onQualityPresetSelected: (String) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
@@ -369,7 +368,7 @@ private fun SettingsSplitLayout(
             onShowAudiobooksTabChanged = onShowAudiobooksTabChanged,
             onManageServers = onManageServers,
             onNavigateToDiagnostics = onNavigateToDiagnostics,
-            onQualityChanged = onQualityChanged,
+            onQualityPresetSelected = onQualityPresetSelected,
             onAudioLanguageChanged = onAudioLanguageChanged,
             onAutoPlayNextChanged = onAutoPlayNextChanged,
             onAutoSkipIntroChanged = onAutoSkipIntroChanged,
@@ -486,7 +485,7 @@ private fun SettingsRail(
             onFocused = { railActionHasFocus = true },
         )
         Text(
-            text = "Prairie ${state.appVersionName.ifBlank { BuildConfig.VERSION_NAME }}",
+            text = "Prairie ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodySmall.copy(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 14.sp,
@@ -638,7 +637,8 @@ private fun SettingsDetailPane(
     onShowAudiobooksTabChanged: (Boolean) -> Unit,
     onManageServers: () -> Unit,
     onNavigateToDiagnostics: () -> Unit,
-    onQualityChanged: (PlaybackQuality) -> Unit,
+    /** Receives a [QualityPresets] preset id. */
+    onQualityPresetSelected: (String) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
@@ -699,7 +699,7 @@ private fun SettingsDetailPane(
             TvSettingsCategory.Playback -> TvPlaybackSettingsPane(
                 state = state,
                 firstFocusRequester = detailFocusRequester,
-                onQualityChanged = onQualityChanged,
+                onQualityPresetSelected = onQualityPresetSelected,
                 onAudioLanguageChanged = onAudioLanguageChanged,
                 onAutoPlayNextChanged = onAutoPlayNextChanged,
                 onAutoSkipIntroChanged = onAutoSkipIntroChanged,
@@ -784,7 +784,8 @@ private fun TvGeneralSettingsPane(
 private fun TvPlaybackSettingsPane(
     state: TvSettingsViewModel.UiState,
     firstFocusRequester: FocusRequester,
-    onQualityChanged: (PlaybackQuality) -> Unit,
+    /** Receives a [QualityPresets] preset id. */
+    onQualityPresetSelected: (String) -> Unit,
     onAudioLanguageChanged: (String) -> Unit,
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onAutoSkipIntroChanged: (Boolean) -> Unit,
@@ -798,6 +799,13 @@ private fun TvPlaybackSettingsPane(
     onResetPlaybackOverrides: () -> Unit,
 ) {
     var activePicker by remember { mutableStateOf<PlaybackPicker?>(null) }
+    val audioLanguages = remember(state.audioLanguage, state.audioLanguageSuggestions) {
+        LanguageOptions.options(
+            key = SettingKeys.PLAYBACK_AUDIO_LANGUAGE,
+            currentValue = state.audioLanguage,
+            runtimeValues = state.audioLanguageSuggestions,
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -808,13 +816,16 @@ private fun TvPlaybackSettingsPane(
             SettingsGroup(title = "Streaming") {
                 SettingsValueRow(
                     label = "Quality",
-                    value = state.playbackQuality.label,
+                    value = QualityPresets.describe(state.qualityResolution, state.maxBitrateKbps),
                     onClick = { activePicker = PlaybackPicker.Quality },
                     focusRequester = firstFocusRequester,
                 )
                 SettingsValueRow(
                     label = "Audio Language",
-                    value = audioLanguageLabel(state.audioLanguage),
+                    value = LanguageOptions.label(
+                        state.audioLanguage,
+                        SettingKeys.PLAYBACK_AUDIO_LANGUAGE,
+                    ),
                     onClick = { activePicker = PlaybackPicker.AudioLanguage },
                 )
                 // tvOS TVPlaybackSettingsPane STREAMING parity: Dolby Vision
@@ -889,19 +900,23 @@ private fun TvPlaybackSettingsPane(
     }
 
     when (activePicker) {
+        // The picker offers presets; a stored pair no preset covers (set
+        // through the API, or left by a legacy compound value) selects
+        // nothing rather than silently highlighting the wrong entry.
         PlaybackPicker.Quality -> TvSettingsPickerSheet(
             title = "Quality",
-            options = PlaybackQuality.values().map { PickerOption(it.name, it.label) },
-            selectedId = state.playbackQuality.name,
+            options = QualityPresets.ALL.map { PickerOption(it.id, it.label) },
+            selectedId = QualityPresets.presetFor(state.qualityResolution, state.maxBitrateKbps)?.id
+                ?: "",
             onSelect = { id ->
-                PlaybackQuality.values().firstOrNull { it.name == id }?.let(onQualityChanged)
+                onQualityPresetSelected(id)
                 activePicker = null
             },
             onDismiss = { activePicker = null },
         )
         PlaybackPicker.AudioLanguage -> TvSettingsPickerSheet(
             title = "Audio Language",
-            options = AudioLanguages.map { PickerOption(it.first, it.second) },
+            options = audioLanguages.map { PickerOption(it.first, it.second) },
             selectedId = state.audioLanguage,
             onSelect = { onAudioLanguageChanged(it); activePicker = null },
             onDismiss = { activePicker = null },
@@ -965,12 +980,37 @@ private fun TvSubtitleSettingsPane(
     var activePicker by remember { mutableStateOf<SubtitlePicker?>(null) }
     var showResetConfirmation by remember { mutableStateOf(false) }
     val appearance = state.subtitleAppearance
+    val subtitleLanguages = remember(
+        state.subtitleLanguage,
+        state.subtitleLanguageSuggestions,
+    ) {
+        LanguageOptions.options(
+            key = SettingKeys.PLAYBACK_SUBTITLE_LANGUAGE,
+            currentValue = state.subtitleLanguage,
+            runtimeValues = state.subtitleLanguageSuggestions,
+        )
+    }
+    val metadataLanguages = remember(
+        state.metadataLanguage,
+        state.metadataLanguageSuggestions,
+    ) {
+        LanguageOptions.options(
+            key = SettingKeys.CATALOG_METADATA_LANGUAGE,
+            currentValue = state.metadataLanguage,
+            runtimeValues = state.metadataLanguageSuggestions,
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(bottom = Spacing.xxxl),
     ) {
+        if (state.settingsAvailability ==
+            ProfileSettingsController.Availability.SERVER_UPGRADE_REQUIRED
+        ) {
+            item { TvSettingsUpgradeRequiredNotice() }
+        }
         item {
             SettingsGroup(title = "Profile") {
                 SettingsValueRow(
@@ -981,13 +1021,19 @@ private fun TvSubtitleSettingsPane(
                 )
                 SettingsValueRow(
                     label = "Language",
-                    value = subtitleLanguageLabel(state.subtitleLanguage),
+                    value = LanguageOptions.label(
+                        state.subtitleLanguage,
+                        SettingKeys.PLAYBACK_SUBTITLE_LANGUAGE,
+                    ),
                     onClick = { activePicker = SubtitlePicker.Language },
                 )
                 if (metadataLanguageEnabled) {
                     SettingsValueRow(
                         label = "Metadata Language",
-                        value = subtitleLanguageLabel(state.metadataLanguage),
+                        value = LanguageOptions.label(
+                            state.metadataLanguage,
+                            SettingKeys.CATALOG_METADATA_LANGUAGE,
+                        ),
                         onClick = { activePicker = SubtitlePicker.MetadataLanguage },
                     )
                 }
@@ -1105,14 +1151,14 @@ private fun TvSubtitleSettingsPane(
         )
         SubtitlePicker.Language -> TvSettingsPickerSheet(
             title = "Language",
-            options = SubtitleLanguages.map { PickerOption(it.first, it.second) },
+            options = subtitleLanguages.map { PickerOption(it.first, it.second) },
             selectedId = state.subtitleLanguage,
             onSelect = { onSubtitleLanguageChanged(it); activePicker = null },
             onDismiss = { activePicker = null },
         )
         SubtitlePicker.MetadataLanguage -> TvSettingsPickerSheet(
             title = "Metadata Language",
-            options = SubtitleLanguages.map { PickerOption(it.first, it.second) },
+            options = metadataLanguages.map { PickerOption(it.first, it.second) },
             selectedId = state.metadataLanguage,
             onSelect = { onMetadataLanguageChanged(it); activePicker = null },
             onDismiss = { activePicker = null },
@@ -1306,7 +1352,6 @@ private fun TvServerSettingsPane(
     onManageServers: () -> Unit,
     onNavigateToDiagnostics: () -> Unit,
 ) {
-    val uriHandler = LocalUriHandler.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1343,29 +1388,7 @@ private fun TvServerSettingsPane(
         }
         item {
             SettingsGroup(title = "About") {
-                SettingsInfoRow(
-                    label = "Version",
-                    value = state.appVersionName.ifBlank { BuildConfig.VERSION_NAME },
-                )
-                SettingsInfoRow(
-                    label = "Update status",
-                    value = state.appUpdateStatus.statusLabel(),
-                )
-                state.appUpdateStatus.latestVersionLabel()?.let { latest ->
-                    SettingsInfoRow(label = "Latest version", value = latest)
-                }
-                state.appUpdateStatus.changelogUrlOrNull()?.let { url ->
-                    SettingsActionRow(
-                        label = "Changelog",
-                        onClick = { runCatching { uriHandler.openUri(url) } },
-                    )
-                }
-                state.appUpdateStatus.releaseUrlOrNull()?.let { url ->
-                    SettingsActionRow(
-                        label = "View update",
-                        onClick = { runCatching { uriHandler.openUri(url) } },
-                    )
-                }
+                SettingsInfoRow(label = "Version", value = BuildConfig.VERSION_NAME)
             }
         }
     }
@@ -2007,6 +2030,25 @@ private fun SettingsInfoRow(label: String, value: String, singleLine: Boolean = 
 }
 
 /** Non-focusable explanatory footer below a settings group (tvOS `TVSettingsFooter`). */
+/**
+ * Shown when the connected server predates the canonical settings API.
+ *
+ * The failure mode this replaces was a settings pane that looked normal but
+ * saved nothing: the profile preferences resolve to nothing, so the rows show
+ * defaults and every edit goes nowhere with no explanation. Playback is
+ * unaffected — it runs from this device's own settings.
+ */
+@Composable
+private fun TvSettingsUpgradeRequiredNotice() {
+    SettingsGroup(title = "Server Update Needed") {
+        SettingsFooterText(
+            text = "This server is too old to store profile settings. Subtitle and metadata " +
+                "preferences below will not save until it is updated. Playback still works " +
+                "using this Android TV's own settings.",
+        )
+    }
+}
+
 @Composable
 private fun SettingsFooterText(text: String) {
     Text(
@@ -2053,42 +2095,6 @@ private val PassOutThresholdOptions = listOf(0, 2, 3, 4, 5)
 
 // Up-Next prompt timing (seconds before end; 0 = at end). Mirrors tvOS.
 private val NextUpPromptOptions = listOf(0, 10, 30, 60, 120)
-
-// Audio-language options mirror the phone: the stored value IS the display
-// name (Default => "" locally), persisted to playerSettingsStore.audioLanguage.
-private val AudioLanguages = listOf(
-    "" to "Default",
-    "English" to "English",
-    "Spanish" to "Spanish",
-    "French" to "French",
-    "German" to "German",
-    "Japanese" to "Japanese",
-    "Korean" to "Korean",
-    "Chinese" to "Chinese",
-    "Portuguese" to "Portuguese",
-    "Italian" to "Italian",
-    "Russian" to "Russian",
-)
-
-private val SubtitleLanguages = listOf(
-    "" to "Off",
-    "en" to "English",
-    "es" to "Spanish",
-    "fr" to "French",
-    "de" to "German",
-    "ja" to "Japanese",
-    "ko" to "Korean",
-    "zh" to "Chinese",
-    "pt" to "Portuguese",
-    "it" to "Italian",
-    "ru" to "Russian",
-)
-
-private fun audioLanguageLabel(wire: String): String =
-    AudioLanguages.firstOrNull { it.first == wire }?.second ?: "Default"
-
-private fun subtitleLanguageLabel(wire: String): String =
-    SubtitleLanguages.firstOrNull { it.first == wire }?.second ?: "Off"
 
 private fun resumeRewindLabel(seconds: Int): String =
     if (seconds <= 0) "Off" else "${seconds}s"
