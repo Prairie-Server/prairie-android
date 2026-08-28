@@ -47,6 +47,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
+import org.prairieserver.prairie.tv.ui.focus.tvFocusSuppressed
 
 /**
  * Five-button audiobook transport, D-pad navigable. Mirrors the video player's
@@ -68,6 +69,7 @@ fun TvAudiobookTransportRow(
     onNextChapter: () -> Unit,
     playPauseFocus: FocusRequester,
     modifier: Modifier = Modifier,
+    focusSuppressed: Boolean = false,
     buttonSize: Dp = 68.dp,
     primaryButtonWidth: Dp = 112.dp,
     primaryButtonHeight: Dp = 58.dp,
@@ -82,12 +84,14 @@ fun TvAudiobookTransportRow(
             icon = Icons.Filled.SkipPrevious,
             description = "Previous chapter",
             enabled = chaptersEnabled,
+            focusSuppressed = focusSuppressed,
             buttonSize = buttonSize,
             onClick = onPrevChapter,
         )
         TransportIconButton(
             icon = skipBackIcon(skipBackSeconds),
             description = "Skip back $skipBackSeconds seconds",
+            focusSuppressed = focusSuppressed,
             buttonSize = buttonSize,
             onClick = onSkipBack,
         )
@@ -96,6 +100,7 @@ fun TvAudiobookTransportRow(
             description = if (isPlaying) "Pause" else "Play",
             isPrimary = true,
             focusRequester = playPauseFocus,
+            focusSuppressed = focusSuppressed,
             buttonSize = buttonSize,
             primaryButtonWidth = primaryButtonWidth,
             primaryButtonHeight = primaryButtonHeight,
@@ -104,6 +109,7 @@ fun TvAudiobookTransportRow(
         TransportIconButton(
             icon = skipForwardIcon(skipForwardSeconds),
             description = "Skip forward $skipForwardSeconds seconds",
+            focusSuppressed = focusSuppressed,
             buttonSize = buttonSize,
             onClick = onSkipForward,
         )
@@ -111,6 +117,7 @@ fun TvAudiobookTransportRow(
             icon = Icons.Filled.SkipNext,
             description = "Next chapter",
             enabled = chaptersEnabled,
+            focusSuppressed = focusSuppressed,
             buttonSize = buttonSize,
             onClick = onNextChapter,
         )
@@ -125,6 +132,7 @@ private fun TransportIconButton(
     enabled: Boolean = true,
     isPrimary: Boolean = false,
     focusRequester: FocusRequester? = null,
+    focusSuppressed: Boolean = false,
     buttonSize: Dp = 68.dp,
     primaryButtonWidth: Dp = 112.dp,
     primaryButtonHeight: Dp = 58.dp,
@@ -160,6 +168,9 @@ private fun TransportIconButton(
                 shape = buttonShape,
             )
             .let { mod -> if (focusRequester != null) mod.focusRequester(focusRequester) else mod }
+            // Ahead of the focusable, so it binds to this button's own focus
+            // target rather than being inherited from somewhere up the tree.
+            .tvFocusSuppressed(focusSuppressed)
             .focusable(interactionSource = interactionSource)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false

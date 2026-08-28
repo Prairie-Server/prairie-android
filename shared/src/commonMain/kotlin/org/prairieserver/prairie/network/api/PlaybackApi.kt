@@ -7,21 +7,10 @@ import org.prairieserver.prairie.model.playback.PlaybackDecisionResponseV3
 import org.prairieserver.prairie.model.playback.PlaybackReplanRequestV3
 import org.prairieserver.prairie.model.playback.PlaybackRouteEventV3
 import org.prairieserver.prairie.model.playback.PlaybackStartRequestV3
-import org.prairieserver.prairie.model.playback.PlaybackSessionResponse
 import org.prairieserver.prairie.model.playback.ProgressRequest
-import org.prairieserver.prairie.model.playback.StartPlaybackRequest
-import org.prairieserver.prairie.model.playback.TranscodeStartRequest
-import org.prairieserver.prairie.model.playback.TranscodeStartResponse
 import org.prairieserver.prairie.network.ApiResult
 
 class PlaybackApi(private val client: HttpClient) {
-
-    suspend fun startPlayback(request: StartPlaybackRequest): ApiResult<PlaybackSessionResponse> = safeApiCall {
-        client.post("/api/v1/playback/start") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }
-    }
 
     suspend fun startPlaybackV3(request: PlaybackStartRequestV3): ApiResult<PlaybackDecisionResponseV3> = safeApiCall {
         client.post("/api/v1/playback/start") {
@@ -59,12 +48,5 @@ class PlaybackApi(private val client: HttpClient) {
 
     suspend fun stopPlayback(sessionId: String): ApiResult<Unit> = safeApiCall {
         client.delete("/api/v1/playback/$sessionId")
-    }
-
-    suspend fun startTranscode(request: TranscodeStartRequest): ApiResult<TranscodeStartResponse> = safeApiCall {
-        client.post("/api/v1/playback/transcode/start") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }
     }
 }

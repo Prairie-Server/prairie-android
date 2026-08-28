@@ -90,12 +90,22 @@ object OverlayRegistry {
         return if (value.contains("DV")) "DV" else "HDR"
     }
 
+    // Mirrors web's `hdrIcon`: only exact wordmark matches get a brand
+    // mark; anything else (HLG, combined strings like "HDR10+") renders
+    // as plain text with no icon rather than a wrong generic mark.
     private fun hdrIcon(value: String?): OverlayIconId? {
         if (value.isNullOrEmpty()) return null
         if (value.contains("DV")) return OverlayIconId.DolbyVision
-        if (value.contains("HDR10")) return OverlayIconId.Hdr10
-        return OverlayIconId.Hdr
+        if (value == "HDR10") return OverlayIconId.Hdr10
+        if (value == "HDR") return OverlayIconId.Hdr
+        return null
     }
+
+    // The combined badge's label already carries an "HDR" suffix, so the
+    // only icon worth doubling up is the Dolby Vision mark — mirrors
+    // web's `resolution_hdr.getIcon`.
+    private fun resolutionHdrIcon(value: String?): OverlayIconId? =
+        if (value != null && value.contains("DV")) OverlayIconId.DolbyVision else null
 
     private fun audioIcon(value: String?): OverlayIconId? {
         if (value.isNullOrEmpty()) return null
@@ -119,7 +129,9 @@ object OverlayRegistry {
             defaultEnabled = true,
             iconId = OverlayIconId.Monitor,
             iconCapable = true,
-            getValue = { it.resolution?.uppercase() },
+            // `prettyResolution`, not raw uppercase: web renders "4K" for a
+            // `2160p` payload and the standalone badge must match it.
+            getValue = { prettyResolution(it.resolution) },
         ),
         OverlayDef(
             id = OverlayId.Hdr,
@@ -145,7 +157,7 @@ object OverlayRegistry {
                 val hdr = compactHdrSuffix(data.hdr)
                 if (hdr != null) "$res $hdr" else res
             },
-            getIcon = { hdrIcon(it.hdr) },
+            getIcon = { resolutionHdrIcon(it.hdr) },
         ),
         OverlayDef(
             id = OverlayId.Audio,
@@ -368,7 +380,7 @@ object OverlayRegistry {
             defaultEnabled = false,
             iconId = OverlayIconId.Globe,
             iconCapable = true,
-            getValue = { it.originalLanguage?.uppercase() },
+            getValue = { data -> data.originalLanguage?.let { overlayLanguageName(it) } },
         ),
         OverlayDef(
             id = OverlayId.Studio,
@@ -396,13 +408,18 @@ object OverlayRegistry {
 
     // MARK: - Ribbons helpers
 
+    // Mirrors web's `formatShowStatus` — the recognized spellings and the
+    // pass-through default must stay identical or the same library renders
+    // different ribbons per platform.
     private fun formatShowStatus(value: String?): String? {
-        if (value == null) return null
-        return when (value.lowercase()) {
-            "returning", "returning series", "in_production", "in production" -> "Returning"
+        val normalized = value?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
+        return when (normalized.lowercase()) {
+            "returning", "returning series", "continuing", "in_production", "in production" ->
+                "Returning"
             "ended" -> "Ended"
             "cancelled", "canceled" -> "Cancelled"
-            else -> value
+            "upcoming", "planned" -> "Upcoming"
+            else -> normalized
         }
     }
 

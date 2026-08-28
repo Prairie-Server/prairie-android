@@ -20,8 +20,21 @@ data class DevicePairingUiState(
     val completedStatus: String? = null,
     val error: String? = null,
 ) {
-    val canSubmit: Boolean
-        get() = !isSubmitting && (token?.isNotBlank() == true || code.isNotBlank())
+    /**
+     * Whether approving or denying is a real, informed decision right now.
+     *
+     * The identifier being present is not the test. A `prairie://device?token=…`
+     * deep link arrives with a token already set and starts its lookup
+     * automatically, so "there is something to submit" is true from
+     * construction — before the server has said which device is asking, from
+     * where, or with which match code. Those details are the entire content of
+     * the decision, and they only exist once [lookup] resolves. Gating on the
+     * identifier let a viewer approve a sign-in they could not see, and kept
+     * approving available after a failed lookup had cleared [lookup] and
+     * reported the request invalid or expired.
+     */
+    val canDecide: Boolean
+        get() = lookup != null && !isSubmitting
 }
 
 class DevicePairingViewModel(
@@ -45,6 +58,11 @@ class DevicePairingViewModel(
     }
 
     fun onCodeChanged(value: String) {
+        // Retires any lookup in flight. Without this a late answer for the
+        // previous code repopulates the details after the viewer has typed a
+        // different one — showing them a device that is not the one they are
+        // being asked about.
+        lookupGeneration++
         _uiState.update {
             it.copy(
                 code = value.trim().uppercase(),
@@ -55,6 +73,20 @@ class DevicePairingViewModel(
         }
     }
 
+    /**
+     * Bumped by every lookup, and by every decision.
+     *
+     * canDecide stays true while an EXISTING lookup refreshes — the previous
+     * result is deliberately left on screen rather than blanked — so a viewer
+     * can approve while a lookup is still in flight. If that lookup lands last
+     * it overwrites the outcome: a lookup error painted over a successful
+     * approval, or a decision's error quietly cleared. A decision is the more
+     * authoritative event, so starting one retires any lookup already running.
+     */
+    private var lookupGeneration = 0
+    /** Which lookup generation raised [DevicePairingUiState.isLoading]. */
+    private var loadingOwner = 0
+
     fun lookup() {
         val current = _uiState.value
         val token = current.token?.takeIf { it.isNotBlank() }
@@ -64,9 +96,24 @@ class DevicePairingViewModel(
             return
         }
 
+        val generation = ++lookupGeneration
+        loadingOwner = generation
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, completedStatus = null) }
-            when (val result = repository.lookup(token = token, code = code)) {
+            val lookupResult = repository.lookup(token = token, code = code)
+            // Retired while in flight: a newer lookup or, more importantly, a
+            // decision has superseded this answer. Clearing isLoading is still
+            // this request's job, but nothing else it has to say is current.
+            if (generation != lookupGeneration) {
+                // Clear the loading flag only while this lookup still owns it.
+                // A newer lookup has raised it again for itself, and clearing
+                // it here would report that one as finished while it runs.
+                if (loadingOwner == generation) {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+                return@launch
+            }
+            when (val result = lookupResult) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(isLoading = false, lookup = result.data, error = null)
@@ -107,6 +154,12 @@ class DevicePairingViewModel(
             return
         }
 
+        // Retires any lookup already running, before it can report back over
+        // the decision this is about to make. The retired lookup will not clear
+        // its own loading flag once it no longer owns the generation, so drop
+        // it here — otherwise the screen shows a spinner nothing will finish.
+        lookupGeneration++
+        _uiState.update { it.copy(isLoading = false) }
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, error = null, completedStatus = null) }
             val result = if (approve) {

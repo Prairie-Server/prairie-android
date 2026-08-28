@@ -1,14 +1,18 @@
-# Prairie Android Playback Architecture
+# Silo Android Playback Architecture
 
-Status: **Android implementation and dev-server v3 validation complete; 4K DV
-and passthrough hardware validation remain gated**.
+Status: **the Android client is ported to the platform-neutral playback-v3
+wire contract; live validation still requires a server built from the matching
+neutral-v3 revision**.
 
-This directory is the source of truth for the next Prairie Android video player.
-This directory supersedes the removed legacy Media3/dual-engine notes.
+This directory owns the Android Media3 runtime and its validation history. The
+normative wire contract is the server repository's
+`docs/architecture/playback-protocol-v3.md`; when these older migration notes
+disagree with it, the server contract wins. In particular, Android no longer
+advertises engine names or computes plan-attempt keys.
 
 ## Product decision
 
-Prairie Android will ship one in-process video engine: **Media3 ExoPlayer**. MPV
+Silo Android will ship one in-process video engine: **Media3 ExoPlayer**. MPV
 will be removed from app artifacts, capability reporting, engine selection,
 recovery, and UI.
 
@@ -17,7 +21,7 @@ every Android player component. The retained foundation and target runtime are
 defined in [architecture section 2](01-media3-only-player-architecture.md#2-target-runtime).
 
 Media3 is the AndroidX media framework; ExoPlayer is its default `Player`
-implementation. Prairie already uses that implementation. [Checkout dependency](../../android-shared/build.gradle.kts) ·
+implementation. Silo already uses that implementation. [Checkout dependency](../../android-shared/build.gradle.kts) ·
 [player factory](../../android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PrairiePlayerFactory.kt)
 See the
 [Media3 ExoPlayer overview](https://developer.android.com/media/media3/exoplayer)
@@ -27,10 +31,11 @@ and [migration guide](https://developer.android.com/media/media3/exoplayer/migra
 
 | Document | Canonical content |
 | --- | --- |
-| [Architecture](01-media3-only-player-architecture.md) | Runtime invariants, server/client contract, capability schema, HDR/DV, audio, subtitles, recovery, and telemetry. |
-| [Migration and validation](02-migration-compatibility-validation.md) | Phase ordering, compatibility window, removal inventory, release gates, hardware fixtures, and rollback. |
+| [Architecture](01-media3-only-player-architecture.md) | Android runtime invariants plus the pre-neutral contract history. Neutral wire semantics come from the server contract. |
+| [Migration and validation](02-migration-compatibility-validation.md) | Historical Media3-only migration plan, hardware fixtures, and rollback evidence. |
 | [Reference review](03-reference-implementation-review.md) | Source-pinned Wholphin/Plezy observations. It is evidence, not another implementation plan. |
 | [Implementation status](04-implementation-status-and-dv-handoff.md) | Code, automated proof, dev-server v3 status, and the 4K Dolby Vision handoff checklist. |
+| [Intro skip](intro-skip.md) | Where the never/ask/always prompt lives, and the rules the server spec pins. |
 | [Shield 1080p capability audit](05-shield-1080p-playback-capability-audit.md) | Live protocol-v3 route matrix, catalog coverage, current direct-play gaps, and prioritized causes. |
 | [Device-correction evidence and design](06-device-quirk-evidence-and-design.md) | Current Jellyfin Android TV, Jellyfin Android, Wholphin, Plezy, Android platform, and issue evidence for the server/client quirk layer. |
 
@@ -43,9 +48,10 @@ not create another set of requirements.
 
 ## Release gate
 
-Android work may proceed in parallel, but Release A must not ship until
-[migration Phase 0](02-migration-compatibility-validation.md#2-phase-0-server-readiness)
-is marked complete against a named minimum server revision.
+The neutral Android build must not ship until a named server revision exposing
+the matching platform-neutral v3 contract is published and deployed. A
+pre-neutral `playback_plan_v3` server is not compatible merely because the
+feature token has the same name.
 
 ## Evidence boundary
 

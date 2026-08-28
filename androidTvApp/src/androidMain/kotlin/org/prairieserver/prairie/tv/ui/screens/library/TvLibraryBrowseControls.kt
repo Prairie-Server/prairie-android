@@ -37,9 +37,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -89,6 +94,11 @@ fun TvBrowseControlRow(
     onFilter: () -> Unit,
     onClearFilters: () -> Unit = {},
     modifier: Modifier = Modifier,
+    /**
+     * Lets a caller point its page-entry focus claim at the Sort pill when the
+     * grid below has no card to give it to (an empty or fully-filtered list).
+     */
+    sortPillFocusRequester: FocusRequester? = null,
 ) {
     // Clearing removes the Clear pill from composition; focus must hop to the
     // Filter pill first or it would snap away to the nearest surviving scope.
@@ -99,7 +109,14 @@ fun TvBrowseControlRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BrowseControlPill(onClick = onSort) { foreground ->
+        BrowseControlPill(
+            onClick = onSort,
+            modifier = if (sortPillFocusRequester != null) {
+                Modifier.focusRequester(sortPillFocusRequester)
+            } else {
+                Modifier
+            },
+        ) { foreground ->
             Icon(
                 imageVector = Icons.Filled.SwapVert,
                 contentDescription = null,
@@ -165,7 +182,13 @@ fun TvBrowseControlRow(
         if (filterCount > 0) {
             BrowseControlPill(
                 onClick = {
-                    runCatching { filterPillFocusRequester.requestFocus() }
+                    // Clearing filters removes this pill from composition, so
+                    // focus is moved off it first. A click handler has no
+                    // suspend point, so the claim is single-shot and reported.
+                    filterPillFocusRequester.claimFocusOrReport(
+                        target = "library_filter_pill",
+                        action = "clear_filters",
+                    )
                     onClearFilters()
                 },
             ) { foreground ->
@@ -253,14 +276,21 @@ fun TvBrowseSortPanel(
     onClose: () -> Unit,
 ) {
     val currentFocusRequester = remember { FocusRequester() }
+    var sortPanelHasFocus by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(50)
-        runCatching { currentFocusRequester.requestFocus() }
+        requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { withFrameNanos { } },
+            requestFocus = currentFocusRequester::requestFocus,
+            isFocused = { sortPanelHasFocus },
+        )
     }
 
     BrowsePanelScrim(onClose = onClose) {
         Column(
             modifier = Modifier
+                .onFocusChanged { sortPanelHasFocus = it.hasFocus }
                 .width(260.dp)
                 .tvSkylinePanelChrome()
                 .padding(10.dp),
@@ -291,7 +321,8 @@ fun TvBrowseSortPanel(
                         maxLines = 1,
                     )
                     Spacer(modifier = Modifier.weight(1f))
-                    if (isCurrent) {
+                    // Source-order entries have no asc/desc to show or flip.
+                    if (isCurrent && option.hasDirection) {
                         Text(
                             text = option.directionLabel(order),
                             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
@@ -346,14 +377,24 @@ fun TvBrowseFilterPanel(
     }
 
     val screenFocusRequester = remember { FocusRequester() }
+    var facetPanelHasFocus by remember { mutableStateOf(false) }
     LaunchedEffect(openFacet) {
         kotlinx.coroutines.delay(50)
-        runCatching { screenFocusRequester.requestFocus() }
+        requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { withFrameNanos { } },
+            requestFocus = screenFocusRequester::requestFocus,
+            isFocused = { facetPanelHasFocus },
+        )
     }
 
-    BrowsePanelScrim(onClose = handleBack, dismissOnBack = false) {
+    // Popup's dismissOnBackPress uses the supported system callback on Android
+    // 16. onDismissRequest still runs this two-stage values -> filters -> close
+    // handler, while the key handler below remains an Escape/legacy fallback.
+    BrowsePanelScrim(onClose = handleBack) {
         Column(
             modifier = Modifier
+                .onFocusChanged { facetPanelHasFocus = it.hasFocus }
                 .width(360.dp)
                 .height(400.dp)
                 .tvSkylinePanelChrome()

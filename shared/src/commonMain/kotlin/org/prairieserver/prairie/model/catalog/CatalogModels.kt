@@ -15,7 +15,7 @@ data class MediaItemUserState(
 
 /**
  * Tech-level overlay summary derived server-side from the best-ranked file
- * (see prairie-server `internal/overlays/summary.go`). Wire keys match the server
+ * (see silo-server `internal/overlays/summary.go`). Wire keys match the server
  * JSON and Apple's `OverlaySummary` (which decodes via `.convertFromSnakeCase`,
  * so `audioChannels` ⇄ `audio_channels`, etc.). `audioChannels` arrives
  * pre-formatted (e.g. "5.1", "7.1", "Stereo").
@@ -81,7 +81,20 @@ data class CatalogResponse(
     val items: List<BrowseItem> = emptyList(),
     val source: String? = null,
     val title: String? = null,
-    val snapshot: String? = null
+    val snapshot: String? = null,
+    /**
+     * What the server actually sorted by. Sources with an intrinsic order
+     * (library collections keep their manual / MDBList / smart order when no
+     * `sort` is sent) echo the resolved field here, so a client that sent
+     * nothing can still say what it is looking at.
+     */
+    @SerialName("effective_sort") val effectiveSort: CatalogEffectiveSort? = null
+)
+
+@Serializable
+data class CatalogEffectiveSort(
+    val field: String? = null,
+    val order: String? = null,
 )
 
 data class CatalogQueryRule(
@@ -190,6 +203,8 @@ data class ItemDetail(
     @SerialName("overlay_summary") val overlaySummary: OverlaySummary? = null,
     val intro: TimeRange? = null,
     val credits: TimeRange? = null,
+    val recap: TimeRange? = null,
+    val preview: TimeRange? = null,
     /** Populated only when [type] is "audiobook". Forward-compat — the
      *  server may stop returning it once a dedicated /api/v1/audiobooks
      *  endpoint lands; until then it rides on ItemDetail. */
@@ -271,7 +286,7 @@ data class FileVersion(
  * the client renders whatever it receives.
  *
  * Shape mirrors the server's `VersionChapter` struct at
- * `prairie-server/internal/catalog/detail.go:258-266` and Apple's
+ * `silo-server/internal/catalog/detail.go:258-266` and Apple's
  * `VersionChapter` at `iosApp/Networking/Models.swift:537-545` exactly.
  */
 @Serializable
@@ -482,6 +497,8 @@ data class WatchDetail(
     val subtitles: List<SubtitleInfo> = emptyList(),
     val intro: TimeRange? = null,
     val credits: TimeRange? = null,
+    val recap: TimeRange? = null,
+    val preview: TimeRange? = null,
     @SerialName("user_data") val userData: LeafItemUserData? = null,
     @SerialName("series_id") val seriesId: String? = null,
     @SerialName("series_title") val seriesTitle: String? = null,
@@ -490,11 +507,9 @@ data class WatchDetail(
     @SerialName("effective_subtitle_language") val effectiveSubtitleLanguage: String? = null,
     @SerialName("effective_subtitle_mode") val effectiveSubtitleMode: String? = null,
     @SerialName("effective_show_forced_subtitles") val effectiveShowForcedSubtitles: Boolean? = null,
-    // Presigned image URLs — match the server's ItemDetail response
-    // (prairie-server/internal/catalog/detail.go:100-104). Consumed by the
-    // phone player's Now Playing lock-screen metadata; TV side reads
-    // them too for the same purpose when the MediaSession-driven
-    // notification surfaces (system media controls).
+    // Optional forward-compatible artwork. Current servers expose these on
+    // ItemDetail rather than WatchDetail, so playback clients must fall back
+    // to the full catalog detail when these fields are absent.
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,

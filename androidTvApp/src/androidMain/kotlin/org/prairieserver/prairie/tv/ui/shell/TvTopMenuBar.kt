@@ -3,6 +3,7 @@ package org.prairieserver.prairie.tv.ui.shell
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +47,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.res.painterResource
 import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,8 +60,12 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.tv.R
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
+import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 import org.prairieserver.prairie.common.ui.components.profileAvatarDisplayText
+import org.prairieserver.prairie.common.ui.components.rememberProfileAvatarImage
 import org.prairieserver.prairie.tv.ui.theme.ChromeSelectedBorder
 import org.prairieserver.prairie.tv.ui.theme.ChromeSelectedFill
 import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
@@ -69,6 +76,18 @@ import org.prairieserver.prairie.tv.ui.theme.navRailLabel
 
 private const val TopMenuInitialPreviewDelayMillis = 180L
 private const val TopMenuPanelSwitchDelayMillis = 80L
+
+/**
+ * How long a non-anchor focus must hold before it disarms dwell suppression.
+ * Shorter than [TopMenuInitialPreviewDelayMillis] so a real move still previews
+ * promptly, long enough to outlast the one-frame focus blip Compose emits while
+ * an explicit bar focus request is being applied.
+ */
+private const val TopMenuSuppressionHandoffGraceMillis = 120L
+
+/** Upper bound on the single-focusable handoff window. */
+private const val TopMenuHandoffTimeoutMillis = 500L
+
 
 /**
  * Layout constants for the top menu band. Vertical-clearance / anchor tokens
@@ -116,7 +135,8 @@ private sealed class TvTopMenuFocus {
  * The custom top menu bar — the Skyline grammar from tvOS `TVTopMenuBar.swift`.
  *
  * Layout (three zones):
- * - Leading: the **PRAIRIE** wordmark (heavy, tracked).
+ * - Leading: the Silo brand lockup (`R.drawable.prairie_wordmark`, see
+ *   [TvSiloWordmark]).
  * - Center: Search icon · `Home` · one inverted-capsule tab per visible
  *   library-type · `Calendar`, derived from [destinations] (the shell's
  *   `visibleRoots`), with an invisible search-size twin trailing the tabs so
@@ -159,6 +179,18 @@ fun TvTopMenuBar(
     isFocusSuppressed: Boolean,
     focusRequest: Int,
     focusRequestTarget: TvTopMenuPanel? = null,
+    /**
+     * True for a deliberate shell handoff to the bar — Back up from content, or
+     * the fallback when content has nothing focusable. See
+     * TvShellFocusState.menuFocusSuppressesDwell.
+     */
+    focusRequestSuppressesDwell: Boolean = false,
+    /**
+     * Receives a hook that moves bar focus to a panel's anchor synchronously,
+     * so a closing cascade never leaves focus for Compose to recover. See
+     * TvShellFocusState.focusBarAnchorNow.
+     */
+    onInstallAnchorFocus: ((TvTopMenuPanel?) -> Boolean) -> Unit = {},
     profileFocusRequest: Int = 0,
     isSearchActive: Boolean = false,
     visibility: Float = 1f,
@@ -188,6 +220,26 @@ fun TvTopMenuBar(
     // that tab's dwell preview until focus leaves it. Android additionally
     // uses the first Down from that state as a direct handoff to content.
     var dwellSuppressedButton by remember { mutableStateOf<TvTopMenuFocus?>(null) }
+
+    // While a Back-close handoff is in flight, the anchor is the ONLY focusable
+    // bar element. Compose recovers focus the instant the cascade's node leaves
+    // composition and picks the bar's FIRST child — the search icon — a frame
+    // before the explicit request lands, so Back visibly flashed through search
+    // on its way to the anchor. Taking the other buttons out of focus search for
+    // that one window leaves the recovery nowhere to go but the anchor itself.
+    val handoffAnchor = dwellSuppressedButton?.takeIf { it != focusedButton }
+    fun canFocusButton(focus: TvTopMenuFocus): Boolean =
+        !isFocusSuppressed && (handoffAnchor == null || handoffAnchor == focus)
+
+    // The anchor focusing clears handoffAnchor and cancels this. If the request
+    // never lands, release the restriction rather than leaving the bar with a
+    // single focusable button.
+    LaunchedEffect(handoffAnchor) {
+        if (handoffAnchor != null) {
+            delay(TopMenuHandoffTimeoutMillis)
+            if (dwellSuppressedButton == handoffAnchor) dwellSuppressedButton = null
+        }
+    }
 
     fun focusForRoot(root: TvRootDestination): TvTopMenuFocus = when (root) {
         TvRootDestination.Home -> TvTopMenuFocus.Home
@@ -246,10 +298,23 @@ fun TvTopMenuBar(
             requestIdentity = focusRequestIdentity,
             lastHandledRequest = lastHandledFocusRequest,
             isFocusSuppressed = isFocusSuppressed,
-            isTargetAvailable = focusRequestTargetAvailable,
+            // Availability gates only the EXPLICIT target, never the request
+            // itself. Skipping the whole request left nothing focused, so
+            // Compose's default search landed on the first bar element — the
+            // search icon — and Back out of a cascade appeared to "go to
+            // search". Falling back to the selected entry keeps the viewer on
+            // the tab they came from.
+            isTargetAvailable = true,
             requestFocus = {
-                val explicitFocus = focusRequestTarget?.let(::focusForPanel)
-                dwellSuppressedButton = explicitFocus
+                val explicitFocus = focusRequestTarget
+                    ?.takeIf { focusRequestTargetAvailable }
+                    ?.let(::focusForPanel)
+                // The target names which bar element to land on; it does NOT by
+                // itself mean the preview should be suppressed. Only a panel
+                // Back-close wants that. Arming it for every targeted request
+                // meant an ordinary content-to-bar Up — which also carries a
+                // target — left that tab unable to reopen its own cascade.
+                dwellSuppressedButton = explicitFocus.takeIf { focusRequestSuppressesDwell }
                 val requester = explicitFocus?.let(::requesterForFocus) ?: selectedEntryRequester()
                 requestTopMenuFocusUntilApplied(
                     awaitFrame = { androidx.compose.runtime.withFrameNanos { } },
@@ -293,7 +358,23 @@ fun TvTopMenuBar(
         if (suppressed != null) {
             // A transient null is the panel→bar focus handoff itself; keep the
             // suppression armed until the requested anchor actually focuses.
+            // A transient null is the panel→bar focus handoff itself; keep the
+            // suppression armed until the requested anchor actually focuses,
+            // and hold it while that anchor keeps focus so a deliberate handoff
+            // to the bar does not flash a panel straight back open. This can no
+            // longer wedge the tab: only an explicit requestMenuFocus arms it,
+            // so an ordinary content-to-bar Up arrives unsuppressed and opens
+            // the cascade.
             if (focus == null || focus == suppressed) return@LaunchedEffect
+            // A DIFFERENT button may still be the handoff in flight rather than
+            // a real move: while the requested anchor is being applied, Compose
+            // briefly focuses the bar's first child (the Search icon). Clearing
+            // on that blip disarmed the suppression, so the anchor re-previewed
+            // the moment it actually landed — Back out of a cascade reopened it
+            // and the viewer was left one Back short of Home. Wait out the blip;
+            // this effect is keyed on focusedButton, so the anchor arriving
+            // cancels the delay and leaves the suppression armed.
+            delay(TopMenuSuppressionHandoffGraceMillis)
             // Moving anywhere else re-arms normal dwell behavior, matching
             // tvOS's dwellSuppressedElement lifecycle.
             dwellSuppressedButton = null
@@ -331,6 +412,31 @@ fun TvTopMenuBar(
     // trailing cluster). On non-tab routes (Search) we enter the search icon.
     val barEntryRequester = selectedEntryRequester()
 
+    // Publish the synchronous anchor-focus hook. This runs on the composition
+    // thread, so a Back handler can move focus BEFORE it removes the panel.
+    SideEffect {
+        onInstallAnchorFocus { panel ->
+            val target = panel?.let(::focusForPanel)
+            val requester = target?.let(::requesterForFocus) ?: selectedEntryRequester()
+            // requestFocus() RETURNS whether the claim was accepted, so
+            // runCatching{}.isSuccess threw the real answer away — it is true
+            // for any call that merely did not throw. That made a refused
+            // claim look like a move, which armed suppression, closed the
+            // panel and skipped the deferred fallback, leaving focus nowhere.
+            val accepted = requester.claimFocusOrReport(
+                target = "menu_anchor",
+                action = "back_close_anchor",
+            )
+            // Accepted is not arrival — the helper says so itself — but it
+            // does separate a claim that took from one that definitely needs
+            // the deferred retry. Arm the suppression only on acceptance;
+            // otherwise the state-request fallback arms it a frame later.
+            if (accepted) dwellSuppressedButton = target
+            accepted
+        }
+    }
+
+
     // Single full-width Row (wordmark · flexible gap · search+centered tabs ·
     // flexible gap · trailing profile) so D-pad Left/Right traverse the whole bar
     // in one ordered focus group — the three-zone `align` layout couldn't be
@@ -358,7 +464,15 @@ fun TvTopMenuBar(
                 // ignore explicit requester bumps. Otherwise Android's initial
                 // focus pass can still choose Home while content is composing.
                 canFocus = !isFocusSuppressed
-                enter = { barEntryRequester }
+                // While a Back-close handoff is in flight, the anchor is the
+                // entry point — not the selected tab. Closing a cascade removes
+                // the focused node and Compose recovers focus into the bar; if
+                // that recovery uses the group's first child it lands on the
+                // search icon and Back visibly flashes through search before the
+                // explicit request lands.
+                enter = {
+                    dwellSuppressedButton?.let(::requesterForFocus) ?: barEntryRequester
+                }
             }
             .onPreviewKeyEvent { event ->
                 val focus = focusedButton
@@ -399,14 +513,14 @@ fun TvTopMenuBar(
             },
         verticalAlignment = Alignment.Bottom,
     ) {
-        // Leading: PRAIRIE wordmark.
+        // Leading: the Silo brand lockup.
         Box(
             modifier = Modifier
                 .padding(start = TvSkyline.safeAreaX)
                 .height(TvSkyline.barHeight),
             contentAlignment = Alignment.Center,
         ) {
-            TvPrairieWordmark()
+            TvSiloWordmark()
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -424,7 +538,7 @@ fun TvTopMenuBar(
                 icon = Icons.Outlined.Search,
                 contentDescription = "Search",
                 isFocused = focusedButton == TvTopMenuFocus.Search,
-                canFocus = !isFocusSuppressed,
+                canFocus = canFocusButton(TvTopMenuFocus.Search),
                 focusRequester = searchFocusRequester,
                 onFocusChanged = { hasFocus ->
                     focusedButton = if (hasFocus) {
@@ -442,7 +556,7 @@ fun TvTopMenuBar(
                         label = "Home",
                         isSelected = selectedRoot == TvRootDestination.Home,
                         isFocused = focusedButton == TvTopMenuFocus.Home,
-                        canFocus = !isFocusSuppressed,
+                        canFocus = canFocusButton(TvTopMenuFocus.Home),
                         focusRequester = homeFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
@@ -461,7 +575,7 @@ fun TvTopMenuBar(
                             label = type.title,
                             isSelected = selectedRoot == destination,
                             isFocused = focusedButton == TvTopMenuFocus.Tab(type),
-                            canFocus = !isFocusSuppressed,
+                            canFocus = canFocusButton(TvTopMenuFocus.Tab(type)),
                             focusRequester = tabFocusRequesters[type] ?: homeFocusRequester,
                             onFocusChanged = { hasFocus ->
                                 focusedButton = if (hasFocus) {
@@ -485,7 +599,7 @@ fun TvTopMenuBar(
                         label = "For You",
                         isSelected = selectedRoot == TvRootDestination.ForYou,
                         isFocused = focusedButton == TvTopMenuFocus.ForYou,
-                        canFocus = !isFocusSuppressed,
+                        canFocus = canFocusButton(TvTopMenuFocus.ForYou),
                         focusRequester = forYouFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
@@ -507,7 +621,7 @@ fun TvTopMenuBar(
                         label = "Calendar",
                         isSelected = selectedRoot == TvRootDestination.Calendar,
                         isFocused = focusedButton == TvTopMenuFocus.Calendar,
-                        canFocus = !isFocusSuppressed,
+                        canFocus = canFocusButton(TvTopMenuFocus.Calendar),
                         focusRequester = calendarFocusRequester,
                         onFocusChanged = { hasFocus ->
                             focusedButton = if (hasFocus) {
@@ -539,7 +653,7 @@ fun TvTopMenuBar(
             TvTopMenuProfileButton(
                 accountState = accountState,
                 isFocused = focusedButton == TvTopMenuFocus.Profile,
-                canFocus = !isFocusSuppressed,
+                canFocus = canFocusButton(TvTopMenuFocus.Profile),
                 focusRequester = profileFocusRequester,
                 onFocusChanged = { hasFocus ->
                     focusedButton = if (hasFocus) TvTopMenuFocus.Profile else focusedButton.takeUnless { it == TvTopMenuFocus.Profile }
@@ -554,26 +668,50 @@ fun TvTopMenuBar(
 /** Minimal account view-data the menu bar + profile dropdown render. */
 data class TvAccountState(
     val displayName: String = "Profile",
-    val avatar: String? = null,
-    val avatarUrl: String? = null,
+    /** Avatar ref + server-resolved URL, kept together so neither is lost. */
+    val avatar: ProfileAvatarRef = ProfileAvatarRef.None,
     /** Secondary line under the name in the dropdown header (role / username). */
     val subtitle: String = "",
     /** Active server display name, shown in the dropdown header. */
     val serverName: String = "",
-    /** Whether the signed-in user is an acting admin (gates the Admin row). */
-    val isAdmin: Boolean = false,
 )
 
-/** Heavy, tracked PRAIRIE wordmark at the bar's leading edge (§5.1). */
+/**
+ * The Silo brand lockup at the bar's leading edge (§5.1).
+ *
+ * This is the shipped trademark artwork, not type: silo-branding's
+ * `silo-wordmark-white.svg` as its `derive.py` renders it for Android
+ * (`R.drawable.prairie_wordmark`, 764x400). Branding's own rules pick both the
+ * variant and the treatment:
+ * - *"Pick the variant that contrasts with its background: dark art on light,
+ *   white on dark."* The menu bar is dark chrome, so the **white** lockup is the
+ *   correct cut — and it is the only wordmark `derive.py` emits for Android.
+ * - *"Don't recolour the mark, or add shadows, outlines or effects."* So, unlike
+ *   the `Text` this replaced, no `PrairieOnSurface` tint is applied. The lockup's
+ *   type is already `#FFFFFF` and its three bars carry the signal palette; a
+ *   `ColorFilter` would flatten them and breach the trademark guidance.
+ * - *"Typeset 'Silo' in place of the supplied wordmark"* is on branding's
+ *   **Don't** list — which is precisely what the old `Text("SILO")` did.
+ *
+ * The PNG is used rather than a hand-built `VectorDrawable` because `derive.py`
+ * is branding's declared source of truth for downstream Android assets and emits
+ * exactly this file at exactly this path; a transcribed vector would fork the
+ * mark out of that pipeline and go stale the next time the artwork changes. It
+ * costs nothing in sharpness: the source is 764px wide against a ~46dp render
+ * (92px at the 320dpi TV reference, 184px even on a 4x surface).
+ *
+ * Height comes from [TvSkyline.wordmarkHeight]; the width follows the drawable's
+ * intrinsic 764:400 ratio (~45.8.dp) with [ContentScale.Fit], so the artwork is
+ * never stretched or cropped — also forbidden. Decorative: an `Image` adds no
+ * focusable node, so the bar's D-pad order is unchanged.
+ */
 @Composable
-private fun TvPrairieWordmark() {
-    Text(
-        text = "PRAIRIE",
-        color = PrairieOnSurface,
-        fontWeight = FontWeight.Black,
-        fontSize = TvSkyline.wordmarkSize,
-        letterSpacing = TvSkyline.wordmarkTracking,
-        maxLines = 1,
+private fun TvSiloWordmark() {
+    Image(
+        painter = painterResource(id = R.drawable.prairie_wordmark),
+        contentDescription = "Silo",
+        contentScale = ContentScale.Fit,
+        modifier = Modifier.height(TvSkyline.wordmarkHeight),
     )
 }
 
@@ -782,6 +920,7 @@ private fun TvTopMenuAvatar(
     val avatarText = remember(accountState.avatar, accountState.displayName) {
         profileAvatarDisplayText(accountState.avatar, accountState.displayName)
     }
+    val avatarImage = rememberProfileAvatarImage(accountState.avatar)
     // The avatar circle plus a decorative unread badge anchored to its top-end
     // corner. The badge is purely informational — the profile Surface stays the
     // sole focus target, so the focus model is unchanged.
@@ -798,14 +937,16 @@ private fun TvTopMenuAvatar(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            if (accountState.avatarUrl != null) {
+            if (avatarImage != null) {
                 ThumbhashImage(
-                    url = accountState.avatarUrl,
+                    url = avatarImage.url,
                     thumbhash = null,
                     contentDescription = accountState.displayName,
                     modifier = Modifier.fillMaxHeight(),
                     contentScale = ContentScale.Crop,
                     transparent = true,
+                    cacheKey = avatarImage.cacheKey,
+                    onError = avatarImage.onLoadFailed,
                 )
             } else {
                 Text(

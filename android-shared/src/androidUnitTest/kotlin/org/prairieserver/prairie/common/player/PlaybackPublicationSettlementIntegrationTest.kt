@@ -24,12 +24,12 @@ import org.prairieserver.prairie.model.personal.SyncProgressItem
 import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.ClientPlaybackContext
 import org.prairieserver.prairie.model.playback.PLAYBACK_PLAN_V3_FEATURE
+import org.prairieserver.prairie.model.playback.NEUTRAL_PLAYBACK_V3_CONTRACT_FEATURE
 import org.prairieserver.prairie.model.playback.SEEK_REANCHOR_V3_FEATURE
 import org.prairieserver.prairie.model.playback.PlaybackDecisionOutcome
 import org.prairieserver.prairie.model.playback.PlaybackDecisionResponseV3
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
 import org.prairieserver.prairie.model.playback.PlaybackEffectiveRecipeV3
-import org.prairieserver.prairie.model.playback.PlaybackEngineKind
 import org.prairieserver.prairie.model.playback.PlaybackOutputContext
 import org.prairieserver.prairie.model.playback.PlaybackPlanV3
 import org.prairieserver.prairie.model.playback.PlaybackStreamProtocol
@@ -46,10 +46,8 @@ import org.prairieserver.prairie.network.api.HealthApi
 import org.prairieserver.prairie.network.api.HealthStatus
 import org.prairieserver.prairie.network.api.PersonalDataApi
 import org.prairieserver.prairie.network.api.PlaybackApi
-import org.prairieserver.prairie.network.api.ProfileApi
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.PlaybackRepository
-import org.prairieserver.prairie.repository.ProfileRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -192,6 +190,7 @@ class PlaybackPublicationSettlementIntegrationTest {
                         planA,
                         features = listOf(
                             PLAYBACK_PLAN_V3_FEATURE,
+                            NEUTRAL_PLAYBACK_V3_CONTRACT_FEATURE,
                             SEEK_REANCHOR_V3_FEATURE,
                         ),
                     ),
@@ -210,6 +209,7 @@ class PlaybackPublicationSettlementIntegrationTest {
                     ),
                     features = listOf(
                         PLAYBACK_PLAN_V3_FEATURE,
+                        NEUTRAL_PLAYBACK_V3_CONTRACT_FEATURE,
                         SEEK_REANCHOR_V3_FEATURE,
                     ),
                 ),
@@ -500,7 +500,6 @@ class PlaybackPublicationSettlementIntegrationTest {
         )
         val lifecycle = PlaybackSessionLifecycle(
             sessionManager = manager,
-            profileRepository = SettlementProfileRepository(),
             healthApi = SettlementHealthApi(),
             personalDataRepository = SettlementPersonalDataRepository(),
             scope = scope,
@@ -552,7 +551,6 @@ class PlaybackPublicationSettlementIntegrationTest {
             ),
             session = ready.session,
             manageProgress = false,
-            renewMissingSessionWithLegacyStart = false,
             deferPublication = deferPublication,
             isCurrent = { true },
         )
@@ -579,7 +577,7 @@ class PlaybackPublicationSettlementIntegrationTest {
             val playbackContext = ClientPlaybackContext(
                 formFactor = "tv",
                 appVersion = "test",
-                output = PlaybackOutputContext(outputRouteGeneration = 7),
+                output = PlaybackOutputContext(outputContextId = "7"),
             )
         }
     }
@@ -587,7 +585,10 @@ class PlaybackPublicationSettlementIntegrationTest {
     private companion object {
         fun response(
             plan: PlaybackPlanV3,
-            features: List<String> = listOf(PLAYBACK_PLAN_V3_FEATURE),
+            features: List<String> = listOf(
+                PLAYBACK_PLAN_V3_FEATURE,
+                NEUTRAL_PLAYBACK_V3_CONTRACT_FEATURE,
+            ),
         ): PlaybackDecisionResponseV3 =
             PlaybackDecisionResponseV3(
                 protocolVersion = 3,
@@ -599,9 +600,9 @@ class PlaybackPublicationSettlementIntegrationTest {
 
         fun plan(sessionId: String, fileId: Int): PlaybackPlanV3 = PlaybackPlanV3(
             planId = "plan-$sessionId",
+            planAttemptKey = "v3:test:$sessionId",
             sessionId = sessionId,
             delivery = PlaybackDelivery.SERVER_REMUX_HLS,
-            engine = PlaybackEngineKind.MEDIA3_HLS,
             stream = PlaybackStreamV3(
                 url = "/stream/$sessionId/master.m3u8",
                 protocol = PlaybackStreamProtocol.HLS,
@@ -624,13 +625,6 @@ class PlaybackPublicationSettlementIntegrationTest {
 
 private fun PlaybackSessionLifecycle.activeSessionId(): String? =
     (state.value as? SessionState.Active)?.session?.sessionId
-
-private class SettlementProfileRepository : ProfileRepository(
-    profileApi = ProfileApi(HttpClient()),
-    tokenManager = SettlementTokenManager,
-) {
-    override suspend fun getActiveProfileId(): String = "profile-1"
-}
 
 private class SettlementHealthApi : HealthApi(HttpClient()) {
     override suspend fun checkHealth(): ApiResult<HealthStatus> =

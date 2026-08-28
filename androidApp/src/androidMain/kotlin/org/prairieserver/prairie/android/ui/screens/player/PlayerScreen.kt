@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
 import android.graphics.Rect
+import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -14,9 +16,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -26,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,7 +45,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -60,14 +73,19 @@ import org.prairieserver.prairie.common.player.DisplayHdrProbe
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackPreflightListener
 import org.prairieserver.prairie.common.player.RefreshRateMatcher
+import org.prairieserver.prairie.common.player.SessionState
 import org.prairieserver.prairie.common.player.SubtitleManager
 import org.prairieserver.prairie.common.player.VideoPlayerMediaSpec
+import org.prairieserver.prairie.common.player.subtitlesForVideoMediaMount
 import org.prairieserver.prairie.common.player.validatedColorRangeFallback
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
 import org.prairieserver.prairie.common.pip.PrairiePictureInPicturePlaybackState
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureSurface
+import org.prairieserver.prairie.common.settings.LetterboxExpansion
 import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendFactory
 import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendRequest
+import org.prairieserver.prairie.common.player.video.mountedAudioTracks
+import org.prairieserver.prairie.common.player.video.selectedMountedAudioOrdinal
 import org.prairieserver.prairie.common.player.video.PlaybackStartupStallDetector
 import org.prairieserver.prairie.common.player.video.PlaybackRuntimeCorrectionMetrics
 import org.prairieserver.prairie.common.player.video.PostResumeVideoStallDetector
@@ -98,6 +116,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.unit.sp
 
 private const val TAG = "PlayerScreen"
+
+/** See the TV screen's copy: a capability change waits this long before track
+ *  presets are re-applied, so a sink being rebuilt is not asked to reselect. */
+private const val TrackSelectionSettleMs = 1_500L
 
 internal fun shouldClearPlaybackOnControllerDispose(isChangingConfigurations: Boolean): Boolean =
     !isChangingConfigurations
@@ -142,7 +164,8 @@ private fun media3TextTrackSnapshotKey(tracks: androidx.media3.common.Tracks): S
 }
 
 private fun SubtitleIdentity.requiresMountedMobileSelection(): Boolean =
-    this is SubtitleIdentity.LocalMedia3 ||
+    this is SubtitleIdentity.ServerSidecar ||
+        this is SubtitleIdentity.LocalMedia3 ||
         this is SubtitleIdentity.Downloaded ||
         this is SubtitleIdentity.Embedded
 
@@ -180,11 +203,14 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val density = LocalDensity.current
+    val tabletopPosture = rememberTabletopPlayerPosture(activity)
     val lifecycleOwner = LocalLifecycleOwner.current
     val activePlayerHolder: ActivePlayerHolder = koinInject()
     val pictureInPictureCoordinator: PrairiePictureInPictureCoordinator = koinInject()
     val playerSettingsStore: org.prairieserver.prairie.common.settings.PlayerSettingsStore = koinInject()
     val uiState by viewModel.presentationState.collectAsState()
+    val sessionState by viewModel.sessionState.collectAsState()
     val pictureInPictureEnabled by playerSettingsStore.pictureInPictureEnabledFlow.collectAsState(initial = true)
     val isInPictureInPictureMode by pictureInPictureCoordinator.isInPictureInPictureMode.collectAsState()
     val backendFactory: VideoPlaybackBackendFactory = koinInject()
@@ -200,8 +226,40 @@ fun PlayerScreen(
     var dvSanitizerReported by remember { mutableStateOf(false) }
     var pictureInPictureVideoWidth by remember { mutableStateOf(16) }
     var pictureInPictureVideoHeight by remember { mutableStateOf(9) }
+    // Display aspect of the decoded frame — coded size corrected for anamorphic
+    // pixels, which is what AspectRatioFrameLayout actually fits. Deliberately 0
+    // until the first video-size callback, so the letterbox probe measures
+    // against the real frame rather than the 16:9 placeholder above.
+    var codedVideoAspect by remember { mutableFloatStateOf(0f) }
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
+    var playerRootBounds by remember { mutableStateOf<Rect?>(null) }
     var fastForwardHoldActive by remember { mutableStateOf(false) }
+    val originalWindowBrightness = remember(activity) {
+        activity?.window?.attributes?.screenBrightness
+    }
+    var playerBrightnessFraction by remember(activity, originalWindowBrightness) {
+        mutableFloatStateOf(
+            (
+                originalWindowBrightness
+                    ?.takeIf { it >= 0f }
+                    ?: runCatching {
+                        Settings.System.getInt(
+                            context.contentResolver,
+                            Settings.System.SCREEN_BRIGHTNESS,
+                        ) / 255f
+                    }.getOrDefault(0.5f)
+                ).coerceIn(0f, 1f),
+        )
+    }
+
+    DisposableEffect(activity, originalWindowBrightness) {
+        onDispose {
+            val window = activity?.window ?: return@onDispose
+            val attributes = window.attributes
+            attributes.screenBrightness = originalWindowBrightness ?: -1f
+            window.attributes = attributes
+        }
+    }
 
     // Google Cast (Chromecast). Distinct from the NSD/mDNS PrairieCast device
     // remote. When a Cast session connects, local Media3 is paused and a
@@ -211,6 +269,19 @@ fun PlayerScreen(
     val castState by castManager.castState.collectAsState()
     val castScope = rememberCoroutineScope()
     var wasCasting by remember { mutableStateOf(false) }
+    val tabletopPaneLayout = remember(tabletopPosture, playerRootBounds, density.density) {
+        val posture = tabletopPosture ?: return@remember null
+        val rootBounds = playerRootBounds ?: return@remember null
+        calculateTabletopPlayerPaneLayout(
+            rootTopPx = rootBounds.top,
+            rootBottomPx = rootBounds.bottom,
+            foldTopPx = posture.foldBounds.top,
+            foldBottomPx = posture.foldBounds.bottom,
+            foldGuardPx = with(density) { 8.dp.roundToPx() },
+        )
+    }
+    val useTabletopPlayerLayout =
+        tabletopPaneLayout != null && !isInPictureInPictureMode && !castState.isConnected
 
     // Watch Together binding. Built once per roomId; null for solo playback.
     // The process RoomSession owns the WS; this controller owns only the
@@ -321,24 +392,37 @@ fun PlayerScreen(
     // (surfaceCreated/Changed/Destroyed) and recovers across seek/recreate/rotation
     // underlying player). Re-binds automatically when the engine swaps.
     val sessionPlayer by activePlayerHolder.player.collectAsState()
-    val videoBackend = remember(
-        sessionPlayer,
-        mediaController,
-        backendFactory,
-        contentId,
-        initialFileId,
-        uiState.playMethod,
-        uiState.playbackPlan,
-        uiState.delivery,
-        uiState.container,
-        uiState.streamUrl,
-    ) {
-        val plan = uiState.playbackPlan
-        val delivery = plan?.delivery ?: uiState.delivery
-        (sessionPlayer ?: mediaController)?.let { player ->
+    val backendPlayer = sessionPlayer ?: mediaController
+    val videoBackend = remember(backendPlayer, backendFactory) {
+        backendPlayer?.let { player ->
             backendFactory.create(
                 player = player,
                 request = VideoPlaybackBackendRequest(),
+            )
+        }
+    }
+    // A neutral-v3 replan publishes replacement route state before the
+    // corresponding Compose mount effect runs. Subtitle restoration must wait
+    // for that exact media generation rather than racing a newly mounted route.
+    var mountedMediaGeneration by remember(videoBackend) { mutableStateOf<Long?>(null) }
+    // False until presets have been applied once for the current backend, so
+    // only later capability changes wait for the route to settle.
+    var trackPresetsApplied by remember(videoBackend) { mutableStateOf(false) }
+
+    // Applies a local audio switch. The ViewModel does not commit on this call:
+    // AudioTrackManager returns Unit and does nothing silently when the group is
+    // absent, so it waits for a snapshot showing the target selected.
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        viewModel.pendingLocalAudioSelection.collect { request ->
+            request ?: return@collect
+            backend.selectAudioTrack(
+                VideoPlayerTrackEntry(
+                    index = request.targetOrdinal,
+                    label = "",
+                    language = null,
+                    isSelected = true,
+                ),
             )
         }
     }
@@ -452,13 +536,22 @@ fun PlayerScreen(
         hdrEnabled,
     ) {
         val backend = videoBackend ?: return@LaunchedEffect
-        backend.applyTrackSelection(
-            audioCaps = audioCaps,
-            displayHdr = if (hdrEnabled) displayHdr else org.prairieserver.prairie.model.playback.HdrCapabilities(),
-            preferredAudioLanguage = uiState.preferredAudioLanguage,
-            preferredTextLanguage = uiState.preferredTextLanguage,
-            hdrEnabled = hdrEnabled,
-        )
+        // Let the audio route settle first — see the TV screen's copy of this.
+        // Here the route change is a headphone unplug or a Bluetooth drop
+        // rather than an HDMI switch, but the failure is the same: a
+        // reselection during a sink rebuild has no media period to seek.
+        if (trackPresetsApplied) delay(TrackSelectionSettleMs)
+        // Only a REAL application counts — see the TV screen's copy.
+        if (backend.applyTrackSelection(
+                audioCaps = audioCaps,
+                displayHdr = if (hdrEnabled) displayHdr else org.prairieserver.prairie.model.playback.HdrCapabilities(),
+                preferredAudioLanguage = uiState.preferredAudioLanguage,
+                preferredTextLanguage = uiState.preferredTextLanguage,
+                hdrEnabled = hdrEnabled,
+            )
+        ) {
+            trackPresetsApplied = true
+        }
     }
 
     // Mirror the user's preferred playback speed onto the live MediaController,
@@ -535,17 +628,33 @@ fun PlayerScreen(
     // Orientation policy (iOS PlayerOrientationCoordinator parity): entering
     // the player locks to landscape by default; the persisted "rotateFreely"
     // opt-out (HUD lock toggle / synced setting) falls back to USER so the
-    // system rotation preference stays in charge. Released on exit by the
-    // immersive effect's originalOrientation restore above.
+    // system rotation preference stays in charge. Android 16 ignores requested
+    // orientation on 600dp+ displays, so those layouts stay adaptive and the
+    // overlay disables the lock affordance instead of claiming a no-op lock.
+    // Released on exit by the immersive effect's UNSPECIFIED restore above.
     // Wait for the persisted preference before touching the activity: the
     // resolved flow is null until it arrives, and applying the eager locked
     // default on the first frame would snap rotateFreely users back to
     // landscape on every player entry.
+    val smallestScreenWidthDp = LocalConfiguration.current.smallestScreenWidthDp
+    val orientationLockSupported = supportsPlayerOrientationLock(
+        sdkInt = Build.VERSION.SDK_INT,
+        smallestScreenWidthDp = smallestScreenWidthDp,
+    )
     val orientationLockedResolved by viewModel.orientationLockedResolved.collectAsState()
-    LaunchedEffect(activity, orientationLockedResolved, castState.isConnected) {
+    LaunchedEffect(
+        activity,
+        orientationLockedResolved,
+        castState.isConnected,
+        orientationLockSupported,
+        tabletopPosture,
+    ) {
         // While casting, the screen shows the cast takeover panel, not video —
         // no reason to force landscape (and it must unlock if already forced).
-        if (castState.isConnected) {
+        // Large Android 16 displays likewise own their orientation by platform
+        // policy. Tabletop posture also owns its physical orientation; forcing
+        // landscape can rotate a horizontal hinge back into book posture.
+        if (castState.isConnected || !orientationLockSupported || tabletopPosture != null) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             return@LaunchedEffect
         }
@@ -598,7 +707,12 @@ fun PlayerScreen(
             delivery = delivery,
             serverUrl = serverUrl,
             container = uiState.container,
-            subtitles = uiState.subtitleTracks,
+            subtitles = subtitlesForVideoMediaMount(
+                subtitles = uiState.subtitleTracks,
+                playbackPlan = plan,
+                subtitleIdentity = uiState.localSubtitleMountIdentity
+                    ?: uiState.committedSubtitleIdentity,
+            ),
             title = uiState.title.ifBlank { null },
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
@@ -621,6 +735,7 @@ fun PlayerScreen(
                 playMethod = playMethod,
                 startPositionMs = mediaSpec.startPositionMs,
                 nowMs = SystemClock.elapsedRealtime(),
+                clientTransformations = mediaSpec.transformations,
             )
             postResumeStallDetector.onMounted(
                 "${uiState.sessionId}:$effectiveStreamUrl:${plan?.planId.orEmpty()}:" +
@@ -628,7 +743,19 @@ fun PlayerScreen(
             )
         }
         backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)
+        mountedMediaGeneration = uiState.mediaMountGeneration
         viewModel.onMediaMountApplied(uiState.mediaMountGeneration)
+    }
+
+    // A new mount leaves the previous item's frame in the SurfaceView until the
+    // new stream decodes its own, and its geometry describes that stale frame.
+    // Forgetting it gates the letterbox probe off until Media3 re-reports a
+    // video size — which it does as the new stream produces its first output —
+    // so the outgoing episode's matte can never settle, or be cached, under the
+    // incoming one's key. The PiP dimensions above are deliberately kept: they
+    // size a window that must not collapse mid-transition.
+    LaunchedEffect(uiState.mediaMountGeneration) {
+        codedVideoAspect = 0f
     }
 
     // Mid-playback subtitle refresh (downloaded / AI-generated tracks).
@@ -657,7 +784,12 @@ fun PlayerScreen(
             delivery = delivery,
             serverUrl = uiState.serverUrl,
             container = uiState.container,
-            subtitles = uiState.subtitleTracks,
+            subtitles = subtitlesForVideoMediaMount(
+                subtitles = uiState.subtitleTracks,
+                playbackPlan = plan,
+                subtitleIdentity = uiState.localSubtitleMountIdentity
+                    ?: uiState.committedSubtitleIdentity,
+            ),
             title = uiState.title.ifBlank { null },
             subtitle = uiState.subtitle.ifBlank { null },
             artworkUrl = uiState.artworkUrl,
@@ -713,7 +845,7 @@ fun PlayerScreen(
     }
 
     // Player event listener to feed state back to ViewModel + track video size for PiP
-    DisposableEffect(mediaController, playWhenReadyReconciliationGate) {
+    DisposableEffect(mediaController, videoBackend, playWhenReadyReconciliationGate) {
         val controller = mediaController
         if (controller == null) {
             onDispose { }
@@ -793,6 +925,8 @@ fun PlayerScreen(
                     if (size.width > 0 && size.height > 0) {
                         pictureInPictureVideoWidth = size.width
                         pictureInPictureVideoHeight = size.height
+                        val pixelAspect = size.pixelWidthHeightRatio.takeIf { it > 0f } ?: 1f
+                        codedVideoAspect = size.width.toFloat() / size.height * pixelAspect
                         // Pull frame rate off the selected video track; phone
                         // panels with multiple refresh rates switch to
                         // content-matching (seamless only — see ExoPlayer's
@@ -812,6 +946,13 @@ fun PlayerScreen(
                 }
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                    // Audio was never published here, so a direct-play file with
+                    // several audio tracks could show the chosen row while the
+                    // renderer stayed on Media3's default.
+                    viewModel.onMountedAudioChanged(
+                        mounted = mountedAudioTracks(tracks),
+                        selectedOrdinal = selectedMountedAudioOrdinal(tracks),
+                    )
                     // Re-apply the subtitle selection once track groups resolve:
                     // after the subtitle-refresh rebuild the selection effect has
                     // already fired (against the OLD tracks), so without this the
@@ -980,8 +1121,11 @@ fun PlayerScreen(
         uiState.selectedSubtitleIndex,
         uiState.committedSubtitleIdentity,
         uiState.localSubtitleMountIdentity,
+        uiState.mediaMountGeneration,
+        mountedMediaGeneration,
     ) {
         val backend = videoBackend ?: return@LaunchedEffect
+        if (mountedMediaGeneration != uiState.mediaMountGeneration) return@LaunchedEffect
         val pendingIdentity = uiState.localSubtitleMountIdentity
         val targetIdentity = pendingIdentity ?: uiState.committedSubtitleIdentity
         val selectedIndex = resolveMobileSubtitleOrdinal(targetIdentity, uiState.subtitleTracks)
@@ -1047,7 +1191,17 @@ fun PlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Black)
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                val next = Rect(
+                    bounds.left.roundToInt(),
+                    bounds.top.roundToInt(),
+                    bounds.right.roundToInt(),
+                    bounds.bottom.roundToInt(),
+                )
+                if (playerRootBounds != next) playerRootBounds = next
+            },
     ) {
         if (uiState.isLoading) {
             Box(
@@ -1088,12 +1242,76 @@ fun PlayerScreen(
         } else {
             val controller = mediaController
             val videoGravity by viewModel.videoGravity.collectAsState()
-            val resizeMode = when (videoGravity) {
-                "fill" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+            val letterboxExpansion by viewModel.letterboxExpansion.collectAsState()
+            // The camera only reaches the picture once expansion pushes it out
+            // to the edges — at FIT's 2560px the pillarbox already swallows it.
+            // Read the platform's resolved cutout rather than deriving it from
+            // rotation: it already knows which edge the camera is on in THIS
+            // rotation (they are opposite edges in the two landscapes), and it
+            // accounts for waterfall edges and multiple cutouts too.
+            val layoutDirection = LocalLayoutDirection.current
+            // Fill and Stretch are the user asking for the whole display, camera
+            // and all, exactly as they are excluded from expansion below — so
+            // they are not insetted either.
+            val explicitFullScreenGravity = videoGravity == "fill" || videoGravity == "stretch"
+            val cutoutSideInsetPx = if (
+                letterboxExpansion == LetterboxExpansion.ClearOfCamera && !explicitFullScreenGravity
+            ) {
+                val cutout = WindowInsets.displayCutout
+                cutoutSafeHorizontalInset(
+                    cutoutLeftPx = cutout.getLeft(density, layoutDirection),
+                    cutoutRightPx = cutout.getRight(density, layoutDirection),
+                )
+            } else {
+                0
+            }
+            // Scope films ship as a 2.39:1 image inside a 16:9 frame, and a
+            // 1.90:1 title ships the same way, so a plain fit fits the encoded
+            // black too. This measures that matte and reports the aspect of the
+            // picture hiding inside the frame — the coded aspect itself when
+            // there is nothing to discount. Off wherever the video is not what
+            // is on screen, and off for the gravities the user has already
+            // decided for themselves.
+            val letterboxContentAspect = rememberLetterboxContentAspect(
+                playerView = playerViewRef,
+                enabled = letterboxExpansion != LetterboxExpansion.Off &&
+                    !explicitFullScreenGravity &&
+                    !isInPictureInPictureMode &&
+                    !castState.isConnected &&
+                    !useTabletopPlayerLayout,
+                videoAspect = codedVideoAspect,
+                mediaKey = uiState.mediaMountGeneration,
+                cacheKey = letterboxMatteCacheKey(
+                    // Downloads carry no server URL by design, and content and
+                    // media-file ids are server-scoped, so keying them on the
+                    // rest of the tuple alone would let two servers' downloads
+                    // share an entry. The local URI names those stored bytes
+                    // exactly, and is stable across plays of the download.
+                    origin = uiState.serverUrl.ifBlank {
+                        uiState.streamUrl
+                            ?.takeIf { it.startsWith("file://") || it.startsWith("content://") }
+                            .orEmpty()
+                    },
+                    contentId = uiState.contentId,
+                    mediaFileId = uiState.mediaFileId,
+                    codedWidth = pictureInPictureVideoWidth,
+                    codedHeight = pictureInPictureVideoHeight,
+                ),
+            )
+            // Expanding means giving the surface the shape of the PICTURE rather
+            // than of the coded frame, and letting the frame overflow it. The
+            // surface box below is that shape; ZOOM then scales the frame to
+            // cover it, which lands the clip inside the encoded matte by
+            // construction rather than by a threshold.
+            val letterboxExpanding = codedVideoAspect > 0f &&
+                letterboxContentAspect > codedVideoAspect
+            val resizeMode = when {
+                videoGravity == "fill" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                videoGravity == "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                letterboxExpanding -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
-            var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
             val subtitleAppearance by viewModel.subtitleAppearance.collectAsState()
 
             // Re-apply user subtitle styling whenever the PlayerView mounts or the
@@ -1105,6 +1323,32 @@ fun PlayerScreen(
                 subtitleManager.applyAppearance(pv, subtitleAppearance)
             }
 
+            val activeTabletopPaneLayout = tabletopPaneLayout.takeIf {
+                useTabletopPlayerLayout
+            }
+            val cutoutInsetDp = with(density) { cutoutSideInsetPx.toDp() }
+            val videoSurfaceModifier = when {
+                activeTabletopPaneLayout != null ->
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(with(density) { activeTabletopPaneLayout.videoHeightPx.toDp() })
+                // Expanding means giving the surface the shape of the PICTURE
+                // rather than of the coded frame. `aspectRatio` IS the fit: it
+                // takes the full width when the picture is wider than what is
+                // available and the full height when it is narrower, which is
+                // exactly the rule, both cases, no branch. It must NOT be
+                // preceded by fillMaxSize, which would pin the constraints and
+                // leave it nothing to choose between.
+                letterboxExpanding ->
+                    Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = cutoutInsetDp)
+                        .aspectRatio(letterboxContentAspect)
+                // Shrinking the available area is what keeps the camera off a
+                // picture that reaches the edges on its own.
+                else -> Modifier.fillMaxSize().padding(horizontal = cutoutInsetDp)
+            }
 
             if (controller != null) {
                 AndroidView(
@@ -1126,8 +1370,7 @@ fun PlayerScreen(
                         view.resizeMode = resizeMode
                         subtitleManager.syncSubtitleVideoBounds(view)
                     },
-                    modifier = Modifier
-                        .fillMaxSize()
+                    modifier = videoSurfaceModifier
                         .onGloballyPositioned { coordinates ->
                             val bounds = coordinates.boundsInWindow()
                             val next = Rect(
@@ -1141,6 +1384,25 @@ fun PlayerScreen(
                             }
                         },
                 )
+            }
+
+            // In tabletop posture the regular PlayerOverlay is deliberately
+            // constrained to the controls pane. Keep playback/reconnection
+            // feedback on the video itself instead of showing a spinner below
+            // the hinge among the transport controls.
+            if (activeTabletopPaneLayout != null &&
+                (uiState.isBuffering || sessionState is SessionState.Reconnecting)
+            ) {
+                Box(
+                    modifier = videoSurfaceModifier,
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(56.dp),
+                        color = Color.White,
+                        strokeWidth = 3.dp,
+                    )
+                }
             }
 
             // Cast takeover surface — replaces the video AND the local player
@@ -1170,11 +1432,37 @@ fun PlayerScreen(
             }
 
             if (!isInPictureInPictureMode && !castState.isConnected) {
+                val playerOverlayModifier = if (activeTabletopPaneLayout != null) {
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(with(density) { activeTabletopPaneLayout.controlsHeightPx.toDp() })
+                } else {
+                    Modifier.fillMaxSize()
+                }
                 PlayerClockScope(viewModel) { clock ->
                     PlayerOverlay(
                         state = uiState.withPlaybackClock(clock),
                         viewModel = viewModel,
                         roomSnapshot = roomSnapshot,
+                        orientationLockSupported =
+                            orientationLockSupported && activeTabletopPaneLayout == null,
+                        alwaysShowControls = activeTabletopPaneLayout != null,
+                        tabletopMode = activeTabletopPaneLayout != null,
+                        tabletopPaneHeight = activeTabletopPaneLayout?.let { layout ->
+                            with(density) { layout.controlsHeightPx.toDp() }
+                        },
+                        brightnessFraction = playerBrightnessFraction,
+                        onSetBrightness = { fraction ->
+                            val appliedBrightness = fraction.coerceIn(0.02f, 1f)
+                            playerBrightnessFraction = appliedBrightness
+                            activity?.window?.let { window ->
+                                val attributes = window.attributes
+                                attributes.screenBrightness = appliedBrightness
+                                window.attributes = attributes
+                            }
+                        },
+                        showBufferingIndicator = activeTabletopPaneLayout == null,
                         castSlot = {
                             PrairieCastButton(
                                 castManager = castManager,
@@ -1220,6 +1508,7 @@ fun PlayerScreen(
                         onSelectSubtitle = { viewModel.onSelectSubtitle(it) },
                         onSelectAudio = { viewModel.onSelectAudio(it) },
                         onSelectVersion = { viewModel.onSelectVersion(it) },
+                        modifier = playerOverlayModifier,
                     )
                 }
             }

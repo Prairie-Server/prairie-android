@@ -4,6 +4,7 @@ import org.prairieserver.prairie.network.PlaybackRealtimeClient
 import org.prairieserver.prairie.network.PlaybackRealtimeEvent
 import org.prairieserver.prairie.playback.PlaybackAction
 import org.prairieserver.prairie.playback.decodeMarkersUpdate
+import org.prairieserver.prairie.playback.decodePlaybackSubtitleReady
 import org.prairieserver.prairie.playback.decidePlaybackAction
 import org.prairieserver.prairie.playback.isTransport
 import kotlinx.coroutines.CancellationException
@@ -87,10 +88,10 @@ class TvPlaybackRealtimeController(
 
     private suspend fun handleServerEvent(event: PlaybackRealtimeEvent.ServerEvent) {
         when (event.name) {
-            "subtitle_ready" -> viewModel.refreshSubtitles(autoSelectSubtitleId = null)
+            "subtitle_ready" -> viewModel.applySubtitleReady(decodePlaybackSubtitleReady(event))
             "markers_updated" -> {
                 val markers = decodeMarkersUpdate(event)
-                viewModel.applyUpdatedMarkers(markers.intro, markers.credits)
+                viewModel.applyUpdatedMarkers(markers.intro, markers.credits, markers.recap, markers.preview)
             }
             // chapter_thumbnail_ready: no scrubber-thumbnail UI yet → nothing to update.
             else -> { /* ignore */ }

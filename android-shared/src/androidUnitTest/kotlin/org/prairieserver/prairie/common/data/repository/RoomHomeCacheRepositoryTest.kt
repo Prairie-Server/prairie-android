@@ -2,7 +2,7 @@ package org.prairieserver.prairie.common.data.repository
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import org.prairieserver.prairie.common.data.db.SiloDatabase
+import org.prairieserver.prairie.common.data.db.PrairieDatabase
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.network.AuthScopeSnapshot
@@ -24,7 +24,7 @@ class RoomHomeCacheRepositoryTest {
 
     private val db = Room.inMemoryDatabaseBuilder(
         ApplicationProvider.getApplicationContext(),
-        SiloDatabase::class.java,
+        PrairieDatabase::class.java,
     ).allowMainThreadQueries().build()
 
     private var scope: AuthScopeSnapshot? = AuthScopeSnapshot("s1", "p1", "https://s1.example", null)

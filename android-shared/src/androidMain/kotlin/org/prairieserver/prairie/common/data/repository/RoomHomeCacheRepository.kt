@@ -1,6 +1,6 @@
 package org.prairieserver.prairie.common.data.repository
 
-import org.prairieserver.prairie.common.data.db.SiloDatabase
+import org.prairieserver.prairie.common.data.db.PrairieDatabase
 import org.prairieserver.prairie.common.data.db.entity.HomeCacheEntity
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.network.AuthScopeSnapshot
@@ -20,7 +20,7 @@ import kotlinx.serialization.json.Json
  * JSON decodes to null rather than crashing the home screen.
  */
 class RoomHomeCacheRepository(
-    db: SiloDatabase,
+    db: PrairieDatabase,
     private val snapshotProvider: suspend () -> AuthScopeSnapshot?,
     private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
     private val now: () -> Long = { System.currentTimeMillis() },

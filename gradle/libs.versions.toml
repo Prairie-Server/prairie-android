@@ -21,8 +21,13 @@ lifecycle-kmp = "2.9.6"
 navigation = "2.9.8"
 activity-compose = "1.12.4"
 tv-compose = "1.0.1"
+haze = "1.6.10"
 desugar-jdk-libs = "2.1.5"
 robolectric = "4.16.1"
+# Compose UI test artifacts: pin to the androidx.compose.ui the app already
+# resolves at runtime, so the Robolectric harness exercises the same runtime
+# the app ships rather than dragging in a newer one.
+compose-ui-test = "1.9.2"
 ksp = "2.1.20-2.0.1"
 room = "2.8.4"
 androidx-test-core = "1.6.1"
@@ -40,7 +45,7 @@ jsoup = "1.22.2"
 # Google Cast (Chromecast, phone app only) + its MediaRouter dependency.
 play-services-cast-framework = "21.5.0"
 androidx-mediarouter = "1.7.0"
-kover = "0.9.1"
+androidx-window = "1.4.0"
 
 [libraries]
 # BouncyCastle — TLS-PSK server for the LAN companion-pairing receiver
@@ -48,6 +53,8 @@ kover = "0.9.1"
 bouncycastle-prov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 bouncycastle-tls = { module = "org.bouncycastle:bctls-jdk18on", version.ref = "bouncycastle" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4", version.ref = "compose-ui-test" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version.ref = "compose-ui-test" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
@@ -89,6 +96,10 @@ navigation-compose = { module = "androidx.navigation:navigation-compose", versio
 # Coil
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
+
+# Haze — backdrop blur for the phone app's floating tab bar (real blur on
+# API 31+, tinted scrim fallback below).
+haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 
 # Compose for TV — tv-foundation was merged into tv-material in 1.0.0 stable.
 tv-material = { module = "androidx.tv:tv-material", version.ref = "tv-compose" }
@@ -135,6 +146,7 @@ jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 # cast-capability playback session; the raw phone stream is never cast.
 play-services-cast-framework = { module = "com.google.android.gms:play-services-cast-framework", version.ref = "play-services-cast-framework" }
 androidx-mediarouter = { module = "androidx.mediarouter:mediarouter", version.ref = "androidx-mediarouter" }
+androidx-window = { module = "androidx.window:window", version.ref = "androidx-window" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
@@ -149,4 +161,3 @@ android-test = { id = "com.android.test", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmark" }
 google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }
-kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }

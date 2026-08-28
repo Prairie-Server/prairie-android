@@ -37,7 +37,8 @@ sealed interface VideoPlaybackStartResult {
         val accessToken: String = "",
         val mediaFileId: Int? = null,
         val audioTrackIndex: Int = 0,
-        val durationSeconds: Double = 0.0,
+        /** Full source duration; null when the V3 plan leaves it unknown. */
+        val durationSeconds: Double? = null,
         val subtitleUrls: List<PlayerSubtitleInfo> = emptyList(),
         val preferredAudioLanguage: String? = null,
         val preferredTextLanguage: String? = null,
@@ -45,11 +46,15 @@ sealed interface VideoPlaybackStartResult {
         val showForcedSubtitles: Boolean = true,
         val intro: TimeRange? = null,
         val credits: TimeRange? = null,
+        val recap: TimeRange? = null,
+        val preview: TimeRange? = null,
         val chapters: List<VersionChapter> = emptyList(),
         // Episode context for next-episode auto-advance (null for movies).
         val seriesId: String? = null,
         val seasonNumber: Int? = null,
         val episodeNumber: Int? = null,
+        /** TV's target-catalog resolution of [VideoPlaybackStartRequest.episodeSelectionHandoff]. */
+        val resolvedEpisodeSelection: ResolvedEpisodeSelection? = null,
     ) : VideoPlaybackStartResult
 
     data class Error(

@@ -1,6 +1,6 @@
 package org.prairieserver.prairie.common.settings
 
-import org.prairieserver.prairie.common.diagnostics.SiloLog
+import org.prairieserver.prairie.common.diagnostics.PrairieLog
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsLogCategory
 import org.prairieserver.prairie.model.settings.SettingKeys
 import org.prairieserver.prairie.model.settings.SettingScopeIdentity
@@ -51,6 +51,21 @@ interface ServerSettingsFlusher {
      * first to finish. Ops that fail transiently stay queued for retry.
      */
     suspend fun flushNow()
+
+    /**
+     * The setting keys [profileId] still has unsent (or failed-and-requeued)
+     * writes for, read after a [flushNow] has drained what it could.
+     *
+     * A caller that pulls server state right after pushing needs this: a
+     * transiently failed PUT stays queued and `flushNow` returns normally, so
+     * the server answers the following read from the value the write has not
+     * landed on yet. Applying that answer verbatim would put the old value back
+     * over the edit the user just made.
+     *
+     * Defaults to empty so an implementation that never queues anything need
+     * not answer.
+     */
+    fun pendingKeys(profileId: String): Set<String> = emptySet()
 }
 
 private sealed class PendingOp {
@@ -152,6 +167,10 @@ class DefaultServerSettingsFlusher(
         }
     }
 
+    override fun pendingKeys(profileId: String): Set<String> = synchronized(lock) {
+        pending.keys.filter { it.first == profileId }.map { it.second }.toSet()
+    }
+
     override suspend fun flushNow() {
         synchronized(lock) {
             flushJob?.cancel()
@@ -241,7 +260,7 @@ class DefaultServerSettingsFlusher(
             // can recognize the same profile id, so it would land rather than
             // fail. Dropping it also keeps a stale op from being revived by a
             // later enqueue once the original server is active again.
-            SiloLog.w(
+            PrairieLog.w(
                 CATEGORY, TAG,
                 "dropping $key: queued for ${op.serverUrl}, active server is now $active",
             )
@@ -251,7 +270,7 @@ class DefaultServerSettingsFlusher(
             // Local-only keys (granular subtitle.* fields, pre-contract
             // strays) have no server row; the canonical API would refuse
             // them as unknown_setting, so they never leave the device.
-            SiloLog.w(CATEGORY, TAG, "dropping $key: not a server-stored key in the generated contract")
+            PrairieLog.w(CATEGORY, TAG, "dropping $key: not a server-stored key in the generated contract")
             return false
         }
         return try {
@@ -270,7 +289,7 @@ class DefaultServerSettingsFlusher(
     private suspend fun flushSet(profileId: String, key: String, op: PendingOp.Set): Boolean {
         val encoded = encodeSettingWireValue(key, op.value)
         if (encoded == null) {
-            SiloLog.w(CATEGORY, TAG, "dropping $key: ${op.value} does not encode as the contract type")
+            PrairieLog.w(CATEGORY, TAG, "dropping $key: ${op.value} does not encode as the contract type")
             return false
         }
         return when (
@@ -319,7 +338,7 @@ class DefaultServerSettingsFlusher(
     }
 
     private fun failed(verb: String, key: String, detail: String, retry: Boolean): Boolean {
-        SiloLog.w(
+        PrairieLog.w(
             CATEGORY, TAG,
             "$verb $key failed ($detail); ${if (retry) "kept queued for retry" else "dropped"}",
         )

@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.network
 
+import org.prairieserver.prairie.util.ImageFormats
+
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.api.*
@@ -12,7 +14,45 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.prairieserver.prairie.model.auth.RefreshRequest
 import org.prairieserver.prairie.model.auth.RefreshResponse
-import org.prairieserver.prairie.util.ImageFormats
+
+/**
+ * How close to expiry an access token may get before a request refreshes it
+ * rather than spending it.
+ *
+ * Wide enough to cover the round trip plus clock skew between client and
+ * server, narrow enough that it never dominates a short token lifetime.
+ */
+private const val PROACTIVE_REFRESH_MARGIN_MS = 60_000L
+
+/**
+ * What a refresh attempt settled.
+ *
+ * [CredentialsDead] is the one the proactive path must not ignore: the server
+ * repudiated the refresh token, so the session has been torn down or the
+ * overlay generation flagged. Sending the original request anyway would spend a
+ * bearer the client has just declared invalid — and if the access token has not
+ * expired yet the server may well honour it, completing a write for a session
+ * the app has already ended.
+ */
+internal enum class RefreshOutcome {
+    /** New credentials are installed; retry with them. */
+    Refreshed,
+
+    /** Nothing changed and the credentials are still usable as-is. */
+    NotAttempted,
+
+    /** The server rejected the refresh token; these credentials are finished. */
+    CredentialsDead,
+
+    /**
+     * The refresh could not be completed for a reason that says nothing about
+     * the credentials — a 5xx, a gateway, a dropped connection. They may still
+     * be perfectly good, so the caller spends them as before; but it must not
+     * immediately ask again, or one request becomes two refresh attempts and
+     * concurrent traffic amplifies the outage it is already suffering.
+     */
+    FailedTransient,
+}
 
 /**
  * Configuration for the [PrairieAuthPlugin].
@@ -28,7 +68,7 @@ class PrairieAuthConfig {
 }
 
 /**
- * Ktor client plugin that handles Prairie authentication.
+ * Ktor client plugin that handles Silo authentication.
  *
  * Before each request:
  * - Attaches `Authorization: Bearer <token>` if an access token is available
@@ -59,17 +99,198 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
     // refreshing dead credentials again on every subsequent 401.
     val deadCredentialGenerations = MutableStateFlow<Set<String>>(emptySet())
 
+    /**
+     * One refresh of [refreshScope], serialised on [refreshMutex].
+     *
+     * Lifted verbatim out of the 401 path so the proactive path cannot drift
+     * from it. Every guard inside — mid-flight server switch, a sign-out
+     * landing while the round trip is open, a dead temporary generation —
+     * exists because it was needed once; a second copy would be a second place
+     * to forget one.
+     *
+     * Set [allowNetworkRefresh] to false when a proactive attempt for this same
+     * request already failed transiently: every check still runs — including
+     * the one that spots a token a concurrent request installed, which needs no
+     * network call — but the refresh POST itself is skipped rather than piling
+     * onto a service that is already failing.
+     *
+     * @return [RefreshOutcome.Refreshed] when the caller should retry with a
+     * token that now differs from [authorizationBeforeRequest]; otherwise the
+     * outcome describing why not.
+     */
+    suspend fun refreshScopeOnce(
+        refreshScope: AuthScopeSnapshot,
+        trustedServerUrl: String,
+        activeServerIdBeforeRequest: String?,
+        authorizationBeforeRequest: String?,
+        temporaryGeneration: String?,
+        allowNetworkRefresh: Boolean = true,
+    ): RefreshOutcome = refreshMutex.withLock {
+        // If the user switched servers between request-send and 401-retry,
+        // we are now operating against a different server. Don't try to
+        // "refresh" — the refresh token wouldn't be valid for the new
+        // server anyway, and we'd risk persisting cross-server tokens.
+        val serverIdNow = tokenManager.getCurrentServerId()
+        val serverUrlNow = tokenManager.getServerUrl()
+        if (
+            serverIdNow != activeServerIdBeforeRequest ||
+            !isSameHttpOrigin(trustedServerUrl, serverUrlNow)
+        ) {
+            return@withLock RefreshOutcome.NotAttempted
+        }
+
+        val tokenNow = tokenManager.getAccessTokenForScope(refreshScope)
+        if (
+            tokenManager.getCurrentServerId() != activeServerIdBeforeRequest ||
+            !isSameHttpOrigin(trustedServerUrl, tokenManager.getServerUrl())
+        ) {
+            return@withLock RefreshOutcome.NotAttempted
+        }
+        if (tokenNow != null && "Bearer $tokenNow" != authorizationBeforeRequest) {
+            // Another coroutine already refreshed while we were waiting —
+            // just retry the original request with the new token.
+            return@withLock RefreshOutcome.Refreshed
+        }
+
+        if (temporaryGeneration != null &&
+            temporaryGeneration in deadCredentialGenerations.value
+        ) {
+            // A 401 that won the race already proved these temporary credentials
+            // are dead; the token is unchanged, so without this every waiter would
+            // repeat the same doomed refresh.
+            return@withLock RefreshOutcome.CredentialsDead
+        }
+
+        // Scope-bound, not global: a refresh must spend the token belonging to
+        // the scope this request ran under.
+        val refreshToken = tokenManager.getRefreshTokenForScope(refreshScope)
+        if (refreshToken.isNullOrBlank()) {
+            return@withLock RefreshOutcome.NotAttempted
+        }
+
+        // A proactive attempt for this same request already failed for a
+        // transient reason. Everything above still had to run — most
+        // importantly the double-check, because a CONCURRENT request may have
+        // installed a working token while this one was in flight, and that
+        // recovery costs no network call. Only the request below is suppressed.
+        if (!allowNetworkRefresh) {
+            return@withLock RefreshOutcome.FailedTransient
+        }
+
+        try {
+            diagnosticsObserver.safeAuthRefresh("started")
+            if (trustedServerUrl.isBlank()) {
+                return@withLock RefreshOutcome.NotAttempted
+            }
+
+            val refreshResponse = client.post("$trustedServerUrl/api/v1/auth/refresh") {
+                contentType(ContentType.Application.Json)
+                setBody(RefreshRequest(refreshToken))
+            }
+
+            // Re-check serverId AFTER the network call as well — the user
+            // could have switched while we were waiting on the network.
+            // The token write below targets whichever server is active at
+            // save time, so a mismatch here means we'd write to the wrong
+            // slot.
+            val serverIdAfterCall = tokenManager.getCurrentServerId()
+            val serverUrlAfterCall = tokenManager.getServerUrl()
+            if (
+                serverIdAfterCall != activeServerIdBeforeRequest ||
+                !isSameHttpOrigin(trustedServerUrl, serverUrlAfterCall)
+            ) {
+                return@withLock RefreshOutcome.NotAttempted
+            }
+
+            // Re-check sign-out state AFTER the network call too. Logout
+            // revokes the access token server-side before clearTokens()
+            // runs, so concurrent requests 401 exactly during sign-out and
+            // start a refresh with the still-valid refresh token; without
+            // this guard the refresh response lands after clearTokens()
+            // and saveTokens() silently signs the user back in.
+            if (tokenManager.getRefreshTokenForScope(refreshScope).isNullOrBlank()) {
+                return@withLock RefreshOutcome.NotAttempted
+            }
+
+            if (refreshResponse.status.isSuccess()) {
+                diagnosticsObserver.safeAuthRefresh("succeeded")
+                val tokens = refreshResponse.body<RefreshResponse>()
+                tokenManager.saveTokensForScope(
+                    scope = refreshScope,
+                    accessToken = tokens.accessToken,
+                    refreshToken = tokens.refreshToken,
+                    expiresIn = tokens.expiresIn,
+                )
+                val after = tokenManager.getAccessTokenForScope(refreshScope)
+                if (after != null && "Bearer $after" != authorizationBeforeRequest) {
+                    RefreshOutcome.Refreshed
+                } else {
+                    RefreshOutcome.NotAttempted
+                }
+            } else {
+                diagnosticsObserver.safeAuthRefresh("failed")
+                // Only auth rejection proves the refresh token is bad.
+                // Gateway/proxy/server failures should keep the session so
+                // a temporary outage does not sign the user out.
+                if (!refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
+                    // Gateway/proxy/server failure: the credentials may well
+                    // still be good, so the caller may spend them as before.
+                    return@withLock RefreshOutcome.FailedTransient
+                }
+                run {
+                    val generationNow = tokenManager.temporaryGenerationId()
+                    when {
+                        // The identity changed while the refresh was in flight
+                        // (overlay began or ended): the rejection belongs to a
+                        // credential set that is no longer installed, so it must
+                        // not tear down whatever is installed now.
+                        generationNow != temporaryGeneration -> Unit
+
+                        // Remote playback: the rejected credentials are a
+                        // temporary overlay. invalidateSession() would drop that
+                        // overlay, and every later read would fall through to the
+                        // saved OWNER's account — the guest would keep browsing
+                        // and writing history as the owner. Flag the generation
+                        // dead and leave the overlay installed instead; the cast
+                        // teardown path is what removes it.
+                        temporaryGeneration != null -> {
+                            deadCredentialGenerations.update { it + temporaryGeneration }
+                            return@withLock RefreshOutcome.CredentialsDead
+                        }
+
+                        // The [TokenManager.sessionExpired] event emitted by
+                        // this call is what the root NavHost observer uses to
+                        // route the user back to the login screen; without it,
+                        // the UI would stay on Home and keep rendering
+                        // "Failed to load..." for every subsequent API call
+                        // that now has no credentials.
+                        else -> {
+                            tokenManager.invalidateSessionForScope(refreshScope)
+                            return@withLock RefreshOutcome.CredentialsDead
+                        }
+                    }
+                }
+                RefreshOutcome.NotAttempted
+            }
+        } catch (e: Throwable) {
+            diagnosticsObserver.safeAuthRefresh("failed")
+            RefreshOutcome.FailedTransient
+        }
+    }
+
     onRequest { request, _ ->
-        val skipAuth = request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true
-        val requireAuth = request.attributes.getOrNull(RequirePrairieAuthAttributeKey) == true
+        val skipAuth = request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true
+        val requireAuth = request.attributes.getOrNull(RequireSiloAuthAttributeKey) == true
         val diagnosticsScope = request.attributes.getOrNull(DiagnosticsRequestScopeKey)
+        val diagnosticsAuthorization = request.attributes.getOrNull(DiagnosticsUploadAuthorizationKey)
         val pinned = request.attributes.getOrNull(AuthScopeAttributeKey)
-        val activeServerIdBefore = if (pinned == null) tokenManager.getCurrentServerId() else null
-        val trustedServerUrl = pinned?.serverUrl ?: tokenManager.getServerUrl()
+        val activeServerIdBefore =
+            if (diagnosticsAuthorization == null && pinned == null) tokenManager.getCurrentServerId() else null
+        val trustedServerUrl = diagnosticsAuthorization?.serverUrl ?: pinned?.serverUrl ?: tokenManager.getServerUrl()
 
         // Shared calls are normally relative. Resolve those against the exact
         // server that owns the credential scope before deciding whether any
-        // Prairie header may be attached.
+        // Silo header may be attached.
         if (
             request.url.encodedPath.startsWith("/api/") &&
             (request.url.host.isBlank() || request.url.host == "localhost") &&
@@ -79,7 +300,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
         }
 
         if (
-            // skipPrairieAuth is also used by login/refresh/device-login POSTs:
+            // skipSiloAuth is also used by login/refresh/device-login POSTs:
             // those requests omit headers but still carry credentials in the
             // body. Only read-only candidate probes may bypass consent.
             (!skipAuth || request.method != HttpMethod.Get) &&
@@ -89,17 +310,41 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             throw CleartextOriginNotApprovedException(request.url.toString())
         }
 
-        val sameOrigin = isSamePrairieHttpOrigin(trustedServerUrl, request.url)
+        val sameOrigin = isSameSiloHttpOrigin(trustedServerUrl, request.url)
         if (skipAuth) {
             request.removePrairieCredentialHeaders()
             if (sameOrigin) {
-                request.attachPrairieDeviceMetadataHeaders(deviceMetadataProvider)
+                request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
             }
             return@onRequest
         }
 
         if (!sameOrigin) {
             request.removePrairieCredentialHeaders()
+            if (diagnosticsAuthorization != null) {
+                throw PrairieAuthUnavailableException(
+                    PrairieAuthUnavailableException.REQUIRED_AUTH_UNAVAILABLE,
+                )
+            }
+            return@onRequest
+        }
+
+        // Diagnostics upload owns an identity-transition lease around this call.
+        // Use only the exact credential captured before the lease: consulting the
+        // persistent TokenManager (or refreshing a 401) would re-enter the same
+        // non-reentrant barrier. A rejected token is surfaced to the uploader and
+        // retried after the next normal preflight refresh.
+        if (diagnosticsAuthorization != null) {
+            request.headers.remove(HttpHeaders.Authorization)
+            request.header(HttpHeaders.Authorization, "Bearer ${diagnosticsAuthorization.accessToken}")
+            request.headers.remove("X-Profile-Id")
+            request.headers.remove("X-Profile-Token")
+            request.applyProfileHeaders(
+                diagnosticsScope = diagnosticsScope,
+                activeProfileId = diagnosticsAuthorization.activeProfileId,
+                activeProfileToken = null,
+            )
+            request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
             return@onRequest
         }
 
@@ -114,7 +359,9 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             val scopedAccessToken = tokenManager.getAccessTokenForScope(pinned)
             if (requireAuth && scopedAccessToken.isNullOrBlank()) {
                 request.removePrairieCredentialHeaders()
-                throw IllegalStateException("required_prairie_auth_unavailable")
+                throw PrairieAuthUnavailableException(
+                    PrairieAuthUnavailableException.REQUIRED_AUTH_UNAVAILABLE,
+                )
             }
             scopedAccessToken?.let { token ->
                 request.header(HttpHeaders.Authorization, "Bearer $token")
@@ -126,7 +373,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 activeProfileId = pinned.profileId,
                 activeProfileToken = pinned.profileToken,
             )
-            request.attachPrairieDeviceMetadataHeaders(deviceMetadataProvider)
+            request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
             return@onRequest
         }
 
@@ -135,8 +382,11 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
         if (isRefreshRequest) return@onRequest
 
         val accessToken = tokenManager.getAccessToken()
-        val profileId = tokenManager.getProfileId()
-        val profileToken = tokenManager.getProfileToken()
+        // One read: taking these separately could pair the old profile id with
+        // the new profile's token across a switch.
+        val profileIdentity = tokenManager.getProfileIdentity()
+        val profileId = profileIdentity.profileId
+        val profileToken = profileIdentity.profileToken
         val activeServerIdAfter = tokenManager.getCurrentServerId()
         val activeServerUrlAfter = tokenManager.getServerUrl()
         if (
@@ -157,10 +407,22 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             activeProfileToken = profileToken,
         )
 
-        request.attachPrairieDeviceMetadataHeaders(deviceMetadataProvider)
+        request.attachSiloDeviceMetadataHeaders(deviceMetadataProvider)
     }
 
     on(Send) { request ->
+        val diagnosticsAuthorization = request.attributes.getOrNull(DiagnosticsUploadAuthorizationKey)
+        if (diagnosticsAuthorization != null) {
+            if (!isSameSiloHttpOrigin(diagnosticsAuthorization.serverUrl, request.url)) {
+                request.removePrairieCredentialHeaders()
+                throw PrairieAuthUnavailableException(
+                    PrairieAuthUnavailableException.REQUIRED_AUTH_UNAVAILABLE,
+                )
+            }
+            // Exactly one attempt: never proactively refresh, retry a 401, or
+            // invalidate credentials while the caller holds the identity lease.
+            return@on proceed(request)
+        }
         // Pinned scope (Track B): refresh against the *captured* scope, never the
         // active one, and never invalidate the active UI session — a failed
         // pinned refresh just surfaces the 401 so the outbox keeps the op.
@@ -180,13 +442,13 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             request.removePrairieCredentialHeaders()
             return@on proceed(request)
         }
-        if (request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true) {
-            if (!isSamePrairieHttpOrigin(trustedServerUrl, request.url)) {
+        if (request.attributes.getOrNull(SkipSiloAuthAttributeKey) == true) {
+            if (!isSameSiloHttpOrigin(trustedServerUrl, request.url)) {
                 request.removePrairieCredentialHeaders()
             }
             return@on proceed(request)
         }
-        if (!isSamePrairieHttpOrigin(trustedServerUrl, request.url)) {
+        if (!isSameSiloHttpOrigin(trustedServerUrl, request.url)) {
             request.removePrairieCredentialHeaders()
             return@on proceed(request)
         }
@@ -202,9 +464,9 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 // re-refreshing them for every pinned op (progress ticks, teardown).
                 return@on originalCall
             }
-            // A redirect can carry the pinned call off the Prairie origin; refreshing
+            // A redirect can carry the pinned call off the Silo origin; refreshing
             // then would hand this scope's credentials to whatever answered.
-            if (!isSamePrairieHttpOrigin(pinnedScope.serverUrl, originalCall.request.url)) {
+            if (!isSameSiloHttpOrigin(pinnedScope.serverUrl, originalCall.request.url)) {
                 return@on originalCall
             }
             diagnosticsObserver.safeAuthRefresh("required")
@@ -282,13 +544,114 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
         // already happened — so N parallel 401s collapse into ONE refresh.
         val authorizationBeforeRequest = request.headers[HttpHeaders.Authorization]
 
+        // Spend a token we already know is about to expire and the server will
+        // simply reject it: the 401 path below then refreshes and retries, so
+        // the request costs two round trips instead of one. Refreshing first
+        // costs the same one refresh and drops the wasted call.
+        //
+        // Deliberately narrow: only an authenticated request on the active
+        // scope, never the auth endpoints themselves (refreshing before a
+        // login is meaningless and before a refresh is recursive), and never a
+        // pinned outbox op — that path is handled above and must not disturb
+        // the active session. Everything else falls through unchanged, so a
+        // manager that cannot answer the expiry question keeps today's
+        // behaviour exactly.
+        val proactivePath = request.url.encodedPath
+        // Read the installed generation BEFORE asking about expiry. The expiry
+        // question is answered by whatever identity is installed right now,
+        // while the refresh spends the token belonging to the scope this
+        // request captured earlier; if an overlay began or ended in between,
+        // those are two different identities and a rejection of one would be
+        // charged against the other. Requiring them to match means the pair is
+        // only ever evaluated for a single identity.
+        var proactiveRefreshFailedTransiently = false
+        val proactiveGeneration = tokenManager.temporaryGenerationId()
+        if (
+            authorizationBeforeRequest != null &&
+            !proactivePath.endsWith("/auth/refresh") &&
+            !proactivePath.endsWith("/auth/login") &&
+            proactiveGeneration == refreshScope.credentialGenerationId &&
+            proactiveGeneration !in deadCredentialGenerations.value &&
+            tokenManager.accessTokenExpiresWithin(PROACTIVE_REFRESH_MARGIN_MS) &&
+            tokenManager.temporaryGenerationId() == proactiveGeneration
+        ) {
+            diagnosticsObserver.safeAuthRefresh("required")
+            val earlyOutcome = refreshScopeOnce(
+                refreshScope = refreshScope,
+                trustedServerUrl = trustedServerUrl,
+                activeServerIdBeforeRequest = activeServerIdBeforeRequest,
+                authorizationBeforeRequest = authorizationBeforeRequest,
+                temporaryGeneration = proactiveGeneration,
+            )
+            when (earlyOutcome) {
+                RefreshOutcome.Refreshed ->
+                    tokenManager.getAccessTokenForScope(refreshScope)?.let { token ->
+                        request.headers.remove(HttpHeaders.Authorization)
+                        request.header(HttpHeaders.Authorization, "Bearer $token")
+                    }
+
+                // The refresh token was rejected, so the session is torn
+                // down. This request does not go out at all.
+                //
+                // Not even as an anonymous GET: "safe methods don't change
+                // state" is not true here — GET /downloads/{id}/file moves the
+                // download to completed server-side, GET /admin/stats?refresh
+                // forces a recompute — and an optionally-authenticated read
+                // would return GUEST data with a 200 that callers cache while
+                // sessionExpired is signing the user out. Failing the call is
+                // the honest answer, so this throws rather than sending
+                // anything. Genuinely public calls opt out with skipSiloAuth(),
+                // never receive a bearer, and so never reach this branch.
+                RefreshOutcome.CredentialsDead -> {
+                    request.removePrairieCredentialHeaders()
+                    throw PrairieAuthUnavailableException(
+                        PrairieAuthUnavailableException.CREDENTIALS_REPUDIATED,
+                    )
+                }
+
+                RefreshOutcome.NotAttempted, RefreshOutcome.FailedTransient -> Unit
+            }
+            proactiveRefreshFailedTransiently =
+                earlyOutcome == RefreshOutcome.FailedTransient
+
+            // This request's bearer was captured BEFORE the refresh mutex was
+            // waited on. In that window another coroutine can have signed out,
+            // switched server, or had these very credentials repudiated — and
+            // every one of those returns NotAttempted, which says only "no
+            // refresh happened", not "the scope is still alive". Reading it as
+            // permission to proceed is how an invalidated bearer gets spent.
+            //
+            // So verify what is actually installed rather than trusting the
+            // outcome. Checked for every non-Refreshed case: FailedTransient is
+            // meant to spend the existing credentials, but only if they still
+            // exist.
+            if (earlyOutcome != RefreshOutcome.Refreshed) {
+                val installed = tokenManager.getAccessTokenForScope(refreshScope)
+                val serverNow = tokenManager.getCurrentServerId()
+                when {
+                    installed == null || serverNow != activeServerIdBeforeRequest -> {
+                        request.removePrairieCredentialHeaders()
+                        throw PrairieAuthUnavailableException(
+                            PrairieAuthUnavailableException.CREDENTIALS_REPUDIATED,
+                        )
+                    }
+                    // Someone else rotated them while we waited: spend the
+                    // token that is actually installed, not the stale capture.
+                    "Bearer $installed" != authorizationBeforeRequest -> {
+                        request.headers.remove(HttpHeaders.Authorization)
+                        request.header(HttpHeaders.Authorization, "Bearer $installed")
+                    }
+                }
+            }
+        }
+
         val originalCall = proceed(request)
 
         // Only attempt refresh on 401 for non-auth endpoints
         if (originalCall.response.status != HttpStatusCode.Unauthorized) {
             return@on originalCall
         }
-        if (!isSamePrairieHttpOrigin(trustedServerUrl, originalCall.request.url)) {
+        if (!isSameSiloHttpOrigin(trustedServerUrl, originalCall.request.url)) {
             return@on originalCall
         }
         if (
@@ -327,135 +690,17 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
         // the double-check guarantees that only one coroutine HITS the network
         // for the refresh — subsequent waiters observe the already-refreshed
         // token and skip straight to retry.
-        val refreshed = refreshMutex.withLock {
-            // If the user switched servers between request-send and 401-retry,
-            // we are now operating against a different server. Don't try to
-            // "refresh" — the refresh token wouldn't be valid for the new
-            // server anyway, and we'd risk persisting cross-server tokens.
-            val serverIdNow = tokenManager.getCurrentServerId()
-            val serverUrlNow = tokenManager.getServerUrl()
-            if (
-                serverIdNow != activeServerIdBeforeRequest ||
-                !isSameHttpOrigin(trustedServerUrl, serverUrlNow)
-            ) {
-                return@withLock false
-            }
-
-            val tokenNow = tokenManager.getAccessTokenForScope(refreshScope)
-            if (
-                tokenManager.getCurrentServerId() != activeServerIdBeforeRequest ||
-                !isSameHttpOrigin(trustedServerUrl, tokenManager.getServerUrl())
-            ) {
-                return@withLock false
-            }
-            if (tokenNow != null && "Bearer $tokenNow" != authorizationBeforeRequest) {
-                // Another coroutine already refreshed while we were waiting —
-                // just retry the original request with the new token.
-                return@withLock true
-            }
-
-            if (temporaryGeneration != null &&
-                temporaryGeneration in deadCredentialGenerations.value
-            ) {
-                // A 401 that won the race already proved these temporary credentials
-                // are dead; the token is unchanged, so without this every waiter would
-                // repeat the same doomed refresh.
-                return@withLock false
-            }
-
-            // Scope-bound, not global: a refresh must spend the token belonging to
-            // the scope this request ran under.
-            val refreshToken = tokenManager.getRefreshTokenForScope(refreshScope)
-            if (refreshToken.isNullOrBlank()) {
-                return@withLock false
-            }
-
-            try {
-                diagnosticsObserver.safeAuthRefresh("started")
-                if (trustedServerUrl.isBlank()) {
-                    return@withLock false
-                }
-
-                val refreshResponse = client.post("$trustedServerUrl/api/v1/auth/refresh") {
-                    contentType(ContentType.Application.Json)
-                    setBody(RefreshRequest(refreshToken))
-                }
-
-                // Re-check serverId AFTER the network call as well — the user
-                // could have switched while we were waiting on the network.
-                // The token write below targets whichever server is active at
-                // save time, so a mismatch here means we'd write to the wrong
-                // slot.
-                val serverIdAfterCall = tokenManager.getCurrentServerId()
-                val serverUrlAfterCall = tokenManager.getServerUrl()
-                if (
-                    serverIdAfterCall != activeServerIdBeforeRequest ||
-                    !isSameHttpOrigin(trustedServerUrl, serverUrlAfterCall)
-                ) {
-                    return@withLock false
-                }
-
-                // Re-check sign-out state AFTER the network call too. Logout
-                // revokes the access token server-side before clearTokens()
-                // runs, so concurrent requests 401 exactly during sign-out and
-                // start a refresh with the still-valid refresh token; without
-                // this guard the refresh response lands after clearTokens()
-                // and saveTokens() silently signs the user back in.
-                if (tokenManager.getRefreshTokenForScope(refreshScope).isNullOrBlank()) {
-                    return@withLock false
-                }
-
-                if (refreshResponse.status.isSuccess()) {
-                    diagnosticsObserver.safeAuthRefresh("succeeded")
-                    val tokens = refreshResponse.body<RefreshResponse>()
-                    tokenManager.saveTokensForScope(
-                        scope = refreshScope,
-                        accessToken = tokens.accessToken,
-                        refreshToken = tokens.refreshToken,
-                        expiresIn = tokens.expiresIn,
-                    )
-                    val after = tokenManager.getAccessTokenForScope(refreshScope)
-                    after != null && "Bearer $after" != authorizationBeforeRequest
-                } else {
-                    diagnosticsObserver.safeAuthRefresh("failed")
-                    // Only auth rejection proves the refresh token is bad.
-                    // Gateway/proxy/server failures should keep the session so
-                    // a temporary outage does not sign the user out.
-                    if (refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
-                        val generationNow = tokenManager.temporaryGenerationId()
-                        when {
-                            // The identity changed while the refresh was in flight
-                            // (overlay began or ended): the rejection belongs to a
-                            // credential set that is no longer installed, so it must
-                            // not tear down whatever is installed now.
-                            generationNow != temporaryGeneration -> Unit
-
-                            // Remote playback: the rejected credentials are a
-                            // temporary overlay. invalidateSession() would drop that
-                            // overlay, and every later read would fall through to the
-                            // saved OWNER's account — the guest would keep browsing
-                            // and writing history as the owner. Flag the generation
-                            // dead and leave the overlay installed instead; the cast
-                            // teardown path is what removes it.
-                            temporaryGeneration != null ->
-                                deadCredentialGenerations.update { it + temporaryGeneration }
-
-                            // The [TokenManager.sessionExpired] event emitted by
-                            // this call is what the root NavHost observer uses to
-                            // route the user back to the login screen; without it,
-                            // the UI would stay on Home and keep rendering
-                            // "Failed to load..." for every subsequent API call
-                            // that now has no credentials.
-                            else -> tokenManager.invalidateSessionForScope(refreshScope)
-                        }
-                    }
-                    false
-                }
-            } catch (e: Throwable) {
-                diagnosticsObserver.safeAuthRefresh("failed")
-                false
-            }
-        }
+        val refreshed = refreshScopeOnce(
+            refreshScope = refreshScope,
+            trustedServerUrl = trustedServerUrl,
+            activeServerIdBeforeRequest = activeServerIdBeforeRequest,
+            authorizationBeforeRequest = authorizationBeforeRequest,
+            temporaryGeneration = temporaryGeneration,
+            // A proactive attempt for this request already failed transiently.
+            // Do not ask the network again — but do still let the double-check
+            // above pick up a token a concurrent request installed meanwhile.
+            allowNetworkRefresh = !proactiveRefreshFailedTransiently,
+        ) == RefreshOutcome.Refreshed
 
         if (refreshed) {
             // Explicitly replace the Authorization header on the request builder
@@ -474,7 +719,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 retryServerIdAfterToken != activeServerIdBeforeRequest ||
                 !isSameHttpOrigin(trustedServerUrl, retryServerUrlBeforeToken) ||
                 !isSameHttpOrigin(trustedServerUrl, retryServerUrlAfterToken) ||
-                !isSamePrairieHttpOrigin(trustedServerUrl, request.url) ||
+                !isSameSiloHttpOrigin(trustedServerUrl, request.url) ||
                 newAccessToken == null
             ) {
                 return@on originalCall
@@ -532,7 +777,7 @@ private fun NetworkDiagnosticsObserver?.safeAuthRefresh(state: String) {
     runCatching { this?.authRefresh(state) }
 }
 
-private suspend fun HttpRequestBuilder.attachPrairieDeviceMetadataHeaders(
+private suspend fun HttpRequestBuilder.attachSiloDeviceMetadataHeaders(
     deviceMetadataProvider: DeviceMetadataProvider?,
 ) {
     val device = deviceMetadataProvider?.current() ?: return
@@ -542,6 +787,8 @@ private suspend fun HttpRequestBuilder.attachPrairieDeviceMetadataHeaders(
     header("X-Prairie-Image-Formats", ImageFormats.headerValue())
     device.clientName?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client", it) }
     device.clientVersion?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Version", it) }
+    device.clientBuild?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Build", it) }
+    device.clientChannel?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Channel", it) }
 }
 
 private fun URLBuilder.rebaseRelativeApiUrl(serverUrl: String) {
@@ -567,7 +814,7 @@ private fun HttpRequestBuilder.removePrairieCredentialHeaders() {
         .forEach(headers::remove)
 }
 
-private fun isSamePrairieHttpOrigin(serverUrl: String, requestUrl: URLBuilder): Boolean {
+private fun isSameSiloHttpOrigin(serverUrl: String, requestUrl: URLBuilder): Boolean {
     val httpRequestUrl = when (requestUrl.protocol) {
         URLProtocol.WS -> requestUrl.toString().replaceSchemeForOriginCheck("http")
         URLProtocol.WSS -> requestUrl.toString().replaceSchemeForOriginCheck("https")
@@ -576,7 +823,7 @@ private fun isSamePrairieHttpOrigin(serverUrl: String, requestUrl: URLBuilder): 
     return isSameHttpOrigin(serverUrl, httpRequestUrl)
 }
 
-private fun isSamePrairieHttpOrigin(serverUrl: String, requestUrl: Url): Boolean {
+private fun isSameSiloHttpOrigin(serverUrl: String, requestUrl: Url): Boolean {
     val httpRequestUrl = when (requestUrl.protocol) {
         URLProtocol.WS -> requestUrl.toString().replaceSchemeForOriginCheck("http")
         URLProtocol.WSS -> requestUrl.toString().replaceSchemeForOriginCheck("https")

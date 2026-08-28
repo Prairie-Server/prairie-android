@@ -23,7 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,8 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import org.prairieserver.prairie.android.ui.screens.auth.AuthColors
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.filled.Close
+import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 
 private const val PIN_LENGTH = 4
 
@@ -53,13 +52,17 @@ private const val PIN_LENGTH = 4
 @Composable
 fun PINEntryDialog(
     profileName: String,
-    profileAvatar: String?,
+    profileAvatar: ProfileAvatarRef,
     isLoading: Boolean,
     error: String?,
     onPinComplete: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var pin by rememberSaveable { mutableStateOf("") }
+    // Deliberately NOT rememberSaveable: saved-instance state is serialized by
+    // the OS across configuration change and process death, which would put the
+    // raw PIN in system-managed storage well beyond the request that needs it.
+    // Losing four digits on rotation is the correct trade.
+    var pin by remember { mutableStateOf("") }
 
     // Clear pin on new error so the user can re-enter.
     LaunchedEffect(error) {
@@ -133,14 +136,11 @@ fun PINEntryDialog(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
+                // Cancel stays live during verification (the user must be able
+                // to back out of a slow round trip), and the ViewModel's
+                // generation guard makes that abandon the in-flight answer
+                // rather than commit it late.
                 TextButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = AuthColors.Primary,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Cancel",
                         color = AuthColors.Primary,
@@ -152,7 +152,7 @@ fun PINEntryDialog(
     }
 }
 
-// iOS prairieSurfaceVariant (#0E0F12) — used for empty PIN dots and pad keys.
+// iOS siloSurfaceVariant (#0E0F12) — used for empty PIN dots and pad keys.
 private val SurfaceVariant = Color(0xFF0E0F12)
 
 @Composable
@@ -258,7 +258,7 @@ private fun NumberPadKey(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        // iOS prairiePIN: 32 bold monospaced.
+        // iOS siloPIN: 32 bold monospaced.
         Text(
             text = digit,
             fontSize = 32.sp,

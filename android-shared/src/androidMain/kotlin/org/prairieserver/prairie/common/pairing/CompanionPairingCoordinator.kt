@@ -18,6 +18,7 @@ import org.prairieserver.prairie.model.auth.DeviceLoginDecisionResponse
 import org.prairieserver.prairie.model.auth.DeviceLoginLookupResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.IdentityTransitionBarrier
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.pairing.PairingMessage
@@ -122,6 +123,7 @@ class RegistryCompanionPairingServerStore(
 
 class RepositoryCompanionDeviceLoginApprover(
     private val repository: DeviceLoginRepository,
+    private val identityTransitions: IdentityTransitionBarrier,
 ) : CompanionDeviceLoginApprover {
     override suspend fun lookup(
         server: CompanionPairingServer,
@@ -143,6 +145,12 @@ class RepositoryCompanionDeviceLoginApprover(
         serverUrl = url,
         profileId = null,
         profileToken = null,
+        // This inactive-server scope cannot carry the token manager's live
+        // persistent credential epoch. Pin its request to the current identity
+        // generation instead so a late refresh cannot overwrite a same-server
+        // account replacement.
+        identityGeneration = identityTransitions.generation.value,
+        isIdentityGenerationStamped = true,
     )
 }
 
@@ -166,7 +174,7 @@ class CompanionPairingCoordinator(
         val snapshot = serverStore.snapshot()
         val orderedServers = snapshot.orderedServers()
         if (orderedServers.isEmpty()) {
-            return fail(target, "No saved Prairie servers are available to send.")
+            return fail(target, "No saved Silo servers are available to send.")
         }
 
         var signedInCount = 0

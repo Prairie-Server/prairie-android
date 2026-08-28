@@ -288,6 +288,7 @@ class TvSubtitleFinalRollbackTest {
             stagedPort = port,
             persistencePort = persistence,
             durablePersistenceScope = scope,
+            isLocallyMountable = { identity -> identity == port.mountedSidecarIdentity },
             onCommittedPlayback = { adoption ->
                 port.lifecycleSession = adoption.playback.sessionId
                 port.backendIdentity = adoption.committed.identity
@@ -364,6 +365,7 @@ private class FinalRollbackStagedPort : TvSubtitleStagedReplanPort {
     var managerSession: String = "session-1"
     var lifecycleSession: String = "session-1"
     var backendIdentity: SubtitleIdentity = SubtitleIdentity.ServerSidecar(3)
+    var mountedSidecarIdentity: SubtitleIdentity? = null
     val rolledBackSessions = mutableListOf<String>()
 
     override suspend fun stage(
@@ -374,6 +376,9 @@ private class FinalRollbackStagedPort : TvSubtitleStagedReplanPort {
         candidate: TvStagedSubtitleCandidate,
     ): ApiResult<TvSubtitleCommittedPlayback> {
         managerSession = candidate.sessionId
+        mountedSidecarIdentity = candidate.selectedSubtitleIndex
+            ?.takeIf { it >= 0 }
+            ?.let(SubtitleIdentity::ServerSidecar)
         return ApiResult.Success(TvSubtitleCommittedPlayback(
             sessionId = candidate.sessionId,
             subtitleTracks = candidate.subtitleTracks,

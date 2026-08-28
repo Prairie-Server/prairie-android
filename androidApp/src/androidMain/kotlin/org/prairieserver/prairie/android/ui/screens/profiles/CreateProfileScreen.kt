@@ -47,9 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.screens.auth.AuthColors
 import org.prairieserver.prairie.android.ui.screens.auth.AuthErrorBanner
-import org.prairieserver.prairie.android.ui.screens.auth.SiloButton
-import org.prairieserver.prairie.android.ui.screens.auth.SiloTextField
+import org.prairieserver.prairie.android.ui.screens.auth.PrairieButton
+import org.prairieserver.prairie.android.ui.screens.auth.PrairieTextField
 import org.koin.compose.viewmodel.koinViewModel
+import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 
 /**
  * Form for creating a new profile.
@@ -117,7 +118,7 @@ fun CreateProfileScreen(
 
             // Preview
             ProfileAvatar(
-                avatar = state.selectedAvatar,
+                avatar = ProfileAvatarRef(state.selectedAvatar),
                 name = state.name.ifBlank { "?" },
                 size = 80.dp,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -142,7 +143,7 @@ fun CreateProfileScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // -- Name --
-            SiloTextField(
+            PrairieTextField(
                 value = state.name,
                 onValueChange = viewModel::onNameChanged,
                 label = "Profile Name",
@@ -180,7 +181,7 @@ fun CreateProfileScreen(
 
             if (state.pinEnabled) {
                 Spacer(modifier = Modifier.height(8.dp))
-                SiloTextField(
+                PrairieTextField(
                     value = state.pin,
                     onValueChange = viewModel::onPinChanged,
                     label = "4-Digit PIN",
@@ -202,7 +203,7 @@ fun CreateProfileScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            SiloButton(
+            PrairieButton(
                 text = "Create Profile",
                 onClick = viewModel::onCreateClick,
                 isLoading = state.isLoading,

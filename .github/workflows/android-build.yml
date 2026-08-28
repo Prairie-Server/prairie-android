@@ -1,12 +1,9 @@
 name: Android Builds
 
-# CI gate: :shared debug unit tests + Kover line-coverage verify (commonMain).
-# Floor is 95% line coverage across commonMain (androidMain / Koin / serializers
-# excluded — see shared/build.gradle.kts). App-module unit tests (androidApp /
-# androidTvApp / android-shared) are not part of this gate and are skipped here
-# to keep the longest client CI focused on the shared coverage contract.
-# Release artifacts (Play Store bundles, sideload APKs, GitHub releases) are
-# owned by release.yml — triggered by v* tags or its workflow_dispatch.
+# CI gate: unit tests + Kover line-coverage verify on :shared commonMain, plus
+# lint. Floor is configured in shared/build.gradle.kts. Release artifacts
+# (Play Store bundles, sideload APKs, GitHub releases) are owned by
+# release.yml — triggered by v* tags or its workflow_dispatch.
 
 on:
   push:
@@ -47,20 +44,47 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
 
-      - name: Run :shared unit tests and coverage gate
+      # Robolectric does NOT resolve its Android runtimes through Gradle. At test
+      # execution time it fetches android-all-instrumented straight from Maven
+      # Central into ~/.m2, which setup-gradle's cache does not cover — so every
+      # run re-downloaded 85-204 MB per SDK level. On 2026-08-11 Maven Central
+      # answered 403 and took out 31 unrelated tests in android-shared, and the
+      # download time is a large part of this job.
+      #
+      # Which runtimes get fetched depends on the Robolectric version AND on the
+      # SDK each test resolves to, so the key hashes the version catalogue and
+      # the module build files (min/target SDK) together. A new @Config(sdk=NN)
+      # in a test is deliberately NOT in the key: hashing test sources would
+      # bust this cache on nearly every pull request, which costs more than it
+      # saves. The residual gap is bounded — that one runtime is re-fetched each
+      # run until something else moves the key — and the restore-key prefix
+      # still seeds from the previous cache rather than starting cold.
+      #
+      # A run-id-suffixed key would close the gap by saving every run, but this
+      # cache is hundreds of MB; a new entry per run would evict the Gradle
+      # cache against the repository's 10 GB budget.
+      - name: Cache Robolectric Android runtimes
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', '**/build.gradle.kts') }}
+          restore-keys: |
+            robolectric-${{ runner.os }}-
+
+      - name: Run unit tests and coverage gate
         shell: bash
         run: |
           set -euo pipefail
 
-          # Only :shared debug unit tests feed the Kover commonMain gate.
-          # Release unit tests are disabled on :shared (see build.gradle.kts).
-          # App modules are intentionally out of this job.
+          # Debug-variant unit tests only. The release variant compiles and runs
+          # the exact same sources for no extra signal, and doubles CI time.
+          # :shared koverXmlReport/koverVerify enforce the commonMain coverage floor.
           ./gradlew \
             -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
-            :shared:testDebugUnitTest \
+            testDebugUnitTest \
             :shared:koverXmlReport \
             :shared:koverVerify \
-            --max-workers=4 \
+            --max-workers=2 \
             --no-configuration-cache
 
       - name: Upload test reports
@@ -79,4 +103,56 @@ jobs:
           name: kover-coverage-reports
           path: |
             **/build/reports/kover/**
+          if-no-files-found: ignore
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+
+      - name: Run lint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # NewApi and InlinedApi are fatal here. Two startup crashes reached
+          # users because nothing checked API levels: a Spatializer call gated
+          # at 31 for a class introduced at 32, and an unguarded API 28 call.
+          # Existing findings are held in per-module lint-baseline.xml, so only
+          # NEW violations fail. If this job fails, fix the call — do not
+          # regenerate the baseline to make it pass.
+          #
+          # lintVitalRelease runs here too. checkReleaseBuilds makes it part of
+          # assembleRelease, which only ever runs from release.yml on a v* tag —
+          # so without this the release variant is gated by a check that no pull
+          # request exercises, and the first run would be mid-release. It also
+          # covers the release-only source sets that lintDebug never sees.
+          ./gradlew \
+            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
+            :android-shared:lintDebug :androidApp:lintDebug :androidTvApp:lintDebug \
+            :androidApp:lintVitalRelease :androidTvApp:lintVitalRelease \
+            --max-workers=2
+
+      - name: Upload lint reports
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: lint-reports
+          path: |
+            **/build/reports/lint-results-*.html
+            **/build/reports/lint-results-*.xml
           if-no-files-found: ignore

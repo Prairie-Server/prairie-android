@@ -804,7 +804,7 @@ class TvSubtitleSettlementOwnershipTest {
         assertBefore(
             exitBody,
             "subtitleTransactions.invalidateAndAwaitSettlement()",
-            "sessionLifecycle.stop(",
+            "lifecycleTeardown.stopOrdered(",
         )
         // Every exit path runs prepareSessionExit, which blanks uiState.sessionId.
         // If the id is not latched BEFORE that write, each of the three stops
@@ -818,7 +818,7 @@ class TvSubtitleSettlementOwnershipTest {
             "lastAdoptedSessionId = it",
             "sessionId = null",
         )
-        assertTrue(exitBody.contains("sessionLifecycle.stop(expectedSessionId = exitSessionId)"))
+        assertTrue(exitBody.contains("lifecycleTeardown.stopOrdered(expectedSessionId = exitSessionId)"))
         assertBefore(
             clearBody,
             "subtitleTransactions.reserveDurableFinalPersistence()",
@@ -837,13 +837,15 @@ class TvSubtitleSettlementOwnershipTest {
         assertBefore(
             clearBody,
             "subtitleTransactions::requestDurableFinalPersistence",
-            "sessionLifecycle.stop(",
+            "lifecycleTeardown.stopDetached(",
         )
-        // stop(expectedSessionId = …) is still stop(): teardown is deferred
-        // behind settlement work, so it must name the session it is ending or it
-        // lands on whatever the next screen has since adopted.
-        assertTrue(clearBody.contains("sessionLifecycle.stop(expectedSessionId"))
-        assertFalse(clearBody.contains("sessionLifecycle.stopAsync()"))
+        // Teardown is deferred behind settlement work, so it must name the
+        // session it is ending or it lands on whatever the next screen has since
+        // adopted. It also has to go through the gate: an unguarded stop here
+        // bumps stopEpoch after the next episode captured its ownership epoch
+        // and supersedes it, which is how auto-advance broke.
+        assertTrue(clearBody.contains("lifecycleTeardown.stopDetached(expectedSessionId"))
+        assertFalse(clearBody.contains("sessionLifecycle.stop"))
         val adoptionBody = source
             .substringAfter("private suspend fun adoptSubtitlePlayback(")
             .substringBefore("private suspend fun confirmSubtitlePlaybackPublication(")
@@ -913,6 +915,7 @@ class TvSubtitleSettlementOwnershipTest {
             },
             durablePersistenceScope = durableScope,
             settlementScope = durableScope,
+            isLocallyMountable = { identity -> identity == port.mountedSidecarIdentity },
             onCommittedPlayback = { adoption ->
                 lifecycle.adopt(adoption.playback.sessionId)
                 adoptionGate?.await()
@@ -950,7 +953,7 @@ class TvSubtitleSettlementOwnershipTest {
             formFactor = "tv",
             appVersion = "test",
             output = PlaybackOutputContext(
-                outputRouteGeneration = outputRouteGeneration,
+                outputContextId = outputRouteGeneration.toString(),
             ),
         )
         return TvSubtitlePlaybackContext(
@@ -1008,6 +1011,8 @@ class TvSubtitleSettlementOwnershipTest {
     ) : TvSubtitleStagedReplanPort {
         val requests = mutableListOf<TvSubtitleStageRequest>()
         var pendingPlayback: TvSubtitleCommittedPlayback? = null
+            private set
+        var mountedSidecarIdentity: SubtitleIdentity? = null
             private set
         private var settlement = CompletableDeferred<Unit>().apply { complete(Unit) }
         private var sessionSequence = 0
@@ -1085,6 +1090,9 @@ class TvSubtitleSettlementOwnershipTest {
                 subtitleTracks = candidate.subtitleTracks,
                 outputRouteGeneration = candidate.outputRouteGeneration,
             )
+            mountedSidecarIdentity = candidate.selectedSubtitleIndex
+                ?.takeIf { it >= 0 }
+                ?.let(SubtitleIdentity::ServerSidecar)
             pendingPlayback = playback
             settlement = CompletableDeferred()
             return ApiResult.Success(playback)

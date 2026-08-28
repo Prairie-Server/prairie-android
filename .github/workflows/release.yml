@@ -1,13 +1,13 @@
 name: Release
 
-# One release pipeline, playing the role of prairie-apple's TestFlight
+# One release pipeline, playing the role of silo-apple's TestFlight
 # (release.yml) and sideload (sideload-ipa.yml) workflows combined: a version
 # tag or a manual dispatch publishes both App Bundles to Google Play, then
 # builds the signed sideload APKs and attaches them to a GitHub release for
 # the same version. Dispatch runs mint the v<version> tag when creating the
 # GitHub release — no manual tagging is necessary (apple's sideload pattern).
 #
-# Versioning mirrors prairie-apple's marketing-version + build-number split.
+# Versioning mirrors silo-apple's marketing-version + build-number split.
 # Play itself has no such split — versionCode is the only monotonic counter,
 # and versionName is a free-form display string that may repeat. So a build
 # number is folded into the versionCode while versionName stays put, letting
@@ -125,6 +125,13 @@ jobs:
               echo "::error::Tag must look like v1.2.3, v1.2.3+2, or v1.2.3-rc.1."
               exit 1
             fi
+            # A prerelease suffix deliberately does NOT feed the build counter.
+            # The counter is folded into the versionCode, so deriving it from
+            # -rc.N would make a sideloaded v1.2.3-rc.2 (base+2) outrank the
+            # official v1.2.3 (base+1) and block that upgrade on the device —
+            # and it would still not tell -rc.2 apart from +2, which resolve to
+            # the same counter. Prerelease artifacts are distinguished by their
+            # tag; see the note in the PR for the reporting limitation.
             if [[ "${version}" == *+* ]]; then
               build="${version##*+}"
             else
@@ -187,6 +194,7 @@ jobs:
 
       - name: Check build supply chain
         run: |
+          ./scripts/test-release-workflow.sh
           ./scripts/test-check-build-supply-chain.sh
           ./scripts/check-build-supply-chain.sh
 
@@ -316,7 +324,7 @@ jobs:
             exit 1
           fi
 
-          keystore_path="${RUNNER_TEMP}/prairie-release.jks"
+          keystore_path="${RUNNER_TEMP}/silo-release.jks"
           printf '%s' "${KEYSTORE_B64}" | base64 -d > "${keystore_path}"
           echo "PRAIRIE_RELEASE_KEYSTORE=${keystore_path}" >> "${GITHUB_ENV}"
 
@@ -343,10 +351,12 @@ jobs:
         shell: bash
         env:
           PRAIRIE_VERSION_NAME: ${{ needs.setup.outputs.version_name }}
+          PRAIRIE_DISPLAY_VERSION: ${{ needs.setup.outputs.version }}
           PRAIRIE_VERSION_CODE: ${{ needs.setup.outputs.version_code }}
           PRAIRIE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.PRAIRIE_RELEASE_KEYSTORE_PASSWORD }}
           PRAIRIE_RELEASE_KEY_PASSWORD: ${{ secrets.PRAIRIE_RELEASE_KEY_PASSWORD }}
           PRAIRIE_RELEASE_KEY_ALIAS: ${{ secrets.PRAIRIE_RELEASE_KEY_ALIAS }}
+          PRAIRIE_BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
         run: |
           set -euo pipefail
 
@@ -354,13 +364,16 @@ jobs:
             -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
             ":${{ matrix.module }}:assembleRelease" \
             "-PprairieVersionName=${PRAIRIE_VERSION_NAME}" \
+            "-PprairieDisplayVersion=${PRAIRIE_DISPLAY_VERSION}" \
             "-PprairieVersionCode=${PRAIRIE_VERSION_CODE}" \
+            "-PprairieBuildNumber=${PRAIRIE_BUILD_NUMBER}" \
+            "-PprairieReleaseChannel=sideload" \
             --max-workers=2
 
       - name: Collect release APKs
         shell: bash
         env:
-          PRAIRIE_VERSION_NAME: ${{ needs.setup.outputs.version_name }}
+          PRAIRIE_VERSION_NAME: ${{ needs.setup.outputs.version }}
         run: |
           set -euo pipefail
 
@@ -391,12 +404,16 @@ jobs:
 
   # Create or update the GitHub release and attach the APKs. For dispatch
   # runs the tag does not exist yet — gh release create mints it at the
-  # released commit (--target), mirroring prairie-apple's sideload workflow, so
+  # released commit (--target), mirroring silo-apple's sideload workflow, so
   # no manual tagging is necessary. Tags created with GITHUB_TOKEN do not
   # re-trigger workflows, so this cannot recurse.
   publish-release:
     name: Publish GitHub Release
     needs: [setup, apks]
+    if: >-
+      ${{ !cancelled() &&
+          needs.setup.result == 'success' &&
+          needs.apks.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -418,7 +435,7 @@ jobs:
           set -euo pipefail
           shopt -s globstar nullglob
 
-          release_title="Prairie Android ${RELEASE_TAG}"
+          release_title="Silo Android ${RELEASE_TAG}"
           android_latest_url="https://github.com/${GH_REPO}/releases/latest/download/prairie-android-latest-universal-release.apk"
           android_tv_latest_url="https://github.com/${GH_REPO}/releases/latest/download/prairie-android-tv-latest-universal-release.apk"
           android_downloader_url="http://aftv.news/1051382"

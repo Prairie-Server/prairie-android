@@ -6,7 +6,6 @@ import org.prairieserver.prairie.domain.MediaActionsCoordinator
 import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.repository.LiveTvRepository
-import org.prairieserver.prairie.repository.AdminRepository
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.OnboardingRepository
 import org.prairieserver.prairie.repository.CalendarRepository
@@ -46,11 +45,19 @@ import kotlinx.coroutines.SupervisorJob
  * and TokenManager, so sharing instances is safe and efficient.
  */
 val repositoryModule = module {
-    // Repositories — `getOrNull()` for ServerRegistry / HealthApi keeps these
+    // Repositories — optional multi-server identity dependencies keep these
     // working when the multi-server platform binding isn't installed
     // (commonMain tests, hypothetical iOS reuse). Both repos no-op the
     // multi-server side effects when the registry is null.
-    single { AuthRepository(get(), get(), getOrNull(), getOrNull()) }
+    single {
+        AuthRepository(
+            authApi = get(),
+            tokenManager = get(),
+            serverRegistry = getOrNull(),
+            healthApi = getOrNull(),
+            brandingApi = getOrNull(),
+        )
+    }
     single { OnboardingRepository(get()) }
     single { DeviceLoginRepository(get()) }
     single {
@@ -102,7 +109,6 @@ val repositoryModule = module {
     single { DownloadsRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.DownloadDeletionPort>() ?: org.prairieserver.prairie.repository.port.NoOpDownloadDeletionPort) }
     single { EbookReaderRepository(get()) }
     single { SubtitlesRepository(get()) }
-    single { AdminRepository(get()) }
     single { PushRegistrationRepository(get()) }
 
     // REST-backed inbox state plus a realtime factory that builds the default
@@ -122,7 +128,7 @@ val repositoryModule = module {
 
     // One room's snapshot/suggestions state + WS lifecycle. The realtime factory
     // builds the per-room socket client from the shared HttpClient + TokenManager.
-    // Access auth is supplied by the same-origin Prairie auth plugin; the room/profile
+    // Access auth is supplied by the same-origin Silo auth plugin; the room/profile
     // query fields are a residual server contract. Lazy so a socket is only minted
     // when connect() runs.
     single {

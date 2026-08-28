@@ -1,10 +1,12 @@
 package org.prairieserver.prairie.tv.ui.screens.calendar
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -21,15 +23,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.BringIntoViewSpec
-import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
-import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,13 +47,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -76,8 +78,17 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import org.prairieserver.prairie.common.ui.components.ThumbhashImage
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.transformLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.common.calendar.localDisplayAirTime
+import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.calendar.CalendarBadge
 import org.prairieserver.prairie.model.calendar.CalendarFilter
 import org.prairieserver.prairie.model.calendar.CalendarItem
@@ -86,22 +97,30 @@ import org.prairieserver.prairie.tv.ui.components.LocalAmbientBackdropTint
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.components.TvRootHeroBackdrop
 import org.prairieserver.prairie.tv.ui.components.rememberAmbientBackdropTintState
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.TvFocusAcquisitionBudgetMillis
+import org.prairieserver.prairie.tv.ui.focus.TvFrameRelocationMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.TvReturnRelocation
+import org.prairieserver.prairie.tv.ui.focus.TvReturnResolution
+import org.prairieserver.prairie.tv.ui.focus.TvReturnSection
+import org.prairieserver.prairie.tv.ui.focus.TvReturnTarget
+import org.prairieserver.prairie.tv.ui.focus.TvReturnTargetSaver
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.focus.resolveTvReturnTarget
 import org.prairieserver.prairie.tv.ui.shell.TvTopMenuLayout
 import org.prairieserver.prairie.tv.ui.theme.DarkOnPrimary
 import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
 import org.prairieserver.prairie.tv.ui.theme.FocusedContent
 import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.prairieserver.prairie.viewmodel.CalendarViewModel
-import kotlinx.coroutines.launch
-import org.koin.compose.viewmodel.koinViewModel
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * TV calendar / upcoming screen. Reuses the shared [CalendarViewModel] that
  * drives the phone Calendar screen (week-bucketed releases from
- * `GET /api/v1/calendar`). Rebuilt to match the prairie-apple tvOS Calendar:
+ * `GET /api/v1/calendar`). Rebuilt to match the silo-apple tvOS Calendar:
  *
  *  - A single segmented Following / Trending / All capsule (one container, the
  *    selected segment filled), matching tvOS without an Android-only rail.
@@ -120,7 +139,7 @@ import java.util.Locale
  * Mirrors [org.prairieserver.prairie.tv.ui.screens.recommendations.TvRecommendationsScreen]
  * for the koinViewModel + initial-focus-once pattern.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun TvCalendarScreen(
     onOpenItemDetail: (contentId: String) -> Unit,
@@ -135,6 +154,7 @@ fun TvCalendarScreen(
     // First focusable element is the segmented filter capsule so the D-pad
     // lands there when the Calendar tab swaps in; gate the jump so a silent
     // re-emission doesn't yank focus back after the user has navigated.
+    var calendarFilterHasFocus by remember { mutableStateOf(false) }
     val filterFocusRequesters = remember {
         mapOf(
             CalendarFilter.Following to FocusRequester(),
@@ -148,13 +168,154 @@ fun TvCalendarScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    var shelfFocusDay by remember { mutableStateOf<String?>(null) }
+    var shelfFocusRequest by remember { mutableIntStateOf(0) }
+    var shelfFocusItemIndex by remember { mutableIntStateOf(0) }
+
+    // Where the viewer was when they opened something. The day is the section
+    // and the item's own contentId is its identity — NOT detailContentId, which
+    // several episodes of one show share and which would therefore send focus
+    // to whichever of them the week happens to list first.
+    var returnTarget by rememberSaveable(stateSaver = TvReturnTargetSaver) {
+        mutableStateOf<TvReturnTarget?>(null)
+    }
+    // Recorded by a CLICK and by nothing else, which is what makes a target
+    // mean "I opened something and I am coming back".
+    //
+    // The pending flag is saveable and is the actual return signal. Inferring
+    // it from "a target survived this composition" required Calendar to have
+    // been disposed and recreated, which a fast Back during the outgoing
+    // transition does not do — the target would then sit unconsumed and make
+    // some later, ordinary tab re-selection look like a return instead.
+    //
+    // The flat surfaces also record on focus, and that is right for them: they
+    // are pushed routes where Back is the only way in, so a saved target can
+    // only have come from a trip. Calendar is a root tab. Browsing a card,
+    // switching to Home, and selecting Calendar again would look identical to a
+    // detail return, and restoring there would quietly defeat the shell's
+    // documented reset to the controls. The cost is that process death while
+    // merely browsing forgets the position — which is the lesser of the two.
+    var returnPending by rememberSaveable { mutableStateOf(false) }
+    // Bumped when the destination resumes, whether or not it was recreated.
+    var resumeGeneration by remember { mutableIntStateOf(0) }
+    CalendarResumeSignal { resumeGeneration++ }
+    // What the restoration is waiting to see take focus, and what last did.
+    // Confirmation is by identity: having called requestFocus() is not evidence
+    // that anything received it.
+    var focusedItemId by remember { mutableStateOf<String?>(null) }
+
+    val recordReturnTarget: (String, CalendarItem, Int) -> Unit = { date, item, index ->
+        returnPending = true
+        returnTarget = TvReturnTarget(
+            sectionId = date,
+            itemId = item.contentId,
+            sectionIndex = state.weekDates.indexOf(date).coerceAtLeast(0),
+            itemIndex = index,
+        )
+    }
+
     // Explicit shell-to-screen handoff. The shell bumps this token whenever
     // Calendar is selected, including re-selection after a restored route.
     // Target the active segment directly instead of asking the parent content
     // group to guess a descendant (which falls back to Home while navigating).
-    LaunchedEffect(focusRequest, state.isLoading) {
+    // A return owns entry. The shell bumps its token on every Calendar
+    // selection, a Back out of item detail included, so without this the shell
+    // handoff would scroll to the top and claim the controls while the
+    // restoration was still working — two claimants, and the later one wins by
+    // accident rather than by decision.
+    // Keyed on state.days, not just the week's dates. A refresh keeps the same
+    // seven dates while replacing everything inside them, so weekDates alone
+    // could not tell a completed refresh from no change at all — and the effect
+    // would never re-resolve.
+    LaunchedEffect(resumeGeneration, state.isLoading, state.isRefreshing, state.days) {
+        // isRefreshing as well as isLoading. Resolving mid-refresh answers
+        // against cards the refresh is about to replace, and both
+        // FollowAcrossSections and treatAbsenceAsFinal are claims about a FINAL
+        // snapshot — applying them to a provisional one consumes the target on
+        // an answer that was never authoritative.
+        if (!returnPending || state.isLoading || state.isRefreshing) return@LaunchedEffect
+        val sections = state.weekDates.map { date ->
+            TvReturnSection(id = date, itemIds = state.itemsFor(date).map { it.contentId })
+        }
+        val located = resolveTvReturnTarget(
+            target = returnTarget,
+            sections = sections,
+            // A calendar item can legitimately change day when an air date is
+            // corrected. The viewer went to see that item, not that slot, so
+            // following it is what they meant.
+            relocation = TvReturnRelocation.FollowAcrossSections,
+            // The week is fixed and nothing pages, so absence is already final
+            // — there is no later arrival to wait for.
+            treatAbsenceAsFinal = true,
+        ) as? TvReturnResolution.Located
+        if (located == null) {
+            // A week that renders no cards has nothing to restore to, and the
+            // shell handoff is the right answer for it — waiting for a later
+            // load would hold entry open on a screen already showing the viewer
+            // its empty or error state.
+            returnTarget = null
+            returnPending = false
+            // Release the claim, exactly as the timeout path does. Waking the
+            // shell effect is no use if it then finds the token already
+            // applied and stands down again, which in the retained case leaves
+            // the screen with nothing focused.
+            lastAppliedFocusRequest = -1
+            return@LaunchedEffect
+        }
+        // Claim the shell handoff before driving, so the effect below treats it
+        // as already applied rather than racing this one.
+        lastAppliedFocusRequest = focusRequest
+        listState.scrollToItem(located.sectionIndex + CalendarShelfIndexOffset)
+        // Let the shelf compose and attach before the token names it.
+        androidx.compose.runtime.withFrameNanos { }
+        shelfFocusItemIndex = located.itemIndex
+        shelfFocusDay = located.sectionId
+        shelfFocusRequest += 1
+
+        // Wait to SEE the card take focus. requestFocus() can be dropped — an
+        // unattached requester, a shelf still composing, a focus transaction
+        // that rolls back — and every one of those returns without telling us.
+        val landed = withTimeoutOrNull(TvFocusAcquisitionBudgetMillis) {
+            // Settled on the target, not merely seen there. focusedItemId now
+            // tracks CURRENT focus, but a snapshot of it is still only a moment
+            // — focus traversal can pass through the target on its way
+            // somewhere else, and a bare first { } would call that a landing.
+            // Holding the value across a short window is what distinguishes
+            // arriving from passing by.
+            snapshotFlow { focusedItemId }
+                .transformLatest { id ->
+                    if (id == located.itemId) {
+                        delay(TvCalendarReturnSettleMillis)
+                        emit(Unit)
+                    }
+                }
+                .first()
+        } != null
+
+        returnTarget = null
+        returnPending = false
+        if (landed) {
+            // Only now. Reporting the handoff on having ASKED would leave the
+            // shell believing content owns focus while nothing does, and the
+            // top menu suppressed behind it.
+            onInitialContentFocus()
+        } else {
+            // Give entry back. Releasing the claim re-arms the shell effect,
+            // which returnPending has just re-keyed.
+            lastAppliedFocusRequest = -1
+        }
+    }
+
+    // returnPending is a key, not just a condition. Standing aside is only safe
+    // if standing down wakes this again: a return that resolves to nothing —
+    // the week failed to load, or came back empty — would otherwise leave the
+    // screen with no claimant at all, because this effect had already run and
+    // returned early. When the restoration does drive, it claims the token
+    // first, so the re-run stops at the line above instead.
+    LaunchedEffect(focusRequest, state.isLoading, returnPending) {
         if (focusRequest == lastAppliedFocusRequest) return@LaunchedEffect
         if (state.isLoading) return@LaunchedEffect
+        if (returnPending) return@LaunchedEffect
         val layoutInfo = listState.layoutInfo
         val itemExtent = (layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0) +
             layoutInfo.mainAxisItemSpacing
@@ -174,16 +335,29 @@ fun TvCalendarScreen(
         androidx.compose.runtime.withFrameNanos { }
         androidx.compose.runtime.withFrameNanos { }
         val requester = filterFocusRequesters[state.filter] ?: filterFocusRequester
-        val applied = runCatching { requester.requestFocus() }.getOrDefault(false)
+        val applied = requestFocusUntilObserved(
+            maxAttempts = TvFrameRelocationMaxAttempts,
+            awaitAttempt = { androidx.compose.runtime.withFrameNanos { } },
+            requestFocus = requester::requestFocus,
+            isFocused = { calendarFilterHasFocus },
+        ) == TvObservedFocusResult.Focused
         if (applied) {
             // Keep the shell bar suppressed through Android's delayed initial
             // focus pass. Reconfirm the filter after that pass, then release
-            // suppression on the following frame.
+            // suppression on the following frame. The reconfirm is a second
+            // claim against the same target, so it is observed too.
             kotlinx.coroutines.delay(120)
-            runCatching { requester.requestFocus() }
+            requestFocusUntilObserved(
+                maxAttempts = TvFrameRelocationMaxAttempts,
+                awaitAttempt = { androidx.compose.runtime.withFrameNanos { } },
+                requestFocus = requester::requestFocus,
+                isFocused = { calendarFilterHasFocus },
+            )
             androidx.compose.runtime.withFrameNanos { }
-            lastAppliedFocusRequest = focusRequest
-            onInitialContentFocus()
+            if (lastAppliedFocusRequest != focusRequest) {
+                lastAppliedFocusRequest = focusRequest
+                onInitialContentFocus()
+            }
         }
     }
     // Focus hand-off for day selection: picking a day in the week strip scrolls
@@ -193,8 +367,6 @@ fun TvCalendarScreen(
     val snapControlsToInitialPosition: () -> Unit = {
         scope.launch { listState.animateScrollToItem(0) }
     }
-    var shelfFocusDay by remember { mutableStateOf<String?>(null) }
-    var shelfFocusRequest by remember { mutableIntStateOf(0) }
     val tintState = rememberAmbientBackdropTintState()
     val initialTintItem = state.weekDates
         .asSequence()
@@ -208,7 +380,16 @@ fun TvCalendarScreen(
 
     CompositionLocalProvider(LocalAmbientBackdropTint provides tintState) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                // The zone callbacks only fire when a calendar control or shelf
+                // GAINS focus, so moving Up from the filter into the top menu
+                // left the flag true with focus outside the screen entirely.
+                // A later shell handoff then read that stale true, skipped both
+                // claims, and still reported initial content focus — and only
+                // another calendar zone gaining focus could clear it, which the
+                // skipped handoff could never cause.
+                .onFocusChanged { if (!it.hasFocus) calendarFilterHasFocus = false },
         ) {
             TvRootHeroBackdrop(
                 content = null,
@@ -216,7 +397,7 @@ fun TvCalendarScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            val controls: @Composable () -> Unit = {
+            val controls: @Composable ((CalendarControlFocusZone) -> Unit) -> Unit = { onControlFocused ->
                 CalendarControls(
                     selectedFilter = state.filter,
                     weekDates = state.weekDates,
@@ -227,7 +408,7 @@ fun TvCalendarScreen(
                     firstSegmentFocusRequester = filterFocusRequester,
                     segmentFocusRequesters = filterFocusRequesters,
                     selectedDayFocusRequester = selectedDayFocusRequester,
-                    onControlFocused = snapControlsToInitialPosition,
+                    onControlFocused = onControlFocused,
                     includeTopInset = false,
                     onSelectFilter = viewModel::setFilter,
                     onSelectDay = { date ->
@@ -238,6 +419,13 @@ fun TvCalendarScreen(
                         }
                         if (state.itemsFor(date).isNotEmpty()) {
                             shelfFocusDay = date
+                            // Explicitly zero. Relying on the consume callback
+                            // to have reset it makes this depend on the
+                            // previous request having run to completion — and a
+                            // shelf effect cancelled while its scroll suspends
+                            // never reaches that reset, leaving a day selection
+                            // to inherit the restoration's card index.
+                            shelfFocusItemIndex = 0
                             shelfFocusRequest += 1
                         }
                     },
@@ -256,16 +444,48 @@ fun TvCalendarScreen(
                 state = state,
                 listState = listState,
                 controls = controls,
+                activeFilterFocusRequester = filterFocusRequesters[state.filter] ?: filterFocusRequester,
+                onControlFocused = { zone ->
+                    // The flag this screen's filter claim is observed on. It was
+                    // declared and never assigned, so it read false forever: the
+                    // claim burned every attempt and reported Exhausted even when
+                    // focus had landed, which meant the reconfirm after Android's
+                    // delayed focus pass, the bar-suppression release and
+                    // onInitialContentFocus() never ran.
+                    calendarFilterHasFocus = zone == CalendarControlFocusZone.Filter
+                    if (zone != null) snapControlsToInitialPosition()
+                },
+                onFocusRequestAcknowledged = {
+                    if (lastAppliedFocusRequest != focusRequest) {
+                        lastAppliedFocusRequest = focusRequest
+                        onInitialContentFocus()
+                    }
+                },
                 onRefresh = viewModel::refresh,
                 onShowEverything = { viewModel.setFilter(CalendarFilter.All) },
                 selectedDayFocusRequester = selectedDayFocusRequester,
                 shelfFocusDay = shelfFocusDay,
                 shelfFocusRequest = shelfFocusRequest,
+                shelfFocusItemIndex = shelfFocusItemIndex,
                 onShelfFocusConsumed = {
                     shelfFocusDay = null
                     shelfFocusRequest = 0
+                    shelfFocusItemIndex = 0
                 },
-                onItemFocused = { item -> tintState.set(null, item.posterUrl) },
+                onItemFocused = { _, item, _, focused ->
+                    if (focused) {
+                        tintState.set(null, item.posterUrl)
+                        focusedItemId = item.contentId
+                    } else if (focusedItemId == item.contentId) {
+                        // Only if this card is still the one on record. A gain
+                        // elsewhere lands before this loss arrives, and an
+                        // unconditional clear would wipe the new position.
+                        focusedItemId = null
+                    }
+                },
+                onItemClicked = { date, item, index ->
+                    recordReturnTarget(date, item, index)
+                },
                 onOpenItemDetail = onOpenItemDetail,
             )
         }
@@ -283,7 +503,7 @@ private fun CalendarControls(
     firstSegmentFocusRequester: FocusRequester,
     segmentFocusRequesters: Map<String, FocusRequester>,
     selectedDayFocusRequester: FocusRequester,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
     includeTopInset: Boolean,
     onSelectFilter: (String) -> Unit,
     onSelectDay: (String) -> Unit,
@@ -338,7 +558,7 @@ private fun CalendarControlRow(
     onSelectFilter: (String) -> Unit,
     firstSegmentFocusRequester: FocusRequester,
     segmentFocusRequesters: Map<String, FocusRequester>,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -371,7 +591,7 @@ private fun FilterBar(
     onSelect: (String) -> Unit,
     firstSegmentFocusRequester: FocusRequester,
     segmentFocusRequesters: Map<String, FocusRequester>,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
 ) {
     val presets = listOf(
         CalendarFilter.Following to "Following",
@@ -394,7 +614,7 @@ private fun FilterBar(
                 onClick = { onSelect(value) },
                 focusRequester = segmentFocusRequesters[value]
                     ?: if (index == 0) firstSegmentFocusRequester else null,
-                onFocused = onControlFocused,
+                onFocused = { onControlFocused(CalendarControlFocusZone.Filter) },
             )
         }
     }
@@ -457,7 +677,7 @@ private fun WeekStrip(
     isCurrentWeek: Boolean,
     hasEvents: (String) -> Boolean,
     selectedDayFocusRequester: FocusRequester,
-    onControlFocused: () -> Unit,
+    onControlFocused: (CalendarControlFocusZone) -> Unit,
     onSelectDay: (String) -> Unit,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
@@ -470,7 +690,11 @@ private fun WeekStrip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        ChevronButton(arrow = NavArrow.Prev, onClick = onPrevWeek)
+        ChevronButton(
+            arrow = NavArrow.Prev,
+            onClick = onPrevWeek,
+            onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
+        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -482,14 +706,21 @@ private fun WeekStrip(
                     isToday = date == today,
                     hasEvents = hasEvents(date),
                     focusRequester = if (date == selectedDay) selectedDayFocusRequester else null,
-                    onFocused = onControlFocused,
+                    onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
                     onClick = { onSelectDay(date) },
                 )
             }
         }
-        ChevronButton(arrow = NavArrow.Next, onClick = onNextWeek)
+        ChevronButton(
+            arrow = NavArrow.Next,
+            onClick = onNextWeek,
+            onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
+        )
         if (!isCurrentWeek) {
-            TodayButton(onClick = onToday)
+            TodayButton(
+                onClick = onToday,
+                onFocused = { onControlFocused(CalendarControlFocusZone.WeekStrip) },
+            )
         }
         Spacer(modifier = Modifier.weight(1f))
         Text(
@@ -508,7 +739,11 @@ private enum class NavArrow { Prev, Next }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ChevronButton(arrow: NavArrow, onClick: () -> Unit) {
+private fun ChevronButton(
+    arrow: NavArrow,
+    onClick: () -> Unit,
+    onFocused: () -> Unit,
+) {
     val shape = CircleShape
     Surface(
         onClick = onClick,
@@ -522,7 +757,9 @@ private fun ChevronButton(arrow: NavArrow, onClick: () -> Unit) {
             pressedContentColor = FocusedContent,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        modifier = Modifier.size(28.dp),
+        modifier = Modifier
+            .onFocusChanged { if (it.isFocused) onFocused() }
+            .size(28.dp),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Icon(
@@ -541,7 +778,7 @@ private fun ChevronButton(arrow: NavArrow, onClick: () -> Unit) {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TodayButton(onClick: () -> Unit) {
+private fun TodayButton(onClick: () -> Unit, onFocused: () -> Unit) {
     val shape = RoundedCornerShape(100.dp)
     Surface(
         onClick = onClick,
@@ -555,6 +792,7 @@ private fun TodayButton(onClick: () -> Unit) {
             pressedContentColor = FocusedContent,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() },
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -677,8 +915,11 @@ internal fun shouldReturnCalendarFocusToControls(
     focusedShelfIndex == firstFocusableShelfIndex &&
     !isReturningToControls
 
+internal enum class CalendarControlFocusZone { Filter, WeekStrip }
+
 internal enum class CalendarUpFallbackAction {
     EnterMenu,
+    FocusFilter,
     ReturnToControls,
     StayInContent,
     MoveWithinContent,
@@ -688,15 +929,24 @@ internal fun calendarUpFallbackAction(
     focusedShelfIndex: Int?,
     firstFocusableShelfIndex: Int,
     isReturningToControls: Boolean,
+    focusedControlZone: CalendarControlFocusZone?,
     isRepeat: Boolean = false,
 ): CalendarUpFallbackAction = when {
+    // A return to the controls is already in flight. It stays in flight until
+    // the controls actually take focus, and for those frames the shelf still
+    // reports its own index — so neither the null-index check below nor
+    // shouldReturnCalendarFocusToControls (which goes false the instant the
+    // return starts) can hold a held key. Without this, the same press that
+    // began the handoff leaks straight into geometric movement.
+    isRepeat && isReturningToControls -> CalendarUpFallbackAction.StayInContent
     shouldReturnCalendarFocusToControls(
         focusedShelfIndex = focusedShelfIndex,
         firstFocusableShelfIndex = firstFocusableShelfIndex,
         isReturningToControls = isReturningToControls,
     ) -> if (isRepeat) CalendarUpFallbackAction.StayInContent else CalendarUpFallbackAction.ReturnToControls
     focusedShelfIndex == null && isRepeat -> CalendarUpFallbackAction.StayInContent
-    focusedShelfIndex == null -> CalendarUpFallbackAction.EnterMenu
+    focusedControlZone == CalendarControlFocusZone.WeekStrip -> CalendarUpFallbackAction.FocusFilter
+    focusedControlZone == CalendarControlFocusZone.Filter -> CalendarUpFallbackAction.EnterMenu
     else -> CalendarUpFallbackAction.MoveWithinContent
 }
 
@@ -709,19 +959,37 @@ private fun CalendarList(
     onMoveUpToMenu: () -> Unit = {},
     state: org.prairieserver.prairie.viewmodel.CalendarUiState,
     listState: LazyListState,
-    controls: @Composable () -> Unit,
+    controls: @Composable ((CalendarControlFocusZone) -> Unit) -> Unit,
+    activeFilterFocusRequester: FocusRequester,
+    /**
+     * Which control zone holds focus, or null when the controls lose it.
+     *
+     * The zone matters: the screen's filter claim is observed on the filter row
+     * specifically, and a caller that only hears "some control took focus"
+     * cannot tell that apart from the week strip.
+     */
+    onControlFocused: (CalendarControlFocusZone?) -> Unit,
+    onFocusRequestAcknowledged: () -> Unit,
     onRefresh: () -> Unit,
     onShowEverything: () -> Unit,
     selectedDayFocusRequester: FocusRequester,
     shelfFocusDay: String?,
     shelfFocusRequest: Int,
+    shelfFocusItemIndex: Int,
     onShelfFocusConsumed: () -> Unit,
-    onItemFocused: (CalendarItem) -> Unit,
+    onItemFocused: (date: String, item: CalendarItem, index: Int, focused: Boolean) -> Unit,
+    onItemClicked: (date: String, item: CalendarItem, index: Int) -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
     val snapScope = rememberCoroutineScope()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    var selectedDayHasFocus by remember { mutableStateOf(false) }
     var isReturningToControls by remember { mutableStateOf(false) }
+    var focusedControlZone by remember { mutableStateOf<CalendarControlFocusZone?>(null) }
+    val clearControlFocusZone: () -> Unit = {
+        focusedControlZone = null
+        onControlFocused(null)
+    }
     val firstFocusableDayIndex = state.weekDates.indexOfFirst { state.itemsFor(it).isNotEmpty() }
     val onShelfFocused: (Int) -> Unit = { index ->
         // Item zero is the filter/week control shell.
@@ -733,19 +1001,29 @@ private fun CalendarList(
         if (!isReturningToControls) {
             isReturningToControls = true
             snapScope.launch {
+                // The controls row is list item zero, and focusing a shelf
+                // snaps that shelf to the top — which scrolls item zero out of
+                // the composed window. A requester on an un-composed row is
+                // not attached, so every claim below was refused and Up from
+                // the first shelf looked dead. Bring it back first; the date's
+                // on-focus scroll then finds nothing left to move.
+                if (listState.layoutInfo.visibleItemsInfo.none { it.index == 0 }) {
+                    listState.animateScrollToItem(0)
+                    withFrameNanos { }
+                }
                 // Claim the date; its on-focus callback owns the sole vertical
                 // animation. Keeping one scroll authority avoids the small
                 // hitch caused by focus bring-into-view and two list animations
                 // all racing toward item zero.
-                var claimed = runCatching {
-                    selectedDayFocusRequester.requestFocus()
-                }.getOrDefault(false)
-                repeat(6) {
-                    if (claimed) return@repeat
-                    androidx.compose.runtime.withFrameNanos { }
-                    claimed = runCatching { selectedDayFocusRequester.requestFocus() }.getOrDefault(false)
-                    if (!claimed) kotlinx.coroutines.delay(40)
-                }
+                // Was a hand-rolled six-attempt loop keyed on requestFocus()
+                // returning true — acceptance, not arrival. The shared policy
+                // does the same pacing and judges it on observed focus.
+                requestFocusUntilObserved(
+                    maxAttempts = TvContentInitialFocusMaxAttempts,
+                    awaitAttempt = { withFrameNanos { } },
+                    requestFocus = selectedDayFocusRequester::requestFocus,
+                    isFocused = { selectedDayHasFocus },
+                )
                 kotlinx.coroutines.delay(80)
                 isReturningToControls = false
             }
@@ -758,17 +1036,32 @@ private fun CalendarList(
     // when focus is already in the controls item, mirror the shell's default
     // (moveFocus within content; false -> shell hands off to the menu bar).
     var focusedShelfIndex by remember { mutableStateOf<Int?>(null) }
+    val onCalendarControlFocused: (CalendarControlFocusZone) -> Unit = { zone ->
+        focusedControlZone = zone
+        onControlFocused(zone)
+        onFocusRequestAcknowledged()
+    }
     val currentCalendarUpFallback = rememberUpdatedState<(Boolean) -> Boolean> { isRepeat ->
             when (calendarUpFallbackAction(
                     focusedShelfIndex = focusedShelfIndex,
                     firstFocusableShelfIndex = firstFocusableDayIndex,
                     isReturningToControls = isReturningToControls,
+                    focusedControlZone = focusedControlZone,
                     isRepeat = isRepeat,
                 )
             ) {
                 CalendarUpFallbackAction.EnterMenu -> {
                     onMoveUpToMenu()
                     true
+                }
+                CalendarUpFallbackAction.FocusFilter -> {
+                    // Key handlers answer synchronously whether they consumed
+                    // the press, so this cannot await arrival — but a claim that
+                    // is refused must not vanish silently either.
+                    activeFilterFocusRequester.claimFocusOrReport(
+                        target = "calendar_filter",
+                        action = "up_fallback",
+                    )
                 }
                 CalendarUpFallbackAction.ReturnToControls -> {
                     onMoveUpToControls()
@@ -811,7 +1104,14 @@ private fun CalendarList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item(key = "calendar-controls") {
-            controls()
+            // Arrival for the shelf→controls Up hand-off is "the CONTROLS row
+            // holds focus". This used to be observed on the whole list, which
+            // is already true while a shelf card is focused — so the claim
+            // returned "focused" without ever requesting, and Up from the first
+            // shelf was a silent no-op that re-armed 80ms later.
+            Box(modifier = Modifier.onFocusChanged { selectedDayHasFocus = it.hasFocus }) {
+                controls(onCalendarControlFocused)
+            }
         }
 
         // Keep the control item in this same LazyColumn for every data state.
@@ -826,6 +1126,7 @@ private fun CalendarList(
                         title = state.error ?: "Failed to load calendar",
                         subtitle = "Press the week arrows to try another week.",
                         action = CalendarAction("Refresh", onRefresh),
+                        onActionFocused = clearControlFocusZone,
                     )
                 }
             }
@@ -840,6 +1141,7 @@ private fun CalendarList(
                             CalendarAction("Refresh", onRefresh)
                         },
                         topAligned = true,
+                        onActionFocused = clearControlFocusZone,
                     )
                 }
             }
@@ -852,8 +1154,12 @@ private fun CalendarList(
                 isToday = date == state.today,
                 items = state.itemsFor(date),
                 focusRequest = if (date == shelfFocusDay) shelfFocusRequest else 0,
+                focusItemIndex = if (date == shelfFocusDay) shelfFocusItemIndex else 0,
                 onFocusApplied = onShelfFocusConsumed,
-                onItemFocused = onItemFocused,
+                onItemFocusChanged = { item, itemIndex, focused ->
+                    onItemFocused(date, item, itemIndex, focused)
+                },
+                onItemClicked = { item, itemIndex -> onItemClicked(date, item, itemIndex) },
                 // Snap the day whose shelf owns focus to the top of the list
                 // (QA 2026-07-08: default bring-into-view revealed only the
                 // focused CARD, stranding the previous day's caption strip
@@ -862,6 +1168,7 @@ private fun CalendarList(
                 onShelfFocusChanged = { focused ->
                     if (focused) {
                         focusedShelfIndex = index
+                        clearControlFocusZone()
                     } else if (focusedShelfIndex == index) {
                         focusedShelfIndex = null
                     }
@@ -882,13 +1189,20 @@ private fun DayShelf(
     isToday: Boolean,
     items: List<CalendarItem>,
     focusRequest: Int,
+    /**
+     * Which card the token should land on. Zero for a week-strip day
+     * selection, which means "this day" and nothing finer; the card actually
+     * left behind when a return is being restored.
+     */
+    focusItemIndex: Int = 0,
     onFocusApplied: () -> Unit = {},
-    onItemFocused: (CalendarItem) -> Unit,
+    onItemFocusChanged: (item: CalendarItem, index: Int, focused: Boolean) -> Unit,
+    onItemClicked: (item: CalendarItem, index: Int) -> Unit = { _, _ -> },
     onShelfFocused: () -> Unit = {},
     onShelfFocusChanged: (Boolean) -> Unit = {},
     onOpenItemDetail: (contentId: String) -> Unit,
 ) {
-    val firstCardFocusRequester = remember { FocusRequester() }
+    val targetCardFocusRequester = remember { FocusRequester() }
     val rowState = rememberLazyListState()
 
     // A changing, non-zero focus token (from a week-strip day selection) kicks
@@ -899,15 +1213,25 @@ private fun DayShelf(
     // item 0 first so the first card is composed and its FocusRequester attached
     // — otherwise, after the shelf has been scrolled horizontally, the first
     // card may be off-screen and the request is dropped.
+    val targetCardIndex = focusItemIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+    var shelfHasFocus by remember { mutableStateOf(false) }
+
     LaunchedEffect(focusRequest) {
         if (focusRequest > 0 && items.isNotEmpty()) {
-            rowState.scrollToItem(0)
-            runCatching { firstCardFocusRequester.requestFocus() }
-            onFocusApplied()
+            rowState.scrollToItem(targetCardIndex)
+            // onFocusApplied() retires the pending request. Retiring it after a
+            // claim that was dropped loses the request entirely — nothing
+            // focused and nothing left to retry it — so it now fires only on
+            // observed acquisition. The shelf already reports its own focus.
+            val landed = requestFocusUntilObserved(
+                maxAttempts = TvContentInitialFocusMaxAttempts,
+                awaitAttempt = { withFrameNanos { } },
+                requestFocus = targetCardFocusRequester::requestFocus,
+                isFocused = { shelfHasFocus },
+            )
+            if (landed == TvObservedFocusResult.Focused) onFocusApplied()
         }
     }
-
-    var shelfHasFocus by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -941,14 +1265,22 @@ private fun DayShelf(
                 ),
                 horizontalArrangement = Arrangement.spacedBy(CalendarCardSpacing),
             ) {
-                items(items, key = { "$date-${it.contentId}" }) { item ->
+                itemsIndexed(items, key = { _, it -> "$date-${it.contentId}" }) { index, item ->
                     CalendarEventCard(
                         item = item,
-                        // First card holds the focus requester so a week-strip
-                        // day selection can hand focus down to this shelf.
-                        focusRequester = if (item == items.first()) firstCardFocusRequester else null,
-                        onFocused = { onItemFocused(item) },
-                        onClick = { onOpenItemDetail(item.detailContentId) },
+                        // The card the pending token names holds the requester,
+                        // so one mechanism serves both a week-strip day
+                        // selection and a restored return.
+                        focusRequester = targetCardFocusRequester.takeIf { index == targetCardIndex },
+                        onFocusChanged = { focused -> onItemFocusChanged(item, index, focused) },
+                        onClick = {
+                            onItemClicked(item, index)
+                            // detailContentId is where the card GOES; contentId
+                            // is what the card IS. Several episodes of one show
+                            // share a destination, so identity has to come from
+                            // the item, not from the route.
+                            onOpenItemDetail(item.detailContentId)
+                        },
                     )
                 }
             }
@@ -1016,14 +1348,17 @@ private val posterShape = RoundedCornerShape(10.dp)
 private fun CalendarEventCard(
     item: CalendarItem,
     focusRequester: FocusRequester?,
-    onFocused: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
+    // Both edges. Gain alone made the screen's record of "what has focus"
+    // sticky, so a card focus passed over on the way somewhere else still
+    // looked like the current position long after focus had moved on.
     LaunchedEffect(isFocused, item.contentId) {
-        if (isFocused) onFocused()
+        onFocusChanged(isFocused)
     }
 
     // tvOS FocusableCalendarCard: the poster alone is the focus-lifted
@@ -1178,6 +1513,7 @@ private fun CalendarMessage(
     subtitle: String,
     action: CalendarAction,
     topAligned: Boolean = false,
+    onActionFocused: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -1226,6 +1562,7 @@ private fun CalendarMessage(
                     pressedContentColor = FocusedContent,
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                modifier = Modifier.onFocusChanged { if (it.isFocused) onActionFocused() },
             ) {
                 Box(
                     modifier = Modifier
@@ -1283,3 +1620,30 @@ private fun emptyCopy(filter: String): String = when (filter) {
     CalendarFilter.Trending -> "No trending releases this week."
     else -> "No movie releases or episode airings in this week."
 }
+
+/** The filter/week control shell occupies list slot zero, ahead of every day. */
+private const val CalendarShelfIndexOffset: Int = 1
+
+/**
+ * Fires whenever this destination resumes — coming back from a detail route,
+ * and also from the app being foregrounded.
+ *
+ * The signal has to be the lifecycle rather than composition identity: a Back
+ * pressed during the outgoing transition can leave the destination composed,
+ * and then "was I recreated?" answers a question nobody asked.
+ */
+@Composable
+private fun CalendarResumeSignal(onResume: () -> Unit) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val currentOnResume by rememberUpdatedState(onResume)
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) currentOnResume()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+}
+
+/** Focus must hold the target this long to count as arrived rather than passing. */
+private const val TvCalendarReturnSettleMillis: Long = 120L

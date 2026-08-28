@@ -64,10 +64,7 @@ class RecommendationsViewModel(
 
         when (discoverResult) {
             is ApiResult.Success -> {
-                val sections = discoverResult.data.rows
-                    .mapIndexed { index, row -> row.toResolvedSection(index) }
-                    .filter { it.items.isNotEmpty() }
-                    .sortedByDescending { it.title.equals("For You", ignoreCase = true) }
+                val sections = discoverResult.data.rows.toResolvedSections()
 
                 _uiState.update {
                     it.copy(
@@ -103,12 +100,84 @@ class RecommendationsViewModel(
         }
     }
 
-    private fun DiscoverRow.toResolvedSection(index: Int): ResolvedSection = ResolvedSection(
-        id = "discover_${index}_${type}",
-        sectionType = type,
-        title = label,
-        itemLimit = items.size,
-        totalCount = items.size,
-        items = items,
-    )
 }
+
+internal fun List<DiscoverRow>.toResolvedSections(): List<ResolvedSection> =
+    map(DiscoverRow::toResolvedSection)
+        .filter { it.items.isNotEmpty() }
+        .distinctBy(ResolvedSection::id)
+        .sortedByDescending { it.title.equals("For You", ignoreCase = true) }
+
+/**
+ * Modern servers provide a stable section kind, and for the kinds that can
+ * repeat (clusters, genres) a key alongside it. The other kinds are singletons
+ * and the server sends no key at all, so the kind alone IS their stable
+ * identity.
+ *
+ * Requiring a key would push exactly those rows onto the legacy path below,
+ * whose identity includes the row's contents — and "Popular" and "Recently
+ * Added" change contents constantly. Their section id would then change on
+ * every refresh, which is what the For You detail return matches on.
+ *
+ * Accepting a *bare* kind is not safe either: two keyless rows sharing a kind
+ * encode identically, and [toResolvedSections] resolves duplicates by dropping
+ * them, so a row would silently vanish from the feed. So the kind alone is
+ * trusted only for kinds this client knows to be singletons — see
+ * [SingletonServerSectionKinds]. A repeatable or unrecognised kind arriving
+ * without a key falls back to content identity, which is unique by
+ * construction.
+ *
+ * Servers that send no kind at all fall back the same way, because type+label
+ * alone is not unique. Length-prefixing every component keeps the encoding
+ * unambiguous even when a label contains separators.
+ */
+private fun DiscoverRow.toResolvedSection(): ResolvedSection = ResolvedSection(
+    id = stableSectionId(),
+    sectionType = type,
+    title = label,
+    // Discover rows carry no `featured` flag of their own, but the personalised
+    // "for-you-main" row is the one the server ranks highest for this profile,
+    // so it is the natural hero. Marking it here lets any client hero-render it
+    // through the shared [splitFeatured] path; clients that want a flat feed
+    // simply ignore the flag.
+    featured = sectionKind?.equals(ForYouMainSectionKind, ignoreCase = true) == true,
+    itemLimit = items.size,
+    totalCount = items.size,
+    items = items,
+)
+
+private const val ForYouMainSectionKind = "for-you-main"
+
+/**
+ * Section kinds the server emits at most once per discover response, and
+ * therefore sends with no key. Mirrors `discoverRowSectionKey` in the server's
+ * `internal/api/handlers/recommendations.go`; the repeatable kinds it can
+ * return — `cluster` and `genre` — are deliberately absent, because those
+ * always carry a key and must never be identified by kind alone.
+ */
+private val SingletonServerSectionKinds = setOf(
+    ForYouMainSectionKind,
+    "similar-users",
+    "popular",
+    "recently-added",
+    "top-rated",
+)
+
+private fun DiscoverRow.stableSectionId(): String {
+    val kind = sectionKind?.takeIf(String::isNotBlank)
+    val key = sectionKey?.takeIf(String::isNotBlank)
+    if (kind != null && (key != null || kind in SingletonServerSectionKinds)) {
+        return "discover:server:${encodeIdentityPart(kind)}${encodeIdentityPart(key.orEmpty())}"
+    }
+
+    val itemIdentities = items
+        .map { item -> encodeIdentityPart(item.type) + encodeIdentityPart(item.contentId) }
+        .sorted()
+        .joinToString(separator = "")
+    return "discover:legacy:" +
+        encodeIdentityPart(type) +
+        encodeIdentityPart(label) +
+        encodeIdentityPart(itemIdentities)
+}
+
+private fun encodeIdentityPart(value: String): String = "${value.length}:$value"

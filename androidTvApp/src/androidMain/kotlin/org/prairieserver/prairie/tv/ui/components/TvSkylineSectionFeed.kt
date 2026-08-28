@@ -47,6 +47,13 @@ import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.section.ResolvedSection
+import org.prairieserver.prairie.tv.ui.focus.TvReturnResolution
+import org.prairieserver.prairie.tv.ui.focus.TvReturnTarget
+import org.prairieserver.prairie.tv.ui.focus.keyedTvReturnTargetSaver
+import org.prairieserver.prairie.tv.ui.focus.keyedBooleanSaver
+import org.prairieserver.prairie.tv.ui.focus.keyedIntSaver
+import org.prairieserver.prairie.tv.ui.focus.resolveTvReturnTarget
+import org.prairieserver.prairie.tv.ui.focus.toTvReturnSections
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.CatalogRepository
@@ -54,6 +61,7 @@ import org.prairieserver.prairie.tv.ui.theme.RowDimens
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.TvSkyline
 import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
@@ -72,7 +80,32 @@ import org.koin.compose.koinInject
 fun TvSkylineSectionFeed(
     sections: List<ResolvedSection>,
     onItemClick: (String) -> Unit,
+    /**
+     * Identifies the surface this feed instance belongs to.
+     *
+     * `rememberSaveable` slots are POSITIONAL. Two feeds composed at the same
+     * position in different surfaces — Home and a library detail — otherwise
+     * share one slot, so a return target armed on one could be restored into
+     * the other, sending focus to a card that surface never showed.
+     *
+     * Keying the slot alone is not enough, because rememberSaveable does not
+     * validate a value RESTORED after process death against its inputs. This
+     * key is therefore written into the savers too, and a payload belonging to
+     * another surface is discarded on the way back.
+     */
+    surfaceKey: String,
     modifier: Modifier = Modifier,
+    /**
+     * False while rows are still being hydrated.
+     *
+     * Without it a launch row that has not arrived yet is indistinguishable
+     * from one that is gone, and resolution settles on the nearest survivor —
+     * driving focus to a card the viewer never opened and retiring the real
+     * target on the way. The rows list cannot answer this itself: it is
+     * filtered to sections that already HAVE items, so an unhydrated
+     * placeholder is dropped before the adapter could mark it incomplete.
+     */
+    sectionsComplete: Boolean = true,
     focusRequest: Int = 0,
     detailReturnFocusRequest: Int = 0,
     /** Shell-owned requester for the card a detail page was launched from.
@@ -135,18 +168,64 @@ fun TvSkylineSectionFeed(
     var focusedItemIndex by remember { mutableIntStateOf(-1) }
     var focusedContentId by remember { mutableStateOf<String?>(null) }
     var removalFocusRequest by remember { mutableIntStateOf(0) }
-    // The (row, item) to restore focus to when this feed is recreated after
-    // being removed from composition — saveable so it survives both the outer
-    // Main → ItemDetail → Main round trip and inner-nav trips (Settings,
-    // Search). Disposal drops the shell restorer's saved child NODE, so its
-    // default enter can land on the wrong card; these indices let the
-    // recreation ladder re-target it exactly. Updated continuously from card
-    // focus (and on detail launch, where the clicked card is the focused one).
-    var returnRowIndex by rememberSaveable { mutableIntStateOf(-1) }
-    var returnItemIndex by rememberSaveable { mutableIntStateOf(-1) }
+    // Disposal drops the shell restorer's saved child NODE, so its default
+    // enter can land on the wrong card; this target is what lets the recreation
+    // ladder re-target the launch card exactly. Updated continuously from card
+    // focus (and on detail launch, where the clicked card is the focused one),
+    // except while a restoration is running.
+    // The card a detail page was launched from, by identity. Two saved indices
+    // used to stand in for this, and they only describe the same card while the
+    // data is unchanged: a refresh on resume, Continue Watching reordering
+    // after playback, a finished item leaving its row, or a recreated process
+    // rebuilding from the server all leave the numbers valid and pointing
+    // somewhere else. Saveable so it survives both the outer round trip and
+    // process death, which is exactly when the live focus state below is gone
+    // and indices would be all that was left.
+    // Keyed SAVER, not just a keyed slot: rememberSaveable does not validate a
+    // value restored after process death against its inputs, so a process
+    // coming back on a different feed first would otherwise adopt this one's
+    // target. Same guard TvFlatReturnRestoration already applies.
+    var returnTarget by rememberSaveable(
+        surfaceKey,
+        stateSaver = keyedTvReturnTargetSaver(surfaceKey),
+    ) {
+        mutableStateOf<TvReturnTarget?>(null)
+    }
     // True while a restore target is armed. Gates the restore requester
     // attachments (and the row restorer's enter-fallback redirect they imply).
-    var detailReturnPending by rememberSaveable { mutableStateOf(false) }
+    var detailReturnPending by rememberSaveable(
+        surfaceKey,
+        stateSaver = keyedBooleanSaver(surfaceKey, slot = "detailReturnPending"),
+    ) { mutableStateOf(false) }
+    // True while a ladder is actively driving focus back to the launch card.
+    //
+    // Focus lands on the wrong card first often enough that these ladders exist
+    // for it, and every focus gain re-arms the return target. Without this the
+    // intermediate card's focus callback overwrites the armed identity, the
+    // resolution recomputes around it, and the ladder then declares success
+    // against content the viewer never launched — the identity contract
+    // defeating itself.
+    // Counted, not a flag: the recreation ladder and the shell-request ladder
+    // can both be live at once, and a boolean would let whichever finished
+    // first re-open the window while the other was still driving focus.
+    var restorationsInFlight by remember { mutableIntStateOf(0) }
+    // Bumped every time a new return target is armed. A ladder captures it on
+    // entry and stops the moment it no longer matches, because the driver
+    // deliberately follows the current resolution: without this an older ladder
+    // would pivot onto a newly clicked card, see it already focused, and clear
+    // the NEW trip's pending state — losing restoration for the trip that had
+    // only just started.
+    var returnGeneration by rememberSaveable(
+        surfaceKey,
+        stateSaver = keyedIntSaver(surfaceKey, slot = "returnGeneration"),
+    ) { mutableIntStateOf(0) }
+    // Bumped when a ladder starts, so the row scrolls its own LazyRow to the
+    // resolved card. Without it the card can sit outside the composed
+    // horizontal window after a reorder, the requester never attaches, and
+    // every retry fails — the contract's obligation to scroll the destination
+    // into composition, unmet.
+    var returnRestoreRequest by remember { mutableIntStateOf(0) }
+
     LaunchedEffect(rows) {
         val previousContentId = focusedContentId
         val focusedItemWasRemoved = previousContentId != null &&
@@ -157,11 +236,20 @@ fun TvSkylineSectionFeed(
         if (focusedRowIndex in rows.indices && focusedItemIndex >= rows[focusedRowIndex].items.size) {
             focusedItemIndex = (rows[focusedRowIndex].items.size - 1).coerceAtLeast(-1)
         }
-        if (focusedItemWasRemoved && focusedRowIndex in rows.indices) {
+        // Same guard as browse re-arming: a refresh that removes whatever
+        // incidental focus happened to land on must not redefine what the
+        // viewer launched from.
+        if (focusedItemWasRemoved && focusedRowIndex in rows.indices && restorationsInFlight == 0) {
             val targetRow = rows[focusedRowIndex]
             if (targetRow.items.isNotEmpty()) {
-                returnRowIndex = focusedRowIndex
-                returnItemIndex = focusedItemIndex.coerceIn(0, targetRow.items.lastIndex)
+                val itemIndex = focusedItemIndex.coerceIn(0, targetRow.items.lastIndex)
+                returnTarget = TvReturnTarget(
+                    sectionId = targetRow.id,
+                    itemId = targetRow.items[itemIndex].contentId,
+                    sectionIndex = focusedRowIndex,
+                    itemIndex = itemIndex,
+                )
+                returnGeneration++
                 detailReturnPending = true
                 removalFocusRequest += 1
             }
@@ -185,9 +273,18 @@ fun TvSkylineSectionFeed(
         // the band is still scrolled rows down. Re-arming on every focus event
         // is safe: the ladder's first check sees the card already focused and
         // breaks immediately whenever nothing was actually lost.
-        returnRowIndex = rowIndex
-        returnItemIndex = itemIndex
-        detailReturnPending = true
+        // Browse movement re-arms; a restoration in progress must not. See
+        // restorationInFlight above.
+        if (restorationsInFlight == 0) {
+            returnTarget = TvReturnTarget(
+                sectionId = rowIdentity,
+                itemId = item.contentId,
+                sectionIndex = rowIndex,
+                itemIndex = itemIndex,
+            )
+            returnGeneration++
+            detailReturnPending = true
+        }
     }
 
     // Keep a small window around RESTED focus hot. A raw D-pad move cancels the
@@ -278,13 +375,17 @@ fun TvSkylineSectionFeed(
 
     var rowRelocationInFlight by remember { mutableStateOf(false) }
     val currentContentUpFallback = rememberUpdatedState<(Boolean) -> Boolean> { isRepeat ->
-        val currentRow = focusedRowIndex
+        val bandTopRow = rowBandState.firstVisibleItemIndex
+        // See tvSkylineEffectiveRow: the reported focused row can lag or be
+        // clamped; the band's top row is the ground truth it is checked against.
+        val currentRow = tvSkylineEffectiveRow(focusedRowIndex, bandTopRow, rows.size)
         when (
             tvSkylineUpAction(
-                currentRow = currentRow,
+                currentRow = focusedRowIndex,
                 rowCount = rows.size,
                 isRepeat = isRepeat,
                 relocationInFlight = rowRelocationInFlight,
+                bandTopRow = bandTopRow,
             )
         ) {
             TvSkylineUpAction.EnterMenu -> false
@@ -299,7 +400,20 @@ fun TvSkylineSectionFeed(
                 rowRelocationInFlight = true
                 rowBandScope.launch {
                     try {
-                        rowBandState.animateScrollToItem(currentRow - 1)
+                        val targetRow = (currentRow - 1).coerceAtLeast(0)
+                        rowBandState.animateScrollToItem(targetRow)
+                        // On a slow device the row's cards can take more than one
+                        // frame to lay out after the scroll settles; moving before
+                        // they exist finds nothing and strands focus. Wait for the
+                        // target row to be present (bounded), then move.
+                        var frames = 0
+                        while (
+                            frames < RelocationLayoutFrameBudget &&
+                            rowBandState.layoutInfo.visibleItemsInfo.none { it.index == targetRow }
+                        ) {
+                            withFrameNanos { }
+                            frames++
+                        }
                         withFrameNanos { }
                         focusManager.moveFocus(FocusDirection.Up)
                     } finally {
@@ -347,6 +461,49 @@ fun TvSkylineSectionFeed(
     // previously entered card.
     var initialFocusRequested by rememberSaveable { mutableStateOf(false) }
     var firstRowFocusRequest by remember { mutableIntStateOf(0) }
+    // Where the launch card is NOW. Resolved against the rows this feed
+    // actually renders — Skyline drops empty rows before layout, so a
+    // projection taken from further upstream would put these indices in a
+    // different coordinate space from the rows they address.
+    //
+    // Rows are treated as a complete snapshot: an aggregate feed response
+    // arrives whole, and a row trimmed to its item limit is capped rather than
+    // paged, so nothing further will load into it. SameSectionOnly because
+    // Home rows overlap — a title can sit in Continue Watching and Recently
+    // Added at once, and following an id across rows would jump focus to a
+    // copy the viewer never touched.
+    // The section map depends on the rows alone; the return target is re-armed
+    // on every focus move, so building the map inside the resolution remember
+    // copied every content id in the feed per keypress.
+    val returnSections = remember(rows) { rows.toTvReturnSections() }
+    val returnResolution: TvReturnResolution =
+        remember(returnSections, returnTarget, detailReturnPending) {
+            if (detailReturnPending) {
+                resolveTvReturnTarget(
+                    target = returnTarget,
+                    sections = returnSections,
+                    sectionsComplete = sectionsComplete,
+                )
+            } else {
+                TvReturnResolution.Empty
+            }
+        }
+    // Read fresh inside the retry ladders. The resolution is a plain remembered
+    // value, so a coroutine that captured it keeps working from the rows of the
+    // composition it launched in; a quiet refresh would leave it steering by a
+    // map of a feed that is no longer on screen.
+    val currentResolution by rememberUpdatedState(returnResolution)
+    val locatedReturn = returnResolution as? TvReturnResolution.Located
+
+
+    // Landing is confirmed by identity, not by coordinates. The card at a
+    // given index is not necessarily the card that was resolved, and an
+    // index-only check reports success for whatever now occupies the slot.
+    fun hasLandedOnReturnTarget(): Boolean {
+        val located = currentResolution as? TvReturnResolution.Located ?: return false
+        return focusedRowIndex == located.sectionIndex && focusedContentId == located.itemId
+    }
+
     val detailReturnRowContainerFocusRequester = remember { FocusRequester() }
     val detailReturnItemFocusRequester =
         detailReturnCardFocusRequester ?: remember { FocusRequester() }
@@ -362,27 +519,75 @@ fun TvSkylineSectionFeed(
     val lifecycleOwner = LocalLifecycleOwner.current
     val firstRowId = rows.firstOrNull()?.id
 
+    /**
+     * Walk focus back to the resolved launch card, re-reading where that is on
+     * every attempt.
+     *
+     * Steering has to be as fresh as the success check. A refresh that keeps
+     * the same first row does not restart these effects, so a ladder that
+     * captured its destination up front would keep driving toward a row the
+     * feed has since moved, while the predicate looks for the new one — it
+     * cannot succeed, and for the shell ladder the request token has already
+     * been marked applied, so nothing retries.
+     *
+     * Hops one focus-restorer scope per frame pair — row group, then card —
+     * because a request that crosses a restorer toward a descendant is
+     * cancelled and rolled back. The vertical band is scrolled whenever the
+     * resolved row changes, not once at the start, for the same reason.
+     */
+    suspend fun driveFocusToReturnTarget(generation: Int, attempts: Int, scrollBand: Boolean) {
+        var scrolledToSection = -1
+        repeat(attempts) {
+            withFrameNanos { }
+            // Someone armed a newer target; that trip owns restoration now.
+            if (generation != returnGeneration) return
+            // The real success signal is the card's own focus callback —
+            // requestFocus() can report success yet silently roll back when
+            // the request crosses a restorer scope.
+            if (hasLandedOnReturnTarget()) return
+            val located = currentResolution as? TvReturnResolution.Located ?: return
+            if (scrollBand && located.sectionIndex != scrolledToSection) {
+                val scrolled = runCatching { rowBandState.scrollToItem(located.sectionIndex) }
+                scrolled.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+                // Only remember a scroll that actually happened, or a failure
+                // would be recorded as done and never retried.
+                if (scrolled.isSuccess) scrolledToSection = located.sectionIndex
+            }
+            // Classified from the fresh index rather than a captured
+            // firstRowId: the removal ladder is not keyed on the row list, so
+            // a reorder mid-run would otherwise keep it addressing the row the
+            // target used to be in.
+            val rowRequester = if (located.sectionIndex == 0) {
+                firstRowContainerFocusRequester
+            } else {
+                detailReturnRowContainerFocusRequester
+            }
+            runCatching { rowRequester.requestFocus() }
+            withFrameNanos { }
+            runCatching { detailReturnItemFocusRequester.requestFocus() }
+        }
+    }
+
     LaunchedEffect(removalFocusRequest) {
         if (removalFocusRequest == 0 || !detailReturnPending) return@LaunchedEffect
-        val rowIndex = returnRowIndex
-        val itemIndex = returnItemIndex
-        if (rowIndex !in rows.indices || itemIndex !in rows[rowIndex].items.indices) {
+        // Pending means the answer is not knowable yet; keep the target and
+        // wait for the data rather than spending it on a stand-in.
+        if (returnResolution is TvReturnResolution.Pending) return@LaunchedEffect
+        if (locatedReturn == null) {
             detailReturnPending = false
             return@LaunchedEffect
         }
-        withFrameNanos { }
-        val rowRequester = if (rows[rowIndex].id == firstRowId) {
-            firstRowContainerFocusRequester
-        } else {
-            detailReturnRowContainerFocusRequester
-        }
-        runCatching { rowRequester.requestFocus() }
-        for (attempt in 0 until 8) {
+        val generation = returnGeneration
+        restorationsInFlight++
+        returnRestoreRequest++
+        try {
             withFrameNanos { }
-            if (focusedRowIndex == rowIndex && focusedItemIndex == itemIndex) break
-            runCatching { detailReturnItemFocusRequester.requestFocus() }
+            driveFocusToReturnTarget(generation, attempts = 8, scrollBand = false)
+        } finally {
+            restorationsInFlight--
         }
-        if (focusedRowIndex == rowIndex && focusedItemIndex == itemIndex) {
+        // Only the trip that owns the target may retire it.
+        if (generation == returnGeneration && hasLandedOnReturnTarget()) {
             detailReturnPending = false
         }
     }
@@ -406,30 +611,15 @@ fun TvSkylineSectionFeed(
     // click that sets pending while this feed is still composed and focused.
     LaunchedEffect(firstRowId) {
         if (!detailReturnPending || firstRowId == null) return@LaunchedEffect
-        val rowIndex = returnRowIndex
-        val itemIndex = returnItemIndex
-        if (rowIndex !in rows.indices || itemIndex !in rows[rowIndex].items.indices) {
-            return@LaunchedEffect
-        }
-        runCatching { rowBandState.scrollToItem(rowIndex) }
-        val rowRequester = if (rows[rowIndex].id == firstRowId) {
-            firstRowContainerFocusRequester
-        } else {
-            detailReturnRowContainerFocusRequester
-        }
-        for (attempt in 0 until 40) {
-            withFrameNanos { }
-            // The real success signal is the card's own focus callback —
-            // requestFocus() can report success yet silently roll back when
-            // the request crosses a restorer scope.
-            if (focusedRowIndex == rowIndex && focusedItemIndex == itemIndex) break
-            // Hop one restorer scope per frame pair: row group, then card —
-            // once default focus is anywhere inside the content group these
-            // are honored, and the row restorer's enter fallback is the
-            // launch card itself, so the hop lands directly on it.
-            runCatching { rowRequester.requestFocus() }
-            withFrameNanos { }
-            runCatching { detailReturnItemFocusRequester.requestFocus() }
+        if (returnResolution is TvReturnResolution.Pending) return@LaunchedEffect
+        if (locatedReturn == null) return@LaunchedEffect
+        val generation = returnGeneration
+        restorationsInFlight++
+        returnRestoreRequest++
+        try {
+            driveFocusToReturnTarget(generation, attempts = 40, scrollBand = true)
+        } finally {
+            restorationsInFlight--
         }
     }
 
@@ -447,35 +637,30 @@ fun TvSkylineSectionFeed(
             // loading so the firstRowId key re-runs it once data lands.
             if (detailReturnFocusRequest == lastAppliedDetailReturnRequest) return@LaunchedEffect
             if (!detailReturnPending) return@LaunchedEffect
-            val rowIndex = returnRowIndex
-            val itemIndex = returnItemIndex
-            if (rowIndex !in rows.indices || itemIndex !in rows[rowIndex].items.indices) {
+            // Skip WITHOUT consuming the request while the answer is still
+            // unknowable, so the firstRowId key re-runs this once data lands.
+            if (returnResolution is TvReturnResolution.Pending) return@LaunchedEffect
+            if (locatedReturn == null) {
                 detailReturnPending = false
                 return@LaunchedEffect
             }
             lastAppliedDetailReturnRequest = detailReturnFocusRequest
-            if (focusedRowIndex == rowIndex && focusedItemIndex == itemIndex) {
+            if (hasLandedOnReturnTarget()) {
                 // The early recreation-time ladder already landed the launch
                 // card; re-running the hops would only jiggle focus.
                 detailReturnPending = false
                 return@LaunchedEffect
             }
-            runCatching { rowBandState.scrollToItem(rowIndex) }
-            withFrameNanos { }
-            val rowRequester = if (rows[rowIndex].id == firstRowId) {
-                firstRowContainerFocusRequester
-            } else {
-                detailReturnRowContainerFocusRequester
-            }
-            runCatching { rowRequester.requestFocus() }
-            // The card requester attaches once the row's restored LazyRow
-            // window composes the launch card; retry across a few frames.
-            for (attempt in 0 until 8) {
+            val generation = returnGeneration
+            restorationsInFlight++
+            returnRestoreRequest++
+            try {
                 withFrameNanos { }
-                runCatching { detailReturnItemFocusRequester.requestFocus() }
-                if (focusedRowIndex == rowIndex && focusedItemIndex == itemIndex) break
+                driveFocusToReturnTarget(generation, attempts = 8, scrollBand = true)
+            } finally {
+                restorationsInFlight--
             }
-            if (focusedRowIndex == rowIndex && focusedItemIndex == itemIndex) {
+            if (generation == returnGeneration && hasLandedOnReturnTarget()) {
                 detailReturnPending = false
             }
             return@LaunchedEffect
@@ -601,14 +786,19 @@ fun TvSkylineSectionFeed(
                     ) { rowIndex, section ->
                         val isFirstRow = section.id == firstRowId
                         val showProgress = showProgressForSection(section)
-                        val isReturnRow = detailReturnPending && rowIndex == returnRowIndex
+                        val isReturnRow = locatedReturn?.sectionIndex == rowIndex
                         TvMediaRow(
                             title = section.title,
                             items = section.items,
                             onItemClick = { contentId ->
-                                returnRowIndex = rowIndex
-                                returnItemIndex =
-                                    section.items.indexOfFirst { it.contentId == contentId }
+                                returnTarget = TvReturnTarget(
+                                    sectionId = section.id,
+                                    itemId = contentId,
+                                    sectionIndex = rowIndex,
+                                    itemIndex = section.items
+                                        .indexOfFirst { it.contentId == contentId },
+                                )
+                                returnGeneration++
                                 detailReturnPending = true
                                 onItemClick(contentId)
                             },
@@ -630,7 +820,17 @@ fun TvSkylineSectionFeed(
                                 else -> null
                             },
                             firstItemFocusRequest = if (isFirstRow) firstRowFocusRequest else 0,
-                            restoreFocusIndex = if (isReturnRow) returnItemIndex else -1,
+                            restoreFocusIndex = if (isReturnRow) {
+                                locatedReturn?.itemIndex ?: -1
+                            } else {
+                                -1
+                            },
+                            // Bumped when a ladder starts, so the row scrolls
+                            // its own LazyRow to the resolved card. A card that
+                            // moved horizontally can otherwise sit outside the
+                            // composed window, leaving the requester unattached
+                            // and every retry doomed.
+                            restoreFocusRequest = if (isReturnRow) returnRestoreRequest else 0,
                             restoreFocusRequester = detailReturnItemFocusRequester
                                 .takeIf { isReturnRow },
                             onItemFocusedAtIndex = { item, itemIndex ->
@@ -708,3 +908,6 @@ private val TvSkylineBringIntoViewSpec: BringIntoViewSpec = object : BringIntoVi
         }
     }
 }
+
+/** Frames to wait for a relocated row to lay out before moving focus into it. */
+private const val RelocationLayoutFrameBudget = 12

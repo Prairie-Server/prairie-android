@@ -137,7 +137,7 @@ android {
         // Gate for preferring FFmpeg audio decoders over platform decoders.
         // The AAR is always on the classpath (see dependencies above); this
         // flag only controls whether DefaultRenderersFactory is set to
-        // EXTENSION_RENDERER_MODE_PREFER (true) or _MODE_OFF (false).
+        // EXTENSION_RENDERER_MODE_ON (true) or _MODE_OFF (false).
         // Flip to false at compile time to bisect regressions — with _MODE_OFF
         // FFmpeg renderers are not even instantiated, so any FFmpeg-related
         // bug can't manifest regardless of classpath presence.
@@ -159,6 +159,23 @@ android {
             // so tests can exercise code paths that touch them without requiring Robolectric.
             isReturnDefaultValues = true
         }
+    }
+
+    // Lint had never run on this project. The two crashes it would have caught
+    // — a Spatializer call gated at API 31 when the class arrives at 32, and a
+    // getAddress() call with no guard at all — both shipped from this module,
+    // which app-level lint does not analyse unless asked. Hence the gate here
+    // and checkDependencies in the apps.
+    //
+    // The baseline holds today's known findings (overwhelmingly desugared
+    // java.* calls and deliberate media3 @UnstableApi usage) so that only NEW
+    // violations fail. Delete it and regenerate deliberately; do not add to it
+    // to make a build pass.
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        fatal += setOf("NewApi", "InlinedApi")
+        checkReleaseBuilds = true
     }
 }
 

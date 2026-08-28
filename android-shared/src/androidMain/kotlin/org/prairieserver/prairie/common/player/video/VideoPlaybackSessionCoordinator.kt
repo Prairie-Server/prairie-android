@@ -42,10 +42,13 @@ class VideoPlaybackSessionCoordinator(
                     showForcedSubtitles = result.showForcedSubtitles,
                     intro = result.intro,
                     credits = result.credits,
+                    recap = result.recap,
+                    preview = result.preview,
                     chapters = result.chapters,
                     seriesId = result.seriesId,
                     seasonNumber = result.seasonNumber,
                     episodeNumber = result.episodeNumber,
+                    resolvedEpisodeSelection = result.resolvedEpisodeSelection,
                 )
             }
             is VideoPlaybackStartResult.Error -> {

@@ -15,16 +15,21 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -55,15 +60,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
 import org.prairieserver.prairie.common.pairing.CompanionPairingApproval
 import org.prairieserver.prairie.common.pairing.CompanionPairingServer
 import org.prairieserver.prairie.common.pairing.CompanionPairingStatus
 import org.prairieserver.prairie.common.pairing.CompanionPairingTarget
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Refresh
 
 /** Bottom-anchored companion setup card matching the iOS presentation. */
 @Composable
@@ -150,10 +151,20 @@ private fun PairingCard(
     onDecline: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val bottomInset = maxOf(
+        LocalBottomChromeInset.current,
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+    )
+
     Card(
         modifier = Modifier
-            .navigationBarsPadding()
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal))
+            .padding(
+                start = 10.dp,
+                top = 8.dp,
+                end = 10.dp,
+                bottom = bottomInset + 8.dp,
+            )
             .widthIn(max = 640.dp)
             .fillMaxWidth()
             .animateContentSize()
@@ -287,21 +298,9 @@ private fun ServerPicker(
                 .height(48.dp)
                 .padding(top = 6.dp),
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Text("Continue", style = MaterialTheme.typography.titleMedium)
         }
         TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Text("Cancel")
         }
     }
@@ -335,12 +334,6 @@ private fun DiscoveryStep(
         )
         PrimaryAction(label = "Set Up", onClick = onPair, modifier = Modifier.padding(top = 14.dp))
         TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Text("Not Now")
         }
     }
@@ -379,12 +372,6 @@ private fun MatchConfirmation(
             modifier = Modifier.padding(top = 14.dp),
         )
         TextButton(onClick = onDecline, modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Text("Doesn't match")
         }
     }
@@ -424,12 +411,6 @@ private fun ProgressStep(status: CompanionPairingStatus, onCancel: () -> Unit) {
             strokeWidth = 3.dp,
         )
         TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Text("Cancel")
         }
     }
@@ -465,12 +446,6 @@ private fun TerminalStep(
         PrimaryAction(label = primaryLabel, onClick = onPrimary, modifier = Modifier.padding(top = 8.dp))
         onSecondary?.let { secondary ->
             TextButton(onClick = secondary, modifier = Modifier.fillMaxWidth()) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
                 Text("Close")
             }
         }
@@ -483,26 +458,12 @@ private fun PrimaryAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val icon = when {
-        label.equals("Continue", ignoreCase = true) || label.equals("Approve", ignoreCase = true) ->
-            Icons.AutoMirrored.Filled.ArrowForward
-        label.equals("Try Again", ignoreCase = true) || label.equals("Retry", ignoreCase = true) ->
-            Icons.Default.Refresh
-        label.startsWith("Set Up", ignoreCase = true) -> Icons.Default.Link
-        else -> Icons.Default.Check
-    }
     Button(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
         Text(label, style = MaterialTheme.typography.titleMedium)
     }
 }

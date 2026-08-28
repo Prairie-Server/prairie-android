@@ -36,6 +36,7 @@ import org.prairieserver.prairie.android.ui.screens.auth.AuthColors
 import org.prairieserver.prairie.android.ui.screens.auth.AuthErrorBanner
 import org.prairieserver.prairie.android.ui.screens.auth.PrairieButton
 import org.prairieserver.prairie.android.ui.screens.auth.PrairieTextField
+import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 import org.prairieserver.prairie.model.profile.displayProfileQualityPreference
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -115,7 +116,7 @@ fun EditProfileScreen(
                 SectionHeader("Avatar")
 
                 ProfileAvatar(
-                    avatar = state.selectedAvatar,
+                    avatar = ProfileAvatarRef(state.selectedAvatar, state.selectedAvatarUrl),
                     name = state.name.ifBlank { "?" },
                     size = 80.dp,
                     modifier = Modifier.align(Alignment.CenterHorizontally),

@@ -39,6 +39,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.tv.ui.components.rememberTvDialogInitialFocus
+import org.prairieserver.prairie.tv.ui.focus.TvControlState
+import org.prairieserver.prairie.tv.ui.focus.tvControlSemantics
 import org.prairieserver.prairie.tv.ui.screens.player.TvDialogActionRow
 import org.prairieserver.prairie.tv.ui.theme.DarkBackground
 import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
@@ -150,7 +152,10 @@ fun TvJoinCodeDialog(
                         rowKeys.forEachIndexed { colIndex, ch ->
                             JoinCodeKey(
                                 char = ch,
-                                enabled = !isBusy,
+                                // Joining is in flight, not a dead end — the
+                                // grid keeps its focus so the ring survives a
+                                // failed join.
+                                controlState = TvControlState.transient(!isBusy),
                                 onClick = { state = state.append(ch) },
                                 modifier = if (rowIndex == 0 && colIndex == 0) {
                                     Modifier
@@ -198,20 +203,29 @@ fun TvJoinCodeDialog(
 @Composable
 private fun JoinCodeKey(
     char: Char,
-    enabled: Boolean,
+    controlState: TvControlState,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val shape = RoundedCornerShape(12.dp)
+    val enabled = controlState.actionable
 
     Surface(
-        onClick = { if (enabled) onClick() },
+        onClick = { controlState.perform(onClick) },
+        enabled = controlState.focusable,
         interactionSource = interactionSource,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
+        // Dimmed from `actionable`, not from the Surface's disabled slots: the
+        // key stays focusable while a join is in flight, so it never enters the
+        // disabled colour path.
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.06f),
+            containerColor = if (enabled) {
+                Color.White.copy(alpha = 0.06f)
+            } else {
+                Color.White.copy(alpha = 0.03f)
+            },
             contentColor = if (enabled) Color.White else Color.White.copy(alpha = 0.42f),
             focusedContainerColor = FocusedContainer,
             focusedContentColor = FocusedContent,
@@ -241,7 +255,8 @@ private fun JoinCodeKey(
                 } else {
                     Modifier
                 },
-            ),
+            )
+            .tvControlSemantics(controlState),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),

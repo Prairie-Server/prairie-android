@@ -5,18 +5,15 @@ import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
-import org.prairieserver.prairie.model.admin.shouldShowClientAdminSurface
-import org.prairieserver.prairie.model.auth.AuthSession
 import org.prairieserver.prairie.model.auth.User
-import org.prairieserver.prairie.model.auth.isActingAdmin
 import org.prairieserver.prairie.model.download.DownloadQuality
 import org.prairieserver.prairie.model.notifications.NotificationPreferencesUpdate
 import org.prairieserver.prairie.model.settings.QualityPresets
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.NotificationsRepository
-import org.prairieserver.prairie.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,12 +43,7 @@ data class SettingsUiState(
     val user: User? = null,
     val serverUrl: String = "",
     val isLoadingUser: Boolean = false,
-    val sessions: List<AuthSession> = emptyList(),
-    val isLoadingSessions: Boolean = false,
-    val showSessions: Boolean = false,
     val loggedOut: Boolean = false,
-    // Client admin is hidden for now even when the server would accept acting-admin.
-    val isAdminVisible: Boolean = false,
 
     // Whether this server serves the canonical settings API. When it reports
     // SERVER_UPGRADE_REQUIRED the screen explains that instead of rendering
@@ -71,7 +63,7 @@ data class SettingsUiState(
     // BCP 47 tag, "" = no preference. The picker converts to and from labels.
     val audioLanguage: String = "",
     val audioLanguageSuggestions: List<String> = emptyList(),
-    val autoSkipIntro: Boolean = false,
+    val introSkipMode: IntroSkipMode = IntroSkipMode.Default,
     val autoSkipCredits: Boolean = false,
     val pictureInPictureEnabled: Boolean = true,
     val dolbyVisionEnabled: Boolean = true,
@@ -118,7 +110,6 @@ data class SettingsUiState(
 class SettingsViewModel(
     private val authRepository: AuthRepository,
     private val playerSettingsStore: PlayerSettingsStore,
-    private val profileRepository: ProfileRepository,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
     private val overlayPrefsStore: OverlayPrefsStore,
     private val notificationsRepository: NotificationsRepository,
@@ -152,27 +143,9 @@ class SettingsViewModel(
 
             playerSettingsStore.refreshFromServer()
 
-            // The profile still supplies identity (name, role) for the admin
-            // gate; its preference columns no longer feed this screen — those
-            // are resolved canonically below.
-            when (val profileResult = profileRepository.getActiveProfileResult()) {
-                is ApiResult.Success -> {
-                    val profile = profileResult.data
-                    _uiState.update {
-                        it.copy(
-                            isAdminVisible = shouldShowClientAdminSurface(isActingAdmin(it.user, profile)),
-                        )
-                    }
-                }
-                is ApiResult.Error, is ApiResult.NetworkError -> {
-                    // Active profile unresolved — fall back to the user role
-                    // only (a null profile does not block an admin per the gate).
-                    _uiState.update {
-                        it.copy(isAdminVisible = shouldShowClientAdminSurface(isActingAdmin(it.user, null)))
-                    }
-                }
-            }
-
+            // The active profile is no longer resolved here. It existed only to
+            // decide the admin gate, which this screen no longer has; the
+            // profile-scoped *preferences* are resolved canonically below.
             loadProfileSettings()
         }
     }
@@ -211,7 +184,7 @@ class SettingsViewModel(
         val quality: String,
         val maxBitrateKbps: Int?,
         val audioLanguage: String,
-        val autoSkipIntro: Boolean,
+        val introSkipMode: IntroSkipMode,
         val autoSkipCredits: Boolean,
     )
 
@@ -220,7 +193,7 @@ class SettingsViewModel(
             playerSettingsStore.preferredQualityFlow,
             playerSettingsStore.maxBitrateKbpsFlow,
             playerSettingsStore.audioLanguageFlow,
-            playerSettingsStore.autoSkipIntroFlow,
+            playerSettingsStore.introSkipModeFlow,
             playerSettingsStore.autoSkipCreditsFlow,
             ::PlayerSettingsSnapshot,
         ).onEach { snap ->
@@ -229,7 +202,7 @@ class SettingsViewModel(
                     qualityResolution = snap.quality,
                     maxBitrateKbps = snap.maxBitrateKbps,
                     audioLanguage = snap.audioLanguage,
-                    autoSkipIntro = snap.autoSkipIntro,
+                    introSkipMode = snap.introSkipMode,
                     autoSkipCredits = snap.autoSkipCredits,
                 )
             }
@@ -375,39 +348,6 @@ class SettingsViewModel(
         viewModelScope.launch { notificationsRepository.updatePreferences(update) }
     }
 
-    fun loadSessions() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingSessions = true, showSessions = true) }
-            when (val result = authRepository.getSessions()) {
-                is ApiResult.Success -> {
-                    _uiState.update {
-                        it.copy(sessions = result.data, isLoadingSessions = false)
-                    }
-                }
-                is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update { it.copy(isLoadingSessions = false) }
-                }
-            }
-        }
-    }
-
-    fun hideSessions() {
-        _uiState.update { it.copy(showSessions = false) }
-    }
-
-    fun revokeSession(id: String) {
-        viewModelScope.launch {
-            when (authRepository.deleteSession(id)) {
-                is ApiResult.Success -> {
-                    _uiState.update { state ->
-                        state.copy(sessions = state.sessions.filter { it.id != id })
-                    }
-                }
-                is ApiResult.Error, is ApiResult.NetworkError -> Unit
-            }
-        }
-    }
-
     fun logout() {
         viewModelScope.launch {
             // Push any in-flight settings before tearing down the session.
@@ -445,8 +385,8 @@ class SettingsViewModel(
         }
     }
 
-    fun setAutoSkipIntro(enabled: Boolean) {
-        viewModelScope.launch { playerSettingsStore.setAutoSkipIntro(enabled) }
+    fun setIntroSkipMode(mode: IntroSkipMode) {
+        viewModelScope.launch { playerSettingsStore.setIntroSkipMode(mode) }
     }
 
     fun setAutoSkipCredits(enabled: Boolean) {

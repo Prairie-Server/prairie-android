@@ -759,7 +759,7 @@ Pass:
 onWatchTogetherClick = watchTogetherMenuAction,
 ```
 
-Render beside the existing library and SiloCast sheets:
+Render beside the existing library and PrairieCast sheets:
 
 ```kotlin
 if (showWatchTogetherEntry) {

@@ -22,15 +22,186 @@ class TvPlaybackFormattingTest {
         assertFalse(isAudioSelectorOptionSelected(0, 1))
     }
 
-    @Test fun singleChoiceSelectorIsStatic() {
+    @Test fun selectorNeedsMoreThanOneRealChoice() {
         assertFalse(selectorIsInteractive(0))
         assertFalse(selectorIsInteractive(1))
         assertTrue(selectorIsInteractive(2))
     }
 
+    /**
+     * The rule counts REAL choices, so the pseudo-entries the menus prepend do
+     * not make a single-track file interactive. A lone subtitle track assembles
+     * three menu rows (Auto · Off · the track) but is still one choice, and the
+     * old enabled-row count read that as a dropdown worth opening — the bug this
+     * replaced. Apple applies the same `shouldEnableSubtitleSelector` rule.
+     */
+    @Test fun pseudoEntriesDoNotMakeASingleTrackInteractive() {
+        val subtitleTracksOnAOneTrackFile = 1
+
+        assertFalse(selectorIsInteractive(subtitleTracksOnAOneTrackFile))
+    }
+
     @Test fun automaticNoTrackCopyMatchesTvOs() {
         assertEquals("Auto - None", automaticTrackLabel(null))
         assertEquals("Auto - English", automaticTrackLabel("English"))
+    }
+
+    // --- catalog audio, keyed by ordinal ---
+
+    /**
+     * Audio is addressed by ORDINAL. The server sends no `index` for audio
+     * tracks (subtitles get one), so [AudioTrack.index] is its `0` default on
+     * every row: keying on it collapsed both tracks of a two-track file onto
+     * the first, and the picker rendered the Dutch track with the English label.
+     */
+    @Test fun audioSummaryForOrdinal_distinguishesTracksThatShareTheDefaultIndex() {
+        val version = fileVersion(
+            audio = listOf(
+                AudioTrack(language = "eng", codec = "dts", channels = 6),
+                AudioTrack(language = "nld", codec = "aac", channels = 2),
+            ),
+        )
+        assertEquals(0, version.audioTracks!![0].index, "the wire carries no audio index")
+        assertEquals(0, version.audioTracks!![1].index)
+
+        val first = TvPlaybackFormatting.audioSummaryForOrdinal(version, 0)
+        val second = TvPlaybackFormatting.audioSummaryForOrdinal(version, 1)
+
+        assertTrue(first != null && first.contains("English"), "got $first")
+        assertTrue(second != null && second.contains("Dutch"), "got $second")
+        assertTrue(first != second, "identical indices must not collapse the rows")
+    }
+
+    @Test fun audioSummaryForOrdinal_nullWhenUnresolvable() {
+        val version = fileVersion(audio = listOf(AudioTrack(language = "eng")))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(version, null))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(version, 1))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(null, 0))
+        assertEquals(null, TvPlaybackFormatting.audioSummaryForOrdinal(fileVersion(), 0))
+    }
+
+    @Test fun effectiveAudioOrdinal_prefersPlanThenServerEffectiveThenDefault() {
+        val tracks = listOf(
+            AudioTrack(language = "eng"),
+            AudioTrack(language = "nld", isDefault = true),
+        )
+
+        assertEquals(0, TvPlaybackFormatting.effectiveAudioOrdinal(tracks, planOrdinal = 0))
+        // Out of range must not be echoed back.
+        assertEquals(1, TvPlaybackFormatting.effectiveAudioOrdinal(tracks, planOrdinal = 9))
+        assertEquals(
+            0,
+            TvPlaybackFormatting.effectiveAudioOrdinal(
+                tracks,
+                planOrdinal = null,
+                version = fileVersion(audio = tracks, effectiveAudioIndex = 0),
+            ),
+            "the server's effective ordinal outranks the default flag",
+        )
+        assertEquals(1, TvPlaybackFormatting.effectiveAudioOrdinal(tracks, planOrdinal = null))
+        assertEquals(null, TvPlaybackFormatting.effectiveAudioOrdinal(emptyList(), 0))
+    }
+
+    /** Title is often all that separates two otherwise identical mixes. */
+    @Test fun audioChoiceLabelForOrdinal_keepsTitleAndDefault() {
+        val tracks = listOf(
+            AudioTrack(language = "eng", codec = "aac", channels = 2, title = "Main", isDefault = true),
+            AudioTrack(language = "eng", codec = "aac", channels = 2, title = "Director Commentary"),
+        )
+
+        val main = TvPlaybackFormatting.audioChoiceLabelForOrdinal(tracks, 0)
+        val commentary = TvPlaybackFormatting.audioChoiceLabelForOrdinal(tracks, 1)
+
+        assertTrue(main != commentary, "identical summaries must stay distinguishable: $main / $commentary")
+        assertTrue(commentary!!.contains("Director Commentary"), "got $commentary")
+        assertTrue(main!!.contains("Default"), "got $main")
+        assertEquals(null, TvPlaybackFormatting.audioChoiceLabelForOrdinal(tracks, 2))
+    }
+
+    // --- versionPickerLabels ---
+
+    @Test fun versionPickerLabels_leaveDistinctLabelsAlone() {
+        val versions = listOf(
+            fileVersion(fileId = 1, resolution = "1080p"),
+            fileVersion(fileId = 2, resolution = "2160p", hdr = true),
+        )
+        assertEquals(listOf("1080P", "4K · HDR"), TvPlaybackFormatting.versionPickerLabels(versions))
+    }
+
+    @Test fun versionPickerLabels_carryCodecsLikeTvOs() {
+        // Two files that differ only by codec are told apart by the base label
+        // itself (resolution · video codec · DR · audio codec, as on tvOS).
+        val versions = listOf(
+            fileVersion(fileId = 1, resolution = "2160p", codecVideo = "hevc", codecAudio = "truehd", hdr = true),
+            fileVersion(fileId = 2, resolution = "2160p", codecVideo = "av1", codecAudio = "eac3", hdr = true),
+        )
+        assertEquals(
+            listOf("4K · HEVC · HDR · TrueHD", "4K · AV1 · HDR · EAC3"),
+            TvPlaybackFormatting.versionPickerLabels(versions),
+        )
+    }
+
+    @Test fun versionPickerLabels_disambiguateCollidingLabelsBySize() {
+        // The device case: one title, two 4K DV files, two identical rows.
+        val dv = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 7"))
+        val versions = listOf(
+            fileVersion(fileId = 1, resolution = "1080p"),
+            fileVersion(fileId = 2, resolution = "2160p", hdr = true, video = dv, fileSize = 62_000_000_000),
+            fileVersion(fileId = 3, resolution = "2160p", hdr = true, video = dv, fileSize = 18_000_000_000),
+        )
+
+        val labels = TvPlaybackFormatting.versionPickerLabels(versions)
+
+        assertEquals("1080P", labels[0])
+        assertEquals(labels.distinct().size, labels.size, "colliding rows must be distinguishable")
+        assertTrue(labels[1].startsWith("4K · HEVC · DV · "), "got ${labels[1]}")
+        assertTrue(labels[2].startsWith("4K · HEVC · DV · "), "got ${labels[2]}")
+    }
+
+    @Test fun versionPickerLabels_fallBackToContainerWhenSizesMatch() {
+        val dv = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 7"))
+        val versions = listOf(
+            fileVersion(fileId = 1, resolution = "2160p", hdr = true, video = dv, container = "mkv", fileSize = 42),
+            fileVersion(fileId = 2, resolution = "2160p", hdr = true, video = dv, container = "mp4", fileSize = 42),
+        )
+
+        val labels = TvPlaybackFormatting.versionPickerLabels(versions)
+
+        assertEquals(labels.distinct().size, labels.size)
+        assertTrue(labels.any { it.endsWith("MP4") }, "got $labels")
+    }
+
+    /**
+     * Every codec and every size is shared here — the codec pairs collide on
+     * the base label and the sizes collide within each pair — so the size
+     * suffix must be applied per colliding group rather than given up on.
+     */
+    @Test fun versionPickerLabels_widenUntilTheGroupIsActuallySeparated() {
+        val dv = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 7"))
+        fun v(id: Int, codec: String, size: Long) =
+            fileVersion(fileId = id, resolution = "2160p", hdr = true, video = dv, codecVideo = codec, fileSize = size)
+        val versions = listOf(
+            v(1, "hevc", 20_000_000_000),
+            v(2, "av1", 20_000_000_000),
+            v(3, "hevc", 40_000_000_000),
+            v(4, "av1", 40_000_000_000),
+        )
+
+        val labels = TvPlaybackFormatting.versionPickerLabels(versions)
+
+        assertEquals(4, labels.distinct().size, "every version must be distinguishable; got $labels")
+        assertTrue(labels.all { it.startsWith("4K · HEVC · DV · ") || it.startsWith("4K · AV1 · DV · ") }, "got $labels")
+    }
+
+    @Test fun versionPickerLabels_indistinguishableVersionsStayEqual() {
+        // Nothing to say them apart with: better a duplicate label than a
+        // fabricated difference. Selection still works on fileId.
+        val dv = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 7"))
+        val versions = listOf(
+            fileVersion(fileId = 1, resolution = "2160p", hdr = true, video = dv),
+            fileVersion(fileId = 2, resolution = "2160p", hdr = true, video = dv),
+        )
+        assertEquals(listOf("4K · HEVC · DV", "4K · HEVC · DV"), TvPlaybackFormatting.versionPickerLabels(versions))
     }
 
     // --- versionShortLabel ---
@@ -46,7 +217,27 @@ class TvPlaybackFormattingTest {
             hdr = true,
             video = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 7")),
         )
-        assertEquals("4K · DV", TvPlaybackFormatting.versionShortLabel(v))
+        assertEquals("4K · HEVC · DV", TvPlaybackFormatting.versionShortLabel(v))
+    }
+
+    @Test fun versionShortLabel_includesAudioCodecLikeTvOs() {
+        val v = fileVersion(
+            resolution = "2160p",
+            codecVideo = "hevc",
+            hdr = true,
+            video = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 8")),
+            audio = listOf(
+                audioTrack(codec = "aac", channels = 2),
+                audioTrack(codec = "truehd", layout = "7.1", default = true),
+            ),
+        )
+        // Audio codec is the Auto-resolved (default) track's, not the first.
+        assertEquals("4K · HEVC · DV · TrueHD", TvPlaybackFormatting.versionShortLabel(v))
+    }
+
+    @Test fun versionShortLabel_fallsBackToVersionAudioCodec() {
+        val v = fileVersion(resolution = "1080p", codecVideo = "h264", codecAudio = "eac3")
+        assertEquals("1080P · H.264 · EAC3", TvPlaybackFormatting.versionShortLabel(v))
     }
 
     @Test fun versionShortLabel_1080() {
@@ -382,6 +573,11 @@ class TvPlaybackFormattingTest {
     @Test fun subtitleValueLabel_hearingImpairedBadge() {
         val v = fileVersion(subtitles = listOf(subtitleTrack(index = 1, lang = "eng", title = "English SDH")))
         assertEquals("English (SDH)", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
+    }
+
+    @Test fun subtitleValueLabel_hindiCodeDoesNotAddHearingImpairedBadge() {
+        val v = fileVersion(subtitles = listOf(subtitleTrack(index = 1, lang = "eng", title = "EN - HI")))
+        assertEquals("English", TvPlaybackFormatting.subtitleValueLabel(v, selectedSubtitleTrackIndex = 0))
     }
 
     @Test fun subtitleOptions_useCombinedSpaceNotStreamIndex() {

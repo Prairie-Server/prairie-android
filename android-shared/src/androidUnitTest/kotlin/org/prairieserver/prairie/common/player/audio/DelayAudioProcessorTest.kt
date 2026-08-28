@@ -59,14 +59,58 @@ class DelayAudioProcessorTest {
         p.configure(makeStereo16Pcm44k())
         p.flush(StreamMetadata.DEFAULT)
         val input = inputBytes(4_000)
+
+        // The head is paid off first, on its own. The input is deliberately
+        // NOT consumed on this pass, so it is offered again.
         p.queueInput(input)
-        val out = p.output
-        // Expect 1764 silence bytes + 4000 input bytes
-        assertEquals(5_764, out.remaining())
-        // First 1764 bytes should be zero
-        repeat(1_764) {
-            assertEquals(0.toByte(), out.get())
+        val silence = p.output
+        assertEquals(1_764, silence.remaining())
+        repeat(1_764) { assertEquals(0.toByte(), silence.get()) }
+        assertEquals(4_000, input.remaining())
+
+        // Then the audio, unbroken.
+        p.queueInput(input)
+        assertEquals(4_000, p.output.remaining())
+    }
+
+    /**
+     * The real streaming shape, which the single-large-buffer test above cannot
+     * express: a delay spanning MANY decoder buffers.
+     *
+     * The processor used to emit silence and audio on every pass until the head
+     * was consumed, so a delay longer than one buffer came out as
+     * silence, audio, silence, audio... — audible as chopped, half-rate sound
+     * for the length of the offset. Silence must come out in one unbroken run.
+     */
+    @Test
+    fun `a delay longer than one buffer does not interleave audio`() {
+        val p = DelayAudioProcessor()
+        p.setDelayMs(100) // 17_640 bytes — far more than one buffer
+        p.configure(makeStereo16Pcm44k())
+        p.flush(StreamMetadata.DEFAULT)
+
+        var silenceEmitted = 0
+        var passes = 0
+        while (silenceEmitted < 17_640 && passes < 200) {
+            passes++
+            val chunk = inputBytes(512)
+            p.queueInput(chunk)
+            val out = p.output
+            val len = out.remaining()
+            if (len == 0) continue
+            // Every byte before the head is paid off must be silence. A single
+            // non-zero byte here is the interleaving bug.
+            repeat(len) { assertEquals(0.toByte(), out.get()) }
+            silenceEmitted += len
+            // Audio is held back while the head is outstanding.
+            assertEquals(512, chunk.remaining())
         }
+        assertEquals(17_640, silenceEmitted)
+
+        // Head paid: audio now flows.
+        val audio = inputBytes(512)
+        p.queueInput(audio)
+        assertEquals(512, p.output.remaining())
     }
 
     @Test

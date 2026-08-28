@@ -69,8 +69,9 @@ class MediaAuthSession(
             return MediaAuthSnapshot(null, null, null, tokenManager.getCurrentServerId(), "")
         }
         val accessToken = tokenManager.getAccessToken()
-        val profileId = tokenManager.getProfileId()
-        val profileToken = tokenManager.getProfileToken()
+        val profileIdentity = tokenManager.getProfileIdentity()
+        val profileId = profileIdentity.profileId
+        val profileToken = profileIdentity.profileToken
         val serverIdAfter = tokenManager.getCurrentServerId()
         val serverUrlAfter = tokenManager.getServerUrl()
 

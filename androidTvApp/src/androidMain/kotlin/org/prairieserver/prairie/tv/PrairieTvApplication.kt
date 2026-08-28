@@ -79,13 +79,13 @@ class PrairieTvApplication : Application(), Configuration.Provider, SingletonIma
         // for cold start.
         runCatching {
             org.prairieserver.prairie.common.downloads.installOrphanedServerDataPurge(
-                context = this@SiloTvApplication,
+                context = this@PrairieTvApplication,
                 registry = koinApp.koin.get(),
                 database = koinApp.koin.get(),
                 storage = koinApp.koin.get(),
             )
         }.onFailure {
-            android.util.Log.w("SiloTvApplication", "Orphaned server purge init failed", it)
+            android.util.Log.w("PrairieTvApplication", "Orphaned server purge init failed", it)
         }
         // One-time migration: drain the legacy .record.json download sidecar tree
         // into Room so pre-cutover downloads keep their metadata. Guarded — runs

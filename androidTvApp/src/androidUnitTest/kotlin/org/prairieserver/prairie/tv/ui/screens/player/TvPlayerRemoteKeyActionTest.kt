@@ -62,12 +62,25 @@ class TvPlayerRemoteKeyActionTest {
     }
 
     @Test
-    fun downMovesFocusToTransportAndMenuAndSettingsOpenHudFromIdleOverlay() {
-        // tvOS parity (QA 2026-07-08): with nothing on screen, Down opens the
-        // hover menu (HUD); with a focus-owning overlay up it still routes
-        // focus into the transport.
+    fun `down opens the playback hud from clean playback`() {
         assertEquals(
-            TvPlayerRemoteKeyAction.OpenHud,
+            TvPlayerRemoteKeyAction.OpenPlaybackHud,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 0,
+                dpadDownOpensHud = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `down still reaches the transport once the overlay is up`() {
+        // With chrome visible Down is the press that moves focus into the
+        // button row under the scrubber; taking it for the HUD would strand
+        // the transport.
+        assertEquals(
+            TvPlayerRemoteKeyAction.FocusTransport,
             tvPlayerRemoteKeyAction(
                 keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
                 action = KeyEvent.ACTION_DOWN,
@@ -76,16 +89,19 @@ class TvPlayerRemoteKeyActionTest {
         )
         assertEquals(
             TvPlayerRemoteKeyAction.FocusTransport,
-            tvPlayerRemoteKeyAction(
+            tvPlayerIdleOverlayRemoteKeyAction(
                 keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
                 action = KeyEvent.ACTION_DOWN,
                 repeatCount = 0,
-                dpadHorizontalSeek = false,
             ),
         )
+    }
+
+    @Test
+    fun `menu and settings keys open the settings hud`() {
         listOf(KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS).forEach { keyCode ->
             assertEquals(
-                TvPlayerRemoteKeyAction.OpenHud,
+                TvPlayerRemoteKeyAction.OpenSettingsHud,
                 tvPlayerRemoteKeyAction(
                     keyCode = keyCode,
                     action = KeyEvent.ACTION_UP,
@@ -93,6 +109,29 @@ class TvPlayerRemoteKeyActionTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun `repeated down is consumed without refocusing transport`() {
+        assertEquals(
+            TvPlayerRemoteKeyAction.ConsumeOnly,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 1,
+            ),
+        )
+        // Auto-repeat must not reopen the HUD either — a held Down would
+        // otherwise fire OpenPlaybackHud on every repeat.
+        assertEquals(
+            TvPlayerRemoteKeyAction.ConsumeOnly,
+            tvPlayerRemoteKeyAction(
+                keyCode = KeyEvent.KEYCODE_DPAD_DOWN,
+                action = KeyEvent.ACTION_DOWN,
+                repeatCount = 1,
+                dpadDownOpensHud = true,
+            ),
+        )
     }
 
     @Test
@@ -194,12 +233,28 @@ class TvPlayerRemoteKeyActionTest {
             ),
         )
         assertEquals(
-            TvPlayerRemoteKeyAction.OpenHud,
+            TvPlayerRemoteKeyAction.OpenSettingsHud,
             tvPlayerIdleOverlayRemoteKeyAction(
                 keyCode = KeyEvent.KEYCODE_MENU,
                 action = KeyEvent.ACTION_UP,
                 repeatCount = 0,
             ),
+        )
+    }
+
+    @Test
+    fun `playback entry point prefers audio then subtitles then video`() {
+        assertEquals(
+            HudTab.Audio,
+            preferredPlaybackHudTab(hasAudioTracks = true, hasSubtitleTracks = true),
+        )
+        assertEquals(
+            HudTab.Subtitles,
+            preferredPlaybackHudTab(hasAudioTracks = false, hasSubtitleTracks = true),
+        )
+        assertEquals(
+            HudTab.Video,
+            preferredPlaybackHudTab(hasAudioTracks = false, hasSubtitleTracks = false),
         )
     }
 

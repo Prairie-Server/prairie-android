@@ -17,17 +17,25 @@ import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.dolbyVisionPolicySnapshot
 import org.prairieserver.prairie.android.BuildConfig
 import org.prairieserver.prairie.model.catalog.WatchDetail
+import org.prairieserver.prairie.model.catalog.SubtitleTrack
 import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.ClientPlaybackContext
 import org.prairieserver.prairie.model.playback.PlaybackSessionResponse
 import org.prairieserver.prairie.model.playback.buildPlaybackSubtitleChoices
+import org.prairieserver.prairie.model.playback.enrichAuthoritativePlaybackSubtitleChoices
+import org.prairieserver.prairie.model.playback.combinedSubtitleSelectionIndexes
 import org.prairieserver.prairie.model.playback.applyResumeRewind
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartRequestPosition
+import org.prairieserver.prairie.model.playback.resolvedSelectedSubtitleIndex
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.orNullIfBlank
+import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
+import org.prairieserver.prairie.playback.resolveCatalogSubtitlePreferenceOrdinal
 import org.prairieserver.prairie.playback.selectPlaybackVersion
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.ProfileRepository
+import org.prairieserver.prairie.repository.port.LocalTrackSelection
+import org.prairieserver.prairie.repository.port.UserItemStatePort
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
@@ -54,6 +62,52 @@ internal fun interface MobileVideoSessionAdopter {
     suspend fun adopt(params: StartParams, session: PlaybackSessionResponse)
 }
 
+internal data class MobileInitialTrackSelection(
+    val audioTrackIndex: Int?,
+    val subtitleTrackIndex: Int?,
+)
+
+/**
+ * Resolves durable per-file choices before neutral-v3 allocates its first plan.
+ *
+ * Explicit request indexes are already playback-v3 indexes and must pass
+ * through unchanged, including internal recovery starts. Persisted subtitle
+ * choices are stable catalog identities, so resolve only those onto the
+ * server's combined external-then-embedded index space. This lets restore
+ * happen in the first plan without reinterpreting a recovery index twice.
+ * Local/downloaded subtitle identities deliberately resolve to null and stay
+ * on the Media3-only restore path after the server plan is mounted.
+ */
+internal fun resolveMobileInitialTrackSelection(
+    explicitAudioTrackIndex: Int?,
+    explicitSubtitleTrackIndex: Int?,
+    audioTracks: List<org.prairieserver.prairie.model.catalog.AudioTrack>,
+    subtitleTracks: List<SubtitleTrack>,
+    persisted: LocalTrackSelection?,
+): MobileInitialTrackSelection {
+    val audioTrackIndex = explicitAudioTrackIndex
+        ?: resolveAudioTrackOrdinal(audioTracks, persisted?.audioFingerprint)
+    val persistedSubtitleOrdinal = if (explicitSubtitleTrackIndex == null) {
+        resolveCatalogSubtitlePreferenceOrdinal(
+            subtitleTracks,
+            persisted?.subtitleFingerprint,
+        )
+    } else {
+        null
+    }
+    val subtitleTrackIndex = when {
+        explicitSubtitleTrackIndex != null -> explicitSubtitleTrackIndex
+        persistedSubtitleOrdinal == null -> null
+        persistedSubtitleOrdinal == -1 -> -1
+        else -> combinedSubtitleSelectionIndexes(subtitleTracks)
+            .getOrNull(persistedSubtitleOrdinal)
+    }
+    return MobileInitialTrackSelection(
+        audioTrackIndex = audioTrackIndex,
+        subtitleTrackIndex = subtitleTrackIndex,
+    )
+}
+
 internal class MobileVideoPlaybackStarter(
     private val catalogRepository: CatalogRepository,
     private val playbackSessionManager: PlaybackSessionManager,
@@ -62,6 +116,7 @@ internal class MobileVideoPlaybackStarter(
     private val playerSettingsStore: PlayerSettingsStore,
     private val sessionLifecycle: PlaybackSessionLifecycle,
     private val reachabilityMonitor: ServerReachabilityMonitor,
+    private val userItemStatePort: UserItemStatePort? = null,
     private val sessionAllocator: MobileVideoSessionAllocator? = null,
     private val sessionAdopter: MobileVideoSessionAdopter? = null,
 ) : VideoPlaybackStarter {
@@ -99,6 +154,20 @@ internal class MobileVideoPlaybackStarter(
                 )
             }
 
+            // The playback-focused /watch response currently omits artwork.
+            // Detail screens cache the full catalog item before playback in the
+            // normal flow. Keep this fallback cache-only so optional artwork can
+            // never add a network request to, or prevent, playback startup.
+            val cachedDetail = runCatching {
+                catalogRepository.getCachedItemDetail(request.contentId)
+            }.onFailure { error ->
+                Log.w(TAG, "Could not read cached playback artwork", error)
+            }.getOrNull()
+            val artworkUrl = watchDetail.backdropUrl?.takeIf { it.isNotBlank() }
+                ?: watchDetail.posterUrl?.takeIf { it.isNotBlank() }
+                ?: cachedDetail?.backdropUrl?.takeIf { it.isNotBlank() }
+                ?: cachedDetail?.posterUrl?.takeIf { it.isNotBlank() }
+
             val serverUrl = playbackSessionManager.getServerUrl()
             val preferredQuality = request.preferredQualityOverride
                 ?: playerSettingsStore.preferredQualityFlow.first()
@@ -118,6 +187,21 @@ internal class MobileVideoPlaybackStarter(
                     watchDetail.userData?.lastFileId,
                     preferredQuality,
                 )
+            val persistedTrackSelection = if (
+                userItemStatePort != null &&
+                (request.audioTrackIndex == null || request.subtitleTrackIndex == null)
+            ) {
+                userItemStatePort.localTrackSelection(request.contentId, version.fileId)
+            } else {
+                null
+            }
+            val initialTracks = resolveMobileInitialTrackSelection(
+                explicitAudioTrackIndex = request.audioTrackIndex,
+                explicitSubtitleTrackIndex = request.subtitleTrackIndex,
+                audioTracks = version.audioTracks.orEmpty(),
+                subtitleTracks = version.subtitleTracks.orEmpty(),
+                persisted = persistedTrackSelection,
+            )
 
             val activeProfile = profileRepository.getActiveProfile()
             val profileId = activeProfile?.id ?: profileRepository.getActiveProfileId()
@@ -133,12 +217,15 @@ internal class MobileVideoPlaybackStarter(
                     diagnosticsCode = PlaybackDiagnosticsCode.NOT_AUTHENTICATED,
                 )
             val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
-            val capabilities = capabilityDetector.detect(dolbyVision = dolbyVision)
-            val playbackContext = capabilityDetector.detectPlaybackContext(
-                formFactor = "mobile",
-                appVersion = BuildConfig.VERSION_NAME,
-                dolbyVision = dolbyVision,
-            )
+            val capabilities = request.recoveryStartParams?.capabilities
+                ?: capabilityDetector.detect(dolbyVision = dolbyVision)
+            val playbackContext = request.recoveryStartParams?.clientPlaybackContext
+                ?: capabilityDetector.detectPlaybackContext(
+                    formFactor = "mobile",
+                    appVersion = BuildConfig.VERSION_NAME,
+                    dolbyVision = dolbyVision,
+                    capabilities = capabilities,
+                )
             // Skip-back-on-resume: nudge a genuine resume back a few seconds.
             // Suppressed for Start Over / retry (request flag) and Watch Together
             // (roomId — all participants must land on the synced anchor). The same
@@ -169,8 +256,8 @@ internal class MobileVideoPlaybackStarter(
                         profileId = profileId,
                         capabilities = capabilities,
                         clientPlaybackContext = playbackContext,
-                        audioTrackIndex = request.audioTrackIndex,
-                        subtitleTrackIndex = request.subtitleTrackIndex,
+                        audioTrackIndex = initialTracks.audioTrackIndex,
+                        subtitleTrackIndex = initialTracks.subtitleTrackIndex,
                         qualityPreference = playbackQualityIntent,
                         startPosition = startRequestPosition,
                         maxBitrateKbps = maxBitrateKbps,
@@ -180,8 +267,8 @@ internal class MobileVideoPlaybackStarter(
                     profileId = profileId,
                     capabilities = capabilities,
                     clientPlaybackContext = playbackContext,
-                    audioTrackIndex = request.audioTrackIndex,
-                    subtitleTrackIndex = request.subtitleTrackIndex,
+                    audioTrackIndex = initialTracks.audioTrackIndex,
+                    subtitleTrackIndex = initialTracks.subtitleTrackIndex,
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
                     maxBitrateKbps = maxBitrateKbps,
@@ -209,7 +296,7 @@ internal class MobileVideoPlaybackStarter(
                 )
                 VideoSessionStartV3.ServerUpgradeRequired -> return failure(
                     request.contentId,
-                    "This Prairie server must be updated to support the Media3 playback protocol.",
+                    "This Silo server must be updated to support the Media3 playback protocol.",
                     diagnosticsCode = PlaybackDiagnosticsCode.SERVER_UPGRADE_REQUIRED,
                 )
             }
@@ -240,12 +327,13 @@ internal class MobileVideoPlaybackStarter(
             val startParams = StartParams(
                 contentId = request.contentId,
                 fileId = effectiveFileId,
-                capabilities = capabilities,
-                audioTrackIndex = request.audioTrackIndex ?: resolved.audioTrackIndex,
-                subtitleTrackIndex = request.subtitleTrackIndex,
+                capabilities = readyV3.capabilities,
+                audioTrackIndex = initialTracks.audioTrackIndex ?: resolved.audioTrackIndex,
+                subtitleTrackIndex = initialTracks.subtitleTrackIndex
+                    ?: readyV3.plan.resolvedSelectedSubtitleIndex(),
                 qualityPreference = playbackQualityIntent,
                 startPosition = sourceStartPos,
-                clientPlaybackContext = playbackContext,
+                clientPlaybackContext = readyV3.clientPlaybackContext,
             )
             val adopted = if (sessionAdopter != null) {
                 sessionAdopter.adopt(startParams, resolved)
@@ -255,7 +343,6 @@ internal class MobileVideoPlaybackStarter(
                     sessionLifecycle.adoptActiveSessionIfCurrent(
                         params = startParams,
                         session = resolved,
-                        renewMissingSessionWithLegacyStart = false,
                         expectedOwnershipEpoch = ownershipEpoch,
                     )
                 } catch (cancellation: CancellationException) {
@@ -290,16 +377,20 @@ internal class MobileVideoPlaybackStarter(
                 container = readyV3.plan.stream.container ?: effectiveVersion?.container,
                 title = watchDetail.title,
                 subtitle = buildSubtitle(watchDetail).takeIf { it.isNotBlank() },
-                artworkUrl = watchDetail.posterUrl?.takeIf { it.isNotBlank() }
-                    ?: watchDetail.backdropUrl?.takeIf { it.isNotBlank() },
+                // Android's system media controls give artwork a wide canvas.
+                // Prefer the title backdrop there; portrait posters remain the
+                // fallback for catalog entries that do not have one.
+                artworkUrl = artworkUrl,
                 startPositionSeconds = playerStartPos,
                 sourceStartPositionSeconds = sourceStartPos,
                 serverUrl = serverUrl,
                 accessToken = accessToken,
                 mediaFileId = effectiveFileId,
                 audioTrackIndex = resolved.audioTrackIndex,
-                durationSeconds = resolved.durationSeconds ?: effectiveVersion?.duration ?: 0.0,
-                subtitleUrls = buildPlaybackSubtitleChoices(
+                // Protocol v3 source duration is authoritative. Unknown stays
+                // unknown; catalog/player runtimes must not fill this field.
+                durationSeconds = resolved.durationSeconds,
+                subtitleUrls = enrichAuthoritativePlaybackSubtitleChoices(
                     catalogTracks = effectiveVersion?.subtitleTracks.orEmpty(),
                     plannedTracks = resolved.subtitleUrls.orEmpty(),
                 ),
@@ -330,6 +421,8 @@ internal class MobileVideoPlaybackStarter(
                     ?: true,
                 intro = watchDetail.intro,
                 credits = watchDetail.credits,
+                recap = watchDetail.recap,
+                preview = watchDetail.preview,
                 chapters = effectiveVersion?.chapters.orEmpty(),
                 seriesId = watchDetail.seriesId,
                 seasonNumber = watchDetail.seasonNumber,

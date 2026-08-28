@@ -148,7 +148,23 @@ class RequestSearchViewModel(
         _uiState.update { it.copy(mediaType = value, error = null) }
     }
 
-    fun search(page: Int = 1) {
+    /**
+     * Re-run the current search WITHOUT clearing what is on screen.
+     *
+     * [search] blanks results before refetching, which is right for a new query
+     * and wrong for a refresh: a viewer returning from a request detail would
+     * watch the row empty and refill, and anything relying on those cards
+     * staying put — a focus restoration, most obviously — loses its target for
+     * the duration. Returning is also exactly when the results ARE stale,
+     * because creating a request in the detail changes the status this row
+     * shows, so skipping the refresh is not an option either.
+     */
+    fun refreshInPlace() {
+        if (_uiState.value.submittedQuery.isBlank()) return
+        search(page = _uiState.value.page, preserveResults = true)
+    }
+
+    fun search(page: Int = 1, preserveResults: Boolean = false) {
         val submittedState = _uiState.value
         val query = submittedState.query.trim()
         val mediaType = submittedState.mediaType?.takeUnless { it == RequestMediaType.All }
@@ -174,10 +190,10 @@ class RequestSearchViewModel(
                 it.copy(
                     isLoading = true,
                     submittedQuery = query,
-                    results = emptyList(),
+                    results = if (preserveResults) it.results else emptyList(),
                     page = page,
-                    totalPages = 1,
-                    totalResults = 0,
+                    totalPages = if (preserveResults) it.totalPages else 1,
+                    totalResults = if (preserveResults) it.totalResults else 0,
                     error = null,
                 )
             }

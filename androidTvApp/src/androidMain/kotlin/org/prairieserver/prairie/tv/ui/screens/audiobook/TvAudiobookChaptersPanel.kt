@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import org.prairieserver.prairie.audiobook.audiobookChapterLabel
 import org.prairieserver.prairie.model.catalog.VersionChapter
-import kotlinx.coroutines.delay
 
 /**
  * Full-screen, focusable chapters overlay. Auto-scrolls to + highlights the
@@ -25,21 +24,27 @@ fun TvAudiobookChaptersPanel(
     currentChapterIndex: Int,
     onSelectChapter: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    onFocusAcquisitionFailed: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
     val focusIndex = currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
 
+    // Scroll only. Focus acquisition is the scaffold's, because the current
+    // chapter can sit hundreds of rows down: it is not laid out until the scroll
+    // lands, and a fixed sleep-then-request-once raced that every time.
     LaunchedEffect(Unit) {
         if (focusIndex in chapters.indices) {
             runCatching { listState.scrollToItem(focusIndex) }
         }
-        // Let the scrolled row compose/lay out before grabbing focus.
-        delay(100)
-        runCatching { focusRequester.requestFocus() }
     }
 
-    TvAudiobookOverlayScaffold(title = "Chapters", modifier = modifier) {
+    TvAudiobookOverlayScaffold(
+        title = "Chapters",
+        initialFocus = focusRequester,
+        modifier = modifier,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
+    ) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth()) {
             itemsIndexed(chapters) { index, chapter ->
                 TvAudiobookOverlayRow(

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -47,8 +48,8 @@ import org.prairieserver.prairie.model.catalog.VersionChapter
  * iOS `MobilePlayerControls.progressSlider`:
  *
  * - three track regions — played, buffered (safe to seek into), base;
- * - the intro range tinted cyan (credits is deliberately NOT drawn — iOS
- *   only tints the intro);
+ * - detected marker ranges tinted as bands (intro cyan, recap green,
+ *   credits orange, preview purple);
  * - a 2dp chapter tick per chapter, drawn under the played fill;
  * - while scrubbing, a preview bubble above the thumb with the target time
  *   and the chapter title at that point (text only — iOS has no thumbnail
@@ -65,16 +66,30 @@ fun PlayerProgressBar(
     enabled: Boolean = true,
     chapters: List<VersionChapter> = emptyList(),
     intro: TimeRange? = null,
+    credits: TimeRange? = null,
+    recap: TimeRange? = null,
+    preview: TimeRange? = null,
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableFloatStateOf(0f) }
     var barWidthPx by remember { mutableFloatStateOf(0f) }
 
-    val maxDuration = duration.toFloat().coerceAtLeast(1f)
-    val displayPosition = (if (isSeeking) seekPosition else position.toFloat()).coerceIn(0f, maxDuration)
-    val playedFraction = displayPosition / maxDuration
-    val bufferedFraction = (bufferedPosition.toFloat().coerceIn(0f, maxDuration) / maxDuration)
-        .coerceIn(playedFraction, 1f)
+    val hasKnownDuration = duration.isFinite() && duration > 0.0
+    val maxDuration = if (hasKnownDuration) duration.toFloat() else 1f
+    val rawDisplayPosition = if (isSeeking) seekPosition else position.toFloat()
+    val displayPosition = if (hasKnownDuration) {
+        rawDisplayPosition.coerceIn(0f, maxDuration)
+    } else {
+        rawDisplayPosition.coerceAtLeast(0f)
+    }
+    val sliderPosition = if (hasKnownDuration) displayPosition else 0f
+    val playedFraction = if (hasKnownDuration) displayPosition / maxDuration else 0f
+    val bufferedFraction = if (hasKnownDuration) {
+        (bufferedPosition.toFloat().coerceIn(0f, maxDuration) / maxDuration)
+            .coerceIn(playedFraction, 1f)
+    } else {
+        0f
+    }
 
     // iOS bottom bar is VStack(spacing: 8): progress slider, then the time row.
     Column(
@@ -97,8 +112,8 @@ fun PlayerProgressBar(
                         .offset(x = bubbleX - clampPad)
                         .padding(bottom = 4.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .background(Color.Black.copy(alpha = 0.82f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     Text(
                         text = formatClockTime(seekPosition.toDouble()),
@@ -123,8 +138,8 @@ fun PlayerProgressBar(
         }
 
         Slider(
-            value = displayPosition,
-            enabled = enabled,
+            value = sliderPosition,
+            enabled = enabled && hasKnownDuration,
             onValueChange = { value ->
                 isSeeking = true
                 seekPosition = value
@@ -145,7 +160,7 @@ fun PlayerProgressBar(
             thumb = {
                 Box(
                     modifier = Modifier
-                        .size(if (isSeeking) 16.dp else 11.dp)
+                        .size(if (isSeeking) 20.dp else 14.dp)
                         .background(MaterialTheme.colorScheme.primary, CircleShape),
                 )
             },
@@ -153,9 +168,9 @@ fun PlayerProgressBar(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
+                        .height(6.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.24f))
+                        .background(Color.White.copy(alpha = 0.16f))
                         .onSizeChanged { barWidthPx = it.width.toFloat() },
                 ) {
                     // Buffered-ahead: downloaded and safe to seek into.
@@ -163,27 +178,37 @@ fun PlayerProgressBar(
                         modifier = Modifier
                             .fillMaxWidth(bufferedFraction)
                             .fillMaxHeight()
-                            .background(Color.White.copy(alpha = 0.45f)),
+                            .background(Color.White.copy(alpha = 0.52f)),
                     )
-                    // Intro tint — iOS draws the intro range cyan at 0.4.
-                    intro?.let { range ->
-                        val startFraction = (range.start / maxDuration).toFloat().coerceIn(0f, 1f)
-                        val endFraction = (range.end / maxDuration).toFloat().coerceIn(startFraction, 1f)
-                        if (endFraction > startFraction) {
-                            val density = LocalDensity.current
-                            val barWidthDp = with(density) { barWidthPx.toDp() }
-                            Box(
-                                modifier = Modifier
-                                    .offset(x = barWidthDp * startFraction)
-                                    .width(barWidthDp * (endFraction - startFraction))
-                                    .fillMaxHeight()
-                                    .background(Color.Cyan.copy(alpha = 0.4f)),
-                            )
+                    // Marker bands — tinted segments for each detected marker
+                    // kind (intro/recap/credits/preview), drawn under the played
+                    // fill so the playhead still reads clearly over them.
+                    if (hasKnownDuration) {
+                        val density = LocalDensity.current
+                        val barWidthDp = with(density) { barWidthPx.toDp() }
+                        val markers = listOfNotNull(
+                            intro?.let { it to Color.Cyan },
+                            recap?.let { it to Color(0xFF8BC34A) },
+                            credits?.let { it to Color(0xFFFFB74D) },
+                            preview?.let { it to Color(0xFFBA68C8) },
+                        )
+                        markers.forEach { (range, color) ->
+                            val startFraction = (range.start / maxDuration).toFloat().coerceIn(0f, 1f)
+                            val endFraction = (range.end / maxDuration).toFloat().coerceIn(startFraction, 1f)
+                            if (endFraction > startFraction) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = barWidthDp * startFraction)
+                                        .width(barWidthDp * (endFraction - startFraction))
+                                        .fillMaxHeight()
+                                        .background(color.copy(alpha = 0.4f)),
+                                )
+                            }
                         }
                     }
                     // Chapter ticks, under the played fill (iOS: the fill
                     // covers ticks in played territory).
-                    if (chapters.isNotEmpty()) {
+                    if (hasKnownDuration && chapters.isNotEmpty()) {
                         val density = LocalDensity.current
                         val barWidthDp = with(density) { barWidthPx.toDp() }
                         chapters.forEach { chapter ->
@@ -194,7 +219,7 @@ fun PlayerProgressBar(
                                         .offset(x = barWidthDp * fraction - 1.dp)
                                         .width(2.dp)
                                         .fillMaxHeight()
-                                        .background(Color.White.copy(alpha = 0.6f)),
+                                        .background(Color.White.copy(alpha = 0.72f)),
                                 )
                             }
                         }
@@ -208,30 +233,43 @@ fun PlayerProgressBar(
                     )
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            // Keep a generous invisible touch target around the visual track.
+            // This makes fine seeking practical on a phone without turning the
+            // timeline itself into a chunky Material slider.
+            modifier = Modifier
+                .fillMaxWidth()
+                .requiredHeight(48.dp),
         )
 
-        // iOS time row: current time left, duration right, `.caption` (~12sp) at
-        // 0.8 white opacity, monospaced digits.
+        // Current + remaining is more useful during playback than current +
+        // total, especially when the controls are separated from the video in
+        // tabletop posture.
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 text = formatClockTime(displayPosition.toDouble()),
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Color.White.copy(alpha = 0.8f),
+                color = Color.White.copy(alpha = 0.86f),
             )
             Text(
-                text = formatClockTime(duration),
-                fontSize = 12.sp,
+                text = remainingTimeLabel(displayPosition.toDouble(), duration),
+                fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Color.White.copy(alpha = 0.8f),
+                color = Color.White.copy(alpha = 0.86f),
             )
         }
     }
 }
+
+internal fun remainingTimeLabel(position: Double, duration: Double): String =
+    if (duration.isFinite() && duration > 0.0) {
+        "−${formatClockTime((duration - position).coerceAtLeast(0.0))}"
+    } else {
+        "−−:−−"
+    }
 
 /** iOS `chapterTitle(at:)`: the last chapter starting at or before [seconds],
  *  falling back to "Chapter N" when the chapter is untitled. */

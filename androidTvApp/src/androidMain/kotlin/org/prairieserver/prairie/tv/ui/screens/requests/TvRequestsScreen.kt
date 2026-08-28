@@ -36,11 +36,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -49,6 +51,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.model.request.CreateMediaRequest
 import org.prairieserver.prairie.model.request.RequestAvailability
 import org.prairieserver.prairie.model.request.RequestDiscoverySection
@@ -58,20 +61,18 @@ import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvFilterChip
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.components.tvOutlinedTextFieldColors
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.screens.search.TV_SEARCH_QUERY_MAX_LENGTH
 import org.prairieserver.prairie.tv.ui.shell.TvTopMenuLayout
-import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
 import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
+import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
 import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.sectionEyebrow
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
-import org.koin.compose.viewmodel.koinViewModel
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.foundation.layout.size
-import androidx.tv.material3.Icon
 
 private val requestMediaFilters = listOf(
     RequestMediaType.All to "All",
@@ -96,6 +97,18 @@ fun TvRequestsScreen(
     val visibleSearchResults = searchState.results.filterTvRequestResults()
     val visibleDiscoverSections = state.sections.filterTvRequestSections()
     val searchFieldFocusRequester = remember { FocusRequester() }
+    // Observed per REGION. requestFocusUntilObserved tests isFocused() before
+    // it requests anything, so a screen-wide flag meant the post-search claim
+    // was skipped outright: you are in the search field when the results land,
+    // the flag is already true, and focus never moves to them.
+    var focusedRegion by remember { mutableStateOf<TvRequestsFocusRegion?>(null) }
+    val setFocusedRegion: (TvRequestsFocusRegion, Boolean) -> Unit = { region, focused ->
+        if (focused) {
+            focusedRegion = region
+        } else if (focusedRegion == region) {
+            focusedRegion = null
+        }
+    }
     val firstFilterChipFocusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
     val hasSubmittedQuery = searchState.hasSubmittedQuery
@@ -132,18 +145,36 @@ fun TvRequestsScreen(
 
     LaunchedEffect(searchFieldFocusRequester) {
         if (initialFocusRequested) return@LaunchedEffect
-        runCatching { searchFieldFocusRequester.requestFocus() }
-        onInitialContentFocus()
+        // Seventh false handover: onInitialContentFocus() told the shell content
+        // had focus regardless of whether the claim landed.
+        val landed = requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { withFrameNanos { } },
+            requestFocus = searchFieldFocusRequester::requestFocus,
+            isFocused = { focusedRegion == TvRequestsFocusRegion.Field },
+        )
+        if (landed == TvObservedFocusResult.Focused) onInitialContentFocus()
         initialFocusRequested = true
     }
 
     LaunchedEffect(focusResultsAfterSearch, searchState.isLoading, hasSearchResults) {
         if (focusResultsAfterSearch && !searchState.isLoading) {
-            if (hasSearchResults) {
-                runCatching { firstResultFocusRequester.requestFocus() }
+            val target = if (hasSearchResults) {
+                firstResultFocusRequester
             } else {
-                runCatching { firstFilterChipFocusRequester.requestFocus() }
+                firstFilterChipFocusRequester
             }
+            val targetRegion = if (hasSearchResults) {
+                TvRequestsFocusRegion.Results
+            } else {
+                TvRequestsFocusRegion.Chips
+            }
+            requestFocusUntilObserved(
+                maxAttempts = TvContentInitialFocusMaxAttempts,
+                awaitAttempt = { withFrameNanos { } },
+                requestFocus = target::requestFocus,
+                isFocused = { focusedRegion == targetRegion },
+            )
             focusResultsAfterSearch = false
         }
     }
@@ -184,23 +215,11 @@ fun TvRequestsScreen(
                         actionViewModel.submit(item.requestKey(), item.toCreateMediaRequest())
                     },
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Request")
                 }
             },
             dismissButton = {
                 Button(onClick = { pendingRequest = null }) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel")
                 }
             },
@@ -227,6 +246,8 @@ fun TvRequestsScreen(
                 firstFilterChipFocusRequester = firstFilterChipFocusRequester,
                 firstResultFocusRequester = firstResultFocusRequester,
                 hasFocusableResult = hasFocusableResult,
+                onFieldFocusChanged = { setFocusedRegion(TvRequestsFocusRegion.Field, it) },
+                onChipsFocusChanged = { setFocusedRegion(TvRequestsFocusRegion.Chips, it) },
                 onQueryChanged = { query -> searchViewModel.onQueryChanged(query) },
                 onSearch = {
                     focusResultsAfterSearch = searchState.query.isNotBlank()
@@ -251,7 +272,11 @@ fun TvRequestsScreen(
                     message = state.error ?: "Search movies and series to request them.",
                 )
                 else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onFocusChanged {
+                            setFocusedRegion(TvRequestsFocusRegion.Results, it.hasFocus)
+                        },
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                     contentPadding = PaddingValues(bottom = 56.dp),
                 ) {
@@ -392,6 +417,9 @@ private fun RequestSearchEmptyItem(message: String) {
     )
 }
 
+/** Focus regions a claim on this screen can aim at. */
+private enum class TvRequestsFocusRegion { Field, Chips, Results }
+
 @Composable
 private fun RequestsHeader(
     query: String,
@@ -402,6 +430,8 @@ private fun RequestsHeader(
     firstFilterChipFocusRequester: FocusRequester,
     firstResultFocusRequester: FocusRequester,
     hasFocusableResult: Boolean,
+    onFieldFocusChanged: (Boolean) -> Unit,
+    onChipsFocusChanged: (Boolean) -> Unit,
     onQueryChanged: (String) -> Unit,
     onSearch: () -> Unit,
     onMediaTypeChanged: (String?) -> Unit,
@@ -462,11 +492,13 @@ private fun RequestsHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
+                    .onFocusChanged { onFieldFocusChanged(it.isFocused) }
                     .focusRequester(searchFieldFocusRequester)
                     .focusProperties { down = firstFilterChipFocusRequester },
                 colors = tvOutlinedTextFieldColors(),
             )
             LazyRow(
+                modifier = Modifier.onFocusChanged { onChipsFocusChanged(it.hasFocus) },
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(end = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,

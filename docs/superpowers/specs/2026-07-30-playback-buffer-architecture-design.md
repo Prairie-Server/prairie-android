@@ -28,7 +28,7 @@ partly hiding problem 1. Raising the caps without fixing the window would make
 dropped connections dramatically more common.
 
 Additionally, the three-mode `PlaybackBufferMode` enum is dead code —
-`SiloPlayerFactory` hardcodes `Balanced`, so `QuickStart`, `SmoothPlayback` and
+`PrairiePlayerFactory` hardcodes `Balanced`, so `QuickStart`, `SmoothPlayback` and
 the `fromWire` parsing are unreachable.
 
 ## Decisions
@@ -130,7 +130,7 @@ Three units, each independently testable:
 - **`PrairieLoadControl`** — keeps bitrate-aware byte sizing; gains the
   seconds-fit-to-budget reduction and enforces the idle-window invariant when
   constructing its `DefaultLoadControl` parameters.
-- **`SiloPlayerFactory`** — stops naming a mode; passes observed conditions.
+- **`PrairiePlayerFactory`** — stops naming a mode; passes observed conditions.
 
 ## Testing
 

@@ -150,9 +150,9 @@ git commit -m "fix(tv): avoid double-shifting top subtitles"
 
 - [ ] **Step 1: Prove non-use**
 
-Search production/tests/build publication metadata for `SiloAuth`; require the
+Search production/tests/build publication metadata for `PrairieAuth`; require the
 declaration to be the only match and the real `PrairieAuthPlugin` installation to
-remain in `SiloHttpClientImpl`.
+remain in `PrairieHttpClientImpl`.
 
 - [ ] **Step 2: Delete and compile**
 

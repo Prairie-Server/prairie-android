@@ -22,8 +22,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -35,7 +40,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.model.audiobook.AudiobookBookmark
-import org.prairieserver.prairie.tv.ui.components.rememberTvDialogInitialFocus
 
 /**
  * TV audiobook Bookmarks overlay. Mirrors the phone's bookmarks sheet over the
@@ -51,12 +55,15 @@ fun TvAudiobookBookmarksPanel(
     onJumpTo: (AudiobookBookmark) -> Unit,
     onDelete: (AudiobookBookmark) -> Unit,
     modifier: Modifier = Modifier,
+    onFocusAcquisitionFailed: () -> Unit = {},
 ) {
     val addFocus = remember { FocusRequester() }
 
     TvAudiobookOverlayScaffold(
         title = "Bookmarks",
-        modifier = modifier.then(rememberTvDialogInitialFocus(addFocus)),
+        initialFocus = addFocus,
+        modifier = modifier,
+        onAcquisitionFailed = onFocusAcquisitionFailed,
     ) {
         BookmarkActionRow(
             label = "Bookmark here",
@@ -89,8 +96,13 @@ fun TvAudiobookBookmarksPanel(
                         onDelete = {
                             onDelete(bookmark)
                             // The deleted row (keyed by id) leaves composition, so
-                            // move focus back to a stable anchor instead of losing it.
-                            runCatching { addFocus.requestFocus() }
+                            // move focus back to a stable anchor instead of losing
+                            // it. A click handler has no suspend point, so this is
+                            // single-shot and reported rather than swallowed.
+                            addFocus.claimFocusOrReport(
+                                target = "audiobook_bookmark_add",
+                                action = "bookmark_deleted",
+                            )
                         },
                     )
                 }

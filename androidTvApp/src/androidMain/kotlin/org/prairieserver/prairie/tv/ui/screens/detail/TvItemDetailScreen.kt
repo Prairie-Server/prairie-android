@@ -2,13 +2,18 @@ package org.prairieserver.prairie.tv.ui.screens.detail
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -23,52 +28,45 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.EaseInOut
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.BringIntoViewSpec
-import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -76,6 +74,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,32 +91,48 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 import org.prairieserver.prairie.audiobook.AudioPlaybackTrack
 import org.prairieserver.prairie.audiobook.AudiobookTimeline
 import org.prairieserver.prairie.audiobook.buildAudiobookTimeline
 import org.prairieserver.prairie.common.ui.movieDirectorCredit
+import org.prairieserver.prairie.metadata.DescriptionTranslationPhase
 import org.prairieserver.prairie.model.audiobook.AudiobookNarration
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.ItemDetail
-import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
 import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
+import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
 import org.prairieserver.prairie.model.ebook.MediaRelatedItem
 import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
+import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
+import org.prairieserver.prairie.model.metadata.MetadataAiOnView
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.tv.ui.navigation.TvSubtitleLaunchSelection
+import org.prairieserver.prairie.tv.ui.navigation.explicitTvSubtitleLaunchSelection
 import org.prairieserver.prairie.tv.ui.components.TvDialogOption
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvHeroActionPill
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.components.TvMediaRow
 import org.prairieserver.prairie.tv.ui.components.TvOptionDialog
+import org.prairieserver.prairie.tv.ui.components.TvPillVariant
 import org.prairieserver.prairie.tv.ui.components.TvPrimaryPillButton
+import org.prairieserver.prairie.tv.ui.components.TvRowStyle
 import org.prairieserver.prairie.tv.ui.components.TvSecondaryPillButton
 import org.prairieserver.prairie.tv.ui.components.TvSquareToggleButton
-import org.prairieserver.prairie.tv.ui.components.TvPillVariant
-import org.prairieserver.prairie.tv.ui.components.TvRowStyle
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.screens.audiobook.formatAudiobookTime
 import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvJoinCodeDialog
 import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvSuggestToRoomViewModel
@@ -122,21 +141,12 @@ import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherView
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.TvControlCorner
 import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
-import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import org.koin.compose.viewmodel.koinViewModel
-import org.koin.compose.koinInject
-import org.prairieserver.prairie.metadata.DescriptionTranslationPhase
-import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
-import org.prairieserver.prairie.model.metadata.MetadataAiOnView
-import org.koin.core.parameter.parametersOf
 
 @Composable
 fun TvItemDetailScreen(
     contentId: String,
     seasonNumber: Int? = null,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onItemDetailReplace: (contentId: String) -> Unit = onItemDetail,
     onSeriesClick: (seriesId: String) -> Unit,
@@ -210,7 +220,7 @@ private fun TvDetailContent(
     detail: ItemDetail,
     state: TvItemDetailUiState,
     viewModel: TvItemDetailViewModel,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onItemDetailReplace: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
@@ -234,6 +244,35 @@ private fun TvDetailContent(
     // restore loop exits on it instead of re-requesting for a fixed window,
     // which held focus hostage on that card for ~a second after returning.
     val castRestoreFocused = remember { mutableStateOf(false) }
+    // Same treatment for More Like This. Returning from a related item only
+    // became reachable once item-detail navigation stopped reusing this entry;
+    // before that you never came back to this page, so the generic
+    // snap-to-hero below was the only outcome that existed.
+    //
+    // Stores the CONTENT ID, not the list index. After process death the saved
+    // index could outlive the list it indexed: the rail reloads over the
+    // network, so the index can arrive before the list does, and the reloaded
+    // list can come back in a different order — restoring focus to whichever
+    // title now happens to sit at that position.
+    var pendingSimilarContentId by rememberSaveable(detail.contentId) {
+        mutableStateOf<String?>(null)
+    }
+    // Paired with the id because the id alone is an ABA token: a newer request
+    // for the SAME content passes every ownership check the old coroutine
+    // makes, letting it clear or override the new one.
+    var pendingSimilarGeneration by rememberSaveable(detail.contentId) { mutableStateOf(0) }
+    val similarReturnFocus = remember { FocusRequester() }
+    val similarRestoreFocused = remember { mutableStateOf(false) }
+    // Bumped once the target resolves, so the row scrolls its own LazyRow to
+    // that card: a card outside the composed window leaves the requester
+    // unattached and every retry doomed.
+    var similarRestoreRequest by remember { mutableStateOf(0) }
+    // Resolved against the CURRENT list, so it simply stays -1 until the rail
+    // has loaded and becomes correct if the order changed.
+    val pendingSimilarIndex = pendingSimilarContentId?.let { pendingId ->
+        state.moreLikeThis.indexOfFirst { it.contentId == pendingId }
+    } ?: -1
+    val pendingSimilarIndexNow = rememberUpdatedState(pendingSimilarIndex)
     val firstSimilarFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -257,21 +296,105 @@ private fun TvDetailContent(
             // value alone: keep the pending window open (the rail's enter
             // targets the launch card while it is) across the pop transition,
             // re-requesting every couple of frames.
-            var restored = false
-            for (attempt in 0 until 40) {
-                if (castRestoreFocused.value) {
-                    restored = true
-                    break
-                }
-                restored = runCatching { castReturnFocus.requestFocus() }.getOrDefault(false) || restored
-                withFrameNanos { }
-                withFrameNanos { }
-            }
+            // Success comes ONLY from the rail's focus callback. Accumulating
+            // requestFocus()'s return value defeated the very rollback this
+            // loop exists to survive: one transient true skipped the Play
+            // fallback even though focus had bounced back off the redirect.
+            // This loop was already judging on observed focus, which is why it
+            // worked; it just open-coded the pacing. The policy does the same
+            // thing, and the two-frame cadence is preserved.
+            var restored = requestFocusUntilObserved(
+                maxAttempts = CAST_RESTORE_MAX_ATTEMPTS,
+                awaitAttempt = {
+                    withFrameNanos { }
+                    withFrameNanos { }
+                },
+                requestFocus = castReturnFocus::requestFocus,
+                isFocused = { castRestoreFocused.value },
+            ) == TvObservedFocusResult.Focused
+            // The last attempt's request can land after the loop's final check,
+            // so re-read before giving up — otherwise Play immediately steals
+            // focus from a restore that actually succeeded.
+            if (!restored) restored = castRestoreFocused.value
             pendingCastFocusIndex = -1
-            if (restored) return@LaunchedEffect
+            if (restored) {
+                // Don't leave the other rail's requester armed.
+                pendingSimilarContentId = null
+                return@LaunchedEffect
+            }
         }
+        // A pending More Like This restore is owned by the effect below, which
+        // can outlive this one while it waits for the rail to load. It performs
+        // the hero fallback itself if the target never turns up.
+        if (pendingSimilarContentId != null) return@LaunchedEffect
         listState.scrollToItem(0)
-        runCatching { playFocus.requestFocus() }
+        playFocus.claimFocusOrReport(target = "detail_play", action = "entry_fallback")
+    }
+
+    // Returning from a related item: land back on the card that opened it
+    // rather than snapping to the hero.
+    //
+    // Keyed on the CONTENT ID alone, deliberately. Keying it on the pending id
+    // as well fired this on the way OUT — the moment the click recorded it —
+    // so it spun its whole window against a page being navigated away from,
+    // cleared the pending id, and left nothing to restore on the way back.
+    // Content id only means it runs once per entry to this page, which is
+    // exactly when a restore is due.
+    LaunchedEffect(detail.contentId) {
+        // The exact request this coroutine owns. Every step below re-checks it,
+        // because clearing or replacing the pending id does NOT cancel this
+        // coroutine — without the token it could keep requesting focus for the
+        // rest of its window on behalf of a return nobody is waiting for.
+        val ownedContentId = pendingSimilarContentId ?: return@LaunchedEffect
+        val ownedGeneration = pendingSimilarGeneration
+        fun stillOwned() =
+            pendingSimilarContentId == ownedContentId &&
+                pendingSimilarGeneration == ownedGeneration
+
+        // Two different waits, on two different clocks.
+        //
+        // First the DATA. After process death the rail reloads over the network
+        // — debounced, then several requests — so the target may not exist yet.
+        // Counting frames for that was measuring the wrong thing entirely: a
+        // ~120-frame budget is one or two seconds depending on refresh rate,
+        // and a load finishing just past it silently became a hero fallback.
+        val result = restoreMoreLikeThisFocus(
+            awaitTarget = {
+                snapshotFlow { pendingSimilarIndexNow.value }.first { it >= 0 }
+            },
+            stillOwned = ::stillOwned,
+            // Once the target exists, ask the row to scroll it into its composed
+            // window before focus requests begin.
+            onTargetResolved = { similarRestoreRequest += 1 },
+            isTargetFocused = { similarRestoreFocused.value },
+            // The return value is not evidence: the row's enter redirect can
+            // roll an accepted request back. Only its focus callback counts.
+            requestTargetFocus = {
+                similarReturnFocus.claimFocusOrReport(
+                    target = "detail_similar_card",
+                    action = "return_restore",
+                )
+            },
+            awaitFocusAttempt = {
+                withFrameNanos { }
+                withFrameNanos { }
+            },
+            // Never turned up, or focus kept rolling back — leave the viewer
+            // somewhere usable. The policy holds ownership across this
+            // suspension and re-checks it before requesting Play focus.
+            scrollToFallback = { listState.scrollToItem(0) },
+            requestFallbackFocus = {
+                playFocus.claimFocusOrReport(
+                    target = "detail_play",
+                    action = "similar_restore_fallback",
+                )
+            },
+            dataTimeoutMillis = RESTORE_DATA_TIMEOUT_MS,
+            attachmentTimeoutMillis = RESTORE_ATTACH_TIMEOUT_MS,
+        )
+        if (result != TvSimilarFocusRestoreResult.Revoked && stillOwned()) {
+            pendingSimilarContentId = null
+        }
     }
 
     val isEpisodicType = detail.type in setOf("series", "season", "episode")
@@ -336,8 +459,18 @@ private fun TvDetailContent(
             // instead of appearing only after it settles; when the hero has
             // been disposed off-screen the requests fail and we re-focus
             // after the scroll composes it again.
-            val focusedImmediately = runCatching { selectorFocus.requestFocus() }.isSuccess ||
-                runCatching { playFocus.requestFocus() }.isSuccess
+            // runCatching{}.isSuccess was true whenever the call did not THROW,
+            // so a requestFocus that returned false still counted as focused —
+            // the scroll then ran as though the highlight had already moved.
+            // These report the request's own answer.
+            val focusedImmediately =
+                selectorFocus.claimFocusOrReport(
+                    target = "detail_selector",
+                    action = "return_to_top",
+                ) || playFocus.claimFocusOrReport(
+                    target = "detail_play",
+                    action = "return_to_top",
+                )
             if (focusedImmediately) {
                 // Let the focus system enqueue its automatic bring-into-view
                 // first, then cancel/replace that scroll with the paced
@@ -346,8 +479,15 @@ private fun TvDetailContent(
             }
             listState.animateScrollToItemPaced(0)
             if (!focusedImmediately) {
-                if (runCatching { selectorFocus.requestFocus() }.isFailure) {
-                    runCatching { playFocus.requestFocus() }
+                if (!selectorFocus.claimFocusOrReport(
+                        target = "detail_selector",
+                        action = "return_to_top_retry",
+                    )
+                ) {
+                    playFocus.claimFocusOrReport(
+                        target = "detail_play",
+                        action = "return_to_top_retry",
+                    )
                 }
             }
         }
@@ -390,8 +530,7 @@ private fun TvDetailContent(
     val heroHasFocus = remember { mutableStateOf(false) }
     val detailBringIntoViewSpec = remember(heroHasFocus) {
         object : BringIntoViewSpec {
-            override val scrollAnimationSpec: AnimationSpec<Float> =
-                TvSmoothBringIntoViewSpec.scrollAnimationSpec
+            override val scrollAnimationSpec: AnimationSpec<Float> = DetailAnchorScrollSpec
 
             override fun calculateScrollDistance(
                 offset: Float,
@@ -408,6 +547,21 @@ private fun TvDetailContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // A pending restore is a convenience, and the moment the viewer
+            // steers for themselves it stops being one. This is the only signal
+            // that a move was genuinely user-initiated — a focus-gain callback
+            // is not, because the rail's own enter redirect produces one.
+            // Returns false throughout: this observes, it never consumes.
+            .onPreviewKeyEvent { event ->
+                if (
+                    pendingSimilarContentId != null &&
+                    event.type == KeyEventType.KeyDown &&
+                    event.key in tvDirectionalKeys
+                ) {
+                    pendingSimilarContentId = null
+                }
+                false
+            }
             .background(MaterialTheme.colorScheme.background),
     ) {
         CompositionLocalProvider(LocalBringIntoViewSpec provides detailBringIntoViewSpec) {
@@ -432,6 +586,13 @@ private fun TvDetailContent(
                         )
                     } else {
                         TvDetailHero(
+                            scrollOffsetPx = {
+                                if (listState.firstVisibleItemIndex == 0) {
+                                    listState.firstVisibleItemScrollOffset.toFloat()
+                                } else {
+                                    Float.MAX_VALUE
+                                }
+                            },
                             title = detail.title,
                             seriesTitle = if (detail.type == "episode") detail.seriesTitle else null,
                             logoUrl = detail.logoUrl,
@@ -489,7 +650,8 @@ private fun TvDetailContent(
                                         detail.contentId,
                                         null,
                                         state.selectedAudioIndex,
-                                        state.selectedSubtitleIndex,
+                                        state.audioPickedThisSession,
+                                        explicitTvSubtitleLaunchSelection(state.selectedSubtitleIndex),
                                         detail.type,
                                         track.startOffsetSeconds,
                                     )
@@ -559,35 +721,10 @@ private fun TvDetailContent(
                             // with `anchor: .center`), so focusing "Season N"
                             // sits where an episode focus sits, and coming back
                             // up from Cast & Crew restores the same position.
-                            var episodesSectionHasFocus by remember { mutableStateOf(false) }
-                            var episodesSectionCenterY by remember { mutableStateOf<Float?>(null) }
                             Box(
-                                modifier = Modifier
-                                    .onGloballyPositioned { coords ->
-                                        episodesSectionCenterY =
-                                            coords.positionInRoot().y + coords.size.height / 2f
-                                    }
-                                    .onFocusChanged { focusState ->
-                                        val nowFocused = focusState.hasFocus
-                                        if (nowFocused && !episodesSectionHasFocus) {
-                                            coroutineScope.launch {
-                                                // Let the focus system enqueue its
-                                                // automatic bring-into-view first,
-                                                // then cancel/replace that scroll
-                                                // with the centered section anchor.
-                                                withFrameNanos { }
-                                                if (!episodesSectionHasFocus) return@launch
-                                                val center = episodesSectionCenterY ?: return@launch
-                                                val viewportCenter =
-                                                    listState.layoutInfo.viewportSize.height / 2f
-                                                listState.animateScrollBy(
-                                                    value = center - viewportCenter,
-                                                    animationSpec = DetailAnchorScrollSpec,
-                                                )
-                                            }
-                                        }
-                                        episodesSectionHasFocus = nowFocused
-                                    },
+                                modifier = Modifier.detailSectionAnchor(listState, coroutineScope) { height, viewport ->
+                                    (viewport - height) / 2f
+                                },
                             ) {
                             EpisodesSection(
                                 detail = detail,
@@ -620,6 +757,7 @@ private fun TvDetailContent(
                         }
 
                         if (showsCastSection) {
+                            Box(modifier = Modifier.detailBodySectionAnchor(listState, coroutineScope)) {
                             TvCastCrewSection(
                                 cast = detail.cast,
                                 horizontalContentPadding = Spacing.safeArea,
@@ -640,18 +778,25 @@ private fun TvDetailContent(
                                     // actually fires — openPerson can no-op when
                                     // the person can't be resolved.
                                     viewModel.openPerson(member) { personId ->
+                                        pendingSimilarContentId = null
                                         pendingCastFocusIndex = index
                                         castRestoreFocused.value = false
                                         onOpenPerson(personId)
                                     }
                                 },
                             )
+                            }
                         }
 
                         if (showsDetailsSection) {
                             DetailsSection(
                                 detail = detail,
-                                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                                modifier = Modifier
+                                    .detailBodySectionAnchor(listState, coroutineScope)
+                                    // The section pads its own inner inset so the
+                                    // focus highlight box extends past the text
+                                    // instead of starting flush at its left edge.
+                                    .padding(horizontal = Spacing.safeArea - TvDetailsFocusInset),
                             )
                         }
 
@@ -659,7 +804,10 @@ private fun TvDetailContent(
                             // tvOS `TVSimilarRail`: an editorial detail section
                             // header (Recommended / More Like This) over a bare
                             // poster rail — no See-all on the detail page.
-                            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                            Column(
+                                modifier = Modifier.detailBodySectionAnchor(listState, coroutineScope),
+                                verticalArrangement = Arrangement.spacedBy(20.dp),
+                            ) {
                                 TvDetailSectionHeader(
                                     title = "More Like This",
                                     modifier = Modifier.padding(horizontal = Spacing.safeArea),
@@ -668,7 +816,44 @@ private fun TvDetailContent(
                                     title = "More Like This",
                                     showHeader = false,
                                     items = state.moreLikeThis,
-                                    onItemClick = onItemDetail,
+                                    onItemClick = { clickedContentId ->
+                                        pendingCastFocusIndex = -1
+                                        pendingSimilarGeneration += 1
+                                        pendingSimilarContentId = clickedContentId
+                                        similarRestoreFocused.value = false
+                                        onItemDetail(clickedContentId)
+                                    },
+                                    restoreFocusIndex = pendingSimilarIndex,
+                                    // Only while a return is pending, so ordinary
+                                    // re-entry stops being forced at the return
+                                    // target and goes back to the row restorer's
+                                    // own remembered card.
+                                    restoreFocusRequester = similarReturnFocus
+                                        .takeIf { pendingSimilarIndex >= 0 },
+                                    restoreFocusRequest = similarRestoreRequest
+                                        .takeIf { pendingSimilarIndex >= 0 } ?: 0,
+                                    onItemFocusedAtIndex = if (pendingSimilarIndex >= 0) {
+                                        { focusedItem, _ ->
+                                            // ONLY the target counts. Revoking
+                                            // when some other card gains focus
+                                            // was self-defeating: the row's own
+                                            // enter redirect lands on card 0
+                                            // first, so the restore cancelled
+                                            // itself on the way to card N.
+                                            // onFocusChanged carries no evidence
+                                            // that a move was user-initiated —
+                                            // the key handler on the root does.
+                                            // Identity, not position: index
+                                            // arithmetic is what broke when the
+                                            // row learned to deduplicate, and
+                                            // the item is right here anyway.
+                                            if (focusedItem.contentId == pendingSimilarContentId) {
+                                                similarRestoreFocused.value = true
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     style = TvRowStyle.Poster,
                                     horizontalPadding = Spacing.safeArea,
                                     rowTopPadding = 0.dp,
@@ -715,7 +900,8 @@ private fun TvDetailContent(
                                 detail.contentId,
                                 null,
                                 state.selectedAudioIndex,
-                                state.selectedSubtitleIndex,
+                                state.audioPickedThisSession,
+                                explicitTvSubtitleLaunchSelection(state.selectedSubtitleIndex),
                                 detail.type,
                                 chapter.startSeconds,
                             )
@@ -736,7 +922,7 @@ private fun HeroActionRow(
     viewModel: TvItemDetailViewModel,
     playFocus: FocusRequester,
     selectorFocus: FocusRequester,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, subtitleTrackIndex: Int?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchTogether: (RoomSnapshot) -> Unit,
@@ -767,7 +953,7 @@ private fun HeroActionRow(
         }
     }
     // Series / season detail target the *next-up episode* rather than the
-    // container itself (mirrors prairie-apple's TVSeriesDetailView /
+    // container itself (mirrors silo-apple's TVSeriesDetailView /
     // TVSeasonDetailView). For those types the hero Play button, the resume
     // position, and the inline selector row all bind to the next-up episode's
     // own playback detail; movie / episode detail keep the container behavior.
@@ -812,6 +998,10 @@ private fun HeroActionRow(
         // version, keeping Play and the UI in agreement.
         ?.takeIf { fileId -> selectorVersions.any { it.fileId == fileId } }
     val selectorAudioIndex = if (isSeriesOrSeason) state.selectedNextUpAudioIndex else state.selectedAudioIndex
+    // Provenance has to follow the same branch as the ordinal: a fresh next-up
+    // pick was otherwise reported using the unrelated container-level flag.
+    val selectorAudioPicked =
+        if (isSeriesOrSeason) state.nextUpAudioPickedThisSession else state.audioPickedThisSession
     val selectorSubtitleIndex =
         if (isSeriesOrSeason) state.selectedNextUpSubtitleIndex else state.selectedSubtitleIndex
     val selectorLastFileId = if (isSeriesOrSeason) {
@@ -834,6 +1024,27 @@ private fun HeroActionRow(
     }
     val selectedFileId = selectedVersion?.fileId
     val hasTrackOverride = selectorAudioIndex != null || selectorSubtitleIndex != null
+    // Exactly what the Subtitles pill is displaying — including the Auto
+    // preview — so playback starts on that track instead of re-deciding from
+    // the tracks Media3 happens to have mounted. Built from the SAME version
+    // and the SAME context the pill renders from.
+    val subtitleLaunchSelection = TvPlaybackFormatting.subtitleLaunchSelection(
+        version = selectedVersion,
+        selectedSubtitleTrackIndex = selectorSubtitleIndex,
+        // No displayed version means no displayed pill: stay silent and let the
+        // player resolve, rather than asserting an "Auto - None" nobody saw.
+        autoContext = selectedVersion?.let { version ->
+            TvPlaybackFormatting.SubtitleAutoContext(
+                preferredLanguage = state.preferredSubtitleLanguage,
+                mode = state.subtitleMode,
+                showForced = state.showForcedSubtitles,
+                audioLanguage = TvPlaybackFormatting.resolvedAudioLanguage(
+                    version,
+                    selectorAudioIndex,
+                ),
+            )
+        },
+    )
     val playFileId = selectorSelectedFileId ?: selectedFileId.takeIf { hasTrackOverride }
     // The effective playable version drives the inline playback selector row.
     val isAudiobook = isAudiobookItemType(detail.type)
@@ -887,7 +1098,7 @@ private fun HeroActionRow(
                         playLaunchPending = true
                         onPlay(
                             playContentId, playFileId,
-                            selectorAudioIndex, selectorSubtitleIndex,
+                            selectorAudioIndex, selectorAudioPicked, subtitleLaunchSelection,
                             playType, resumePosition,
                         )
                     }
@@ -906,7 +1117,7 @@ private fun HeroActionRow(
                             playLaunchPending = true
                             onPlay(
                                 playContentId, playFileId,
-                                selectorAudioIndex, selectorSubtitleIndex,
+                                selectorAudioIndex, selectorAudioPicked, subtitleLaunchSelection,
                                 playType, 0.0,
                             )
                         }
@@ -1219,7 +1430,7 @@ private fun EpisodesSection(
                 selectedSeason = state.selectedSeason,
                 onSeasonSelected = onSeasonSelected,
                 onDirectionUp = onReturnToHero,
-                modifier = Modifier.padding(horizontal = Spacing.safeArea),
+                horizontalContentPadding = Spacing.safeArea,
             )
         }
 
@@ -1302,7 +1513,7 @@ internal fun episodeEyebrowLabel(detail: ItemDetail, state: TvItemDetailUiState)
 /**
  * Static, non-focusable placeholder shown in the selector slot while the
  * next-up episode's playback detail loads. Compose-for-TV analogue of
- * prairie-apple's `TVVersionPillPlaceholder` — a dimmed "Version" pill.
+ * silo-apple's `TVVersionPillPlaceholder` — a dimmed "Version" pill.
  */
 @Composable
 private fun TvVersionPillPlaceholder(modifier: Modifier = Modifier) {
@@ -1358,13 +1569,21 @@ private fun DetailsSection(
             .background(
                 color = if (factsFocused) Color.White.copy(alpha = 0.06f) else Color.Transparent,
                 shape = RoundedCornerShape(18.dp),
-            ),
+            )
+            .padding(horizontal = TvDetailsFocusInset, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         TvDetailSectionHeader(title = "Details")
         TvDetailFactsTable(detail = detail)
     }
 }
+
+/**
+ * Inner inset between the Details focus-highlight box and its text; the
+ * caller subtracts it from the safe-area padding so the text stays aligned
+ * with the other sections while the box breathes around it.
+ */
+private val TvDetailsFocusInset = 20.dp
 
 @Composable
 private fun TvAudiobookPartsSection(
@@ -1680,7 +1899,7 @@ private fun org.prairieserver.prairie.model.catalog.LeafItemUserData.resumePosit
  * Hero Play button label. Movie / episode detail keep the plain Play /
  * Resume<hms> form; series / season detail target the next-up episode and read
  * "Play S2 · E3" / "Resume S2 · E3" (series) or "Play E4" / "Resume E4"
- * (season), mirroring prairie-apple's `playButtonLabel(for:)`.
+ * (season), mirroring silo-apple's `playButtonLabel(for:)`.
  */
 private fun playButtonLabel(
     isSeriesOrSeason: Boolean,
@@ -1757,11 +1976,66 @@ internal fun resolveTvDetailHeroArtwork(
 }
 
 /**
- * Pacing for the hero ↔ episodes anchor scrolls — tvOS's detail focus
- * choreography runs `easeInOut(0.45)` (`TVDetailFocusScroll.swift`); 260ms
- * tuned on-device per design review.
+ * The ONE motion spec for every scroll on the detail page — section anchors,
+ * return-to-hero, and the fallback bring-into-view. tvOS's detail focus
+ * choreography runs `easeInOut(0.45)` (`TVDetailFocusScroll.swift`); here a
+ * slightly quicker fast-out/slow-in reads calmer over long distances than
+ * ease-in-out (which lurches mid-flight) and the page no longer mixes a
+ * 260ms anchor with a 620ms rail reveal.
  */
-private val DetailAnchorScrollSpec = tween<Float>(durationMillis = 260, easing = EaseInOut)
+private val DetailAnchorScrollSpec = tween<Float>(durationMillis = 400, easing = FastOutSlowInEasing)
+
+/**
+ * Where a body section's top edge lands when focus enters it, as a fraction
+ * of the viewport height. Anchoring the SECTION (not the focused card) means
+ * Cast, Details and More Like This all frame identically, so each Down is a
+ * uniform section-sized step instead of a gutter nudge of a different size.
+ */
+private const val DetailSectionAnchorFraction = 0.18f
+
+/**
+ * Anchors the section to a fixed viewport line the moment focus ENTERS it
+ * (moving within the section does nothing). [targetY] receives the section's
+ * height and the viewport height and returns the y (in viewport px) its top
+ * should sit at. The generalisation of the episodes-section centering, so
+ * every body section shares one choreography.
+ */
+private fun Modifier.detailSectionAnchor(
+    listState: LazyListState,
+    scope: CoroutineScope,
+    targetY: (sectionHeight: Float, viewportHeight: Float) -> Float,
+): Modifier = composed {
+    var hasFocus by remember { mutableStateOf(false) }
+    var topInRoot by remember { mutableStateOf<Float?>(null) }
+    var height by remember { mutableStateOf(0f) }
+    this
+        .onGloballyPositioned { coords ->
+            topInRoot = coords.positionInRoot().y
+            height = coords.size.height.toFloat()
+        }
+        .onFocusChanged { focusState ->
+            val nowFocused = focusState.hasFocus
+            if (nowFocused && !hasFocus) {
+                scope.launch {
+                    // Let the focus system enqueue its automatic bring-into-view
+                    // first, then cancel/replace that scroll with the anchor.
+                    withFrameNanos { }
+                    if (!hasFocus) return@launch
+                    val top = topInRoot ?: return@launch
+                    val viewport = listState.layoutInfo.viewportSize.height.toFloat()
+                    listState.animateScrollBy(
+                        value = top - targetY(height, viewport),
+                        animationSpec = DetailAnchorScrollSpec,
+                    )
+                }
+            }
+            hasFocus = nowFocused
+        }
+}
+
+/** Section-top anchor shared by Cast, Details and More Like This. */
+private fun Modifier.detailBodySectionAnchor(listState: LazyListState, scope: CoroutineScope): Modifier =
+    detailSectionAnchor(listState, scope) { _, viewport -> viewport * DetailSectionAnchorFraction }
 
 /**
  * Paced anchor scroll used for the return-to-hero jump.
@@ -1781,3 +2055,41 @@ private suspend fun LazyListState.animateScrollToItemPaced(index: Int) {
         animateScrollToItem(index)
     }
 }
+
+/**
+ * Wall-clock budget for the More Like This rail to load a restore target.
+ *
+ * Deliberately short. Landing back on the card you came from is a nicety, and
+ * one that stops being welcome the moment the user has started doing something
+ * else — a restore that fires seconds later reads as the app yanking focus, not
+ * as helpfulness. Past this the ordinary hero fallback runs instead.
+ *
+ * Bounds the DATA wait only. Once the target resolves, focus attachment gets a
+ * further ~80 frames, so the whole restore can outlast this value.
+ */
+/**
+ * Frames the cast return-restore will keep trying for. Was an open-coded
+ * `for (attempt in 0 until 40)`; the number is preserved so the window is the
+ * same length it has always been.
+ */
+private const val CAST_RESTORE_MAX_ATTEMPTS = 40
+
+private const val RESTORE_DATA_TIMEOUT_MS = 1_500L
+
+/**
+ * Wall-clock ceiling on the focus-attachment retries.
+ *
+ * The retry budget is a frame count because attachment is a composition
+ * concern, but a frame count is not a duration — at 24Hz eighty frames is over
+ * three seconds, and with frame production paused it is unbounded. This caps
+ * how long the viewer can be fighting a restore for.
+ */
+private const val RESTORE_ATTACH_TIMEOUT_MS = 2_000L
+
+/** Direction keys that count as the viewer steering for themselves. */
+private val tvDirectionalKeys = setOf(
+    Key.DirectionUp,
+    Key.DirectionDown,
+    Key.DirectionLeft,
+    Key.DirectionRight,
+)

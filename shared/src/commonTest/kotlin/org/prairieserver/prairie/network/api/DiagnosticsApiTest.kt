@@ -2,23 +2,31 @@ package org.prairieserver.prairie.network.api
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpResponseData
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import io.ktor.http.toHttpDate
 import io.ktor.util.date.GMTDate
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.runTest
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsAvailabilityStatus
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsErrorCode
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsUploadResult
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
+import org.prairieserver.prairie.network.DiagnosticsUploadAuthorization
 import org.prairieserver.prairie.network.PrairieAuthPlugin
 import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.TokenManagerImpl
@@ -203,6 +211,106 @@ class DiagnosticsApiTest {
         assertFalse(fixture.requestBody.contains("manifest"))
     }
 
+    @Test
+    fun exactUploadDoesNotProactivelyRefreshWhileIdentityLeaseIsHeld() = runTest {
+        val transitions = DefaultIdentityTransitionBarrier()
+        val tokenManager = TokenManagerImpl(transitions).apply {
+            setServerUrl("https://silo.example")
+            saveTokens("expired-active", "refresh-token", 0)
+            setProfileIdentity("active-profile", "active-profile-token")
+        }
+        val requests = mutableListOf<HttpRequestData>()
+        val client = exactUploadClient(tokenManager) { request ->
+            requests += request
+            respond(
+                content = if (request.url.encodedPath.endsWith("/auth/refresh")) {
+                    """{"access_token":"fresh","refresh_token":"fresh-refresh","expires_in":3600}"""
+                } else {
+                    """{"report_id":"report-1","short_id":"ABC123"}"""
+                },
+                status = HttpStatusCode.Created,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val authorization = exactAuthorization(transitions.generation.value, "captured-access")
+
+        val result = withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(1_000) {
+                transitions.withCurrentGeneration(transitions.generation.value) {
+                    DefaultDiagnosticsApi(client).upload(
+                        byteArrayOf(1),
+                        byteArrayOf(2),
+                        capturedProfileId = "captured-profile",
+                        authorization = authorization,
+                    )
+                }
+            }
+        }
+
+        assertIs<DiagnosticsUploadResult.Success>(result)
+        assertEquals(listOf("/api/v1/diagnostics/reports"), requests.map { it.url.encodedPath })
+        assertEquals("Bearer captured-access", requests.single().headers[HttpHeaders.Authorization])
+        assertEquals("captured-profile", requests.single().headers["X-Profile-Id"])
+        assertNull(requests.single().headers["X-Profile-Token"])
+    }
+
+    @Test
+    fun exactUploadSurfacesUnauthorizedWithoutRefreshOrSessionInvalidationUnderLease() = runTest {
+        val transitions = DefaultIdentityTransitionBarrier()
+        val tokenManager = TokenManagerImpl(transitions).apply {
+            setServerUrl("https://silo.example")
+            saveTokens("rejected-active", "refresh-token", 3_600)
+        }
+        val paths = mutableListOf<String>()
+        val client = exactUploadClient(tokenManager) { request ->
+            paths += request.url.encodedPath
+            respond(
+                content = """{"error":"unauthorized","message":"expired"}""",
+                status = HttpStatusCode.Unauthorized,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val authorization = exactAuthorization(transitions.generation.value, "rejected-active")
+
+        val result = withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(1_000) {
+                transitions.withCurrentGeneration(transitions.generation.value) {
+                    DefaultDiagnosticsApi(client).upload(
+                        byteArrayOf(1),
+                        byteArrayOf(2),
+                        capturedProfileId = null,
+                        authorization = authorization,
+                    )
+                }
+            }
+        }
+
+        val failure = assertIs<DiagnosticsUploadResult.Failure>(result)
+        assertEquals(DiagnosticsErrorCode.UNAUTHORIZED, failure.code)
+        assertEquals(listOf("/api/v1/diagnostics/reports"), paths)
+        assertEquals("rejected-active", tokenManager.getAccessToken())
+        assertEquals("refresh-token", tokenManager.getRefreshToken())
+    }
+
+    private fun exactUploadClient(
+        tokenManager: TokenManagerImpl,
+        handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
+    ): HttpClient = HttpClient(MockEngine(handler)) {
+        install(ContentNegotiation) { json(PrairieJson) }
+        install(PrairieAuthPlugin) { this.tokenManager = tokenManager }
+    }
+
+    private fun exactAuthorization(
+        identityGeneration: Long,
+        accessToken: String,
+    ) = DiagnosticsUploadAuthorization(
+        serverId = "server-1",
+        serverUrl = "https://silo.example",
+        accessToken = accessToken,
+        activeProfileId = "active-profile",
+        identityGeneration = identityGeneration,
+    )
+
     private suspend fun fixture(
         responseStatus: HttpStatusCode = HttpStatusCode.OK,
         responseBody: String = if (responseStatus == HttpStatusCode.Created) {
@@ -222,7 +330,7 @@ class DiagnosticsApiTest {
         retryAfterHeader: String? = retryAfterSeconds?.toString(),
     ): Fixture {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://prairie.example")
+            setServerUrl("https://silo.example")
             saveTokens("access-token", "refresh-token", 3_600)
             setProfileId("active-profile")
             setProfileToken("active-profile-token")

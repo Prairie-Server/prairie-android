@@ -98,7 +98,7 @@ fun InviteClaimScreen(
     }
 
     AuroraScreen(variant = AuroraVariant.SignIn, scrim = AuroraScrim.Soft) {
-        SiloLogo()
+        PrairieLogo()
         Spacer(Modifier.height(30.dp))
 
         when {

@@ -9,12 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -24,11 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.common.player.SleepTimerState
-import kotlinx.coroutines.launch
 
 /**
  * Glass-style bottom sheet for arming the sleep timer. Mirrors iOS
@@ -52,31 +53,30 @@ fun SleepTimerSheet(
     // Gear-submenu back affordance: dismisses this sheet and reopens the
     // parent settings sheet (wired in PlayerOverlay).
     onBack: (() -> Unit)? = null,
+    tabletopPaneHeight: Dp? = null,
 ) {
     if (!isVisible) return
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val dismissSheet = { scope.dismissPlayerSheet(sheetState, onDismiss) }
 
     LaunchedEffect(isVisible) {
         if (isVisible) sheetState.show()
     }
 
-    ModalBottomSheet(
-        onDismissRequest = {
-            scope.launch { sheetState.hide() }
-            onDismiss()
-        },
+    PlayerModalBottomSheet(
+        onDismissRequest = dismissSheet,
         sheetState = sheetState,
-        containerColor = Color.Transparent,
-        contentColor = Color.White,
+        tabletopPaneHeight = tabletopPaneHeight,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 // Keep the sheet handle below the top screen edge — see
                 // PlayerSheetSupport.
-                .heightIn(max = playerSheetMaxHeight())
+                .playerSheetContent(tabletopPaneHeight)
+                .nestedScroll(PlayerSheetFlingGuard)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
@@ -86,15 +86,17 @@ fun SleepTimerSheet(
                     ),
                 ),
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 PlayerSheetHeader(
                     title = "Sleep Timer",
                     onBack = onBack?.let { back ->
-                        {
-                            scope.launch { sheetState.hide() }
-                            back()
-                        }
+                        { scope.dismissPlayerSheet(sheetState, back) }
                     },
+                    onDismiss = dismissSheet,
                 )
 
                 if (activeState is SleepTimerState.Active) {
@@ -114,8 +116,7 @@ fun SleepTimerSheet(
                         isSelected = preset.minutes == defaultMinutes,
                         onClick = {
                             onStart(preset.minutes)
-                            scope.launch { sheetState.hide() }
-                            onDismiss()
+                            dismissSheet()
                         },
                     )
                 }
@@ -128,8 +129,7 @@ fun SleepTimerSheet(
                         isDestructive = true,
                         onClick = {
                             onCancel()
-                            scope.launch { sheetState.hide() }
-                            onDismiss()
+                            dismissSheet()
                         },
                     )
                 }

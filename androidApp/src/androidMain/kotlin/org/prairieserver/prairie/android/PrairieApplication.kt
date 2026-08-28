@@ -74,6 +74,14 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
         }.onFailure {
             android.util.Log.w("PrairieApplication", "PrairieCast foreground starter init failed", it)
         }
+        runCatching {
+            org.prairieserver.prairie.android.cast.PrairieCastMediaSessionStarter(
+                context = this@PrairieApplication,
+                controller = koinApp.koin.get(),
+            ).start()
+        }.onFailure {
+            android.util.Log.w("PrairieApplication", "PrairieCast media-session starter init failed", it)
+        }
         // Configuration.Provider wasn't reliably picked up by WM's androidx.startup
         // auto-init (the auto-init seemed to win the race, leaving WM with its
         // default reflection-based WorkerFactory). Force-initialise explicitly
@@ -111,13 +119,13 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
         // for cold start.
         runCatching {
             org.prairieserver.prairie.common.downloads.installOrphanedServerDataPurge(
-                context = this@SiloApplication,
+                context = this@PrairieApplication,
                 registry = koinApp.koin.get(),
                 database = koinApp.koin.get(),
                 storage = koinApp.koin.get(),
             )
         }.onFailure {
-            android.util.Log.w("SiloApplication", "Orphaned server purge init failed", it)
+            android.util.Log.w("PrairieApplication", "Orphaned server purge init failed", it)
         }
         // One-time migration: drain the legacy .record.json download sidecar tree
         // into Room so pre-cutover downloads keep their metadata. Guarded — never

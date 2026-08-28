@@ -3,7 +3,7 @@ require "fileutils"
 require "tmpdir"
 
 # Root-level Fastfile — Android lane for Google Play releases. Mirrors the
-# structure of prairie-apple's Fastfile:
+# structure of silo-apple's Fastfile:
 #
 #   android beta — build both App Bundles, upload to a Play testing track
 #
@@ -38,14 +38,14 @@ TV_AAB = File.expand_path("../androidTvApp/build/outputs/bundle/release/androidT
 # Loads the Play publisher service-account key.
 #
 # CI path:   raw JSON from the PLAY_SERVICE_ACCOUNT_JSON env var.
-# Local path: read ~/.playstore/prairie-play-publisher.json from disk.
+# Local path: read ~/.playstore/silo-play-publisher.json from disk.
 #
-# Same CI/local duality as prairie-apple's setup_api_key.
+# Same CI/local duality as silo-apple's setup_api_key.
 def play_json_key_data
   raw = ENV["PLAY_SERVICE_ACCOUNT_JSON"].to_s
   return raw unless raw.strip.empty?
 
-  key_path = File.expand_path("~/.playstore/prairie-play-publisher.json")
+  key_path = File.expand_path("~/.playstore/silo-play-publisher.json")
   UI.user_error!(
     "Play service-account key not found at #{key_path}. " \
     "Either place the JSON key file there or set PLAY_SERVICE_ACCOUNT_JSON."
@@ -62,7 +62,7 @@ end
 # TestFlight model, folded into the versionCode because Play has no separate
 # build-number field. The value also flows into Gradle -P properties, so the
 # strict format doubles as the last gate against shell/property injection
-# (same threat model as prairie-apple's marketing_version_xcarg).
+# (same threat model as silo-apple's marketing_version_xcarg).
 def resolve_release_version
   version = ENV["PRAIRIE_VERSION_NAME"].to_s.strip
   UI.user_error!("PRAIRIE_VERSION_NAME must be set (e.g. 1.4.0)") if version.empty?
@@ -126,7 +126,7 @@ end
 def resolve_release_keystore
   b64 = ENV["PRAIRIE_RELEASE_KEYSTORE_B64"].to_s
   unless b64.strip.empty?
-    keystore_path = File.join(Dir.mktmpdir("prairie-release-keystore"), "prairie-release.jks")
+    keystore_path = File.join(Dir.mktmpdir("silo-release-keystore"), "silo-release.jks")
     File.binwrite(keystore_path, Base64.decode64(b64))
     return keystore_path
   end
@@ -180,7 +180,7 @@ end
 # Play's "What's new" note (500-char limit), written to the supply metadata
 # changelog that applies to every version code in the release (default.txt).
 # Set PLAY_RELEASE_NOTES for an explicit note; falls back to the released
-# commit's subject — same pattern as prairie-apple's TESTFLIGHT_CHANGELOG.
+# commit's subject — same pattern as silo-apple's TESTFLIGHT_CHANGELOG.
 def write_play_changelog
   notes = ENV["PLAY_RELEASE_NOTES"].to_s.strip
   notes = sh("git log -1 --pretty=format:%s", log: false).strip if notes.empty?
@@ -206,7 +206,7 @@ platform :android do
     write_play_changelog
 
     UI.message(
-      "Releasing Prairie #{version} build #{build} to the #{track} track " \
+      "Releasing Silo #{version} build #{build} to the #{track} track " \
       "(base code #{base_code} → phone #{base_code * 2}, TV #{base_code * 2 + 1})"
     )
 
@@ -218,8 +218,15 @@ platform :android do
     gradle(
       tasks: [":androidApp:bundleRelease", ":androidTvApp:bundleRelease"],
       properties: {
-        "prairieVersionName" => version,
-        "prairieVersionCode" => base_code,
+        "siloVersionName" => version,
+        "siloVersionCode" => base_code,
+        # The build counter as its own value: it is already folded into
+        # base_code, but the app reports it verbatim to the server.
+        "siloBuildNumber" => build,
+        # The track these bundles are actually uploaded to, so a beta-track
+        # tester and a production user are distinguishable in admin Activity
+        # instead of both reporting a generic "release".
+        "siloReleaseChannel" => track,
       },
       system_properties: {
         "org.gradle.jvmargs" => "-Xmx4g -Dfile.encoding=UTF-8",
@@ -255,6 +262,6 @@ platform :android do
       timeout: 900,
     )
 
-    UI.success("Uploaded Prairie #{version} build #{build} (phone #{base_code * 2} + TV #{base_code * 2 + 1}) to the #{track} track.")
+    UI.success("Uploaded Silo #{version} build #{build} (phone #{base_code * 2} + TV #{base_code * 2 + 1}) to the #{track} track.")
   end
 end

@@ -59,16 +59,13 @@ import org.prairieserver.prairie.android.ui.components.aurora.AuroraBackdrop
 import org.prairieserver.prairie.android.ui.components.aurora.AuroraScrim
 import org.prairieserver.prairie.android.ui.components.aurora.AuroraVariant
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
-import org.prairieserver.prairie.common.ui.components.isImageAvatar
+import org.prairieserver.prairie.common.ui.components.avatarRef
+import org.prairieserver.prairie.common.ui.components.isEmojiAvatar
 import org.prairieserver.prairie.common.ui.components.profileAvatarDisplayText
-import org.prairieserver.prairie.common.ui.components.rememberProfileServerUrl
-import org.prairieserver.prairie.common.ui.components.resolveAvatarUrl
+import org.prairieserver.prairie.common.ui.components.rememberProfileAvatarImage
 import org.prairieserver.prairie.model.profile.Profile
 import androidx.compose.runtime.remember
 import org.koin.compose.viewmodel.koinViewModel
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.filled.Check
 
 /**
  * Grid of profile avatars shown after login.
@@ -125,23 +122,11 @@ fun ProfileSelectionScreen(
             },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmDeleteProfile) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissDeleteDialog) { Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier = Modifier.width(8.dp))
-                    Text("Cancel") }
+                TextButton(onClick = viewModel::dismissDeleteDialog) { Text("Cancel") }
             },
         )
     }
@@ -150,7 +135,7 @@ fun ProfileSelectionScreen(
     state.pinDialogProfile?.let { profile ->
         PINEntryDialog(
             profileName = profile.name,
-            profileAvatar = profile.avatar,
+            profileAvatar = profile.avatarRef(),
             isLoading = state.pinIsVerifying,
             error = state.pinError,
             onPinComplete = viewModel::onPinEntered,
@@ -218,13 +203,6 @@ fun ProfileSelectionScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 TextButton(onClick = viewModel::toggleManageMode) {
-                    Icon(
-                        imageVector = if (state.isManageMode) Icons.Default.Check else Icons.Default.Edit,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = AuthColors.OnBackground,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (state.isManageMode) "Done" else "Manage Profiles",
                         fontSize = 15.sp,
@@ -359,12 +337,8 @@ private fun ProfileCard(
 @Composable
 private fun ProfileTileBody(profile: Profile, tint: Color) {
     val shape = RoundedCornerShape(TileCornerRadius)
-    val avatar = profile.avatar?.trim().orEmpty()
-    val serverUrl = rememberProfileServerUrl()
-    val resolvedAvatarUrl = remember(avatar, serverUrl) {
-        avatar.takeIf { it.isNotEmpty() && isImageAvatar(it) }
-            ?.let { resolveAvatarUrl(serverUrl, it) }
-    }
+    val avatar = profile.avatarRef()
+    val avatarImage = rememberProfileAvatarImage(avatar)
 
     Box(
         modifier = Modifier
@@ -384,9 +358,9 @@ private fun ProfileTileBody(profile: Profile, tint: Color) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (resolvedAvatarUrl != null) {
+        if (avatarImage != null) {
             ThumbhashImage(
-                url = resolvedAvatarUrl,
+                url = avatarImage.url,
                 thumbhash = null,
                 contentDescription = "${profile.name} avatar",
                 modifier = Modifier
@@ -394,15 +368,17 @@ private fun ProfileTileBody(profile: Profile, tint: Color) {
                     .clip(shape),
                 contentScale = ContentScale.Crop,
                 transparent = true,
+                cacheKey = avatarImage.cacheKey,
+                onError = avatarImage.onLoadFailed,
             )
-        } else if (avatar.isNotEmpty() && !isImageAvatar(avatar)) {
+        } else if (isEmojiAvatar(avatar)) {
             Text(
-                text = avatar,
+                text = avatar.avatar.orEmpty().trim(),
                 fontSize = TileEmojiSize.sp,
             )
         } else {
             Text(
-                text = profileAvatarDisplayText(avatar = profile.avatar, name = profile.name),
+                text = profileAvatarDisplayText(avatar = avatar, name = profile.name),
                 fontSize = TileInitialSize.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White.copy(alpha = 0.92f),

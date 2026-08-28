@@ -1,7 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.browse
 
 import androidx.lifecycle.SavedStateHandle
-import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesSubtab
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.android.ui.screens.reading.ReadingHubViewModel
@@ -21,16 +20,18 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -40,11 +41,11 @@ class CatalogLetterIndexViewModelTest {
     @Test
     fun browseLetterSelectionUsesServerNamePrefixAndResetsPagination() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
-        val repositories = repositoriesFor(requests)
-        val viewModel = track(BrowseViewModel(
+        val repositories = repositoriesFor(requests, StandardTestDispatcher(testScheduler))
+        val viewModel = BrowseViewModel(
             catalogRepository = repositories.catalog,
             savedStateHandle = SavedStateHandle(mapOf("libraryId" to "1")),
-        ))
+        )
         awaitState { viewModel.uiState.value.items.map { it.contentId } == listOf("all-1") }
 
         viewModel.loadMore()
@@ -62,11 +63,11 @@ class CatalogLetterIndexViewModelTest {
     @Test
     fun browseDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
-        val repositories = repositoriesFor(requests)
-        val viewModel = track(BrowseViewModel(
+        val repositories = repositoriesFor(requests, StandardTestDispatcher(testScheduler))
+        val viewModel = BrowseViewModel(
             catalogRepository = repositories.catalog,
             savedStateHandle = SavedStateHandle(mapOf("libraryId" to "1")),
-        ))
+        )
         awaitState { viewModel.uiState.value.items.map { it.contentId } == listOf("all-1") }
         val catalogRequestCount = requests.catalogRequestCount()
 
@@ -79,12 +80,12 @@ class CatalogLetterIndexViewModelTest {
     @Test
     fun librariesBrowseLetterSelectionUsesServerNamePrefix() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
-        val repositories = repositoriesFor(requests)
-        val viewModel = track(LibrariesViewModel(
+        val repositories = repositoriesFor(requests, StandardTestDispatcher(testScheduler))
+        val viewModel = LibrariesViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        ))
+        )
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
 
         viewModel.selectTab(LibrariesSubtab.Browse)
@@ -100,12 +101,12 @@ class CatalogLetterIndexViewModelTest {
     @Test
     fun librariesDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
-        val repositories = repositoriesFor(requests)
-        val viewModel = track(LibrariesViewModel(
+        val repositories = repositoriesFor(requests, StandardTestDispatcher(testScheduler))
+        val viewModel = LibrariesViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        ))
+        )
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
         viewModel.selectTab(LibrariesSubtab.Browse)
         awaitState { viewModel.uiState.value.catalogItems.map { it.contentId } == listOf("all-1") }
@@ -120,12 +121,12 @@ class CatalogLetterIndexViewModelTest {
     @Test
     fun readingBrowseLetterSelectionUsesServerNamePrefix() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
-        val repositories = repositoriesFor(requests)
-        val viewModel = track(ReadingHubViewModel(
+        val repositories = repositoriesFor(requests, StandardTestDispatcher(testScheduler))
+        val viewModel = ReadingHubViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        ))
+        )
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
 
         viewModel.selectTab(LibrariesSubtab.Browse)
@@ -141,12 +142,12 @@ class CatalogLetterIndexViewModelTest {
     @Test
     fun readingDensitySelectionUpdatesLayoutWithoutReloadingCatalog() = runCatalogTest {
         val requests = mutableListOf<RequestRecord>()
-        val repositories = repositoriesFor(requests)
-        val viewModel = track(ReadingHubViewModel(
+        val repositories = repositoriesFor(requests, StandardTestDispatcher(testScheduler))
+        val viewModel = ReadingHubViewModel(
             personalDataRepository = repositories.personal,
             sectionRepository = repositories.sections,
             catalogRepository = repositories.catalog,
-        ))
+        )
         awaitState { !viewModel.uiState.value.isLoadingLibraries }
         viewModel.selectTab(LibrariesSubtab.Browse)
         awaitState { viewModel.uiState.value.catalogItems.map { it.contentId } == listOf("all-1") }
@@ -158,34 +159,44 @@ class CatalogLetterIndexViewModelTest {
         assertEquals(catalogRequestCount, requests.catalogRequestCount())
     }
 
-    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
-    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
-    // throws IllegalStateException from TestMainDispatcher.
-    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
-
-    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
-        createdViewModels += viewModel
-        return viewModel
-    }
-
-    private fun runCatalogTest(block: suspend () -> Unit) = runTest {
+    private fun runCatalogTest(block: suspend TestScope.() -> Unit) = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             block()
         } finally {
-            createdViewModels.forEach { it.viewModelScope.cancel() }
-            createdViewModels.clear()
             Dispatchers.resetMain()
         }
     }
 
-    private suspend fun awaitState(predicate: () -> Boolean) {
-        withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(5_000) {
+    /**
+     * Wait for the view model to reach a state, in REAL time.
+     *
+     * Real time is not a shortcut here, it is forced: the Ktor engine backing
+     * these repositories completes on its own dispatcher, so the work is on
+     * actual threads and the test scheduler can neither see it nor advance it.
+     * Draining the scheduler instead — which is what determinism would
+     * require — returns before any response has arrived.
+     *
+     * The flake this replaces was the budget, not the mechanism. Five seconds
+     * is ample on an idle machine and not always ample when Gradle is running
+     * several test modules in parallel on the same cores, so the failure was
+     * load-dependent rather than logical. The budget below is generous because
+     * the only cost of generosity is how long a genuinely broken test takes to
+     * report, while the cost of tightness is a red build that means nothing.
+     *
+     * Making this properly deterministic needs the engine dispatcher to be
+     * injectable the way SectionRepository's already is — a production-side
+     * change, not a test one.
+     */
+    private suspend fun awaitState(description: String = "expected state", predicate: () -> Boolean) {
+        withContext(Dispatchers.IO) {
+            val deadline = withTimeoutOrNull(AwaitStateBudgetMillis) {
                 while (!predicate()) {
                     delay(10)
                 }
+                true
             }
+            assertTrue(deadline == true, "view model never reached $description")
         }
     }
 
@@ -207,7 +218,16 @@ class CatalogLetterIndexViewModelTest {
     private fun List<RequestRecord>.catalogRequestCount(): Int =
         count { it.path == "/api/v1/catalog" }
 
-    private fun repositoriesFor(requests: MutableList<RequestRecord>): Repositories {
+    /**
+     * [homeRequestDispatcher] is the seam that makes this deterministic.
+     * SectionRepository otherwise fans its library requests out on
+     * Dispatchers.Default, which is a real thread pool the test scheduler
+     * cannot see or wait for.
+     */
+    private fun repositoriesFor(
+        requests: MutableList<RequestRecord>,
+        homeRequestDispatcher: CoroutineDispatcher,
+    ): Repositories {
         val client = HttpClient(
             MockEngine { request ->
                 requests += RequestRecord(
@@ -231,7 +251,7 @@ class CatalogLetterIndexViewModelTest {
         }
         return Repositories(
             personal = PersonalDataRepository(PersonalDataApi(client)),
-            sections = SectionRepository(SectionApi(client)),
+            sections = SectionRepository(SectionApi(client), homeRequestDispatcher = homeRequestDispatcher),
             catalog = CatalogRepository(CatalogApi(client)),
         )
     }
@@ -255,5 +275,13 @@ class CatalogLetterIndexViewModelTest {
               ]
             }
         """.trimIndent()
+    }
+
+    private companion object {
+        /**
+         * Deliberately far beyond what the work needs. It exists to catch a
+         * hang, not to police latency on a loaded build machine.
+         */
+        const val AwaitStateBudgetMillis = 30_000L
     }
 }

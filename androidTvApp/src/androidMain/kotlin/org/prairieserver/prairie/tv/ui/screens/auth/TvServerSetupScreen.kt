@@ -1,33 +1,5 @@
 package org.prairieserver.prairie.tv.ui.screens.auth
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
@@ -35,74 +7,100 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.focus.onFocusEvent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.AlertDialog
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import org.prairieserver.prairie.tv.R
+import kotlinx.coroutines.delay
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.common.pairing.PairingReceiver
 import org.prairieserver.prairie.common.pairing.PairingReceiverStatus
 import org.prairieserver.prairie.common.pairing.TvPairingAdvertiser
+import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.tv.ui.components.AuroraAccent
 import org.prairieserver.prairie.tv.ui.components.AuroraEyebrow
-import org.prairieserver.prairie.tv.ui.components.AuroraInk
-import org.prairieserver.prairie.tv.ui.components.auroraGlass
 import org.prairieserver.prairie.tv.ui.components.AuroraGhostButton
+import org.prairieserver.prairie.tv.ui.components.AuroraInk
 import org.prairieserver.prairie.tv.ui.components.AuroraJourneyProgress
 import org.prairieserver.prairie.tv.ui.components.AuroraPrimaryButton
 import org.prairieserver.prairie.tv.ui.components.TvAuroraBackdrop
 import org.prairieserver.prairie.tv.ui.components.TvAuroraVariant
+import org.prairieserver.prairie.tv.ui.components.TvHideStockImeOnDispose
+import org.prairieserver.prairie.tv.ui.components.auroraGlass
+import org.prairieserver.prairie.tv.ui.components.rememberTvImeAwareFormScrollState
+import org.prairieserver.prairie.tv.ui.components.tvImeAwareFieldContext
+import org.prairieserver.prairie.tv.ui.components.tvShowImeOnSelect
+import org.prairieserver.prairie.tv.ui.components.TvAuthFormDefaults
 import org.prairieserver.prairie.tv.ui.components.tvOutlinedTextFieldColors
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.TvFocusLog
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.theme.Spacing
-import org.koin.compose.koinInject
-import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Server setup — connects the app to a Prairie server.
+ * Server setup — connects the app to a Silo server.
  *
  * While idle, this mirrors tvOS `TVServerSetupView`, scaled for the Shield's
  * ~960×540dp canvas (the iOS source is laid out in 1920×1080 points): the
@@ -128,27 +126,43 @@ fun TvServerSetupScreen(
     val pairingStatus by pairingReceiver.status.collectAsState()
     val focusRequester = remember { FocusRequester() }
     val phoneSetupFocus = remember { FocusRequester() }
-    val urlBringIntoView = remember { BringIntoViewRequester() }
-    val connectBringIntoView = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
+    var phoneCardHasFocus by remember { mutableStateOf(false) }
+    val formScrollState = rememberTvImeAwareFormScrollState()
     val isActivePairing = pairingStatus.isActivePairing
 
-    // Companion LAN pairing: advertise `_prairiepair._tcp` while this screen is on
-    // so a phone running Prairie can push the server URL + drive device-login,
+    // Companion LAN pairing: advertise `_silopair._tcp` while this screen is on
+    // so a phone running Silo can push the server URL + drive device-login,
     // sparing the viewer from typing a URL on the remote. Advertising stops
     // when the screen leaves the composition.
     DisposableEffect(Unit) {
         pairingAdvertiser.start()
         onDispose { pairingAdvertiser.stop() }
     }
-    LaunchedEffect(isActivePairing) {
-        if (!isActivePairing) {
-            // Always land on the server-address field, matching tvOS
-            // (TVServerSetupView `.defaultFocus(.host)`). The user chooses "Set
-            // up with phone" by navigating to it — we don't pre-select it for
-            // them (Jim TV QA 2026-07-10). Returning users keep the pre-filled
-            // field focused too.
-            runCatching { focusRequester.requestFocus() }
+    // Snapshot-backed: re-keys the claim when the viewer switches between
+    // pointer and key input.
+    val inputMode = LocalInputModeManager.current.inputMode
+    LaunchedEffect(isActivePairing, inputMode) {
+        // Pointer users click what they want — and in touch mode the claim
+        // could not land anyway. Re-run on mode flip so the D-pad always has
+        // somewhere to start.
+        if (!isActivePairing && inputMode != InputMode.Touch) {
+            // Land on the phone-pairing card: companion setup is the
+            // recommended path, so it gets first focus (product call
+            // 2026-08-14, reversing the 2026-07-10 field-first default).
+            // Landing on the URL field also popped the IME over the form,
+            // and the IME resize scrolled the header chrome off-screen.
+            TvFocusLog.d { "serverSetup: claiming phone card (mode=$inputMode)" }
+            val result = requestFocusUntilObserved(
+                maxAttempts = TvContentInitialFocusMaxAttempts,
+                awaitAttempt = { withFrameNanos { } },
+                requestFocus = phoneSetupFocus::requestFocus,
+                isFocused = { phoneCardHasFocus },
+            )
+            TvFocusLog.d { "serverSetup: claim result=$result" }
+        } else {
+            TvFocusLog.d {
+                "serverSetup: claim skipped (pairing=$isActivePairing, mode=$inputMode)"
+            }
         }
     }
     LaunchedEffect(pairingStatus) {
@@ -237,7 +251,7 @@ fun TvServerSetupScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(formScrollState)
                     .padding(horizontal = 48.dp, vertical = 32.dp),
             ) {
                 Row(
@@ -248,7 +262,7 @@ fun TvServerSetupScreen(
                     BrandHeader()
                     AuroraJourneyProgress(
                         currentStep = 1,
-                        modifier = Modifier.width(230.dp),
+                        modifier = Modifier.width(215.dp),
                     )
                 }
 
@@ -289,11 +303,28 @@ fun TvServerSetupScreen(
                         modifier = Modifier
                             .widthIn(max = 642.dp)
                             .fillMaxWidth()
-                            .height(SERVER_SETUP_CHOOSER_HEIGHT),
+                            // Intrinsic-min, floored — not a bare heightIn and
+                            // not an exact height. Both of those fail, in
+                            // opposite directions:
+                            //  - a loose max makes the cards' fillMaxHeight a
+                            //    no-op, so the phone card collapses to its pill
+                            //    and the weight(1f) beacon box measures zero;
+                            //  - an exact height clips the taller card, which
+                            //    at 300dp squeezed "Connect to server" down to
+                            //    a blank pill (label measured 6px in a 96px
+                            //    button).
+                            // Resolving the intrinsic first hands the Row a
+                            // tight height, so fillMaxHeight still resolves,
+                            // while the floor keeps the chooser at a real card
+                            // height when content is short. tvOS pins 580pt;
+                            // here the content decides above that floor.
+                            .height(IntrinsicSize.Min)
+                            .heightIn(min = SERVER_SETUP_CHOOSER_MIN_HEIGHT),
                     ) {
                         PhoneSetupCard(
                             focusRequester = phoneSetupFocus,
                             modifier = Modifier
+                                .onFocusChanged { phoneCardHasFocus = it.hasFocus }
                                 .weight(1f)
                                 .fillMaxHeight(),
                         )
@@ -307,9 +338,6 @@ fun TvServerSetupScreen(
                             onServerUrlChanged = viewModel::onServerUrlChanged,
                             onConnectClick = viewModel::onConnectClick,
                             focusRequester = focusRequester,
-                            urlBringIntoView = urlBringIntoView,
-                            connectBringIntoView = connectBringIntoView,
-                            scope = scope,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -345,12 +373,12 @@ private fun PhoneSetupCard(
             )
             .padding(24.dp),
     ) {
+        // Top-leading pill, matching tvOS TVServerSetupView.phoneCard.
         Text(
             text = "RECOMMENDED · USE PHONE",
             style = TvServerSetupTextStyles.Pill,
             color = Color.White.copy(alpha = 0.70f),
             modifier = Modifier
-                .align(Alignment.CenterHorizontally)
                 .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(50))
                 .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(50))
                 .padding(horizontal = 14.dp, vertical = 7.dp),
@@ -369,36 +397,43 @@ private fun PhoneSetupCard(
 
 @Composable
 private fun PhoneSetupBody(modifier: Modifier = Modifier) {
+    // Beacon centered, copy left-aligned beneath it — mirrors tvOS
+    // TVServerSetupView.phoneCard (iPhone → phone).
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         SearchingBeacon(
-            modifier = Modifier.size(PHONE_SETUP_BEACON_SIZE),
+            modifier = Modifier
+                .size(PHONE_SETUP_BEACON_SIZE)
+                .align(Alignment.CenterHorizontally),
         )
 
         Text(
-            text = "Looking for your phone…",
+            text = "Looking for a phone…",
             style = TvServerSetupTextStyles.Headline,
             color = Color.White,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            text = "Open Prairie on your phone on this Wi-Fi to set up this TV without typing.",
+            text = "Open Silo on a phone connected to the same Wi-Fi. Accept the " +
+                "setup card and Silo will securely bring over the server and account.",
             style = TvServerSetupTextStyles.PairingDetail,
             color = Color.White.copy(alpha = 0.72f),
-            maxLines = 2,
+            maxLines = 4,
             overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
     }
 }
 
 private val PHONE_SETUP_BEACON_SIZE = 96.dp
-private val SERVER_SETUP_CHOOSER_HEIGHT = 300.dp
+
+/**
+ * Floor for the phone/manual chooser. The manual card's intrinsic height
+ * normally exceeds this; the floor only matters when it doesn't, keeping the
+ * phone card from collapsing to its pill.
+ */
+private val SERVER_SETUP_CHOOSER_MIN_HEIGHT = 300.dp
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -407,75 +442,65 @@ private fun ManualEntryCard(
     onServerUrlChanged: (String) -> Unit,
     onConnectClick: () -> Unit,
     focusRequester: FocusRequester,
-    urlBringIntoView: BringIntoViewRequester,
-    connectBringIntoView: BringIntoViewRequester,
-    scope: CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
-    val keyboardController = LocalSoftwareKeyboardController.current
+    TvHideStockImeOnDispose()
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         modifier = modifier
             .auroraGlass(16.dp, emphasized = true)
-            .verticalScroll(rememberScrollState())
             .padding(24.dp),
     ) {
-        Text(
-            text = "Enter it here",
-            style = TvServerSetupTextStyles.Headline,
-            color = Color.White,
-        )
-
-        Text(
-            text = "SERVER ADDRESS",
-            style = TvServerSetupTextStyles.InputLabel,
-            color = Color.White.copy(alpha = 0.52f),
-        )
-
-        OutlinedTextField(
-            value = state.serverUrl,
-            onValueChange = onServerUrlChanged,
-            placeholder = {
-                Text(
-                    text = "media.example.com",
-                    style = TvServerSetupTextStyles.FieldText,
-                )
-            },
-            singleLine = true,
-            textStyle = TvServerSetupTextStyles.FieldText,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Go,
-                showKeyboardOnFocus = false,
-            ),
-            keyboardActions = KeyboardActions(
-                onGo = {
-                    if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
-                        onConnectClick()
-                    }
-                },
-            ),
-            enabled = !state.isLoading,
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp)
-                .bringIntoViewRequester(urlBringIntoView)
-                .onFocusEvent { fs ->
-                    if (fs.isFocused) scope.launch { urlBringIntoView.bringIntoView() }
-                }
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyUp &&
-                        (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
-                    ) {
-                        keyboardController?.show()
-                        true
-                    } else {
-                        false
-                    }
-                }
-                .focusRequester(focusRequester),
-            colors = tvOutlinedTextFieldColors(),
-        )
+                .tvImeAwareFieldContext(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            Text(
+                text = "Enter the server address",
+                style = TvServerSetupTextStyles.Headline,
+                color = Color.White,
+            )
+
+            Text(
+                text = "SERVER ADDRESS",
+                style = TvServerSetupTextStyles.InputLabel,
+                color = Color.White.copy(alpha = 0.52f),
+            )
+
+            OutlinedTextField(
+                value = state.serverUrl,
+                onValueChange = onServerUrlChanged,
+                placeholder = {
+                    Text(
+                        text = "silo.example.com",
+                        style = TvServerSetupTextStyles.FieldText,
+                    )
+                },
+                singleLine = true,
+                textStyle = TvServerSetupTextStyles.FieldText,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Go,
+                    showKeyboardOnFocus = false,
+                ),
+                keyboardActions = KeyboardActions(
+                    onGo = {
+                        if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
+                            onConnectClick()
+                        }
+                    },
+                ),
+                enabled = !state.isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(TvAuthFormDefaults.FieldHeight)
+                    .tvShowImeOnSelect()
+                    .focusRequester(focusRequester),
+                colors = tvOutlinedTextFieldColors(),
+            )
+        }
 
         UrlShortcutRow(
             enabled = !state.isLoading,
@@ -497,18 +522,32 @@ private fun ManualEntryCard(
                 style = TvServerSetupTextStyles.Error,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        } else {
+            // Mirrors tvOS's lock.shield reassurance line. Truthful here too:
+            // bare hosts probe https:// first and fall to http:// only when
+            // the viewer typed it (probeTvServerSetupCandidates).
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.72f),
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = "Secure HTTPS is tried automatically.",
+                    style = TvServerSetupTextStyles.PairingDetail,
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+            }
         }
 
-        Box(
-            modifier = Modifier
-                .bringIntoViewRequester(connectBringIntoView)
-                .onFocusEvent { fs ->
-                    if (fs.hasFocus) scope.launch { connectBringIntoView.bringIntoView() }
-                },
-        ) {
+        Box {
             AuroraPrimaryButton(
-                label = if (state.isLoading) "Connecting…" else "Connect",
-                icon = Icons.Default.Link,
+                label = if (state.isLoading) "Connecting…" else "Connect to server",
+                icon = null,
                 enabled = canSubmitTvServerUrl(state.serverUrl, state.isLoading),
                 onClick = {
                     if (canSubmitTvServerUrl(state.serverUrl, state.isLoading)) {
@@ -517,7 +556,7 @@ private fun ManualEntryCard(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp),
+                    .height(TvAuthFormDefaults.PrimaryButtonHeight),
             )
         }
     }
@@ -562,11 +601,16 @@ private fun OrDivider(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         modifier = modifier,
     ) {
+        // Hairlines fade toward the screen edges, matching tvOS orDivider.
         Box(
             modifier = Modifier
                 .width(1.dp)
                 .weight(1f)
-                .background(Color.White.copy(alpha = 0.16f)),
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.White.copy(alpha = 0.16f)),
+                    ),
+                ),
         )
         Text(
             text = "OR",
@@ -578,7 +622,11 @@ private fun OrDivider(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .width(1.dp)
                 .weight(1f)
-                .background(Color.White.copy(alpha = 0.16f)),
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = 0.16f), Color.Transparent),
+                    ),
+                ),
         )
     }
 }
@@ -648,15 +696,24 @@ private fun ActivePairingPanel(
     modifier: Modifier = Modifier,
 ) {
     val allowFocusRequester = remember { FocusRequester() }
+    var consentHasFocus by remember { mutableStateOf(false) }
     LaunchedEffect(status) {
         if (status is PairingReceiverStatus.ConsentRequested) {
-            runCatching { allowFocusRequester.requestFocus() }
+            // A consent prompt whose Allow button never takes focus cannot be
+            // answered from a remote at all.
+            requestFocusUntilObserved(
+                maxAttempts = TvContentInitialFocusMaxAttempts,
+                awaitAttempt = { withFrameNanos { } },
+                requestFocus = allowFocusRequester::requestFocus,
+                isFocused = { consentHasFocus },
+            )
         }
     }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = modifier
+            .onFocusChanged { consentHasFocus = it.hasFocus }
             .fillMaxWidth(),
     ) {
         when (status) {
@@ -694,7 +751,6 @@ private fun ActivePairingPanel(
                 ) {
                     AuroraPrimaryButton(
                         label = "Allow",
-                        icon = Icons.Default.Check,
                         onClick = onAllow,
                         focusRequester = allowFocusRequester,
                         modifier = Modifier
@@ -792,7 +848,6 @@ private fun ActivePairingPanel(
                 )
                 AuroraPrimaryButton(
                     label = "Try again",
-                    icon = Icons.Default.Refresh,
                     onClick = onCancel,
                     modifier = Modifier.width(320.dp),
                 )
@@ -866,6 +921,7 @@ private fun completedSummary(names: List<String>): String =
 @Composable
 private fun MatchCodeCard(code: String) {
     if (code.isBlank()) return
+    val tileWidthDp = matchCodeTileWidthDp(code)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -879,19 +935,19 @@ private fun MatchCodeCard(code: String) {
             style = TvServerSetupTextStyles.CodeLabel,
             color = Color.White.copy(alpha = 0.62f),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(MATCH_CODE_TILE_GAP_DP.dp)) {
             code.uppercase().forEach { ch ->
                 if (ch == '-' || ch == ' ') {
                     Text(
                         text = "–",
                         style = TvServerSetupTextStyles.CodeSeparator,
                         color = Color.White.copy(alpha = 0.42f),
-                        modifier = Modifier.width(12.dp),
+                        modifier = Modifier.width(MATCH_CODE_SEPARATOR_WIDTH_DP.dp),
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(width = 34.dp, height = 42.dp)
+                            .size(width = tileWidthDp.dp, height = 42.dp)
                             .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(7.dp))
                             .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(7.dp)),
                         contentAlignment = Alignment.Center,
@@ -924,10 +980,11 @@ private object TvServerSetupTextStyles {
         color = Color.White,
     )
 
+    /** tvOS continuumHeadline (36pt → 18dp at the 0.5x map, +2 readability). */
     val Headline = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
         letterSpacing = 0.sp,
     )
 
@@ -1010,7 +1067,7 @@ private fun BrandHeader(modifier: Modifier = Modifier) {
     ) {
         Image(
             painter = painterResource(id = R.drawable.prairie_wordmark),
-            contentDescription = "Prairie",
+            contentDescription = "Silo",
             modifier = Modifier
                 .width(66.dp)
                 .height(35.dp),

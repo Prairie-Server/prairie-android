@@ -1,28 +1,18 @@
 package org.prairieserver.prairie.tv.ui.screens.recommendations
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,62 +20,70 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
-import org.prairieserver.prairie.tv.ui.components.TvMediaRow
 import org.prairieserver.prairie.tv.ui.components.TvRowStyle
-import org.prairieserver.prairie.tv.ui.components.TvHeroActionPill
-import org.prairieserver.prairie.tv.ui.components.TvPillVariant
+import org.prairieserver.prairie.tv.ui.components.TvSkylineSectionFeed
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.screens.personal.TvFavoritesInline
 import org.prairieserver.prairie.tv.ui.screens.personal.TvWatchlistInline
 import org.prairieserver.prairie.tv.ui.shell.TvTopMenuLayout
 import org.prairieserver.prairie.tv.ui.theme.Spacing
-import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.prairieserver.prairie.tv.ui.util.visibleOnTv
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
-import org.koin.compose.viewmodel.koinViewModel
-import kotlinx.coroutines.launch
 
-private val RecommendationsFilterBandHeight = 52.dp
+/** Saved-list grids arrive a page at a time; pace the claim to that, not to frames. */
+private const val SavedListFocusRetryDelayMillis = 60L
+
+/** Room for the fallback caption above the saved-list grid, when it is showing. */
+private val SavedListCaptionInset = 34.dp
 
 /**
- * "For You" tab. Reuses the shared [RecommendationsViewModel] that drives
- * the phone `/recommendations/discover` feed. Layout mirrors [TvHomeScreen]
- * (rows down the page) minus the featured hero — the discover API returns
- * section-style rows, not a hero card.
+ * "For You" tab. Reuses the shared [RecommendationsViewModel] that drives the
+ * phone `/recommendations/discover` feed, and renders it through the same
+ * `TvSkylineSectionFeed` as Home — focus marquee, ambient backdrop, row band —
+ * so the two landing surfaces stay identical.
+ *
+ * The list switch (For You / Watchlist / Favorites) lives in the top-menu
+ * dropdown, mirroring tvOS `.recommendations`; this screen only renders the
+ * selection it is handed through [entryRequest].
  */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvRecommendationsScreen(
-    onItemClick: (contentId: String) -> Unit,
+    onSavedListItemClick: (contentId: String) -> Unit,
+    onRecommendationItemClick: (contentId: String) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     focusRequest: Int = 0,
+    detailReturnFocusRequest: Int = 0,
+    detailReturnCardFocusRequester: FocusRequester? = null,
+    firstRowFocusRequester: FocusRequester? = null,
+    firstRowContainerFocusRequester: FocusRequester? = null,
+    onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
     entryRequest: TvForYouEntryRequest = TvForYouEntryRequest(),
     viewModel: RecommendationsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val visibleSections = remember(state.sections) { state.sections.visibleOnTv() }
-    val forYouFocusRequester = remember { FocusRequester() }
-    val watchlistFocusRequester = remember { FocusRequester() }
-    val favoritesFocusRequester = remember { FocusRequester() }
-    val firstRecommendationRowFocusRequester = remember { FocusRequester() }
-    val firstRecommendationCardFocusRequester = remember { FocusRequester() }
-    val focusBridgeScope = rememberCoroutineScope()
     // rememberSaveable, not remember: opening an item disposes this screen's
     // composition, and a plain remember would re-initialise from
     // entryRequest.selection on the way back. Top-level For You entry carries
@@ -96,33 +94,32 @@ fun TvRecommendationsScreen(
     // the LaunchedEffect below treat the unchanged entry request as new and
     // re-apply its selection, which reintroduces the same jump even once the
     // selection itself is saved.
-    val recommendationsListState = rememberLazyListState()
     var savedListSelection by rememberSaveable { mutableStateOf(entryRequest.selection) }
+    // True only when the saved list is showing because recommendations came
+    // back empty (the auto-fallback below), not because the user picked
+    // Favorites/Watchlist from the dropdown. The explanatory caption is keyed
+    // on this rather than on "no visible sections", which is also true while
+    // the feed is still loading on first open.
+    var savedListIsFallback by rememberSaveable { mutableStateOf(false) }
     var lastAppliedEntrySequence by rememberSaveable { mutableIntStateOf(0) }
-    val moveIntoRecommendations: () -> Boolean = {
-        if (
-            !shouldBridgeRecommendationsDown(
-                showingRecommendations = savedListSelection == null,
-                hasVisibleRecommendations = visibleSections.isNotEmpty(),
-            )
-        ) {
-            false
-        } else {
-            focusBridgeScope.launch {
-                requestRecommendationRowFocus(
-                    requestRowContainer = {
-                        runCatching { firstRecommendationRowFocusRequester.requestFocus() }
-                            .getOrDefault(false)
-                    },
-                    awaitFrame = { withFrameNanos { } },
-                    requestFirstCard = {
-                        runCatching { firstRecommendationCardFocusRequester.requestFocus() }
-                            .getOrDefault(false)
-                    },
-                )
-            }
-            true
-        }
+    val savedListFocusRequester = remember { FocusRequester() }
+    var forYouContentHasFocus by remember { mutableStateOf(false) }
+    // The Skyline feed already owns the menu→content entry move (band scrolled
+    // to the top, focus on row 0 / card 0). Picking "For You" in the dropdown
+    // while a saved list is showing is that same move, so add our own bumps to
+    // the shell's token rather than hand-rolling a second row-container hop.
+    var feedEntryFocusRequest by rememberSaveable { mutableIntStateOf(0) }
+
+    suspend fun claimSavedListFocus() {
+        val landed = requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { delay(SavedListFocusRetryDelayMillis) },
+            requestFocus = savedListFocusRequester::requestFocus,
+            isFocused = { forYouContentHasFocus },
+        )
+        // Only report the handover once focus is confirmed: telling the shell
+        // content owns focus after a dropped claim leaves nothing focused.
+        if (landed == TvObservedFocusResult.Focused) onInitialContentFocus()
     }
 
     LaunchedEffect(entryRequest.sequence) {
@@ -133,20 +130,12 @@ fun TvRecommendationsScreen(
         )
         savedListSelection = applied.selection
         lastAppliedEntrySequence = applied.lastAppliedSequence
-        if (applied.appliedRequest) {
-            requestForYouEntryFocus(
-                selection = applied.selection,
-                awaitFrame = { withFrameNanos { } },
-                requestForYou = {
-                    runCatching { forYouFocusRequester.requestFocus() }.getOrDefault(false)
-                },
-                requestWatchlist = {
-                    runCatching { watchlistFocusRequester.requestFocus() }.getOrDefault(false)
-                },
-                requestFavorites = {
-                    runCatching { favoritesFocusRequester.requestFocus() }.getOrDefault(false)
-                },
-            )
+        if (!applied.appliedRequest) return@LaunchedEffect
+        savedListIsFallback = false
+        if (applied.selection == null) {
+            feedEntryFocusRequest++
+        } else {
+            claimSavedListFocus()
         }
     }
 
@@ -155,29 +144,31 @@ fun TvRecommendationsScreen(
     LaunchedEffect(state.isLoading, state.error, visibleSections) {
         if (!state.isLoading && state.error == null && visibleSections.isEmpty() && savedListSelection == null) {
             savedListSelection = SavedListSelection.Watchlist
+            savedListIsFallback = true
+        } else if (visibleSections.isNotEmpty()) {
+            savedListIsFallback = false
         }
     }
 
-    // The saved-list shortcuts are the stable first row in every state. Focus
-    // Watchlist once per entry, matching tvOS, without letting later refreshes
-    // pull focus away from the user's current position.
-    // rememberSaveable for the same reason as the selection above: these guard
-    // a once-per-entry focus grab, and as plain `remember` they reset when an
-    // item detail disposes this composition. The effect then re-fires on the
-    // way back and slams focus onto the Watchlist pill while the feed is still
-    // scrolled where the viewer left it — which is the shell's documented
-    // anti-pattern ("fired LaunchedEffects in each screen that imperatively
-    // re-focused index 0 — defeating the restorer"). Saved, the grab stays a
-    // genuine once-per-entry action and the shell's content restorer is left
-    // to put focus back where it was.
-    var initialFocusRequested by rememberSaveable { mutableStateOf(false) }
-    var lastAppliedFocusRequest by rememberSaveable { mutableStateOf(-1) }
-    LaunchedEffect(focusRequest) {
-        if (initialFocusRequested && focusRequest == lastAppliedFocusRequest) return@LaunchedEffect
-        runCatching { watchlistFocusRequester.requestFocus() }
-        onInitialContentFocus()
-        initialFocusRequested = true
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    // Menu→content handover for the saved lists only; the feed answers the same
+    // token itself. Guarded so a later recomposition (or the return from a
+    // detail page, where the shell's restorer owns focus) cannot replay it.
+    var lastAppliedFocusRequest by rememberSaveable { mutableIntStateOf(-1) }
+    LaunchedEffect(focusRequest, savedListSelection) {
+        if (savedListSelection == null) return@LaunchedEffect
+        if (focusRequest == lastAppliedFocusRequest) return@LaunchedEffect
         lastAppliedFocusRequest = focusRequest
+        // The shell bumps its token for EVERY menu selection, and during the
+        // route crossfade this exiting screen is still composed — without this
+        // gate, selecting Home from a Watchlist/Favorites view let the saved
+        // list claim focus (its first card or Sort/Filter pill) instead of
+        // Home's first row. Same gate as TvSkylineSectionFeed: exiting nav
+        // entries fall to STARTED and never resume, so they park here until
+        // disposal with the token already consumed.
+        lifecycleOwner.lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
+        claimSavedListFocus()
     }
 
     // TV has no pull-to-refresh, so ON_RESUME is the only quiet self-heal path.
@@ -185,7 +176,6 @@ fun TvRecommendationsScreen(
     // an empty discover response otherwise leaves this tab a permanent dead end
     // until a profile switch/restart. If the feed is still the empty fallback
     // when the user returns (e.g. after watching and rating content), re-check.
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -199,19 +189,25 @@ fun TvRecommendationsScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val showFallbackCaption = savedListSelection != null && savedListIsFallback
+    val savedListTopInset = TvTopMenuLayout.contentTopInset +
+        if (showFallbackCaption) SavedListCaptionInset else 0.dp
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onFocusChanged { forYouContentHasFocus = it.hasFocus },
+    ) {
         when {
             savedListSelection == SavedListSelection.Watchlist -> TvWatchlistInline(
-                onItemClick = onItemClick,
-                modifier = Modifier.padding(
-                    top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
-                ),
+                onItemClick = onSavedListItemClick,
+                firstItemFocusRequester = savedListFocusRequester,
+                modifier = Modifier.padding(top = savedListTopInset),
             )
             savedListSelection == SavedListSelection.Favorites -> TvFavoritesInline(
-                onItemClick = onItemClick,
-                modifier = Modifier.padding(
-                    top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
-                ),
+                onItemClick = onSavedListItemClick,
+                firstItemFocusRequester = savedListFocusRequester,
+                modifier = Modifier.padding(top = savedListTopInset),
             )
             state.isLoading && state.sections.isEmpty() -> TvLoadingScreen(
                 modifier = Modifier.background(MaterialTheme.colorScheme.background),
@@ -259,56 +255,27 @@ fun TvRecommendationsScreen(
                     }
                 }
             }
-            else -> {
-                CompositionLocalProvider(
-                    LocalBringIntoViewSpec provides TvSmoothBringIntoViewSpec,
-                ) {
-                    LazyColumn(
-                        // Hoisted above the `when` so it is not discarded when a
-                        // refresh briefly flips this branch to loading/empty and
-                        // back — that is what dropped the reader at the top of the
-                        // feed after opening an item.
-                        state = recommendationsListState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(
-                            top = TvTopMenuLayout.contentTopInset + RecommendationsFilterBandHeight,
-                            bottom = 24.dp,
-                        ),
-                    ) {
-                        itemsIndexed(
-                            items = visibleSections,
-                            key = { _, section -> section.id },
-                            contentType = { _, _ -> "recommendation-section-row" },
-                        ) { index, section ->
-                            TvMediaRow(
-                                title = section.title,
-                                items = section.items,
-                                onItemClick = onItemClick,
-                                style = TvRowStyle.Poster,
-                                firstItemFocusRequester = firstRecommendationCardFocusRequester
-                                    .takeIf { index == 0 },
-                                rowContainerFocusRequester = firstRecommendationRowFocusRequester
-                                    .takeIf { index == 0 },
-                                onDirectionUp = if (index == 0) {
-                                    {
-                                        runCatching { forYouFocusRequester.requestFocus() }
-                                            .getOrDefault(false)
-                                    }
-                                } else {
-                                    null
-                                },
-                            )
-                        }
-                        item { Spacer(modifier = Modifier.height(8.dp)) }
-                    }
-                }
-            }
+            else -> TvSkylineSectionFeed(
+                surfaceKey = "for_you",
+                sections = visibleSections,
+                onItemClick = onRecommendationItemClick,
+                // Both tokens are monotonic, so their sum is too — which is all
+                // the feed's "did this request already apply" guard needs.
+                focusRequest = focusRequest + feedEntryFocusRequest,
+                detailReturnFocusRequest = detailReturnFocusRequest,
+                detailReturnCardFocusRequester = detailReturnCardFocusRequester,
+                firstRowFocusRequester = firstRowFocusRequester,
+                firstRowContainerRequester = firstRowContainerFocusRequester,
+                onInitialContentFocus = onInitialContentFocus,
+                onContentUpFallbackChanged = onContentUpFallbackChanged,
+                // Discover returns plain section rows: posters throughout, no
+                // progress bars, and the VM exposes no watched/favorite toggles.
+                styleForSection = { TvRowStyle.Poster },
+                showProgressForSection = { false },
+            )
         }
 
-        if (savedListSelection != null && visibleSections.isEmpty()) {
+        if (showFallbackCaption) {
             Text(
                 text = "No recommendations yet — showing your saved titles.",
                 style = MaterialTheme.typography.labelSmall.copy(
@@ -318,86 +285,8 @@ fun TvRecommendationsScreen(
                 color = Color.White.copy(alpha = 0.75f),
                 modifier = Modifier.padding(
                     start = Spacing.safeArea,
-                    top = TvTopMenuLayout.contentTopInset + 40.dp,
+                    top = TvTopMenuLayout.contentTopInset,
                 ),
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = TvTopMenuLayout.contentTopInset)
-                .height(RecommendationsFilterBandHeight)
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = Spacing.safeArea),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TvHeroActionPill(
-                label = "For You",
-                icon = Icons.Outlined.AutoAwesome,
-                variant = TvPillVariant.Hollow,
-                selected = savedListSelection == null,
-                focusRequester = forYouFocusRequester,
-                onDirectionDown = moveIntoRecommendations,
-                heightOverride = 32.dp,
-                horizontalPaddingOverride = 13.dp,
-                iconSizeOverride = 10.dp,
-                iconLabelSpacingOverride = 5.dp,
-                restBorderWidthOverride = 0.75.dp,
-                focusedBorderWidthOverride = 1.5.dp,
-                focusedScaleOverride = 1.045f,
-                focusedGlowElevationOverride = 9.dp,
-                labelStyle = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                onClick = { savedListSelection = null },
-            )
-            TvHeroActionPill(
-                label = "Watchlist",
-                icon = Icons.Filled.Bookmark,
-                variant = TvPillVariant.Hollow,
-                selected = savedListSelection == SavedListSelection.Watchlist,
-                focusRequester = watchlistFocusRequester,
-                onDirectionDown = moveIntoRecommendations,
-                heightOverride = 32.dp,
-                horizontalPaddingOverride = 13.dp,
-                iconSizeOverride = 10.dp,
-                iconLabelSpacingOverride = 5.dp,
-                restBorderWidthOverride = 0.75.dp,
-                focusedBorderWidthOverride = 1.5.dp,
-                focusedScaleOverride = 1.045f,
-                focusedGlowElevationOverride = 9.dp,
-                labelStyle = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                onClick = { savedListSelection = SavedListSelection.Watchlist },
-            )
-            TvHeroActionPill(
-                label = "Favorites",
-                icon = Icons.Filled.Favorite,
-                variant = TvPillVariant.Hollow,
-                selected = savedListSelection == SavedListSelection.Favorites,
-                focusRequester = favoritesFocusRequester,
-                onDirectionDown = moveIntoRecommendations,
-                heightOverride = 32.dp,
-                horizontalPaddingOverride = 13.dp,
-                iconSizeOverride = 10.dp,
-                iconLabelSpacingOverride = 5.dp,
-                restBorderWidthOverride = 0.75.dp,
-                focusedBorderWidthOverride = 1.5.dp,
-                focusedScaleOverride = 1.045f,
-                focusedGlowElevationOverride = 9.dp,
-                labelStyle = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                onClick = { savedListSelection = SavedListSelection.Favorites },
             )
         }
     }

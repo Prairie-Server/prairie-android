@@ -27,18 +27,22 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.ClientPlaybackContext
+import org.prairieserver.prairie.model.playback.DELIVERY_CLASS_ORIGINAL_HTTP
+import org.prairieserver.prairie.model.playback.DeliveryCapability
+import org.prairieserver.prairie.model.playback.DeliverySubtitleCapabilities
 import org.prairieserver.prairie.model.playback.PLAYBACK_PLAN_V3_FEATURE
+import org.prairieserver.prairie.model.playback.NEUTRAL_PLAYBACK_V3_CONTRACT_FEATURE
 import org.prairieserver.prairie.model.playback.PlaybackDecisionOutcome
 import org.prairieserver.prairie.model.playback.PlaybackDecisionResponseV3
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
 import org.prairieserver.prairie.model.playback.PlaybackEffectiveRecipeV3
-import org.prairieserver.prairie.model.playback.PlaybackEngineKind
 import org.prairieserver.prairie.model.playback.PlaybackOutputContext
 import org.prairieserver.prairie.model.playback.PlaybackPlanV3
 import org.prairieserver.prairie.model.playback.PlaybackStreamProtocol
 import org.prairieserver.prairie.model.playback.PlaybackStreamV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleArtifactV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleDecisionV3
+import org.prairieserver.prairie.model.playback.PlaybackSubtitleInventoryItemV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleModeV3
 import org.prairieserver.prairie.model.playback.PlaybackTimelineV3
 import org.prairieserver.prairie.model.playback.PlaybackTrackIdentityV3
@@ -56,13 +60,56 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackSessionManagerSeekReanchorTest {
     @Test
+    fun startRequestCarriesSubtitleSupportOnlyInTheNeutralDeliveryContext() = runTest {
+        val capable = Harness(startResponse = response(plan())) { _, _ -> error("unused") }
+        capable.manager.startVideoSessionV3(
+            fileId = 42,
+            profileId = "profile-1",
+            capabilities = ClientCodecCapabilities(),
+            clientPlaybackContext = ClientPlaybackContext(
+                formFactor = "tv",
+                appVersion = "test",
+                deliveries = mapOf(
+                    DELIVERY_CLASS_ORIGINAL_HTTP to DeliveryCapability(
+                        enabled = true,
+                        supportedOnDevice = true,
+                        subtitles = DeliverySubtitleCapabilities(sidecarText = true),
+                    ),
+                ),
+            ),
+            audioTrackIndex = null,
+            subtitleTrackIndex = null,
+            qualityPreference = "original",
+            startPosition = 0.0,
+        )
+        val capableBody = capable.startBodies.single()
+        assertFalse(
+            "external_text_sidecar_set_v1" in
+                capableBody["client_features"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertFalse("features" in capableBody["client_playback_context"]!!.jsonObject)
+        assertTrue(
+            capableBody["client_playback_context"]!!.jsonObject["deliveries"]!!.jsonObject[
+                DELIVERY_CLASS_ORIGINAL_HTTP
+            ]!!.jsonObject["subtitles"]!!.jsonObject["sidecar_text"]!!.jsonPrimitive.content.toBoolean(),
+        )
+    }
+
+    @Test
     fun reanchorRequiresNegotiatedServerFeature() = runTest {
         val harness = Harness(
-            startResponse = response(plan(), features = listOf(PLAYBACK_PLAN_V3_FEATURE)),
+            startResponse = response(
+                plan(),
+                features = listOf(
+                    PLAYBACK_PLAN_V3_FEATURE,
+                    NEUTRAL_PLAYBACK_V3_CONTRACT_FEATURE,
+                ),
+            ),
         ) { _, _ -> error("A feature-gated reanchor must not reach the server") }
         harness.manager.start()
 
@@ -115,15 +162,26 @@ class PlaybackSessionManagerSeekReanchorTest {
         val ready = assertIs<VideoSessionStartV3.Ready>(assertIs<ApiResult.Success<VideoSessionStartV3>>(result).data)
         val request = harness.replanBodies.single()
         assertEquals("seek_reanchor", request.string("operation"))
+        assertNull(request["failure"], "timeline reanchors are not failure recovery")
         assertEquals(90.0, request["position_seconds"]!!.jsonPrimitive.double)
         assertEquals("plan-1", request.string("failed_plan_id"))
         assertEquals("original", request.string("quality_preference"))
-        assertEquals(7, request["output_route_generation"]!!.jsonPrimitive.int)
+        assertEquals(
+            "7",
+            request["client_playback_context"]!!.jsonObject["output"]!!.jsonObject.string("output_context_id"),
+        )
         assertFalse(request["metered"]!!.jsonPrimitive.content.toBoolean())
         assertEquals(50_000, request["bandwidth_estimate_kbps"]!!.jsonPrimitive.int)
         assertEquals("file:42:audio:1", request["selected_tracks"]!!.jsonObject["audio"]!!.jsonObject.string("id"))
         assertEquals(listOf("hevc"), request["client_capabilities"]!!.jsonObject["codecs_video"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(2, request["attempted_plan_keys"]!!.jsonArray.size)
+        // Keys are server-owned: a local mutation records itself in
+        // `local_mutations` and leaves the key history alone, because only the
+        // server can mint the key for a route it has not planned yet.
+        assertEquals(
+            listOf("transport_reopen"),
+            request["local_mutations"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(1, request["attempted_plan_keys"]!!.jsonArray.size)
         assertEquals(
             request.string("plan_attempt_key"),
             request["attempted_plan_keys"]!!.jsonArray.last().jsonPrimitive.content,
@@ -176,6 +234,16 @@ class PlaybackSessionManagerSeekReanchorTest {
         assertFalse(ready.plan.claims.audio.passthrough)
         assertEquals("client_pcm_retry", ready.plan.claims.audio.reason)
         assertFalse(ready.session.playbackPlan!!.claims.audio.passthrough)
+    }
+
+    @Test
+    fun transportReopenDoesNotResetTheSinglePcmRetry() = runTest {
+        val harness = Harness(response(plan())) { _, _ -> success(response(plan())) }
+        harness.manager.start()
+
+        assertTrue(harness.manager.trySingleLocalPcmRetry("audio/eac3", 8))
+        assertTrue(harness.manager.recordTransportReopen())
+        assertFalse(harness.manager.trySingleLocalPcmRetry("audio/eac3", 8))
     }
 
     @Test
@@ -240,10 +308,14 @@ class PlaybackSessionManagerSeekReanchorTest {
 
     @Test
     fun failedImmediateStartupReplanStopsAllocatedSessionAndClearsAttempt() = runTest {
-        val harness = Harness(response(plan().copy(engine = PlaybackEngineKind.MPV_DIRECT))) { _, _ ->
+        // An unknown runtime correction is a route this client cannot execute,
+        // so the manager replans immediately at startup — and that replan fails.
+        val harness = Harness(
+            response(plan().copy(runtimeCorrections = listOf("future_runtime_fix"))),
+        ) { _, _ ->
             MockResponse(
                 HttpStatusCode.InternalServerError,
-                """{"error":"replan_failed","message":"Could not replace legacy route"}""",
+                """{"error":"replan_failed","message":"Could not replace unexecutable route"}""",
             )
         }
 
@@ -290,6 +362,7 @@ class PlaybackSessionManagerSeekReanchorTest {
         val initial = plan()
         val fallback = initial.copy(
             planId = "plan-2",
+            planAttemptKey = "v3:00000000000000a2",
             delivery = PlaybackDelivery.SERVER_TRANSCODE_HLS,
             stream = initial.stream.copy(url = "/stream/session-1/seek-recovery.m3u8"),
             effectiveRecipe = initial.effectiveRecipe.copy(audioCodec = "aac"),
@@ -297,6 +370,7 @@ class PlaybackSessionManagerSeekReanchorTest {
         )
         val thirdRoute = fallback.copy(
             planId = "plan-3",
+            planAttemptKey = "v3:00000000000000a3",
             stream = fallback.stream.copy(container = "fmp4"),
         )
         val harness = Harness(response(initial)) { index, _ ->
@@ -338,6 +412,7 @@ class PlaybackSessionManagerSeekReanchorTest {
         val initial = plan()
         val fallback = initial.copy(
             planId = "plan-2",
+            planAttemptKey = "v3:00000000000000a2",
             stream = initial.stream.copy(url = "/stream/session-1/seek-recovery.m3u8"),
             requestedMediaFileId = null,
             effectiveMediaFileId = null,
@@ -360,6 +435,7 @@ class PlaybackSessionManagerSeekReanchorTest {
         val initial = plan()
         val switchedFile = initial.copy(
             planId = "plan-other-file",
+            planAttemptKey = "v3:00000000000000b1",
             requestedMediaFileId = 84,
             effectiveMediaFileId = 84,
             selectedTracks = SelectedPlaybackTracksV3(
@@ -368,6 +444,7 @@ class PlaybackSessionManagerSeekReanchorTest {
         )
         val fallback = initial.copy(
             planId = "plan-2",
+            planAttemptKey = "v3:00000000000000a2",
             delivery = PlaybackDelivery.SERVER_TRANSCODE_HLS,
             effectiveRecipe = initial.effectiveRecipe.copy(audioCodec = "aac"),
         )
@@ -391,27 +468,61 @@ class PlaybackSessionManagerSeekReanchorTest {
     }
 
     @Test
-    fun replanSynthesizesChangedTrackIdsFromTheEffectiveFile() = runTest {
+    fun replanEchoesInventorySubtitleIdAndSynthesizesChangedAudioId() = runTest {
         val initial = plan().copy(
             effectiveMediaFileId = 84,
             selectedTracks = SelectedPlaybackTracksV3(
                 audio = PlaybackTrackIdentityV3("file:84:audio:1", 1),
             ),
+            subtitle = PlaybackSubtitleDecisionV3(
+                inventory = listOf(
+                    PlaybackSubtitleInventoryItemV3(
+                        trackId = "server-subtitle-0",
+                        combinedIndex = 0,
+                        source = "external",
+                        delivery = "sidecar",
+                        url = "/stream/session-1/subtitles/0.vtt",
+                    ),
+                    PlaybackSubtitleInventoryItemV3(
+                        trackId = "server-subtitle-1",
+                        combinedIndex = 1,
+                        source = "embedded",
+                        delivery = "sidecar",
+                        url = "/stream/session-1/subtitles/1.vtt",
+                    ),
+                    PlaybackSubtitleInventoryItemV3(
+                        trackId = "server-subtitle-2",
+                        combinedIndex = 2,
+                        source = "embedded",
+                        delivery = "burn_in_only",
+                    ),
+                    PlaybackSubtitleInventoryItemV3(
+                        trackId = "server-owned-subtitle-id",
+                        combinedIndex = 3,
+                        source = "embedded",
+                        codec = "ass",
+                        delivery = "sidecar",
+                        url = "/stream/session-1/subtitles/3.ass",
+                    ),
+                ),
+            ),
         )
         val replanned = initial.copy(
             planId = "plan-2",
+            planAttemptKey = "v3:00000000000000a2",
             selectedTracks = SelectedPlaybackTracksV3(
                 audio = PlaybackTrackIdentityV3("file:84:audio:2", 2),
-                subtitle = PlaybackTrackIdentityV3("file:84:subtitle:3", 3),
+                subtitle = PlaybackTrackIdentityV3("server-owned-subtitle-id", 3),
             ),
             subtitle = PlaybackSubtitleDecisionV3(
                 mode = PlaybackSubtitleModeV3.RENDER,
-                trackId = "file:84:subtitle:3",
+                trackId = "server-owned-subtitle-id",
                 artifact = PlaybackSubtitleArtifactV3(
                     url = "/stream/session-1/subtitles/3.vtt",
                     mimeType = "text/vtt",
                     format = "webvtt",
                 ),
+                inventory = initial.subtitle.inventory,
             ),
         )
         val harness = Harness(response(initial)) { _, _ -> success(response(replanned)) }
@@ -425,11 +536,14 @@ class PlaybackSessionManagerSeekReanchorTest {
         )
 
         assertIs<VideoSessionStartV3.Ready>(
-            assertIs<ApiResult.Success<VideoSessionStartV3>>(result).data,
+            assertIs<ApiResult.Success<VideoSessionStartV3>>(
+                result,
+                "track-identity replan failed: $result",
+            ).data,
         )
         val selectedTracks = harness.replanBodies.single()["selected_tracks"]!!.jsonObject
         assertEquals("file:84:audio:2", selectedTracks["audio"]!!.jsonObject.string("id"))
-        assertEquals("file:84:subtitle:3", selectedTracks["subtitle"]!!.jsonObject.string("id"))
+        assertEquals("server-owned-subtitle-id", selectedTracks["subtitle"]!!.jsonObject.string("id"))
     }
 
     private class Harness(
@@ -437,6 +551,7 @@ class PlaybackSessionManagerSeekReanchorTest {
         networkEvidenceProvider: PlaybackNetworkEvidenceProvider = PlaybackNetworkEvidenceProvider.None,
         private val replanResponse: suspend (Int, JsonObject) -> MockResponse,
     ) {
+        val startBodies: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
         val replanBodies: MutableList<JsonObject> = Collections.synchronizedList(mutableListOf())
         val stoppedSessionIds: MutableList<String> = Collections.synchronizedList(mutableListOf())
         private val replanIndex = AtomicInteger()
@@ -444,10 +559,15 @@ class PlaybackSessionManagerSeekReanchorTest {
             MockEngine { request ->
                 val path = request.url.encodedPath
                 val response = when {
-                    path == "/api/v1/playback/start" -> MockResponse(
-                        HttpStatusCode.OK,
-                        PrairieJson.encodeToString(startResponse),
-                    )
+                    path == "/api/v1/playback/start" -> {
+                        startBodies += PrairieJson.parseToJsonElement(
+                            request.body.toByteArray().decodeToString(),
+                        ).jsonObject
+                        MockResponse(
+                            HttpStatusCode.OK,
+                            PrairieJson.encodeToString(startResponse),
+                        )
+                    }
                     path.endsWith("/replan") -> {
                         val body = PrairieJson.parseToJsonElement(
                             request.body.toByteArray().decodeToString(),
@@ -492,7 +612,7 @@ class PlaybackSessionManagerSeekReanchorTest {
                 clientPlaybackContext = ClientPlaybackContext(
                     formFactor = "tv",
                     appVersion = "test",
-                    output = PlaybackOutputContext(outputRouteGeneration = 7),
+                    output = PlaybackOutputContext(outputContextId = "7"),
                 ),
                 audioTrackIndex = 1,
                 subtitleTrackIndex = null,
@@ -504,8 +624,11 @@ class PlaybackSessionManagerSeekReanchorTest {
     private fun plan(): PlaybackPlanV3 = PlaybackPlanV3(
         planId = "plan-1",
         sessionId = "session-1",
+        // Server-minted and opaque. Fixtures use the server's `v3:%016x` shape
+        // and give every distinct route its own key, because the client's loop
+        // guard compares keys and can no longer derive one to tell routes apart.
+        planAttemptKey = "v3:00000000000000a1",
         delivery = PlaybackDelivery.SERVER_REMUX_HLS,
-        engine = PlaybackEngineKind.MEDIA3_HLS,
         stream = PlaybackStreamV3(
             url = "/stream/session-1/master.m3u8",
             protocol = PlaybackStreamProtocol.HLS,
@@ -546,7 +669,11 @@ class PlaybackSessionManagerSeekReanchorTest {
     private fun response(
         plan: PlaybackPlanV3,
         sessionId: String = "session-1",
-        features: List<String> = listOf(PLAYBACK_PLAN_V3_FEATURE, SEEK_REANCHOR_V3_FEATURE),
+        features: List<String> = listOf(
+            PLAYBACK_PLAN_V3_FEATURE,
+            NEUTRAL_PLAYBACK_V3_CONTRACT_FEATURE,
+            SEEK_REANCHOR_V3_FEATURE,
+        ),
     ): PlaybackDecisionResponseV3 = PlaybackDecisionResponseV3(
         protocolVersion = 3,
         serverFeatures = features,

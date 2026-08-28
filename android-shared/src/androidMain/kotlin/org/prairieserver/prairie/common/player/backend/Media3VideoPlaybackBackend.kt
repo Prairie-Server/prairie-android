@@ -50,13 +50,15 @@ class Media3VideoPlaybackBackend(
         )
     }
 
-    override fun selectSubtitle(track: VideoPlayerTrackEntry?): Boolean =
-        trackSelectionCoordinator.selectSubtitle(
+    override fun selectSubtitle(track: VideoPlayerTrackEntry?): Boolean {
+        if (track?.subtitle != null && mountedSpec == null) return false
+        return trackSelectionCoordinator.selectSubtitle(
             player = player,
             playerFactory = playerFactory,
-            mediaSpec = requireMediaSpecForExternalSubtitle(track),
+            mediaSpec = mountedSpec,
             selectedTrack = track,
         )
+    }
 
     override fun selectMountedSubtitle(
         identity: SubtitleIdentity,
@@ -88,7 +90,7 @@ class Media3VideoPlaybackBackend(
         preferredAudioLanguage: String?,
         preferredTextLanguage: String?,
         hdrEnabled: Boolean,
-    ) {
+    ): Boolean =
         playerFactory.applyTrackSelectionPresets(
             player = player,
             audioCaps = audioCaps,
@@ -97,22 +99,9 @@ class Media3VideoPlaybackBackend(
             preferredTextLanguage = preferredTextLanguage,
             hdrEnabled = hdrEnabled,
         )
-    }
 
     override fun release() {
         playerFactory.releasePlayer(player)
     }
 
-    private fun requireMediaSpecForExternalSubtitle(track: VideoPlayerTrackEntry?): VideoPlayerMediaSpec {
-        val spec = mountedSpec
-        if (spec != null) return spec
-        if (track?.subtitle == null) {
-            return VideoPlayerMediaSpec(
-                streamUrl = "",
-                playMethod = org.prairieserver.prairie.model.playback.PlayMethod.DIRECT,
-                serverUrl = "",
-            )
-        }
-        error("Cannot select an external subtitle before video media has been mounted.")
-    }
 }
