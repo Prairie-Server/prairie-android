@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review Prairie Smart TV diffs for bugs and parity"
+  default_prompt: "Use $code-review to review the default-branch...HEAD diff and report Critical / Important findings."
