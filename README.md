@@ -6,7 +6,7 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 
 > **Status:** WIP (`v0.2.x`). The architecture is solid and the feature surface is broad; some areas are intentionally "bones-level" and under active redesign (see [Roadmap](#roadmap)).
 >
-> **Current exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v1/requests/status`), and reached from the profile menu and search — matching the Apple clients. The admin stats dashboard is live for acting admins via Settings (Apple's dashboard design). The richer admin screens (users/sessions/logs/scans) and Watch Together remain inaccessible.
+> **Current exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v1/requests/status`), and reached from the profile menu and search — matching the Apple clients. Admin surfaces (including the STATS dashboard) and Watch Together are not exposed in the Android clients.
 
 ---
 
@@ -83,7 +83,7 @@ WorkManager-backed downloads of video, audiobooks, and books to public device st
 - **Browse** with genre/rating filters, sorting, and infinite-scroll grids; **collections** are browse-only in the Android clients, while collection authoring/management remains web-only.
 - **Item detail** for movies and series includes seasons → episodes, multi-version files, cast/crew, local download controls, and phone-to-TV playback handoff.
 - **Search** scoped by media type, debounced and paginated.
-- **Requests** — live on phone and TV behind the server's `requests_enabled` flag (profile menu + search). **Admin** — stats dashboard only, role-gated in Settings. **Not exposed** — full admin management and Watch Together are not reachable app surfaces today.
+- **Requests** — live on phone and TV behind the server's `requests_enabled` flag (profile menu + search). **Not exposed** — Admin (including STATS) and Watch Together are not reachable app surfaces today.
 
 ### 📖 Reading & 🎧 Audio
 - **Ebook reader (phone only)** — EPUB, PDF, CBZ (comics), TXT/Markdown, FB2/FBZ, plus MOBI/AZW/AZW3 when the server can convert to EPUB; CBR and unsupported originals can be downloaded/opened externally. Themes, text size, margins, table of contents, bookmarks, and progress are supported.
@@ -232,9 +232,9 @@ Active design work lives in `docs/superpowers/specs/` with phased plans in `docs
 - **Audiobook polish** — the phone and TV players have chapter-aware UI, speed, bookmarks, and sleep timers. Remaining work includes skip-silence, volume normalization, rich notification polish, Android Auto, and a phone widget.
 - **Ebook reader enhancements** — real paginated EPUB (page turns), in-text search, highlights & notes (with a coordinated server change), font/brightness controls, and reading-time estimates across all server formats.
 - **Picture-in-Picture** — not yet implemented on phone.
-- **Admin management (users/sessions/logs/scans), Watch Together** — code/design work exists, but these are not currently exposed to users in the Android apps and need product/navigation decisions before being treated as live features.
+- **Admin (including STATS) and Watch Together** — not currently exposed to users in the Android apps; do not re-add without an explicit product decision.
 
-Known gaps the docs track: TV has no reader/ebooks and no downloads management by design; Requests/Admin/Watch Together are not accessible on either Android surface today.
+Known gaps the docs track: TV has no reader/ebooks and no downloads management by design; Admin/Watch Together are not accessible on either Android surface today (Requests is live).
 
 ---
 
