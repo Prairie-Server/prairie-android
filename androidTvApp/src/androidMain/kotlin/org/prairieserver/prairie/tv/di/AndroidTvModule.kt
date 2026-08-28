@@ -486,6 +486,7 @@ val androidTvModule = module {
             finalPlaybackPositionWriter = get(),
             catalogRepository = get(),
             serverReachabilityMonitor = get(),
+            qualityLadderClient = get(),
             launchArgs = params.get<TvPlayerLaunchArgs>(),
         )
     }

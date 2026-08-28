@@ -184,6 +184,8 @@ internal fun TvPlayerHud(
     subtitlePresentation: TvSubtitleHudPresentation,
     stats: PlayerStatsSnapshot,
     playbackPlan: PlaybackExecutionPlan? = null,
+    sessionId: String? = null,
+    playMethodLabel: String? = null,
     desiredAudioOrdinal: Int? = null,
     desiredAudioConfirmed: Boolean = false,
     videoFillMode: VideoFillMode,
@@ -492,7 +494,15 @@ internal fun TvPlayerHud(
                             chapters = chapters,
                         )
                     }
-                    HudTab.Stats -> HudPaneViewport { HudStatsPane(stats) }
+                    HudTab.Stats -> HudPaneViewport {
+                        HudStatsPane(
+                            stats = stats,
+                            sessionId = sessionId,
+                            playMethod = playMethodLabel
+                                ?: playbackPlan?.stream?.playMethod?.name,
+                            positionSec = positionSec,
+                        )
+                    }
                     HudTab.Video -> HudVideoPane(
                         videoQualities = videoQualities,
                         onSelectVideoQuality = onSelectVideoQuality,
@@ -588,7 +598,7 @@ internal fun TvPlayerHud(
 
 enum class HudTab(val label: String) {
     Info("Info"),
-    Stats("Stats"),
+    Stats("Stats for nerds"),
     Video("Video"),
     Audio("Audio"),
     Subtitles("Subtitles"),
@@ -930,8 +940,21 @@ private fun LabelValueRow(label: String, value: String) {
  * non-null rows.
  */
 @Composable
-private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifier) {
-    val rows = stats.hudRows()
+private fun HudStatsPane(
+    stats: PlayerStatsSnapshot,
+    modifier: Modifier = Modifier,
+    sessionId: String? = null,
+    playMethod: String? = null,
+    positionSec: Double? = null,
+) {
+    val rows = buildList {
+        sessionId?.takeIf { it.isNotBlank() }?.let { add("Session" to it) }
+        playMethod?.takeIf { it.isNotBlank() }?.let { add("Play method" to it) }
+        positionSec?.takeIf { it.isFinite() && it >= 0.0 }?.let {
+            add("Position" to formatHudClock(it))
+        }
+        addAll(stats.hudRows())
+    }
 
     if (rows.isEmpty()) {
         HudEmptyStatePane("Stats unavailable", modifier)
@@ -954,6 +977,18 @@ private fun HudStatsPane(stats: PlayerStatsSnapshot, modifier: Modifier = Modifi
                 column.forEach { (label, value) -> LabelValueRow(label = label, value = value) }
             }
         }
+    }
+}
+
+private fun formatHudClock(seconds: Double): String {
+    val total = seconds.toInt().coerceAtLeast(0)
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) {
+        String.format(java.util.Locale.ROOT, "%d:%02d:%02d", h, m, s)
+    } else {
+        String.format(java.util.Locale.ROOT, "%d:%02d", m, s)
     }
 }
 
@@ -1125,7 +1160,7 @@ private fun HudVideoPane(
                                 options = videoQualities.map {
                                     HudPickerOption(id = it.id, label = it.label)
                                 },
-                                selectedId = (selectedQuality?.id ?: VIDEO_QUALITY_AUTO_ID),
+                                selectedId = (selectedQuality?.id ?: "auto"),
                                 onSelect = { id -> onSelectVideoQuality(id) },
                             ),
                         )

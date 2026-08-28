@@ -37,6 +37,9 @@ fun PlaybackStatsSheet(
     // Gear-submenu back affordance: dismisses this sheet and reopens the
     // parent settings sheet (wired in PlayerOverlay).
     onBack: (() -> Unit)? = null,
+    sessionId: String? = null,
+    playMethod: String? = null,
+    positionLabel: String? = null,
     tabletopPaneHeight: Dp? = null,
 ) {
     if (!isVisible) return
@@ -77,7 +80,7 @@ fun PlaybackStatsSheet(
                     .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
             ) {
                 PlayerSheetHeader(
-                    title = "Playback Stats",
+                    title = "Stats for nerds",
                     onBack = onBack?.let { back ->
                         { scope.dismissPlayerSheet(sheetState, back) }
                     },
@@ -91,7 +94,12 @@ fun PlaybackStatsSheet(
                 )
                 Spacer(modifier = Modifier.height(18.dp))
 
-                val rows = stats.mobileStatsRows()
+                val rows = buildList {
+                    sessionId?.takeIf { it.isNotBlank() }?.let { add("Session" to it) }
+                    playMethod?.takeIf { it.isNotBlank() }?.let { add("Play method" to it) }
+                    positionLabel?.takeIf { it.isNotBlank() }?.let { add("Position" to it) }
+                    addAll(stats.mobileStatsRows())
+                }
                 if (rows.isEmpty()) {
                     Text(
                         text = "Waiting for player data",

@@ -363,6 +363,7 @@ val androidModule = module {
             finalPlaybackPositionWriter = get(),
             sectionRepository = get(),
             castPlaybackPreparer = get(),
+            qualityLadderClient = get(),
         )
     }
     viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get()) }

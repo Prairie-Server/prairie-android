@@ -2655,6 +2655,170 @@ open class PlaybackSessionManager(
     /** Returns the server base URL for resolving relative stream URLs. */
     suspend fun getServerUrl(): String = tokenManager.getServerUrl()
 
+    enum class TranscodeMode { REMUX, FULL }
+
+    /**
+     * Issue a `TranscodeStartRequest` for a fallback path — either because the
+     * server chose REMUX / TRANSCODE up front (`handleSessionStarted`) or
+     * because client-side preflight determined direct play was impossible
+     * ([PlaybackPreflightListener] in PR 8). Folds the resulting HLS URL back
+     * into a [PlaybackSessionResponse] so both VMs can treat the result like
+     * any other session start.
+     *
+     * Does **not** stop the caller's current session — ViewModels handle that
+     * alongside their state cleanup, which is the point they also tear down
+     * progress reporting.
+     */
+    suspend fun startTranscodeFallback(
+        session: PlaybackSessionResponse,
+        seekSeconds: Double,
+        resolution: String,
+        mode: TranscodeMode,
+        audioTrackIndex: Int? = null,
+        subtitleTrackIndex: Int? = null,
+        targetBitrateKbps: Int? = null,
+        copyVideo: Boolean = false,
+    ): ApiResult<PlaybackSessionResponse> {
+        val isRemux = mode == TranscodeMode.REMUX || copyVideo
+        val bitrate = when {
+            isRemux -> 0
+            targetBitrateKbps != null && targetBitrateKbps > 0 -> targetBitrateKbps
+            else -> 8000
+        }
+        val request = TranscodeStartRequest(
+            sessionId = session.sessionId,
+            seekSeconds = seekSeconds,
+            targetResolution = if (isRemux) "" else resolution,
+            targetCodecVideo = if (isRemux) "copy" else "h264",
+            // REMUX copies audio to preserve passthrough codecs
+            // (EAC3/TrueHD/DTS). Forcing AAC clobbers the play-method
+            // decision.
+            targetCodecAudio = if (isRemux) "copy" else "aac",
+            targetBitrateKbps = bitrate,
+            segmentDuration = 2,
+            audioTrackIndex = audioTrackIndex,
+            subtitleTrackIndex = subtitleTrackIndex,
+            subtitleBurnIn = shouldBurnStyledSubtitle(
+                isRemux = isRemux,
+                subtitleTrackIndex = subtitleTrackIndex,
+                subtitleCodec = session.playbackPlan?.source?.subtitleCodec,
+            ),
+        )
+        Log.i(
+            TAG,
+            "startTranscodeFallback session=${session.sessionId} mode=$mode seekSeconds=$seekSeconds " +
+                "targetResolution=${request.targetResolution} " +
+                "targetCodecVideo=${request.targetCodecVideo} " +
+                "targetCodecAudio=${request.targetCodecAudio} " +
+                "targetBitrateKbps=${request.targetBitrateKbps} " +
+                "audioTrackIndex=$audioTrackIndex subtitleTrackIndex=$subtitleTrackIndex",
+        )
+        return when (val r = playbackRepository.startTranscode(request)) {
+            is ApiResult.Success -> {
+                val tc = r.data
+                ApiResult.Success(
+                    session.copy(
+                        sessionId = tc.sessionId,
+                        playMethod = if (isRemux) {
+                            org.prairieserver.prairie.model.playback.PlayMethod.REMUX
+                        } else {
+                            org.prairieserver.prairie.model.playback.PlayMethod.TRANSCODE
+                        },
+                        streamUrl = tc.manifestUrl,
+                        durationSeconds = tc.durationSeconds ?: session.durationSeconds,
+                        position = tc.playerStartSeconds,
+                        playbackPlan = session.playbackPlan?.let { plan ->
+                            plan.copy(
+                                delivery = if (isRemux) {
+                                    PlaybackDelivery.SERVER_REMUX_HLS
+                                } else {
+                                    PlaybackDelivery.SERVER_TRANSCODE_HLS
+                                },
+                                engine = PlaybackEngineKind.MEDIA3_HLS,
+                                routeFamily = PlaybackRouteFamily.SERVER_ADAPTIVE,
+                                stream = PlaybackStreamRequest(
+                                    url = tc.manifestUrl,
+                                    streamType = "hls",
+                                    playMethod = if (isRemux) {
+                                        org.prairieserver.prairie.model.playback.PlayMethod.REMUX
+                                    } else {
+                                        org.prairieserver.prairie.model.playback.PlayMethod.TRANSCODE
+                                    },
+                                ),
+                                timeline = PlaybackTimeline(
+                                    playerStartSeconds = tc.playerStartSeconds,
+                                    streamOriginSeconds = tc.streamOriginSeconds,
+                                    timelineOffsetSeconds = tc.timelineOffsetSeconds,
+                                    canSeekAnywhere = tc.canSeekAnywhere,
+                                ),
+                                degradationWarnings = plan.degradationWarnings +
+                                    org.prairieserver.prairie.model.playback.PlaybackDegradationWarning(
+                                        code = if (isRemux) {
+                                            "server_remux_fallback"
+                                        } else {
+                                            "server_transcode_fallback"
+                                        },
+                                        message = if (isRemux) {
+                                            "Playback fell back to server remux."
+                                        } else {
+                                            "Playback fell back to server transcode."
+                                        },
+                                    ),
+                            )
+                        },
+                    ),
+                )
+            }
+            is ApiResult.Error -> r
+            is ApiResult.NetworkError -> r
+        }
+    }
+
+    suspend fun startTranscodeFallbackRecoveringMissingSession(
+        session: PlaybackSessionResponse,
+        seekSeconds: Double,
+        resolution: String,
+        mode: TranscodeMode,
+        audioTrackIndex: Int? = null,
+        subtitleTrackIndex: Int? = null,
+        targetBitrateKbps: Int? = null,
+        copyVideo: Boolean = false,
+        renewSession: suspend () -> ApiResult<PlaybackSessionResponse>,
+    ): ApiResult<PlaybackSessionResponse> {
+        val first = startTranscodeFallback(
+            session = session,
+            seekSeconds = seekSeconds,
+            resolution = resolution,
+            mode = mode,
+            audioTrackIndex = audioTrackIndex,
+            subtitleTrackIndex = subtitleTrackIndex,
+            targetBitrateKbps = targetBitrateKbps,
+            copyVideo = copyVideo,
+        )
+        if (!first.isPlaybackSessionMissingError()) return first
+
+        Log.w(TAG, "Fallback session missing; renewing playback session before retry")
+        return when (val renewed = renewSession()) {
+            is ApiResult.Success -> {
+                val retry = startTranscodeFallback(
+                    session = renewed.data,
+                    seekSeconds = seekSeconds,
+                    resolution = resolution,
+                    mode = mode,
+                    audioTrackIndex = audioTrackIndex,
+                    subtitleTrackIndex = subtitleTrackIndex,
+                    targetBitrateKbps = targetBitrateKbps,
+                    copyVideo = copyVideo,
+                )
+                if (retry !is ApiResult.Success) {
+                    stopSession(renewed.data.sessionId)
+                }
+                retry
+            }
+            is ApiResult.Error -> renewed
+            is ApiResult.NetworkError -> renewed
+        }
+    }
 }
 
 internal fun ApiResult<*>.isPlaybackSessionMissingError(): Boolean {

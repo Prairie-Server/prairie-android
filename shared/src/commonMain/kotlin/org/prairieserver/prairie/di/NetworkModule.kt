@@ -17,6 +17,11 @@ val networkModule = module {
     single<DeviceLoginApi> { DefaultDeviceLoginApi(get()) }
     single { CatalogApi(get()) }
     single { PlaybackApi(get()) }
+    single {
+        org.prairieserver.prairie.playback.QualityLadderClient(
+            fetchResponse = { get<PlaybackApi>().getQualityLadder() },
+        )
+    }
     single { PersonalDataApi(get()) }
     single { CollectionApi(get()) }
     single { ProfileApi(get()) }

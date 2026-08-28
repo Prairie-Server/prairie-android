@@ -40,20 +40,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.util.formatClockTime
+import org.prairieserver.prairie.common.player.TrickplayTileImage
 import org.prairieserver.prairie.model.catalog.TimeRange
 import org.prairieserver.prairie.model.catalog.VersionChapter
+import org.prairieserver.prairie.playback.TrickplayInfo
+import org.prairieserver.prairie.playback.resolveTrickplayTile
 
 /**
  * Seek bar with current/total time and a buffered-ahead track, mirroring
- * iOS `MobilePlayerControls.progressSlider`:
+ * iOS `MobilePlayerControls.progressSlider` plus web trickplay scrub previews:
  *
  * - three track regions — played, buffered (safe to seek into), base;
  * - detected marker ranges tinted as bands (intro cyan, recap green,
  *   credits orange, preview purple);
  * - a 2dp chapter tick per chapter, drawn under the played fill;
- * - while scrubbing, a preview bubble above the thumb with the target time
- *   and the chapter title at that point (text only — iOS has no thumbnail
- *   trickplay either).
+ * - while scrubbing, a preview bubble above the thumb with trickplay tiles
+ *   when available, the target time, and the chapter title at that point.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +68,7 @@ fun PlayerProgressBar(
     enabled: Boolean = true,
     chapters: List<VersionChapter> = emptyList(),
     intro: TimeRange? = null,
+    trickplay: TrickplayInfo? = null,
     credits: TimeRange? = null,
     recap: TimeRange? = null,
     preview: TimeRange? = null,
@@ -90,14 +93,16 @@ fun PlayerProgressBar(
     } else {
         0f
     }
+    val trickplayTile = if (isSeeking) {
+        resolveTrickplayTile(trickplay, seekPosition.toDouble())
+    } else {
+        null
+    }
 
-    // iOS bottom bar is VStack(spacing: 8): progress slider, then the time row.
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Scrub preview bubble — pinned above the bar at the drag position,
-        // clamped so it never runs off-screen (iOS clamps to [80, width-80]pt).
         Box(modifier = Modifier.fillMaxWidth()) {
             if (isSeeking) {
                 val density = LocalDensity.current
@@ -115,6 +120,13 @@ fun PlayerProgressBar(
                         .background(Color.Black.copy(alpha = 0.82f))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
+                    if (trickplayTile != null) {
+                        TrickplayTileImage(
+                            tile = trickplayTile,
+                            previewWidth = 176.dp,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                    }
                     Text(
                         text = formatClockTime(seekPosition.toDouble()),
                         fontSize = 19.sp,
@@ -154,9 +166,6 @@ fun PlayerProgressBar(
                 activeTrackColor = MaterialTheme.colorScheme.primary,
                 inactiveTrackColor = Color.White.copy(alpha = 0.3f),
             ),
-            // iOS-style dot instead of Material's chunky pill: a small circle
-            // that grows slightly while scrubbing (the target time shows in the
-            // floating preview bubble above). Ignores the SliderState param.
             thumb = {
                 Box(
                     modifier = Modifier
@@ -173,7 +182,6 @@ fun PlayerProgressBar(
                         .background(Color.White.copy(alpha = 0.16f))
                         .onSizeChanged { barWidthPx = it.width.toFloat() },
                 ) {
-                    // Buffered-ahead: downloaded and safe to seek into.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(bufferedFraction)
@@ -224,7 +232,6 @@ fun PlayerProgressBar(
                             }
                         }
                     }
-                    // Played.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(playedFraction)

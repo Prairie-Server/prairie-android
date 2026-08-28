@@ -3,6 +3,7 @@ package org.prairieserver.prairie.model.catalog
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import org.prairieserver.prairie.playback.TrickplayInfo
 
 // --- Browse / Catalog ---
 
@@ -267,6 +268,8 @@ data class FileVersion(
     @SerialName("effective_audio_track_index") val effectiveAudioTrackIndex: Int? = null,
     @SerialName("subtitle_tracks") val subtitleTracks: List<SubtitleTrack>? = null,
     val chapters: List<VersionChapter>? = null,
+    /** Interval sprite-sheet metadata for seek scrubbing; null when not generated. */
+    val trickplay: TrickplayInfo? = null,
     // --- Whole-book audiobook stitching (see org.prairieserver.prairie.audiobook.AudiobookTimeline) ---
     // The server has no concept of a whole book: it sends each audiobook file as an
     // individual FileVersion tagged `presentation_kind == "audiobook_part"` with a

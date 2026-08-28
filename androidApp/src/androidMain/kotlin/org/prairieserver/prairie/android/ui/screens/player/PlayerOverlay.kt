@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import org.prairieserver.prairie.android.ui.util.LanguageNames
+import org.prairieserver.prairie.android.ui.util.formatClockTime
 import org.prairieserver.prairie.common.player.SessionState
 import org.prairieserver.prairie.common.player.SleepTimerState
 import org.prairieserver.prairie.model.watchtogether.MemberRole
@@ -79,6 +80,7 @@ fun PlayerOverlay(
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectVersion: (Int) -> Unit,
+    onSelectQuality: (String) -> Unit = {},
     // Google Cast (Chromecast) button rendered in the transport top bar.
     castSlot: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -349,12 +351,13 @@ fun PlayerOverlay(
                 bufferedPosition = state.bufferedPosition,
                 chapters = state.chapters,
                 intro = state.intro,
+                trickplay = state.trickplay,
                 credits = state.credits,
                 recap = state.recap,
                 preview = state.preview,
                 hasChapters = state.chapters.isNotEmpty(),
                 hasTracks = state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty(),
-                hasMultipleVersions = state.versions.size > 1,
+                hasMultipleVersions = state.versions.size > 1 || state.qualityOptions.size > 1,
                 isOrientationLocked = isOrientationLocked,
                 orientationLockSupported = orientationLockSupported,
                 tabletopMode = tabletopMode,
@@ -580,6 +583,9 @@ fun PlayerOverlay(
             selectedIndex = state.selectedVersionIndex,
             onSelect = onSelectVersion,
             onDismiss = { showQualitySelector = false },
+            qualityOptions = state.qualityOptions,
+            selectedQualityId = state.selectedQualityId,
+            onSelectQuality = onSelectQuality,
             tabletopPaneHeight = tabletopPaneHeight,
         )
     }
@@ -632,6 +638,9 @@ fun PlayerOverlay(
             statsSheetVisible = false
             settingsSheetVisible = true
         },
+        sessionId = state.sessionId,
+        playMethod = state.playMethod?.name,
+        positionLabel = formatClockTime(state.position) + " / " + formatClockTime(state.duration),
         tabletopPaneHeight = tabletopPaneHeight,
     )
 
