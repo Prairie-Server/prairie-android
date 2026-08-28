@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Primary -->
-    <color name="silo_blue">#FF1E88E5</color>
-    <color name="silo_blue_light">#FF6AB7FF</color>
-    <color name="silo_blue_dark">#FF005CB2</color>
-    <color name="silo_icon_background">#FF010D9F</color>
+    <!-- Prairie Dusk accent (was legacy blue) -->
+    <color name="prairie_blue">#FFE0A84A</color>
+    <color name="prairie_blue_light">#FFF0C574</color>
+    <color name="prairie_blue_dark">#FFC48C2E</color>
+    <color name="prairie_icon_background">#FF141820</color>
 
     <!-- Dark surfaces -->
-    <color name="dark_background">#FF141417</color>
-    <color name="dark_surface">#FF1C1C20</color>
-    <color name="dark_surface_variant">#FF252528</color>
+    <color name="dark_background">#FF141820</color>
+    <color name="dark_surface">#FF1C222C</color>
+    <color name="dark_surface_variant">#FF0E1116</color>
 
     <!-- Light surfaces -->
     <color name="light_background">#FFF8F9FC</color>
@@ -17,9 +17,9 @@
     <color name="light_surface_variant">#FFE8EAF0</color>
 
     <!-- On-colors dark -->
-    <color name="dark_on_background">#FFE8EAED</color>
-    <color name="dark_on_surface">#FFE8EAED</color>
-    <color name="dark_on_surface_variant">#FF9AA0B0</color>
+    <color name="dark_on_background">#FFF2EEE6</color>
+    <color name="dark_on_surface">#FFF2EEE6</color>
+    <color name="dark_on_surface_variant">#FF9AA3B2</color>
 
     <!-- On-colors light -->
     <color name="light_on_background">#FF1A1C22</color>
