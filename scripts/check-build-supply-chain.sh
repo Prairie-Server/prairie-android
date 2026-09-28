@@ -21,7 +21,7 @@ inspect_uses = lambda do |node, workflow_path|
     node.each do |key, value|
       if key.to_s == "uses"
         reference = value.to_s
-        # First-party Silo-Server workflows track their branch so every
+        # First-party Prairie-Server workflows track their branch so every
         # client repo shares the same version; only third-party refs need SHAs.
         unless reference.start_with?("./") ||
                reference.match?(/\APrairie-Server\/[^@\s]+@[^@\s]+\z/i) ||
