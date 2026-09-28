@@ -8,6 +8,7 @@ import org.prairieserver.prairie.common.player.dolbyVisionTransformClassificatio
 import org.prairieserver.prairie.common.player.failedRendererTrackType
 import org.prairieserver.prairie.common.player.failureDiagnostics
 import org.prairieserver.prairie.common.player.failureClassification
+import org.prairieserver.prairie.tv.data.preferences.PlaybackQuality
 import org.prairieserver.prairie.tv.BuildConfig
 import android.os.SystemClock
 import android.util.Log
@@ -4841,9 +4842,12 @@ class TvPlayerViewModel(
         }
         val state = _uiState.value
         playbackMutationFence.beginReplan()
-        launchSubtitleTransaction(state) {
-            subtitleTransactions.updatePlaybackContext(subtitlePlaybackContext(state))
-            subtitleTransactions.selectQuality(v3Preference)
+        viewModelScope.launch {
+            val playbackContext = subtitlePlaybackContext(state)
+            launchSubtitleTransaction(state) {
+                subtitleTransactions.updatePlaybackContext(playbackContext)
+                subtitleTransactions.selectQuality(v3Preference)
+            }
         }
     }
 

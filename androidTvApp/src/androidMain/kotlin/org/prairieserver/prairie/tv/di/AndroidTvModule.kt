@@ -388,7 +388,7 @@ val androidTvModule = module {
             profileId = params.get(),
         )
     }
-    viewModel { TvServerListViewModel(get(), get(), get()) }
+    viewModel { TvServerListViewModel(get(), get(), get(), get()) }
 
     viewModel { params ->
         org.prairieserver.prairie.viewmodel.RequestDetailViewModel(get(), params.get(), params.get())

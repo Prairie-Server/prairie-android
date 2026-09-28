@@ -581,6 +581,7 @@ fun AppNavigation(
                         ServerSwitchDestination.Home -> Route.OnboardingTour.route
                         ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
                         ServerSwitchDestination.Login -> Route.Login.route
+                        ServerSwitchDestination.Setup -> Route.Setup.route
                     }
                     // Overlays and card presentation are cached per profile on
                     // the old server. Drop them so the new server's shell can't

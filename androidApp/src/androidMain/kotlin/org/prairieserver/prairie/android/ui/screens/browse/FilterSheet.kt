@@ -348,7 +348,7 @@ private fun FacetValuePicker(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Clear") }
         }
     }

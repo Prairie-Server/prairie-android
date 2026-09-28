@@ -640,6 +640,7 @@ fun TvAppNavigation(
                         TvServerSwitchDestination.ProfileSelection ->
                             TvRoute.ProfileSelection.route
                         TvServerSwitchDestination.Login -> TvRoute.Login().route
+                        TvServerSwitchDestination.Setup -> TvRoute.Setup.route
                     }
                     // Landing straight on Home means the target server is already
                     // authenticated, so no Login/ProfileSelection callback fires to

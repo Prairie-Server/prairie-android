@@ -322,7 +322,7 @@ fun DownloadsScreen(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel") }
             },
         )
@@ -351,7 +351,7 @@ fun DownloadsScreen(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Reclaim")
                 }
             },
@@ -452,7 +452,7 @@ private fun DownloadsSelectBar(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Done") }
         } else {
             Spacer(modifier = Modifier.weight(1f))
@@ -461,7 +461,7 @@ private fun DownloadsSelectBar(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Select") }
         }
     }

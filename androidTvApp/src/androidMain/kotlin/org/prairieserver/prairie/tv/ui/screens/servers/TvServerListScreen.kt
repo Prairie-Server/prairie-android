@@ -85,16 +85,6 @@ fun TvServerListScreen(
         }
     }
 
-    LaunchedEffect(state.needsServerSetup) {
-        // The active server was removed and none remain — there is nothing to
-        // sign into, so bounce to server setup rather than leaving the stale
-        // shell behind this list pointed at an empty baseUrl.
-        if (state.needsServerSetup) {
-            viewModel.onServerSetupConsumed()
-            onAddServer()
-        }
-    }
-
     // Anchor focus on the first row whenever the list materializes so d-pad
     // navigation has somewhere to land. The rows are lazy, so the first request
     // lands before placement and is rejected — this retries until focus is
