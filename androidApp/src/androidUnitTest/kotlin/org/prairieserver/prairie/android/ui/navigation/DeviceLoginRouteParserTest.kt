@@ -29,16 +29,16 @@ class DeviceLoginRouteParserTest {
         // The issuing origin rides along so the pairing screen can refuse a
         // code that belongs to a server the user is not currently on.
         assertEquals(
-            "pair_device?token=t1&serverOrigin=https%3A%2F%2Fsilo.example",
-            deviceLoginPairRouteOrNull("https://silo.example/device?token=t1"),
+            "pair_device?token=t1&serverOrigin=https%3A%2F%2Fprairie.example",
+            deviceLoginPairRouteOrNull("https://prairie.example/device?token=t1"),
         )
     }
 
     @Test
     fun serverHttpsAuthDeviceCodeUrlRoutesToPairDevice() {
         assertEquals(
-            "pair_device?code=ABCD&serverOrigin=https%3A%2F%2Fsilo.example",
-            deviceLoginPairRouteOrNull("https://silo.example/auth/device?code=ABCD"),
+            "pair_device?code=ABCD&serverOrigin=https%3A%2F%2Fprairie.example",
+            deviceLoginPairRouteOrNull("https://prairie.example/auth/device?code=ABCD"),
         )
     }
 
@@ -52,7 +52,7 @@ class DeviceLoginRouteParserTest {
 
     @Test
     fun unrelatedUrlReturnsNull() {
-        assertNull(deviceLoginPairRouteOrNull("https://silo.example/item/abc"))
+        assertNull(deviceLoginPairRouteOrNull("https://prairie.example/item/abc"))
     }
 
     @Test
@@ -96,8 +96,8 @@ class DeviceLoginRouteParserTest {
     fun `a device link with an invalid port does not parse`() {
         assertEquals(
             DeviceLoginScope.Invalid,
-            deviceLoginScope("https://silo.example:0/device?code=A"),
+            deviceLoginScope("https://prairie.example:0/device?code=A"),
         )
-        assertNull(deviceLoginPairRouteOrNull("https://silo.example:0/device?code=A"))
+        assertNull(deviceLoginPairRouteOrNull("https://prairie.example:0/device?code=A"))
     }
 }

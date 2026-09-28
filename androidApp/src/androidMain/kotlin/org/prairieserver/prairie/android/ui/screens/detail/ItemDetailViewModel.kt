@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import kotlinx.coroutines.flow.stateIn
+
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -34,7 +36,6 @@ import org.prairieserver.prairie.playback.subtitleTrackFingerprint
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.update
@@ -51,10 +52,14 @@ import kotlinx.coroutines.launch
 data class ItemDetailUiState(
     val isLoading: Boolean = true,
     val detail: ItemDetail? = null,
-    val similarItems: List<ItemDetail> = emptyList(),
+    val similarItems: List<org.prairieserver.prairie.model.catalog.BrowseItem> = emptyList(),
     val seasons: List<Season> = emptyList(),
     val selectedSeasonNumber: Int = 1,
     val episodes: List<EpisodeListItem> = emptyList(),
+    /** Episode selected inside a series page. Its full detail powers the hero play target and selectors. */
+    val selectedEpisodeContentId: String? = null,
+    val selectedEpisodeDetail: ItemDetail? = null,
+    val isLoadingSelectedEpisodeDetail: Boolean = false,
     /** Parent-series portrait art used when an episode's own artwork is a wide still. */
     val episodeSeriesPosterUrl: String? = null,
     val episodeSeriesPosterThumbhash: String? = null,
@@ -127,19 +132,33 @@ class ItemDetailViewModel(
     private val downloadEnqueuer: DownloadEnqueuer,
     private val ebookReaderRepository: EbookReaderRepository,
     private val recommendationRepository: RecommendationRepository,
-    metadataAiRepository: MetadataAiRepository,
+    private val metadataAiRepository: MetadataAiRepository,
     savedStateHandle: SavedStateHandle,
     private val userItemState: org.prairieserver.prairie.repository.port.UserItemStatePort =
         org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
 ) : ViewModel() {
 
+    private var similarGeneration = 0L
+    private var similarJob: kotlinx.coroutines.Job? = null
+    private val libraryId: Int? = savedStateHandle.get<String>("libraryId")?.toIntOrNull()
     private val contentId: String = savedStateHandle.get<String>("contentId") ?: ""
     private val initialSeasonNumber: Int? =
         savedStateHandle.get<String>("seasonNumber")?.toIntOrNull()
+    private val initialEpisodeContentId: String? =
+        savedStateHandle.get<String>("episodeContentId")?.takeIf { it.isNotBlank() }
+    private var pendingInitialEpisodeContentId: String? = initialEpisodeContentId
 
     private val _uiState = MutableStateFlow(ItemDetailUiState())
-    val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<ItemDetailUiState> = kotlinx.coroutines.flow.combine(_uiState, personalDataRepository.memberships.actions) { state, actions ->
+        var projected = state
+        actions.values.filter { it.baseline != null && it.intent.key.itemId == contentId && personalDataRepository.memberships.current(it.intent) }.forEach {
+            projected = if (it.intent.key.kind == org.prairieserver.prairie.repository.port.MembershipPort.Kind.FAVORITE)
+                projected.copy(isFavorite = it.baseline!!.present) else projected.copy(isInWatchlist = it.baseline!!.present)
+        }
+        projected
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, ItemDetailUiState())
     private var episodeLoadJob: Job? = null
+    private var selectedEpisodeLoadJob: Job? = null
     private var allEpisodeFileIdsJob: Job? = null
     private data class EpisodeRollupRequest(
         val seriesId: String,
@@ -166,6 +185,7 @@ class ItemDetailViewModel(
     val downloadCapability: StateFlow<DownloadCapability?> = downloadsRepository.capability
 
     private var watchedMutationGeneration = 0
+    private val episodeWatchedMutationGenerations = mutableMapOf<String, Int>()
 
     private val descriptionTranslation = DescriptionTranslationController(
         repository = metadataAiRepository,
@@ -174,6 +194,17 @@ class ItemDetailViewModel(
     val translationPhase: StateFlow<DescriptionTranslationPhase> = descriptionTranslation.phase
 
     init {
+        viewModelScope.launch {
+            var previous = personalDataRepository.memberships.generation.value
+            personalDataRepository.memberships.generation.collect { generation ->
+                if (generation != previous) {
+                    previous = generation
+                    _uiState.update { it.copy(isFavorite = false, isInWatchlist = false) }
+                    loadUserState()
+                }
+            }
+        }
+
         // Refresh once so server-side records are visible when the user
         // lands on the detail screen (e.g., to show 'Downloaded' on a file
         // that was downloaded in a previous app session).
@@ -204,6 +235,7 @@ class ItemDetailViewModel(
         displayTitle: String,
         forceRedownloadMissingLocal: Boolean = false,
         downloadQuality: DownloadQuality? = null,
+        downloadContentId: String = contentId,
     ) {
         val existing = downloadRecordFor(version)
         when (
@@ -225,11 +257,11 @@ class ItemDetailViewModel(
             DetailDownloadTapAction.ReplaceAndStart -> viewModelScope.launch {
                 val staleRecord = existing
                 if (staleRecord == null || downloadsRepository.delete(staleRecord.id) is ApiResult.Success) {
-                    startDownload(version, displayTitle, downloadQuality)
+                    startDownload(version, displayTitle, downloadQuality, downloadContentId)
                 }
             }
             DetailDownloadTapAction.Start -> viewModelScope.launch {
-                startDownload(version, displayTitle, downloadQuality)
+                startDownload(version, displayTitle, downloadQuality, downloadContentId)
             }
         }
     }
@@ -242,67 +274,18 @@ class ItemDetailViewModel(
     private suspend fun startDownload(
         version: FileVersion,
         displayTitle: String,
-        downloadQuality: DownloadQuality? = null,
+        downloadQuality: DownloadQuality?,
+        downloadContentId: String,
     ) {
         // wifiOnly read from per-profile PlayerSettingsStore inside
         // DownloadEnqueuer.start; default true.
         val result = downloadEnqueuer.start(
-            contentId = contentId,
+            contentId = downloadContentId,
             fileId = version.fileId,
             displayTitle = displayTitle,
             downloadQualityOverride = downloadQuality,
         )
         _downloadStartEvents.emit(result is ApiResult.Success)
-    }
-
-    /**
-     * Per-episode download tap. Picks the best file for the episode (first
-     * entry in the server-sorted files list) and queues it. If the episode
-     * has no files (rare — orphaned record), no-ops.
-     */
-    fun onEpisodeDownloadTapped(
-        episode: EpisodeListItem,
-        downloadQuality: DownloadQuality? = null,
-    ) {
-        val fileId = episode.files.firstOrNull()?.fileId ?: return
-        val detail = _uiState.value.detail ?: return
-        // Branch on current state like the movie/audiobook path: a downloaded
-        // episode is a no-op (manage via the Downloads tab); an in-flight one
-        // cancels; otherwise start. Previously it always re-enqueued.
-        val existing = downloads.value.firstOrNull { it.mediaFileId == fileId }
-        when (detailDownloadTapAction(existing?.statusEnum(), forceRedownloadMissingLocal = false)) {
-            DetailDownloadTapAction.Ignore -> Unit
-            DetailDownloadTapAction.Cancel -> existing?.let { record ->
-                val cancelScope = downloadEnqueuer.captureCancelScope()
-                viewModelScope.launch {
-                    downloadEnqueuer.cancel(record.id, fileId, cancelScope)
-                    downloadsRepository.delete(record.id)
-                }
-            }
-            DetailDownloadTapAction.Start, DetailDownloadTapAction.ReplaceAndStart -> viewModelScope.launch {
-                // Episode pages load the episode itself as `detail`, so the
-                // parent reference supplies the series id/title for grouping.
-                downloadEnqueuer.startEpisode(
-                    seriesContentId = if (detail.type == "series") {
-                        detail.contentId
-                    } else {
-                        detail.seriesId ?: detail.contentId
-                    },
-                    episodeContentId = episode.contentId,
-                    fileId = fileId,
-                    seriesTitle = if (detail.type == "series") {
-                        detail.title
-                    } else {
-                        detail.seriesTitle ?: detail.title
-                    },
-                    seasonNumber = episode.seasonNumber,
-                    episodeNumber = episode.episodeNumber,
-                    episodeTitle = episode.title,
-                    posterUrl = detail.posterUrl,
-                    downloadQualityOverride = downloadQuality,
-                )
-            }
-        }
     }
 
     /** Series-level "Download series" — uses the server's batch endpoint
@@ -317,22 +300,6 @@ class ItemDetailViewModel(
         }
     }
 
-    /** Per-season "Download season" — server has no season-batch endpoint
-     *  so this loops POST-per-episode locally inside the enqueuer. */
-    fun onSeasonDownloadTapped(
-        seasonNumber: Int,
-        downloadQuality: DownloadQuality? = null,
-    ) {
-        val detail = _uiState.value.detail ?: return
-        viewModelScope.launch {
-            downloadEnqueuer.startSeason(
-                seriesContentId = detail.contentId,
-                seasonNumber = seasonNumber,
-                downloadQualityOverride = downloadQuality,
-            )
-        }
-    }
-
     init {
         if (contentId.isNotBlank()) {
             loadDetail()
@@ -340,12 +307,31 @@ class ItemDetailViewModel(
         }
     }
 
+    suspend fun hasSeriesDetailForRedirect(seriesContentId: String): Boolean {
+        fun ItemDetail?.matchesParent(): Boolean =
+            this != null && contentId == seriesContentId && type.equals("series", ignoreCase = true)
+
+        if (catalogRepository.getCachedItemDetail(seriesContentId, libraryId = libraryId).matchesParent()) return true
+        return when (val result = catalogRepository.getItemDetail(seriesContentId, libraryId = libraryId)) {
+            is ApiResult.Success -> result.data.matchesParent()
+            else -> false
+        }
+    }
+
     fun loadDetail() {
+        val similarRun = ++similarGeneration
+        similarJob?.cancel()
+        _uiState.update { it.copy(similarItems = emptyList()) }
         viewModelScope.launch {
+            val similarOwner = recommendationRepository.captureSimilarAuthority()
             _uiState.update { it.copy(isLoading = true, error = null) }
+            // Start the live request immediately. The durable cache read can
+            // still paint an instant first frame, but it no longer delays the
+            // network request that supplies fresh movie/series metadata.
+            val liveDetail = async { catalogRepository.getItemDetail(contentId, libraryId = libraryId) }
             seedCachedDetail()
 
-            when (val result = catalogRepository.getItemDetail(contentId)) {
+            when (val result = liveDetail.await()) {
                 is ApiResult.Success -> {
                     val detail = withLocalProgress(result.data)
                     _uiState.update {
@@ -358,7 +344,9 @@ class ItemDetailViewModel(
                     }
                     // Restore a persisted audio/subtitle override for this item.
                     seedPersistedTrackSelection()
-                    viewModelScope.launch { loadSimilar(detail) }
+                    if (similarRun == similarGeneration) {
+                        similarJob = viewModelScope.launch { loadSimilar(detail, similarOwner, similarRun) }
+                    }
                     // For series, load seasons
                     if (detail.type == "series") {
                         loadSeasons(detail.contentId)
@@ -402,33 +390,11 @@ class ItemDetailViewModel(
         }
     }
 
-    private suspend fun loadSimilar(detail: ItemDetail) {
-        if (detail.type == "episode" || _uiState.value.similarItems.isNotEmpty()) return
-
-        val scored = when (
-            val result = recommendationRepository.getSimilar(detail.contentId, limit = 12)
-        ) {
-            is ApiResult.Success -> result.data.items
-            else -> return
-        }
-        if (scored.isEmpty()) return
-
-        val items = coroutineScope {
-            scored
-                .map { ref ->
-                    async {
-                        when (val result = catalogRepository.getItemDetail(ref.mediaItemId)) {
-                            is ApiResult.Success -> result.data
-                            else -> null
-                        }
-                    }
-                }
-                .awaitAll()
-                .filterNotNull()
-        }
-        if (items.isNotEmpty()) {
-            _uiState.update { it.copy(similarItems = items) }
-        }
+    private suspend fun loadSimilar(detail: ItemDetail, owner: org.prairieserver.prairie.network.AuthScopeSnapshot?, run: Long) {
+        if (owner == null || detail.type == "episode") return
+        recommendationRepository.loadSimilarCards(detail.contentId, owner,
+            stillCurrent = { run == similarGeneration && _uiState.value.detail?.contentId == detail.contentId },
+            publish = { cards -> _uiState.update { it.copy(similarItems = cards) } })
     }
 
     /**
@@ -447,7 +413,7 @@ class ItemDetailViewModel(
             if (overlaid != current) {
                 _uiState.update { it.copy(detail = overlaid) }
             }
-            when (val result = catalogRepository.getItemDetail(contentId)) {
+            when (val result = catalogRepository.getItemDetail(contentId, libraryId = libraryId)) {
                 is ApiResult.Success -> {
                     val detail = withLocalProgress(result.data)
                     _uiState.update {
@@ -480,7 +446,7 @@ class ItemDetailViewModel(
     }
 
     private suspend fun seedCachedDetail() {
-        val cached = catalogRepository.getCachedItemDetail(contentId)?.let { withLocalProgress(it) } ?: return
+        val cached = catalogRepository.getCachedItemDetail(contentId, libraryId = libraryId)?.let { withLocalProgress(it) } ?: return
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -493,19 +459,9 @@ class ItemDetailViewModel(
 
     private fun loadUserState() {
         viewModelScope.launch {
-            // Local optimistic favorite wins and is applied IMMEDIATELY (isFavorite
-            // is a network-only read — stale/unavailable offline or right after an
-            // offline toggle; don't let a slow/failed network call delay or clobber it).
-            val localFavorite = runCatching {
-                userItemState.localContentStates(listOf(contentId))[contentId]?.favorite
-            }.getOrNull()
-            if (localFavorite != null) {
-                _uiState.update { it.copy(isFavorite = localFavorite) }
-            } else {
-                val favResult = personalDataRepository.isFavorite(contentId)
-                if (favResult is ApiResult.Success) {
-                    _uiState.update { it.copy(isFavorite = favResult.data) }
-                }
+            val favResult = personalDataRepository.isFavorite(contentId)
+            if (favResult is ApiResult.Success) {
+                _uiState.update { it.copy(isFavorite = favResult.data) }
             }
         }
         viewModelScope.launch {
@@ -518,7 +474,15 @@ class ItemDetailViewModel(
 
     private fun loadSeasons(seriesId: String) {
         viewModelScope.launch {
-            when (val result = catalogRepository.getSeasons(seriesId)) {
+            // Continue Watching warms the parent series before navigation. Use
+            // that fresh cache immediately only for that targeted route; direct
+            // card opens retain their normal live season refresh.
+            val result = if (initialEpisodeContentId != null) {
+                catalogRepository.getSeasonsForPrefetch(seriesId, libraryId = libraryId)
+            } else {
+                catalogRepository.getSeasons(seriesId, libraryId = libraryId)
+            }
+            when (result) {
                 is ApiResult.Success -> {
                     val plan = result.data.seasons.initialSeasonDisplayPlan(initialSeasonNumber)
                     _uiState.update {
@@ -532,6 +496,7 @@ class ItemDetailViewModel(
                             seriesId = seriesId,
                             seasonNumber = seasonNumber,
                             seasonsForDownloadRollup = plan.seasons,
+                            preferPrefetched = initialEpisodeContentId != null,
                         )
                     } ?: run {
                         loadAllEpisodeFileIds(seriesId, plan.seasons)
@@ -588,7 +553,7 @@ class ItemDetailViewModel(
 
             for (season in accumulator.remainingSeasons(seasons)) {
                 if (!routeActive) return@launch
-                when (val r = catalogRepository.getEpisodes(seriesId, season.seasonNumber)) {
+                when (val r = catalogRepository.getEpisodes(seriesId, season.seasonNumber, libraryId = libraryId)) {
                     is ApiResult.Success -> {
                         val episodes = withLocalProgress(r.data.episodes)
                         cacheEpisodes(season.seasonNumber, episodes)
@@ -643,7 +608,7 @@ class ItemDetailViewModel(
         _uiState.update { it.copy(selectedSeasonNumber = seasonNumber) }
         loadEpisodes(seriesId, seasonNumber)
         viewModelScope.launch {
-            when (val result = catalogRepository.getSeasons(seriesId)) {
+            when (val result = catalogRepository.getSeasons(seriesId, libraryId = libraryId)) {
                 is ApiResult.Success -> {
                     val seasons = result.data.seasons.sortedForDisplay()
                     _uiState.update { it.copy(seasons = seasons) }
@@ -654,7 +619,7 @@ class ItemDetailViewModel(
             // Resolve seasons before the series fallback. Otherwise a cache-fast
             // series poster can paint for a frame and then be replaced by the
             // selected season poster when its request completes.
-            when (val result = catalogRepository.getItemDetailForPrefetch(seriesId)) {
+            when (val result = catalogRepository.getItemDetailForPrefetch(seriesId, libraryId = libraryId)) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(
@@ -683,6 +648,9 @@ class ItemDetailViewModel(
                 selectedSeasonNumber = seasonNumber,
                 episodes = cachedEpisodes.orEmpty(),
                 isLoadingEpisodes = cachedEpisodes == null,
+                selectedEpisodeContentId = null,
+                selectedEpisodeDetail = null,
+                isLoadingSelectedEpisodeDetail = false,
             )
         }
         val detail = _uiState.value.detail ?: return
@@ -690,11 +658,95 @@ class ItemDetailViewModel(
         loadEpisodes(seriesId, seasonNumber)
     }
 
+    /** Selects an episode in place instead of pushing a separate episode route. */
+    fun selectSeriesEpisode(contentId: String) {
+        if (_uiState.value.selectedEpisodeContentId == contentId &&
+            _uiState.value.selectedEpisodeDetail != null
+        ) return
+        selectedEpisodeLoadJob?.cancel()
+        _uiState.update {
+            it.copy(
+                selectedEpisodeContentId = contentId,
+                selectedEpisodeDetail = null,
+                isLoadingSelectedEpisodeDetail = true,
+                selectedVersionIndex = 0,
+                selectedAudioIndex = 0,
+                selectedSubtitleIndex = -1,
+                hasExplicitVersionSelection = false,
+                hasExplicitAudioSelection = false,
+                hasExplicitSubtitleSelection = false,
+            )
+        }
+        loadSelectedEpisodeDetail(contentId)
+    }
+
+    fun ensureSelectedEpisodeDetailLoaded() {
+        val state = _uiState.value
+        val contentId = state.selectedEpisodeContentId ?: return
+        if (state.selectedEpisodeDetail != null || state.isLoadingSelectedEpisodeDetail) return
+        _uiState.update { it.copy(isLoadingSelectedEpisodeDetail = true) }
+        loadSelectedEpisodeDetail(contentId)
+    }
+
+    private fun loadSelectedEpisodeDetail(contentId: String) {
+        selectedEpisodeLoadJob = viewModelScope.launch {
+            val result = if (contentId == initialEpisodeContentId) {
+                catalogRepository.getItemDetailForPrefetch(contentId, libraryId = libraryId)
+            } else {
+                catalogRepository.getItemDetail(contentId, libraryId = libraryId)
+            }
+            when (result) {
+                is ApiResult.Success -> _uiState.update { state ->
+                    if (state.selectedEpisodeContentId != contentId) state else state.copy(
+                        selectedEpisodeDetail = withLocalProgress(result.data),
+                        isLoadingSelectedEpisodeDetail = false,
+                    )
+                }
+                else -> _uiState.update { state ->
+                    if (state.selectedEpisodeContentId != contentId) state else state.copy(
+                        isLoadingSelectedEpisodeDetail = false,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun ensureSeriesEpisodeSelection(episodes: List<EpisodeListItem>) {
+        if (episodes.isEmpty()) return
+        val current = _uiState.value.selectedEpisodeContentId
+        if (episodes.any { it.contentId == current }) return
+        val routedEpisode = pendingInitialEpisodeContentId?.let { requestedContentId ->
+            episodes.firstOrNull { it.contentId == requestedContentId }
+        }
+        // The route's target applies only to its initial season load. If stale
+        // metadata names an episode outside that season, fall back normally
+        // instead of unexpectedly selecting it after a later manual chip tap.
+        pendingInitialEpisodeContentId = null
+        val preferred = routedEpisode ?: episodes.firstOrNull {
+            (it.userData?.positionSeconds ?: 0.0) > 0.0 && it.userData?.played != true
+        } ?: episodes.firstOrNull { it.userData?.played != true }
+            ?: episodes.first()
+        _uiState.update {
+            it.copy(
+                selectedEpisodeContentId = preferred.contentId,
+                selectedEpisodeDetail = null,
+                isLoadingSelectedEpisodeDetail = false,
+                selectedVersionIndex = 0,
+                selectedAudioIndex = 0,
+                selectedSubtitleIndex = -1,
+                hasExplicitVersionSelection = false,
+                hasExplicitAudioSelection = false,
+                hasExplicitSubtitleSelection = false,
+            )
+        }
+    }
+
     private fun loadEpisodes(
         seriesId: String,
         seasonNumber: Int,
         seasonsForDownloadRollup: List<Season>? = null,
         forceRefresh: Boolean = false,
+        preferPrefetched: Boolean = false,
     ) {
         episodeLoadJob?.cancel()
         val cachedEpisodes = _uiState.value.episodesBySeason[seasonNumber]
@@ -707,6 +759,7 @@ class ItemDetailViewModel(
                     isLoadingEpisodes = false,
                 )
             }
+            ensureSeriesEpisodeSelection(cachedEpisodes)
             seasonsForDownloadRollup?.let { seasons ->
                 loadAllEpisodeFileIds(
                     seriesId = seriesId,
@@ -728,7 +781,12 @@ class ItemDetailViewModel(
                     },
                 )
             }
-            when (val result = catalogRepository.getEpisodes(seriesId, seasonNumber)) {
+            val result = if (!forceRefresh && preferPrefetched) {
+                catalogRepository.getEpisodesForPrefetch(seriesId, seasonNumber, libraryId = libraryId)
+            } else {
+                catalogRepository.getEpisodes(seriesId, seasonNumber, libraryId = libraryId)
+            }
+            when (result) {
                 is ApiResult.Success -> {
                     val episodes = withLocalProgress(result.data.episodes)
                     loadedSeasonNumber = seasonNumber
@@ -740,6 +798,7 @@ class ItemDetailViewModel(
                             episodes = if (it.selectedSeasonNumber == seasonNumber) episodes else it.episodes,
                         )
                     }
+                    ensureSeriesEpisodeSelection(episodes)
                     seasonsForDownloadRollup?.let { seasons ->
                         loadAllEpisodeFileIds(
                             seriesId = seriesId,
@@ -794,19 +853,8 @@ class ItemDetailViewModel(
      * Toggles the favorite state for this item.
      */
     fun toggleFavorite() {
-        viewModelScope.launch {
-            val current = _uiState.value.isFavorite
-            val newState = !current
-            // Optimistic update
-            _uiState.update { it.copy(isFavorite = newState) }
-            when (personalDataRepository.toggleFavorite(contentId, newState)) {
-                is ApiResult.Success -> { /* already updated */ }
-                else -> {
-                    // Revert on failure
-                    _uiState.update { it.copy(isFavorite = current) }
-                }
-            }
-        }
+        val intent = personalDataRepository.memberships.begin(contentId, org.prairieserver.prairie.repository.port.MembershipPort.Kind.FAVORITE, !uiState.value.isFavorite)
+        viewModelScope.launch { personalDataRepository.memberships.perform(intent) }
     }
 
     /**
@@ -816,11 +864,15 @@ class ItemDetailViewModel(
      */
     fun setRating(stars: Int) {
         val target = stars.coerceIn(1, 5)
+        val writeIntent = personalDataRepository.beginRating(contentId, target)
         viewModelScope.launch {
+            if (!personalDataRepository.isCurrent(writeIntent)) return@launch
             val previous = _uiState.value.userRating
             // Optimistic update
             _uiState.update { it.copy(userRating = target) }
-            when (personalDataRepository.setRating(contentId, target)) {
+            val writeResult = personalDataRepository.performPersonalWrite(writeIntent)
+            if (!personalDataRepository.isCurrent(writeIntent)) return@launch
+            when (writeResult) {
                 is ApiResult.Success -> { /* already updated */ }
                 else -> {
                     // Revert on failure
@@ -832,11 +884,15 @@ class ItemDetailViewModel(
 
     /** Removes the user's rating with optimistic update + revert on failure. */
     fun clearRating() {
+        val writeIntent = personalDataRepository.beginRating(contentId, null)
         viewModelScope.launch {
+            if (!personalDataRepository.isCurrent(writeIntent)) return@launch
             val previous = _uiState.value.userRating ?: return@launch
             // Optimistic update
             _uiState.update { it.copy(userRating = null) }
-            when (personalDataRepository.deleteRating(contentId)) {
+            val writeResult = personalDataRepository.performPersonalWrite(writeIntent)
+            if (!personalDataRepository.isCurrent(writeIntent)) return@launch
+            when (writeResult) {
                 is ApiResult.Success -> { /* already updated */ }
                 else -> {
                     // Revert on failure
@@ -993,7 +1049,6 @@ class ItemDetailViewModel(
         }
     }
 
-
     /**
      * Fire (or auto-fire once, when [auto] is set) the description
      * translation for the loaded item, then poll detail until the server
@@ -1008,16 +1063,18 @@ class ItemDetailViewModel(
             descriptionTranslation.markAutoFired(detail.contentId, target)
         }
         descriptionTranslation.resetFailure()
-        viewModelScope.launch {
+        viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             descriptionTranslation.translate(
                 contentId = detail.contentId,
                 targetLanguage = target,
-                refetchPendingLanguage = {
-                    when (val result = catalogRepository.getItemDetail(contentId)) {
+                refetchPendingLanguage = { owner ->
+                    when (val result = metadataAiRepository.refreshDetail(detail.contentId, owner)) {
                         is ApiResult.Success -> {
                             val refreshed = withLocalProgress(result.data)
-                            _uiState.update { it.copy(detail = refreshed) }
-                            refreshed.pendingTranslationLanguage
+                            if (metadataAiRepository.isCurrent(owner) && _uiState.value.detail?.contentId == detail.contentId) {
+                                _uiState.update { it.copy(detail = refreshed) }
+                                refreshed.pendingTranslationLanguage
+                            } else target
                         }
                         else -> target // transient refetch failure: keep polling
                     }
@@ -1031,19 +1088,8 @@ class ItemDetailViewModel(
      * Toggles the watchlist state for this item.
      */
     fun toggleWatchlist() {
-        viewModelScope.launch {
-            val current = _uiState.value.isInWatchlist
-            val newState = !current
-            // Optimistic update
-            _uiState.update { it.copy(isInWatchlist = newState) }
-            when (personalDataRepository.toggleWatchlist(contentId, newState)) {
-                is ApiResult.Success -> { /* already updated */ }
-                else -> {
-                    // Revert on failure
-                    _uiState.update { it.copy(isInWatchlist = current) }
-                }
-            }
-        }
+        val intent = personalDataRepository.memberships.begin(contentId, org.prairieserver.prairie.repository.port.MembershipPort.Kind.WATCHLIST, !uiState.value.isInWatchlist)
+        viewModelScope.launch { personalDataRepository.memberships.perform(intent) }
     }
 
     fun toggleWatched() {
@@ -1052,11 +1098,70 @@ class ItemDetailViewModel(
         val target = !current
         val generation = ++watchedMutationGeneration
         updatePlayedState(target)
+        val writeIntent = personalDataRepository.beginWatched(contentId, target)
         viewModelScope.launch {
-            when (personalDataRepository.setWatched(contentId, target)) {
+            val writeResult = personalDataRepository.performPersonalWrite(writeIntent)
+            if (!personalDataRepository.isCurrent(writeIntent)) return@launch
+            when (writeResult) {
                 is ApiResult.Success -> { /* already updated */ }
                 else -> if (generation == watchedMutationGeneration) updatePlayedState(current)
             }
+        }
+    }
+
+    /** Marks one episode from the in-page rail without navigating away. */
+    fun setEpisodeWatched(episodeContentId: String, watched: Boolean) {
+        val state = _uiState.value
+        val previous = state.episodes.firstOrNull { it.contentId == episodeContentId }
+            ?.userData?.played
+            ?: state.episodesBySeason.values.asSequence()
+                .flatten()
+                .firstOrNull { it.contentId == episodeContentId }
+                ?.userData?.played
+            ?: false
+        if (previous == watched) return
+
+        val generation = (episodeWatchedMutationGenerations[episodeContentId] ?: 0) + 1
+        episodeWatchedMutationGenerations[episodeContentId] = generation
+        updateEpisodePlayedState(episodeContentId, watched)
+        val writeIntent = personalDataRepository.beginWatched(episodeContentId, watched)
+        viewModelScope.launch {
+            val writeResult = personalDataRepository.performPersonalWrite(writeIntent)
+            if (!personalDataRepository.isCurrent(writeIntent)) return@launch
+            when (writeResult) {
+                is ApiResult.Success -> Unit
+                else -> if (episodeWatchedMutationGenerations[episodeContentId] == generation) {
+                    updateEpisodePlayedState(episodeContentId, previous)
+                }
+            }
+        }
+    }
+
+    private fun updateEpisodePlayedState(episodeContentId: String, played: Boolean) {
+        fun EpisodeListItem.updated(): EpisodeListItem =
+            if (contentId != episodeContentId) this else copy(
+                userData = (userData ?: LeafItemUserData()).copy(played = played),
+            )
+
+        _uiState.update { state ->
+            val selectedDetail = state.selectedEpisodeDetail?.let { episodeDetail ->
+                if (episodeDetail.contentId != episodeContentId) episodeDetail else episodeDetail.copy(
+                    userData = (episodeDetail.userData ?: LeafItemUserData()).copy(played = played),
+                )
+            }
+            val ownDetail = state.detail?.let { itemDetail ->
+                if (itemDetail.contentId != episodeContentId) itemDetail else itemDetail.copy(
+                    userData = (itemDetail.userData ?: LeafItemUserData()).copy(played = played),
+                )
+            }
+            state.copy(
+                detail = ownDetail,
+                episodes = state.episodes.map { it.updated() },
+                episodesBySeason = state.episodesBySeason.mapValues { (_, episodes) ->
+                    episodes.map { it.updated() }
+                },
+                selectedEpisodeDetail = selectedDetail,
+            )
         }
     }
 

@@ -6,6 +6,14 @@ import androidx.compose.ui.graphics.Color
 // Pure-black backgrounds, EDEDED primary text, white-at-opacity for everything else.
 
 val PrairieBackground = Color(0xFF000000)
+
+/**
+ * The signed-in page canvas. iOS paints `ContinuumPageBackdrop` (#111111) under
+ * every signed-in phone surface instead of pure black (silo-apple PR #222);
+ * `PrairieBackground` stays black for the ink and player roles that mirror
+ * `continuumBackground`. Settings keeps `PrairieSettingsBackground`.
+ */
+val PrairiePageBackground = Color(0xFF111111)
 val PrairieSurface = Color(0xFF0A0A0A)
 val PrairieSurfaceVariant = Color(0xFF0E0F12)
 val PrairieSurfaceElevated = Color(0xFF15171C)
@@ -18,7 +26,24 @@ val PrairieOutline = Color.White.copy(alpha = 0.12f)
 val PrairieDivider = Color.White.copy(alpha = 0.12f)
 val PrairieOverlay = Color.Black.copy(alpha = 0.60f)
 
-// --- Grouped-surface palette (Prairie web client parity) ---
+// Restrained Android substitute for iOS Liquid Glass. These shared washes keep
+// every migrated circle/capsule in one light material family without a live
+// blur. They remain inexpensive on
+// Android (no live backdrop blur), while allowing the title-derived surface
+// underneath to tint them instead of reading as flat white plastic.
+val PrairieOpaqueControl = Color.White.copy(alpha = 0.58f)
+val PrairieOpaqueControlSelected = Color.White.copy(alpha = 0.70f)
+val PrairieOpaqueControlSelectionOverlay = Color.White.copy(alpha = 0.18f)
+// PR #212 PhoneLabeledAction values. These read as the same adaptive material
+// family as the Home tab bar over a dark detail surface without becoming the
+// pale, nearly solid circles shown in the Android comparison screenshot.
+val PrairieDetailActionControl = Color.White.copy(alpha = 0.10f)
+val PrairieDetailActionControlActive = Color.White.copy(alpha = 0.30f)
+val PrairieOnOpaqueControl = Color(0xFF17171A)
+val PrairieOnOpaqueControlMuted = Color(0xFF4F4F55)
+val PrairieOpaqueControlBorder = Color.White.copy(alpha = 0.46f)
+
+// --- Grouped-surface palette (Silo web client parity) ---
 //
 // The OLED values above are the app's chrome: pure black grounds with
 // white-at-opacity on top. That reads well over artwork and badly over a long
@@ -71,7 +96,7 @@ val PrairieWhiteSoft = PrairieOnSurface
 val PrairieWhiteMuted = PrairieSecondaryText
 val PrairieBlack = PrairieBackground
 
-val DarkBackground = PrairieBackground
+val DarkBackground = PrairiePageBackground
 val DarkSurface = PrairieSurface
 val DarkSurfaceVariant = PrairieSurfaceVariant
 val DarkSurfaceHigh = PrairieSurfaceElevated
@@ -96,3 +121,21 @@ val DarkInverseOnSurface = PrairieBackground
 val DarkInversePrimary = PrairieBackground
 
 val Scrim = PrairieOverlay
+
+// Bottom navigation capsule. Deliberately opaque rather than a translucent
+// wash: Compose has no live backdrop blur, so iOS's glass tab bar cannot be
+// reproduced by tinting alone. The previous 30%-white fill just lightened
+// whatever poster art scrolled underneath and swallowed the labels over bright
+// covers. The selected tab inverts to a light chip instead of a brighter wash.
+val PrairieNavPillSurface = Color(0xFF15191F)
+val PrairieNavPillBorder = Color.White.copy(alpha = 0.10f)
+val PrairieNavPillSelected = Color(0xFFEDEDED)
+val PrairieNavPillSelectedContent = Color(0xFF0B0B0C)
+val PrairieNavPillContent = Color.White.copy(alpha = 0.58f)
+
+/**
+ * Detail-page overlay buttons (close, remote). The bottom-nav pill made
+ * translucent: hero artwork still reads through, but a dark disc holds a white
+ * glyph over a pale poster, which the old white-on-white wash did not.
+ */
+val PrairieOverlayPillSurface = PrairieNavPillSurface.copy(alpha = 0.62f)

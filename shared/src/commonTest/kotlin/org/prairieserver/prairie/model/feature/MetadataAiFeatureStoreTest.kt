@@ -106,5 +106,6 @@ private class FakeMetadataAiApi(
     override suspend fun translateDescription(
         contentId: String,
         targetLanguage: String,
-    ): ApiResult<Unit> = ApiResult.NetworkError(IllegalStateException("not used"))
+        scope: org.prairieserver.prairie.network.AuthScopeSnapshot?,
+    ): ApiResult<org.prairieserver.prairie.model.metadata.MetadataTranslationJob> = ApiResult.NetworkError(IllegalStateException("not used"))
 }

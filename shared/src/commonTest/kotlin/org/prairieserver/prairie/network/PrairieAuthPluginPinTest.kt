@@ -77,7 +77,7 @@ class PrairieAuthPluginPinTest {
         }
 
         assertFailsWith<CleartextOriginNotApprovedException> {
-            client.get("ws://prairie.lan/api/v1/watch-together/rooms/r/ws?room_token=secret")
+            client.get("ws://prairie.lan/api/v2/watch-together/rooms/r/ws")
         }
         assertEquals(false, engineCalled)
         client.close()
@@ -102,7 +102,7 @@ class PrairieAuthPluginPinTest {
         }
 
         assertFailsWith<CleartextOriginNotApprovedException> {
-            client.post("/api/v1/auth/login") { skipPrairieAuth() }
+            client.post("/api/v2/auth/login") { skipPrairieAuth() }
         }
         assertEquals(false, engineCalled)
         client.close()
@@ -127,8 +127,8 @@ class PrairieAuthPluginPinTest {
         }
 
         listOf(
-            "/api/v1/auth/device/start",
-            "/api/v1/auth/device/poll",
+            "/api/v2/auth/device/start",
+            "/api/v2/auth/device/poll",
             "/api/v1/auth/remote-playback/start",
         ).forEach { path ->
             assertFailsWith<CleartextOriginNotApprovedException>(path) {
@@ -230,7 +230,7 @@ class PrairieAuthPluginPinTest {
                 )
         }
 
-        client(tokenManager, captured, provider).post("/api/v1/playback/start")
+        client(tokenManager, captured, provider).post("/api/v2/playback/start")
 
         assertEquals("Prairie Android TV", captured.prairieClient)
         assertEquals("0.2.3", captured.prairieClientVersion)
@@ -420,7 +420,7 @@ class PrairieAuthPluginPinTest {
             tokenManager = tokenManager,
             captured = captured,
             deviceMetadataProvider = provider,
-        ).get("https://candidate.example/api/v1/auth/device/start") {
+        ).get("https://candidate.example/api/v2/auth/device/start") {
             skipPrairieAuth()
         }
 
@@ -439,7 +439,7 @@ class PrairieAuthPluginPinTest {
             tokenManager = tokenManager,
             captured = captured,
             deviceMetadataProvider = provider,
-        ).get("https://prairie.example/api/v1/auth/login") {
+        ).get("https://prairie.example/api/v2/auth/login") {
             skipPrairieAuth()
         }
 
@@ -472,7 +472,7 @@ class PrairieAuthPluginPinTest {
             }
         }
 
-        client.get("https://prairie.example/api/v1/auth/login") {
+        client.get("https://prairie.example/api/v2/auth/login") {
             skipPrairieAuth()
         }
 
@@ -541,7 +541,7 @@ class PrairieAuthPluginPinTest {
         assertEquals(
             listOf(
                 "/api/v1/catalog/home",
-                "/api/v1/auth/refresh",
+                "/api/v2/auth/refresh",
                 "/api/v1/catalog/home",
             ),
             paths,
@@ -557,7 +557,7 @@ class PrairieAuthPluginPinTest {
         val tokenManager = ScopedRefreshTokenManager(switchBeforeRefreshTokenRead = true)
         val paths = executeRefreshScenario(tokenManager, HttpStatusCode.OK)
 
-        assertEquals(listOf("/api/v1/catalog/home", "/api/v1/auth/refresh"), paths)
+        assertEquals(listOf("/api/v1/catalog/home", "/api/v2/auth/refresh"), paths)
         assertEquals(0, tokenManager.activeRefreshReads)
         assertEquals(1, tokenManager.scopedRefreshReads)
         assertEquals(0, tokenManager.activeSaves)

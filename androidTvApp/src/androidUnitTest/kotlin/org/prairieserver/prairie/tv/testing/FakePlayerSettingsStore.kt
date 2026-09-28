@@ -29,6 +29,7 @@ internal class FakePlayerSettingsStore : PlayerSettingsStore {
     override val effectiveSubtitleAppearanceFlow =
         MutableStateFlow(org.prairieserver.prairie.model.settings.SubtitleAppearance.DEFAULT)
     override val pictureInPictureEnabledFlow = MutableStateFlow(true)
+    override val forceHdrPassthroughFlow = MutableStateFlow(false)
     override val downloadsWifiOnlyFlow = MutableStateFlow(true)
     override val keepWatchedDownloadsFlow = MutableStateFlow(false)
     override val defaultDownloadQualityFlow = MutableStateFlow("original")
@@ -80,6 +81,9 @@ internal class FakePlayerSettingsStore : PlayerSettingsStore {
     }
     override suspend fun setPictureInPictureEnabled(value: Boolean) {
         setterCalls += "setPictureInPictureEnabled"; pictureInPictureEnabledFlow.value = value
+    }
+    override suspend fun setForceHdrPassthrough(value: Boolean) {
+        setterCalls += "setForceHdrPassthrough"; forceHdrPassthroughFlow.value = value
     }
     override suspend fun setDownloadsWifiOnly(value: Boolean) {
         setterCalls += "setDownloadsWifiOnly"; downloadsWifiOnlyFlow.value = value
@@ -139,6 +143,22 @@ internal class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setSubtitleDeviceOverrideEnabled(enabled: Boolean) {}
     override suspend fun resetDeviceSetting(key: String) {}
     override suspend fun resetAllDeviceSettings() {}
+    var importSucceeds = true
+    override suspend fun importLegacyDeviceSettings(
+        authority: org.prairieserver.prairie.network.AuthScopeSnapshot,
+        values: Map<String, String>,
+    ): Boolean {
+        if (!importSucceeds) return false
+        val keys = org.prairieserver.prairie.model.settings.PlaybackSettingsKeys
+        values[keys.PreferredQuality]?.let { setQuality(it, values[keys.MaxBitrateKbps]?.toIntOrNull()?.takeIf { n -> n > 0 }) }
+        values[keys.AutoPlayNext]?.let { setAutoPlayNext(it.toBooleanStrict()) }
+        values[keys.IntroSkipMode]?.let { setIntroSkipMode(requireNotNull(IntroSkipMode.fromWire(it))) }
+        values[keys.AutoSkipCredits]?.let { setAutoSkipCredits(it.toBooleanStrict()) }
+        values[keys.SubtitleAppearance]?.let { setSubtitleAppearance(SubtitleAppearance.decode(it)) }
+        flushPendingDeviceSettings()
+        return true
+    }
+
     override suspend fun flushPendingDeviceSettings() {
         flushCount++
     }

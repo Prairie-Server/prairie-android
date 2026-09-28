@@ -1,5 +1,9 @@
 package org.prairieserver.prairie.model.catalog
 
+import kotlinx.serialization.Transient
+import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
+import org.prairieserver.prairie.network.apiv2.CatalogSearchDiagnosticsV2
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -67,14 +71,6 @@ data class BrowseItem(
 )
 
 @Serializable
-data class BrowseResponse(
-    val total: Int = 0,
-    @SerialName("total_exact") val totalExact: Boolean? = null,
-    @SerialName("has_more") val hasMore: Boolean = false,
-    val items: List<BrowseItem> = emptyList()
-)
-
-@Serializable
 data class CatalogResponse(
     val total: Int = 0,
     @SerialName("total_exact") val totalExact: Boolean? = null,
@@ -89,7 +85,9 @@ data class CatalogResponse(
      * `sort` is sent) echo the resolved field here, so a client that sent
      * nothing can still say what it is looking at.
      */
-    @SerialName("effective_sort") val effectiveSort: CatalogEffectiveSort? = null
+    @SerialName("effective_sort") val effectiveSort: CatalogEffectiveSort? = null,
+    @Transient val continuation: CatalogContinuationV2? = null,
+    @Transient val searchDiagnostics: CatalogSearchDiagnosticsV2? = null,
 )
 
 @Serializable
@@ -128,6 +126,7 @@ data class AudiobookGroupsResponse(
     @SerialName("total_exact") val totalExact: Boolean? = null,
     @SerialName("has_more") val hasMore: Boolean = false,
     val groups: List<AudiobookGroup> = emptyList(),
+    @Transient val continuation: CatalogContinuationV2? = null,
 )
 
 @Serializable
@@ -143,7 +142,8 @@ data class CatalogFiltersResponse(
     @SerialName("original_languages") val originalLanguages: List<String>? = null,
     val authors: List<String>? = null,
     val narrators: List<String>? = null,
-    val series: List<String>? = null
+    val series: List<String>? = null,
+    @Transient val facetScope: org.prairieserver.prairie.network.apiv2.CatalogFacetScopeV2? = null,
 )
 
 // --- Item Detail ---
@@ -200,6 +200,7 @@ data class ItemDetail(
     /** The current user's personal star rating (1-5), when set. */
     @SerialName("user_rating") val userRating: Int? = null,
     val versions: List<FileVersion> = emptyList(),
+    @SerialName("playback_variants") val playbackVariants: List<PlaybackVariant> = emptyList(),
     val subtitles: List<SubtitleInfo> = emptyList(),
     @SerialName("overlay_summary") val overlaySummary: OverlaySummary? = null,
     val intro: TimeRange? = null,
@@ -207,13 +208,36 @@ data class ItemDetail(
     val recap: TimeRange? = null,
     val preview: TimeRange? = null,
     /** Populated only when [type] is "audiobook". Forward-compat — the
-     *  server may stop returning it once a dedicated /api/v1/audiobooks
+     *  server may stop returning it once a dedicated /api/v2/audiobooks
      *  endpoint lands; until then it rides on ItemDetail. */
     val audiobook: org.prairieserver.prairie.model.audiobook.AudiobookMetadata? = null,
     /** Legacy fallback for older servers that emitted book-like metadata. */
     val book: org.prairieserver.prairie.model.book.BookMetadata? = null,
     /** Populated only when [type] is "ebook" on current servers. */
     val ebook: org.prairieserver.prairie.model.ebook.EbookMetadata? = null,
+    /** Remote provider trailers/teasers, pre-ordered by the server. */
+    val videos: List<ItemVideo>? = null,
+    /** Scanner-discovered local trailers and featurettes. */
+    val extras: List<ItemExtra>? = null,
+)
+
+@Serializable
+data class ItemVideo(
+    val kind: String,
+    val site: String,
+    @SerialName("site_key") val siteKey: String,
+    val name: String? = null,
+    val language: String? = null,
+    @SerialName("is_official") val isOfficial: Boolean = false,
+)
+
+@Serializable
+data class ItemExtra(
+    @SerialName("content_id") val contentId: String,
+    val kind: String,
+    val title: String? = null,
+    @SerialName("duration_seconds") val durationSeconds: Int? = null,
+    @SerialName("file_id") val fileId: Int? = null,
 )
 
 @Serializable
@@ -278,7 +302,30 @@ data class FileVersion(
     @SerialName("presentation_kind") val presentationKind: String? = null,
     @SerialName("presentation_group_key") val presentationGroupKey: String? = null,
     @SerialName("presentation_part_index") val presentationPartIndex: Int? = null,
-    @SerialName("presentation_part_total") val presentationPartTotal: Int? = null
+    @SerialName("presentation_part_total") val presentationPartTotal: Int? = null,
+    @SerialName("edition_raw") val editionRaw: String? = null,
+    @SerialName("edition_key") val editionKey: String? = null,
+)
+
+@Serializable
+data class PlaybackVariant(
+    @SerialName("variant_id") val variantId: String,
+    @SerialName("edition_raw") val editionRaw: String? = null,
+    @SerialName("edition_key") val editionKey: String? = null,
+    @SerialName("presentation_kind") val presentationKind: String? = null,
+    @SerialName("presentation_group_key") val presentationGroupKey: String? = null,
+    @SerialName("part_count") val partCount: Int = 0,
+    @SerialName("total_duration") val totalDuration: Double? = null,
+    @SerialName("default_file_id") val defaultFileId: Int? = null,
+    val parts: List<PlaybackVariantPart> = emptyList(),
+)
+
+@Serializable
+data class PlaybackVariantPart(
+    @SerialName("part_index") val partIndex: Int = 0,
+    @SerialName("default_file_id") val defaultFileId: Int? = null,
+    @SerialName("total_duration") val totalDuration: Double? = null,
+    val versions: List<FileVersion> = emptyList(),
 )
 
 /**
@@ -395,7 +442,8 @@ fun Season.isSpecialsForDisplay(): Boolean =
 
 fun List<Season>.sortedForDisplay(): List<Season> =
     sortedWith(
-        compareByDescending<Season> { it.isSpecialsForDisplay() }
+        // Match tvOS: numbered seasons first, Specials last.
+        compareBy<Season> { it.isSpecialsForDisplay() }
             .thenBy { it.seasonNumber }
             .thenBy { it.title.orEmpty() }
             .thenBy { it.contentId },
@@ -404,7 +452,16 @@ fun List<Season>.sortedForDisplay(): List<Season> =
 private fun List<Season>.selectedSeasonForDisplay(preferredSeasonNumber: Int?): Season? {
     return preferredSeasonNumber
         ?.let { preferred -> firstOrNull { it.seasonNumber == preferred } }
-        ?: firstOrNull { !it.isSpecialsForDisplay() }
+        // Open the Show overview while preloading the viewer's actual browse
+        // target: Continue Watching first, then a partially watched season,
+        // then the first not-yet-complete season. This lets the first Down land
+        // on e.g. Season 3 Episode 1 exactly as tvOS does.
+        ?: firstOrNull { (it.userData?.inProgressCount ?: 0) > 0 }
+        ?: firstOrNull { season ->
+            val watched = season.userData?.watchedCount ?: 0
+            watched > 0 && watched < season.episodeCount
+        }
+        ?: firstOrNull { it.userData?.played != true }
         ?: firstOrNull()
 }
 

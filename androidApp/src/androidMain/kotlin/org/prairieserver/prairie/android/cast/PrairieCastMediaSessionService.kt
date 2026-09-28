@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.model.settings.SeekIntervalPair
 import org.prairieserver.prairie.cast.PrairieCastPlaybackState
 import org.prairieserver.prairie.common.player.PrairieMediaSessionBitmapLoader
 import org.prairieserver.prairie.repository.CatalogRepository
@@ -43,6 +45,7 @@ import kotlin.math.roundToLong
 class PrairieCastMediaSessionService : MediaSessionService() {
     private val controller: PrairieCastController by inject()
     private val catalogRepository: CatalogRepository by inject()
+    private val seekIntervalStore: SeekIntervalStore by inject()
 
     private lateinit var player: PrairieCastRemotePlayer
     private var mediaSession: MediaSession? = null
@@ -50,6 +53,7 @@ class PrairieCastMediaSessionService : MediaSessionService() {
     private lateinit var scope: CoroutineScope
     private var stateJob: Job? = null
     private var artworkJob: Job? = null
+    private var seekIntervalJob: Job? = null
     private var artworkContentId: String? = null
     private var artworkUrl: String? = null
 
@@ -62,6 +66,7 @@ class PrairieCastMediaSessionService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player)
             .setBitmapLoader(bitmapLoader)
             .build()
+            .also(::addSession)
 
         stateJob = scope.launch {
             controller.state.collect { state ->
@@ -74,6 +79,13 @@ class PrairieCastMediaSessionService : MediaSessionService() {
                 if (playback?.contentId.isNullOrBlank()) {
                     pauseAllPlayersAndStopSelf()
                 }
+            }
+        }
+        // Notification / headset seek increments follow the profile-wide video
+        // intervals live; a server without them keeps the fixed 10s/30s.
+        seekIntervalJob = scope.launch {
+            seekIntervalStore.state.collect { state ->
+                player.updateSeekIntervals(state.video(PrairieCastRemotePlayer.LEGACY_SEEK_INTERVALS))
             }
         }
         artworkJob = scope.launch {
@@ -117,8 +129,12 @@ class PrairieCastMediaSessionService : MediaSessionService() {
     override fun onDestroy() {
         stateJob?.cancel()
         artworkJob?.cancel()
+        seekIntervalJob?.cancel()
         scope.cancel()
-        mediaSession?.release()
+        mediaSession?.let { session ->
+            removeSession(session)
+            session.release()
+        }
         mediaSession = null
         mediaSessionBitmapLoader?.close()
         mediaSessionBitmapLoader = null
@@ -136,6 +152,14 @@ internal class PrairieCastRemotePlayer(
     private var targetName: String? = null
     private var artworkContentId: String? = null
     private var artworkUrl: String? = null
+    private var seekIntervals: SeekIntervalPair = LEGACY_SEEK_INTERVALS
+
+    fun updateSeekIntervals(intervals: SeekIntervalPair) {
+        verifyApplicationThread()
+        if (intervals == seekIntervals) return
+        seekIntervals = intervals
+        invalidateState()
+    }
 
     fun update(
         playback: PrairieCastPlaybackState?,
@@ -233,8 +257,8 @@ internal class PrairieCastRemotePlayer(
             .setIsLoading(remote.isLoading || remote.isBuffering)
             .setPlayWhenReady(wantsToPlay, Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE)
             .setContentPositionMs(positionMs)
-            .setSeekBackIncrementMs(SEEK_BACK_MS)
-            .setSeekForwardIncrementMs(SEEK_FORWARD_MS)
+            .setSeekBackIncrementMs(seekIntervals.backMs)
+            .setSeekForwardIncrementMs(seekIntervals.forwardMs)
             .setPlaybackParameters(
                 PlaybackParameters(
                     remote.playbackSpeed.toFloat().takeIf { it.isFinite() && it > 0f } ?: 1f,
@@ -268,8 +292,8 @@ internal class PrairieCastRemotePlayer(
 
     override fun handleRelease(): ListenableFuture<*> = Futures.immediateVoidFuture()
 
-    private companion object {
-        const val SEEK_BACK_MS = 10_000L
-        const val SEEK_FORWARD_MS = 30_000L
+    companion object {
+        /** Fixed increments used before the revision-9 profile setting. */
+        val LEGACY_SEEK_INTERVALS = SeekIntervalPair(backSeconds = 10, forwardSeconds = 30)
     }
 }

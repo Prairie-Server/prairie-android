@@ -15,6 +15,7 @@ import org.prairieserver.prairie.model.subtitles.SubtitleSearchResponse
 import org.prairieserver.prairie.model.subtitles.SubtitleTranslateRequest
 import org.prairieserver.prairie.model.subtitles.DownloadedSubtitle
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.network.api.SubtitlesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -98,7 +99,7 @@ class SubtitlesRepositoryTest {
             calls += "aiQuota"
             return aiQuotaResult
         }
-        override suspend fun translate(request: SubtitleTranslateRequest): ApiResult<SubtitleAiJobResponse> {
+        override suspend fun translate(request: SubtitleTranslateRequest, scope: AuthScopeSnapshot?): ApiResult<SubtitleAiJobResponse> {
             calls += "translate:${request.mediaFileId}:${request.kind}:${request.sourceIndex}"
             return translateResult
         }
@@ -106,12 +107,12 @@ class SubtitlesRepositoryTest {
             calls += "listJobs:$mediaFileId"
             return listJobsResult
         }
-        override suspend fun getJob(jobId: Long): ApiResult<SubtitleAiJobResponse> {
+        override suspend fun getJob(jobId: Long, scope: AuthScopeSnapshot?): ApiResult<SubtitleAiJobResponse> {
             calls += "getJob:$jobId"
             getJobCount++
             return if (jobResults.size > 1) jobResults.removeAt(0) else jobResults.first()
         }
-        override suspend fun cancelJob(jobId: Long): ApiResult<Unit> {
+        override suspend fun cancelJob(jobId: Long, scope: AuthScopeSnapshot?): ApiResult<Unit> {
             calls += "cancelJob:$jobId"
             return cancelJobResult
         }

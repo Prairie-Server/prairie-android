@@ -113,14 +113,13 @@ kotlin {
             implementation(libs.koin.compose)
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.coil.compose)
-            implementation(libs.coil.network.ktor)
+            implementation(libs.coil.network.okhttp)
             implementation(libs.media3.exoplayer)
             implementation(libs.media3.exoplayer.hls)
             implementation(libs.media3.datasource.okhttp)
             implementation(libs.media3.ui)
             implementation(libs.media3.session)
             implementation(libs.media3.common.ktx)
-            implementation(libs.media3.ui.compose)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.kotlinx.serialization.json)
 
@@ -136,7 +135,6 @@ kotlin {
             // Watch Next launcher tiles (sub-project B).
             implementation(libs.androidx.tvprovider)
             implementation(libs.androidx.work.runtime.ktx)
-            implementation(libs.koin.androidx.workmanager)
 
             // QR-code rendering for device-login (sub-project C).
             implementation(libs.zxing.core)

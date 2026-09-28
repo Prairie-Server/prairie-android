@@ -46,6 +46,7 @@ import org.prairieserver.prairie.android.ui.util.rememberDominantColor
 import org.prairieserver.prairie.common.player.AudiobookPlayerViewModel
 import org.prairieserver.prairie.common.player.PrairiePlaybackService
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
+import org.prairieserver.prairie.android.ui.theme.PrairieBackground
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
@@ -117,6 +118,9 @@ fun AudiobookPlayerScreen(
             .setUri(url)
             .setMediaMetadata(
                 MediaMetadata.Builder()
+                    // Tags the item so session seeks (headset, lock screen)
+                    // use the audiobook intervals rather than the video ones.
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_AUDIO_BOOK)
                     .setTitle(state.title)
                     .setArtist(state.author ?: state.narrator)
                     .also { mb ->
@@ -221,7 +225,10 @@ fun AudiobookPlayerScreen(
             .background(
                 audiobookPlayerBackgroundBrush(
                     tint = playerTint,
-                    background = MaterialTheme.colorScheme.background,
+                    // The player stays on black like the video player and the
+                    // iOS AudioPlayerBackground; only page canvases moved to
+                    // the charcoal Material background.
+                    background = PrairieBackground,
                 ),
             ),
     ) {
@@ -348,7 +355,14 @@ fun AudiobookPlayerScreen(
                     skipForwardSeconds = state.skipForwardSeconds,
                     onSkipBackSelected = viewModel::setSkipBackSeconds,
                     onSkipForwardSelected = viewModel::setSkipForwardSeconds,
-                    onDismiss = { showSkipSheet = false },
+                    onDismiss = {
+                        showSkipSheet = false
+                        viewModel.clearSkipIntervalError()
+                    },
+                    choices = state.skipIntervalChoices,
+                    profileWide = state.skipIntervalsProfileWide,
+                    editable = state.skipIntervalsEditable,
+                    errorMessage = state.skipIntervalError,
                 )
             }
             if (showSleepSheet) {

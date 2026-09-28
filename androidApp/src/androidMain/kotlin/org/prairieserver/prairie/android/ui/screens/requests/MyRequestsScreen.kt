@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.request.MediaRequest
 import org.prairieserver.prairie.model.request.canCancel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
@@ -67,7 +69,10 @@ fun MyRequestsScreen(
                         .fillMaxSize()
                         .padding(padding),
                 ) {
+                    val listState = rememberLazyListState()
+                    DeferImagePresentationWhileScrolling(listState) {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -122,6 +127,7 @@ fun MyRequestsScreen(
                                 )
                             }
                         }
+                    }
                     }
                 }
             }

@@ -2,16 +2,89 @@ package org.prairieserver.prairie.tv.ui.screens.detail
 
 import org.prairieserver.prairie.model.audiobook.AudiobookMetadata
 import org.prairieserver.prairie.model.catalog.AudioTrack
+import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.catalog.ItemVideo
+import org.prairieserver.prairie.model.catalog.SubtitleInfo
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
 import org.prairieserver.prairie.model.catalog.VideoTrack
+import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
+import org.prairieserver.prairie.model.catalog.trailerRailEntries
 import org.prairieserver.prairie.model.ebook.MediaPerson
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TvDetailMetadataTest {
+    @Test
+    fun seriesEpisodeEditorialMatchesTvOsHierarchy() {
+        val episode = EpisodeListItem(
+            contentId = "e1",
+            seasonNumber = 3,
+            episodeNumber = 1,
+            title = "Smells Like Mean Spirit",
+            airDate = "2026-03-30T00:00:00Z",
+            runtime = 52,
+        )
+
+        assertEquals(
+            listOf("Season 3", "Episode 1"),
+            TvDetailMetadata.seriesEpisodeSourceTokens(episode),
+        )
+        assertEquals(
+            listOf(
+                TvHeroFactToken.TextToken("Mar 30, 2026"),
+                TvHeroFactToken.TextToken("52 min"),
+            ),
+            TvDetailMetadata.seriesEpisodeFactsLine(episode, zone = ZoneId.of("UTC")),
+        )
+    }
+
+    @Test
+    fun seriesSpecialEditorialUsesSpecialsLabel() {
+        val episode = EpisodeListItem(
+            contentId = "special-1",
+            seasonNumber = 0,
+            episodeNumber = 1,
+        )
+
+        assertEquals(
+            listOf("Specials", "Episode 1"),
+            TvDetailMetadata.seriesEpisodeSourceTokens(episode),
+        )
+    }
+
+    @Test
+    fun seriesEditorialOmitsUnknownEpisodeNumber() {
+        val episode = EpisodeListItem(
+            contentId = "special",
+            seasonNumber = 0,
+            episodeNumber = 0,
+        )
+
+        assertEquals(
+            listOf("Specials"),
+            TvDetailMetadata.seriesEpisodeSourceTokens(episode),
+        )
+    }
+
+    @Test
+    fun trailerEntriesDeduplicateProviderKeysUsedByTheRail() {
+        val duplicate = ItemVideo(kind = "trailer", site = "youtube", siteKey = "abc")
+        val detail = ItemDetail(
+            contentId = "m1",
+            type = "movie",
+            title = "Movie",
+            videos = listOf(duplicate, duplicate.copy(name = "Duplicate")),
+        )
+
+        assertEquals(
+            listOf("remote:youtube:abc"),
+            trailerRailEntries(detail).map { it.key },
+        )
+    }
+
     @Test
     fun episodeFactsPutAirDateBeforeRuntime() {
         val detail = ItemDetail(
@@ -125,6 +198,61 @@ class TvDetailMetadataTest {
                 preferredQuality = "1080p",
                 selectedFileId = 2160,
             ),
+        )
+    }
+
+    @Test
+    fun runtimeAndAllTechnicalLabelsFollowOnlySelectedVersion() {
+        val theatrical = FileVersion(
+            fileId = 1,
+            duration = 13_740.0,
+            resolution = "1080p",
+            codecVideo = "h264",
+            codecAudio = "aac",
+            audioTracks = listOf(AudioTrack(codec = "aac", channels = 2, isDefault = true)),
+        )
+        val directorsCut = FileVersion(
+            fileId = 2,
+            duration = 15_060.0,
+            resolution = "2160p",
+            codecVideo = "hevc",
+            codecAudio = "truehd",
+            hdr = true,
+            videoTracks = listOf(VideoTrack(codec = "hevc", dolbyVision = "Profile 8", hdr = true)),
+            audioTracks = listOf(AudioTrack(codec = "truehd", channels = 8, isDefault = true)),
+            subtitleTracks = listOf(SubtitleTrack(language = "en")),
+        )
+        val detail = ItemDetail(
+            contentId = "m1",
+            type = "movie",
+            title = "Movie",
+            runtime = 229,
+            versions = listOf(theatrical, directorsCut),
+            // Catalog-level subtitles aggregate every version. They must not
+            // make the theatrical version inherit the director's-cut CC badge.
+            subtitles = listOf(SubtitleInfo(source = "embedded", language = "en")),
+        )
+
+        assertEquals(229, selectedMediaRuntimeMinutes(detail, theatrical))
+        assertEquals(251, selectedMediaRuntimeMinutes(detail, directorsCut))
+        assertEquals("1080P · H.264 · AAC", TvPlaybackFormatting.versionShortLabel(theatrical))
+        assertEquals("4K · HEVC · DV · TrueHD", TvPlaybackFormatting.versionShortLabel(directorsCut))
+        assertEquals(
+            listOf(
+                TvHeroFactToken.TextToken("3h 49m"),
+                TvHeroFactToken.Chip("HD"),
+            ),
+            TvDetailMetadata.factsLine(detail, selectedFileId = theatrical.fileId),
+        )
+        assertEquals(
+            listOf(
+                TvHeroFactToken.TextToken("4h 11m"),
+                TvHeroFactToken.Chip("4K"),
+                TvHeroFactToken.Chip("DOLBY VISION"),
+                TvHeroFactToken.Chip("7.1"),
+                TvHeroFactToken.Chip("CC"),
+            ),
+            TvDetailMetadata.factsLine(detail, selectedFileId = directorsCut.fileId),
         )
     }
 

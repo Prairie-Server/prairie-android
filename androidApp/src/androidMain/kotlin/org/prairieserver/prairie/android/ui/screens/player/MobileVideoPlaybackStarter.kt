@@ -6,12 +6,14 @@ import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.StartParams
+import org.prairieserver.prairie.common.player.TrackSelectionPresets
 import org.prairieserver.prairie.common.player.VideoSessionStartV3
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartRequest
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartResult
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
 import org.prairieserver.prairie.common.player.video.PlaybackDiagnosticsCode
 import org.prairieserver.prairie.common.player.video.resolvedPlaybackDelivery
+import org.prairieserver.prairie.common.player.video.serverTerminalUserMessage
 import org.prairieserver.prairie.common.player.video.shouldReachServerForPlayback
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.dolbyVisionPolicySnapshot
@@ -37,6 +39,7 @@ import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.port.LocalTrackSelection
 import org.prairieserver.prairie.repository.port.UserItemStatePort
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -52,6 +55,7 @@ internal data class MobileVideoSessionAllocation(
     val startPosition: Double?,
     /** `playback.max_bitrate_kbps`; null is uncapped. */
     val maxBitrateKbps: Int? = null,
+    val expectedMetadataOwner: org.prairieserver.prairie.network.AuthScopeSnapshot? = null,
 )
 
 internal fun interface MobileVideoSessionAllocator {
@@ -78,15 +82,25 @@ internal data class MobileInitialTrackSelection(
  * Local/downloaded subtitle identities deliberately resolve to null and stay
  * on the Media3-only restore path after the server plan is mounted.
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal fun resolveMobileInitialTrackSelection(
     explicitAudioTrackIndex: Int?,
     explicitSubtitleTrackIndex: Int?,
     audioTracks: List<org.prairieserver.prairie.model.catalog.AudioTrack>,
     subtitleTracks: List<SubtitleTrack>,
     persisted: LocalTrackSelection?,
+    preferredAudioLanguage: String? = null,
+    capabilities: ClientCodecCapabilities,
 ): MobileInitialTrackSelection {
     val audioTrackIndex = explicitAudioTrackIndex
         ?: resolveAudioTrackOrdinal(audioTracks, persisted?.audioFingerprint)
+        ?: preferredAudioLanguage?.let { language ->
+            TrackSelectionPresets.selectBestCompatibleAudioTrackOrdinal(
+                tracks = audioTracks,
+                preferredAudioLanguage = language,
+                capabilities = capabilities,
+            )
+        }
     val persistedSubtitleOrdinal = if (explicitSubtitleTrackIndex == null) {
         resolveCatalogSubtitlePreferenceOrdinal(
             subtitleTracks,
@@ -129,10 +143,18 @@ internal class MobileVideoPlaybackStarter(
         if (!shouldReachServerForPlayback(reachabilityMonitor, request.force)) {
             return VideoPlaybackStartResult.ServerUnreachable(request.contentId)
         }
+        val expectedMetadataOwner = catalogRepository.captureWatchAuthority()
+            ?: return failure(request.contentId, "identity_unavailable: Playback metadata needs an authenticated profile.", diagnosticsCode = PlaybackDiagnosticsCode.NOT_AUTHENTICATED)
+        suspend fun ownerCurrent(): Boolean {
+            val valid = catalogRepository.isWatchAuthorityCurrent(expectedMetadataOwner)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            return valid
+        }
         val ownershipEpoch = sessionLifecycle.acquireOwnershipEpoch()
         var allocatedButUnpublishedSessionId: String? = null
+        var lifecycleAdopted = false
         return try {
-            val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
+            val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId, expectedMetadataOwner, request.libraryId)) {
                 is ApiResult.Success -> r.data
                 is ApiResult.Error -> return failure(
                     request.contentId,
@@ -159,7 +181,7 @@ internal class MobileVideoPlaybackStarter(
             // normal flow. Keep this fallback cache-only so optional artwork can
             // never add a network request to, or prevent, playback startup.
             val cachedDetail = runCatching {
-                catalogRepository.getCachedItemDetail(request.contentId)
+                catalogRepository.getCachedItemDetail(request.contentId, request.libraryId)
             }.onFailure { error ->
                 Log.w(TAG, "Could not read cached playback artwork", error)
             }.getOrNull()
@@ -178,7 +200,7 @@ internal class MobileVideoPlaybackStarter(
             // sending the resolution alone lets a capped preset ("1080p Low")
             // stream at the bandwidth the user explicitly declined.
             val maxBitrateKbps = playerSettingsStore.maxBitrateKbpsFlow.first()
-            val preferredAudioLanguage = playerSettingsStore.audioLanguageFlow
+            val configuredAudioLanguage = playerSettingsStore.audioLanguageFlow
                 .first().ifBlank { null }
             val version = request.preferredFileId
                 ?.let { id -> watchDetail.versions.firstOrNull { it.fileId == id } }
@@ -195,14 +217,6 @@ internal class MobileVideoPlaybackStarter(
             } else {
                 null
             }
-            val initialTracks = resolveMobileInitialTrackSelection(
-                explicitAudioTrackIndex = request.audioTrackIndex,
-                explicitSubtitleTrackIndex = request.subtitleTrackIndex,
-                audioTracks = version.audioTracks.orEmpty(),
-                subtitleTracks = version.subtitleTracks.orEmpty(),
-                persisted = persistedTrackSelection,
-            )
-
             val activeProfile = profileRepository.getActiveProfile()
             val profileId = activeProfile?.id ?: profileRepository.getActiveProfileId()
                 ?: return failure(
@@ -210,6 +224,8 @@ internal class MobileVideoPlaybackStarter(
                     "No active profile selected",
                     diagnosticsCode = PlaybackDiagnosticsCode.NO_ACTIVE_PROFILE,
                 )
+            val preferredAudioLanguage = configuredAudioLanguage
+                ?: activeProfile?.language.orNullIfBlank()
             val accessToken = playbackSessionManager.getAccessToken()
                 ?: return failure(
                     request.contentId,
@@ -226,6 +242,15 @@ internal class MobileVideoPlaybackStarter(
                     dolbyVision = dolbyVision,
                     capabilities = capabilities,
                 )
+            val initialTracks = resolveMobileInitialTrackSelection(
+                explicitAudioTrackIndex = request.audioTrackIndex,
+                explicitSubtitleTrackIndex = request.subtitleTrackIndex,
+                audioTracks = version.audioTracks.orEmpty(),
+                subtitleTracks = version.subtitleTracks.orEmpty(),
+                persisted = persistedTrackSelection,
+                preferredAudioLanguage = preferredAudioLanguage,
+                capabilities = capabilities,
+            )
             // Skip-back-on-resume: nudge a genuine resume back a few seconds.
             // Suppressed for Start Over / retry (request flag) and Watch Together
             // (roomId — all participants must land on the synced anchor). The same
@@ -249,6 +274,8 @@ internal class MobileVideoPlaybackStarter(
                 ),
             )
 
+            if (!ownerCurrent() || profileId != expectedMetadataOwner.profileId || serverUrl != expectedMetadataOwner.serverUrl)
+                return failure(request.contentId, "identity_changed: The metadata viewer changed before playback admission.", diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST)
             val v3Start = when (
                 val r = sessionAllocator?.allocate(
                     MobileVideoSessionAllocation(
@@ -261,6 +288,7 @@ internal class MobileVideoPlaybackStarter(
                         qualityPreference = playbackQualityIntent,
                         startPosition = startRequestPosition,
                         maxBitrateKbps = maxBitrateKbps,
+                        expectedMetadataOwner = expectedMetadataOwner,
                     ),
                 ) ?: playbackSessionManager.startVideoSessionV3(
                     fileId = version.fileId,
@@ -272,6 +300,7 @@ internal class MobileVideoPlaybackStarter(
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
                     maxBitrateKbps = maxBitrateKbps,
+                    expectedMetadataOwner = expectedMetadataOwner,
                 )
             ) {
                 is ApiResult.Success -> r.data
@@ -291,7 +320,7 @@ internal class MobileVideoPlaybackStarter(
                 is VideoSessionStartV3.Ready -> v3Start
                 is VideoSessionStartV3.Terminal -> return failure(
                     request.contentId,
-                    "Playback unavailable (${v3Start.reason}): ${v3Start.message}",
+                    serverTerminalUserMessage(v3Start.message),
                     diagnosticsCode = PlaybackDiagnosticsCode.serverTerminal(v3Start.reason),
                 )
                 VideoSessionStartV3.ServerUpgradeRequired -> return failure(
@@ -303,6 +332,11 @@ internal class MobileVideoPlaybackStarter(
             val session = readyV3.session
             val resolved = session
             allocatedButUnpublishedSessionId = resolved.sessionId
+            if (!ownerCurrent()) {
+                stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId)
+                allocatedButUnpublishedSessionId = null
+                return failure(request.contentId, "identity_changed: The metadata viewer changed after playback admission.", diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST)
+            }
             val effectiveFileId = resolved.mediaFileId.takeIf { it > 0 }
                 ?: readyV3.plan.effectiveMediaFileId
                 ?: version.fileId
@@ -344,6 +378,7 @@ internal class MobileVideoPlaybackStarter(
                         params = startParams,
                         session = resolved,
                         expectedOwnershipEpoch = ownershipEpoch,
+                        expectedMetadataOwnerCurrent = ::ownerCurrent,
                     )
                 } catch (cancellation: CancellationException) {
                     // The lifecycle owns cancellation cleanup once adoption begins.
@@ -361,6 +396,12 @@ internal class MobileVideoPlaybackStarter(
                 )
             }
 
+            lifecycleAdopted = sessionAdopter == null
+            if (!ownerCurrent()) {
+                stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId, lifecycleAdopted)
+                allocatedButUnpublishedSessionId = null
+                return failure(request.contentId, "identity_changed: The metadata viewer changed during playback adoption.", diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST)
+            }
             val result = VideoPlaybackStartResult.Ready(
                 contentId = request.contentId,
                 fileId = effectiveFileId,
@@ -372,7 +413,7 @@ internal class MobileVideoPlaybackStarter(
                 playMethod = resolved.playMethod,
                 playbackPlan = resolved.playbackPlan,
                 playbackPlanV3 = readyV3.plan,
-                requestHeaders = readyV3.plan.stream.headers,
+                requestHeaders = readyV3.plan.stream.effectiveRequestHeaders,
                 delivery = resolvedDelivery,
                 container = readyV3.plan.stream.container ?: effectiveVersion?.container,
                 title = watchDetail.title,
@@ -394,7 +435,7 @@ internal class MobileVideoPlaybackStarter(
                     catalogTracks = effectiveVersion?.subtitleTracks.orEmpty(),
                     plannedTracks = resolved.subtitleUrls.orEmpty(),
                 ),
-                preferredAudioLanguage = preferredAudioLanguage ?: activeProfile?.language,
+                preferredAudioLanguage = preferredAudioLanguage,
                 // Server-resolved first, exactly as TvVideoPlaybackStarter does.
                 // The settings screens write these three canonically now
                 // (`PUT /settings/values/{key}?scope=profile`) and nothing
@@ -425,26 +466,29 @@ internal class MobileVideoPlaybackStarter(
                 preview = watchDetail.preview,
                 chapters = effectiveVersion?.chapters.orEmpty(),
                 seriesId = watchDetail.seriesId,
+                seriesTitle = watchDetail.seriesTitle,
                 seasonNumber = watchDetail.seasonNumber,
                 episodeNumber = watchDetail.episodeNumber,
             )
             allocatedButUnpublishedSessionId = null
             result
         } catch (e: CancellationException) {
-            stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId)
+            stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId, lifecycleAdopted)
             throw e
         } catch (e: Exception) {
-            stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId)
+            stopAllocatedButUnpublishedSession(allocatedButUnpublishedSessionId, lifecycleAdopted)
             Log.e(TAG, "Error loading content", e)
             failure(request.contentId, "Unexpected error: ${e.message}", e, PlaybackDiagnosticsCode.UNEXPECTED)
         }
     }
 
-    private suspend fun stopAllocatedButUnpublishedSession(sessionId: String?) {
+    private suspend fun stopAllocatedButUnpublishedSession(sessionId: String?, lifecycleAdopted: Boolean = false) {
         val allocatedSessionId = sessionId?.takeIf { it.isNotBlank() } ?: return
         withContext(NonCancellable) {
             try {
-                playbackSessionManager.stopSession(allocatedSessionId)
+                if (!lifecycleAdopted || !sessionLifecycle.retireUnpublishedSession(allocatedSessionId)) {
+                    playbackSessionManager.stopSession(allocatedSessionId)
+                }
             } catch (error: Exception) {
                 Log.w(TAG, "Could not stop unpublished playback session $allocatedSessionId", error)
             }

@@ -1,0 +1,64 @@
+package org.prairieserver.prairie.android.ui.screens.player
+
+import org.prairieserver.prairie.common.player.VideoSessionStartV3
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
+import org.prairieserver.prairie.model.playback.ClientPlaybackContext
+import org.prairieserver.prairie.model.playback.PlayMethod
+import org.prairieserver.prairie.model.playback.PlaybackDelivery
+import org.prairieserver.prairie.model.playback.PlaybackPlanV3
+import org.prairieserver.prairie.model.playback.PlaybackSessionResponse
+import org.prairieserver.prairie.model.playback.PlaybackStreamProtocol
+import org.prairieserver.prairie.model.playback.PlaybackStreamV3
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class MobileRecoveryReplanTest {
+    @Test
+    fun subtitleFallbackErrorsPreserveVideoButOtherRecoveryErrorsRemainFatal() {
+        val native = MobileRecoveryReplan("subtitle_embedded_failed", "Retrying", 4)
+        val transport = MobileRecoveryReplan("transport_stall", "Retrying")
+        val failures: List<ApiResult<VideoSessionStartV3>> = listOf(
+            ApiResult.Error(code = 503, error = "unavailable", message = "Unavailable"),
+            ApiResult.NetworkError(IllegalStateException("Offline")),
+        )
+        failures.forEach { failure ->
+            assertTrue(native.isNonfatalFailure(failure), "$failure")
+            assertFalse(transport.isNonfatalFailure(failure), "$failure")
+        }
+    }
+
+    @Test
+    fun terminalAndUpgradeOutcomesAreNeverMistakenForAStillActiveSession() {
+        val native = MobileRecoveryReplan("subtitle_embedded_failed", "Retrying", 4)
+        assertFalse(native.isNonfatalFailure(ApiResult.Success(VideoSessionStartV3.Terminal("unsupported", "No subtitles", false))))
+        assertFalse(native.isNonfatalFailure(ApiResult.Success(VideoSessionStartV3.ServerUpgradeRequired)))
+    }
+
+    @Test
+    fun successfulSubtitleFallbackStillReachesSessionAdoption() {
+        val ready = VideoSessionStartV3.Ready(
+            session = PlaybackSessionResponse("s2", 1, mediaFileId = 42, playMethod = PlayMethod.DIRECT, streamUrl = "/stream/s2"),
+            plan = PlaybackPlanV3(
+                planId = "p2", planAttemptKey = "key", delivery = PlaybackDelivery.ORIGINAL_HTTP,
+                stream = PlaybackStreamV3("/stream/s2", PlaybackStreamProtocol.HTTP_PROGRESSIVE),
+                decisionReason = "sidecar",
+            ),
+            playbackAttemptId = "attempt", planAttemptId = "plan-attempt", planAttemptKey = "key",
+            capabilities = ClientCodecCapabilities(),
+            clientPlaybackContext = ClientPlaybackContext(formFactor = "phone", appVersion = "test"),
+        )
+        assertFalse(MobileRecoveryReplan("subtitle_embedded_failed", "Retrying", 4).isNonfatalFailure(ApiResult.Success(ready)))
+    }
+
+    @Test
+    fun nativeFailureQueuesTheUncommittedTrackInsteadOfReusingTheCurrentSelection() {
+        val failure = MobileRecoveryReplan("subtitle_embedded_failed", "Retrying", 4)
+        assertTrue(failure.shouldQueue)
+        assertEquals(4, failure.subtitleTrackIndexOverride)
+        assertEquals("subtitle_embedded_failed", failure.classification)
+        assertFalse(MobileRecoveryReplan("transport_stall", "Retrying").shouldQueue)
+    }
+}

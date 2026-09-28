@@ -20,13 +20,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,12 +40,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalMovies
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -53,12 +49,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +70,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.android.ui.components.TopBarRowTopInset
+import org.prairieserver.prairie.android.ui.theme.prairiePageBackdrop
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
@@ -93,10 +91,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.mutableIntStateOf
 import org.prairieserver.prairie.android.ui.components.rememberShimmerProgress
 import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.IconButton
 import org.prairieserver.prairie.android.ui.screens.browse.BrowsePrefsStore
 import org.prairieserver.prairie.android.ui.screens.browse.CatalogGrid
 import org.prairieserver.prairie.android.ui.screens.browse.CatalogViewDensity
@@ -107,11 +101,14 @@ import org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType
 import org.prairieserver.prairie.catalog.filter.CatalogFacet
 import org.prairieserver.prairie.catalog.filter.CatalogFilterQueryBuilder
 import org.prairieserver.prairie.catalog.filter.CatalogFilterState
-import org.prairieserver.prairie.common.ui.components.avatarRef
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListLogger
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSnapshot
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSurface
 import org.prairieserver.prairie.model.catalog.CatalogFiltersResponse
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.android.ui.screens.home.HomeSectionRow
-import org.prairieserver.prairie.android.ui.screens.profiles.ProfileAvatar
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceElevated
 import org.prairieserver.prairie.android.ui.util.formatCardDate
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
@@ -122,6 +119,7 @@ import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.section.LibraryCollection
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.SectionRepository
@@ -132,6 +130,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 enum class LibrariesSubtab {
     Recommended,
@@ -212,6 +211,7 @@ class LibrariesViewModel(
     private var browseLoadedLibraryId: Int? = null
     private var collectionsLoadedLibraryId: Int? = null
     private var recommendedRequestGeneration = 0L
+    private var catalogContinuation: CatalogContinuationV2? = null
     private var catalogRequestGeneration = 0L
     private var catalogQueryGeneration = 0L
     private var collectionsRequestGeneration = 0L
@@ -424,7 +424,7 @@ class LibrariesViewModel(
     fun loadMoreCatalog() {
         val state = _uiState.value
         val libraryId = state.selectedLibraryId ?: return
-        if (state.isLoadingCatalog || state.isLoadingMoreCatalog || !state.catalogHasMore) return
+        if (state.catalogError != null || state.isLoadingCatalog || state.isLoadingMoreCatalog || !state.catalogHasMore) return
         loadCatalog(libraryId, reset = false, force = true)
     }
 
@@ -463,7 +463,22 @@ class LibrariesViewModel(
                 }
             }
 
-            when (val result = sectionRepository.getLibrarySections(libraryId)) {
+            val owner = sectionRepository.captureLibrarySectionAuthority()
+            if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
+            if (owner == null) {
+                recommendedLoadedLibraryId = null
+                _uiState.update { it.copy(isLoadingSections = false, sections = emptyList(), sectionsError = "Sign in to load library sections.") }
+                return@launch
+            }
+            val result = sectionRepository.getLibrarySections(libraryId, owner)
+            val valid = sectionRepository.isLibrarySectionAuthorityCurrent(owner)
+            if (!isRecommendedRequestCurrent(requestGeneration, libraryId) || !kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
+            if (!valid) {
+                recommendedLoadedLibraryId = null
+                _uiState.update { it.copy(isLoadingSections = false, sections = emptyList()) }
+                return@launch
+            }
+            when (result) {
                 is ApiResult.Success -> {
                     if (!isRecommendedRequestCurrent(requestGeneration, libraryId)) return@launch
                     _uiState.update {
@@ -567,7 +582,7 @@ class LibrariesViewModel(
                     libraryId = libraryId,
                     sort = requestState.browseSort.sortField,
                     order = requestState.browseSort.sortOrder,
-                    offset = offset,
+                    continuation = if (reset) null else catalogContinuation,
                     limit = pageSize,
                     namePrefix = requestState.selectedNamePrefix,
                     // Full facet filtering (genre/decade/rating/studio/language/...)
@@ -581,6 +596,7 @@ class LibrariesViewModel(
                     // Overlay local optimistic watched/favorite (mirrors Home/Browse).
                     val overlaid = overlayLocalState(result.data.items)
                     if (!isCatalogRequestCurrent(requestGeneration, requestIdentity)) return@launch
+                    catalogContinuation = result.data.continuation
                     // Audiobook libraries expose book-native facets
                     // (author/narrator/series) — detected from the first item.
                     val detectedMediaType = overlaid.firstOrNull()?.let { first ->
@@ -772,8 +788,8 @@ private const val ChromeFadeDistanceDp = 80f
 
 @Composable
 fun LibrariesScreen(
-    onItemClick: (String) -> Unit,
-    onCollectionClick: (String, Int) -> Unit,
+    onItemClick: (String, Int?) -> Unit,
+    onCollectionClick: (LibraryCollection, Int) -> Unit,
     viewModel: LibrariesViewModel,
     activeProfile: Profile?,
     onLibrarySelectorClick: () -> Unit,
@@ -829,7 +845,7 @@ fun LibrariesScreen(
                 // Background inside the source so the glass captures an
                 // opaque scene rather than compositing over the sharp content.
                 .hazeSource(chromeHaze)
-                .background(MaterialTheme.colorScheme.background)
+                .prairiePageBackdrop()
                 .clipToBounds(),
         ) {
             // Hold content until the chrome has been measured once so the
@@ -865,7 +881,7 @@ fun LibrariesScreen(
                             state = state,
                             listState = recommendedListState,
                             topInset = topInset,
-                            onItemClick = onItemClick,
+                            onItemClick = { onItemClick(it, state.selectedLibraryId) },
                             onRetry = viewModel::retryCurrentTab,
                         )
                     }
@@ -873,7 +889,7 @@ fun LibrariesScreen(
                         BrowseTabContent(
                             state = state,
                             topInset = topInset,
-                            onItemClick = onItemClick,
+                            onItemClick = { onItemClick(it, state.selectedLibraryId) },
                             onRetry = viewModel::retryCurrentTab,
                             onLoadMore = viewModel::loadMoreCatalog,
                             onSortChanged = viewModel::selectBrowseSort,
@@ -887,9 +903,9 @@ fun LibrariesScreen(
                         CollectionsTabContent(
                             state = state,
                             topInset = topInset,
-                            onCollectionClick = { collectionId ->
+                            onCollectionClick = { collection ->
                                 state.selectedLibraryId?.let { libraryId ->
-                                    onCollectionClick(collectionId, libraryId)
+                                    onCollectionClick(collection, libraryId)
                                 }
                             },
                             onRetry = viewModel::retryCurrentTab,
@@ -939,6 +955,20 @@ private fun RecommendedTabContent(
     onItemClick: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
+    val diagnosticsListSnapshot = remember(state.sections) {
+        DiagnosticsListSnapshot.fromKeys(
+            keys = state.sections.map { it.id },
+            rowKeys = state.sections.map { section -> section.items.map { it.contentId } },
+        )
+    }
+    LaunchedEffect(diagnosticsListSnapshot, state.isLoadingSections) {
+        if (!state.isLoadingSections && state.sections.isNotEmpty()) {
+            DiagnosticsListLogger.snapshot(
+                DiagnosticsListSurface.PHONE_LIBRARY_RECOMMENDED,
+                diagnosticsListSnapshot,
+            )
+        }
+    }
     when {
         state.isLoadingSections && state.sections.isEmpty() -> {
             MediaRowsSkeleton(
@@ -965,6 +995,7 @@ private fun RecommendedTabContent(
             // another row, kept in the order the server configured it.
             // iOS `LibraryRecommendedView`: LazyVStack(spacing: largePadding = 24)
             // between section rows.
+            DeferImagePresentationWhileScrolling(listState) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -988,6 +1019,7 @@ private fun RecommendedTabContent(
                 item {
                     Spacer(modifier = Modifier.height(24.dp + LocalBottomChromeInset.current))
                 }
+            }
             }
         }
     }
@@ -1060,7 +1092,7 @@ private fun BrowseTabContent(
                     modifier = Modifier.fillMaxSize().padding(top = topInset),
                 )
             }
-            state.catalogError != null && state.catalogItems.isEmpty() -> {
+            state.catalogError != null -> {
                 // Controls stay mounted so a rejected sort/filter/letter can be
                 // changed from here rather than only retried.
                 Column(modifier = Modifier.fillMaxSize().padding(top = topInset)) {
@@ -1162,7 +1194,7 @@ private fun LibraryActiveFilterChip(
 private fun CollectionsTabContent(
     state: LibrariesUiState,
     topInset: Dp,
-    onCollectionClick: (String) -> Unit,
+    onCollectionClick: (LibraryCollection) -> Unit,
     onRetry: () -> Unit,
 ) {
     when {
@@ -1191,8 +1223,14 @@ private fun CollectionsTabContent(
             // iOS `LibraryCollectionsView`: adaptive poster grid with shared
             // column/row spacing and 16pt padding insets. Follows the Library
             // grid's view density so both tabs show the same column count.
+            val gridState = rememberLazyGridState()
+            DeferImagePresentationWhileScrolling(gridState) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(state.catalogDensity.minCardWidth),
+                columns = GridCells.Adaptive(
+                    state.catalogDensity.minCardWidth *
+                        LocalCardPresentation.current.posterSize.posterScale,
+                ),
+                state = gridState,
                 horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
                 verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
                 modifier = Modifier.fillMaxSize(),
@@ -1210,9 +1248,10 @@ private fun CollectionsTabContent(
                 ) { collection ->
                     InlineLibraryCollectionCard(
                         collection = collection,
-                        onClick = { onCollectionClick(collection.id) },
+                        onClick = { onCollectionClick(collection) },
                     )
                 }
+            }
             }
         }
     }
@@ -1225,8 +1264,10 @@ private fun InlineLibraryCollectionCard(
 ) {
     // iOS `LibraryCollectionCard`: VStack(spacing: 6) of a 2:3.3 poster
     // (smallCornerRadius = 6) carrying a bottom-trailing count badge, a
-    // siloCaption (12) name (2 lines), and a siloSmall (11) secondary
-    // type label.
+    // prairieCaption (12) name (2 lines), and a siloSmall (11) secondary
+    // type label. The two text lines follow the caption preference
+    // (showsTitle / showsMetadata); the count badge rides the artwork.
+    val caption = LocalCardPresentation.current.caption
     Column(
         modifier = Modifier.clickable(onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1257,20 +1298,24 @@ private fun InlineLibraryCollectionCard(
                     .padding(horizontal = 8.dp, vertical = 5.dp),
             )
         }
-        Text(
-            text = collection.name,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = collection.itemCount?.let { "$it items" } ?: "Collection",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (caption.showsTitle) {
+            Text(
+                text = collection.name,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (caption.showsMetadata) {
+            Text(
+                text = collection.itemCount?.let { "$it items" } ?: "Collection",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -1312,7 +1357,7 @@ private fun LibrariesFloatingChrome(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = statusBarPadding.calculateTopPadding() + 8.dp),
+                .padding(top = statusBarPadding.calculateTopPadding() + TopBarRowTopInset),
         ) {
         // Top row: library selector on the left, action icons on the right.
         Row(
@@ -1588,16 +1633,6 @@ private fun LibrarySelectorRow(
         }
     }
 }
-
-@Composable
-private fun libraryChipColors(selected: Boolean) = FilterChipDefaults.filterChipColors(
-    selectedContainerColor = Color.White,
-    selectedLabelColor = Color.Black,
-    selectedLeadingIconColor = Color.Black,
-    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-    labelColor = if (selected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
-    iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-)
 
 private fun libraryIcon(type: String): ImageVector = when (type.lowercase()) {
     "movies", "movie" -> Icons.Default.LocalMovies

@@ -38,6 +38,7 @@ import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
 import org.prairieserver.prairie.tv.ui.theme.RowDimens
+import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.tv.ui.theme.sectionEyebrow
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
 import org.koin.compose.viewmodel.koinViewModel
@@ -167,7 +168,7 @@ private fun RequestDetailContent(
                     contentDescription = detail.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(RowDimens.PosterWidth, RowDimens.PosterHeight)
+                        .size(RowDimens.PosterWidth.cardScaled(), RowDimens.PosterHeight.cardScaled())
                         .clip(RoundedCornerShape(10.dp)),
                 )
             }

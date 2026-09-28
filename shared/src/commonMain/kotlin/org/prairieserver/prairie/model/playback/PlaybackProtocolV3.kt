@@ -20,6 +20,30 @@ const val CLIENT_VIDEO_TRANSFORMATIONS_FEATURE = "client_video_transformations_v
 const val DEVICE_QUIRKS_V3_FEATURE = "device_quirks_v1"
 const val SEEK_REANCHOR_V3_FEATURE = "seek_reanchor_v1"
 const val DIRECT_STREAM_RESUME_V1_FEATURE = "direct_stream_resume_v1"
+const val EMBEDDED_SUBTITLES_V1_FEATURE = "embedded_subtitles_v1"
+const val NATIVE_HLS_PLAYBACK_V1_FEATURE = "native_hls_playback_v1"
+
+/**
+ * Delivery-scoped proof that the original-file player maps a server-selected
+ * source audio ordinal onto the mounted Media3 track inventory. A client that
+ * advertises this must report a typed playback failure when the mapping cannot
+ * be mounted or confirmed so the server can choose a packaged fallback.
+ */
+const val CLIENT_SELECTED_AUDIO_TRACK_V1_CLAIM = "client_selected_audio_track_v1"
+
+/**
+ * Delivery-scoped claim that the original-file player decodes a single-layer
+ * Dolby Vision Profile 8 stream through an ordinary HEVC decoder and presents
+ * its standards-compatible base layer (HDR10, HLG, or SDR by `dv_bl_compat_id`)
+ * when the active output lacks native Dolby Vision. The bytes are untouched;
+ * the plan's `effective_recipe.dynamic_range` names the base range and the
+ * plan never claims Dolby Vision output. Not a transformation and not the
+ * broad `client_managed_dynamic_range_v1` promise.
+ */
+const val CLIENT_DV8_BASE_LAYER_FALLBACK_V1_CLAIM = "client_dv8_base_layer_fallback_v1"
+
+/** Server decision reason for a plan that used [CLIENT_DV8_BASE_LAYER_FALLBACK_V1_CLAIM]. */
+const val DECISION_REASON_CLIENT_DV8_BASE_LAYER = "client_dv8_base_layer"
 
 /**
  * How a capability list was obtained. The server validates strictly against
@@ -85,6 +109,9 @@ val PLAYBACK_START_CLIENT_FEATURES_V3 = listOf(
  */
 fun playbackClientFeaturesV3(context: ClientPlaybackContext): List<String> = buildList {
     addAll(PLAYBACK_START_CLIENT_FEATURES_V3)
+    if (!context.deliveries[DELIVERY_CLASS_ORIGINAL_HTTP]?.subtitles?.nativeEmbedded.isNullOrEmpty()) {
+        add(EMBEDDED_SUBTITLES_V1_FEATURE)
+    }
     if (!context.output.audioPassthrough?.entries.isNullOrEmpty()) {
         add(LAYOUT_AWARE_PASSTHROUGH_FEATURE)
     }
@@ -211,6 +238,7 @@ data class PlaybackAvailableQualityV3(
     val height: Int = 0,
     @SerialName("bitrate_kbps") val bitrateKbps: Int = 0,
     @SerialName("preserves_source") val preservesSource: Boolean = false,
+    @SerialName("display_name") val displayName: String? = null,
 )
 
 /**
@@ -262,7 +290,10 @@ data class PlaybackStreamV3(
     val headers: Map<String, String> = emptyMap(),
     @SerialName("header_refresh") val headerRefresh: PlaybackHeaderRefreshMode = PlaybackHeaderRefreshMode.SESSION,
     @SerialName("header_refresh_url") val headerRefreshUrl: String? = null,
-)
+    @kotlinx.serialization.Transient val auxiliaryRequestHeaders: org.prairieserver.prairie.network.apiv2.ProxyAuxiliaryRequestHeaders? = null,
+) {
+    val effectiveRequestHeaders: Map<String, String> get() = auxiliaryRequestHeaders ?: headers
+}
 
 @Serializable
 data class PlaybackTimelineV3(
@@ -310,10 +341,17 @@ data class PlaybackSubtitleArtifactV3(
 )
 
 @Serializable
+data class PlaybackEmbeddedSubtitleV3(
+    @SerialName("stream_index") val streamIndex: Int,
+    @SerialName("container_track_id") val containerTrackId: String? = null,
+)
+
+@Serializable
 data class PlaybackSubtitleDecisionV3(
     val mode: PlaybackSubtitleModeV3 = PlaybackSubtitleModeV3.OFF,
     @SerialName("track_id") val trackId: String? = null,
     val artifact: PlaybackSubtitleArtifactV3? = null,
+    val embedded: PlaybackEmbeddedSubtitleV3? = null,
     /**
      * The complete, gap-free combined-ordinal subtitle list for the effective
      * source. Authoritative: select a track by echoing an entry's
@@ -521,6 +559,16 @@ fun PlaybackDecisionResponseV3.validateForMedia3(): PlaybackV3Validation {
             resolvedSessionId,
         )
     }
+    plan.subtitle.embedded?.let { native ->
+        val nativeId = native.containerTrackId?.toLongOrNull()
+        if (plan.delivery != PlaybackDelivery.ORIGINAL_HTTP || plan.subtitle.mode != PlaybackSubtitleModeV3.RENDER ||
+            plan.subtitle.artifact != null || native.streamIndex < 0 ||
+            nativeId == null || nativeId !in 1..Int.MAX_VALUE.toLong() || native.containerTrackId != nativeId.toString() ||
+            selectedSubtitle?.source != "embedded" || selectedSubtitle.codec != "mov_text" ||
+            plan.source.container?.lowercase() !in setOf("mp4", "mov", "m4v") ||
+            plan.subtitle.trackId != plan.selectedTracks.subtitle?.id
+        ) return PlaybackV3Validation.ReplanRequired("subtitle_embedded_failed", plan, resolvedSessionId)
+    }
     if (plan.stream.url.isBlank()) {
         return PlaybackV3Validation.Terminal("invalid_playback_plan", "The server returned an empty stream URL.", false)
     }
@@ -630,3 +678,21 @@ private fun List<PlaybackTransformationV3>.executableMedia3ClientTransformations
             it.name in setOf(CLIENT_DV7_TO_DV81, CLIENT_DV7_TO_HDR10)
     }
     .map { it.name }
+
+/**
+ * Delivery-scoped claims the plan's decision relies on, derived from the
+ * decision reason. The server does not echo claims back; the decision reason
+ * is the contract for which claim an original_http plan exercised.
+ */
+fun PlaybackExecutionPlan.activeOriginalHttpClaims(): List<String> =
+    activeOriginalHttpClaimsFor(delivery, decisionTrace.firstOrNull())
+
+fun PlaybackPlanV3.activeOriginalHttpClaims(): List<String> =
+    activeOriginalHttpClaimsFor(delivery, decisionReason)
+
+private fun activeOriginalHttpClaimsFor(delivery: PlaybackDelivery, decisionReason: String?): List<String> =
+    if (delivery == PlaybackDelivery.ORIGINAL_HTTP && decisionReason == DECISION_REASON_CLIENT_DV8_BASE_LAYER) {
+        listOf(CLIENT_DV8_BASE_LAYER_FALLBACK_V1_CLAIM)
+    } else {
+        emptyList()
+    }

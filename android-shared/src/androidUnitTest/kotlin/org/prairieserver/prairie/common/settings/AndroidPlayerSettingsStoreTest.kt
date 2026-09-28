@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.common.settings
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
@@ -9,10 +11,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.EffectiveSettingValue
 import org.prairieserver.prairie.model.settings.EffectiveSettingValuesResponse
-import org.prairieserver.prairie.model.settings.EffectiveSubtitleAppearance
 import org.prairieserver.prairie.model.settings.PlaybackSettingsKeys
 import org.prairieserver.prairie.model.settings.SettingKeys
 import org.prairieserver.prairie.model.settings.SettingScope
+import org.prairieserver.prairie.model.settings.SettingScopeIdentity
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.settings.SubtitleFontSizePreset
 import org.prairieserver.prairie.network.ApiResult
@@ -22,7 +24,7 @@ import io.ktor.client.HttpClient
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -39,6 +41,140 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AndroidPlayerSettingsStoreTest {
+    @Test
+    fun `card presentation remains usable without mutation receipt support`() = runTest {
+        val client = io.ktor.client.HttpClient()
+        var writes = 0
+        val api = object : org.prairieserver.prairie.network.api.SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(client, org.prairieserver.prairie.network.TokenManagerImpl(), ApiV2Gate.Unrestricted)) {
+            override suspend fun getContractCapabilities() =
+                org.prairieserver.prairie.network.ApiResult.Success(
+                    org.prairieserver.prairie.model.settings.SettingsContractCapabilities(
+                        apiVersion = 1, manifestRevision = 12, supportsBatchedEffective = true,
+                    ),
+                )
+            override suspend fun getEffectiveValues(keys: List<String>, libraryIds: List<Int>, seriesIds: List<String>, authority: org.prairieserver.prairie.network.AuthScopeSnapshot?) =
+                org.prairieserver.prairie.network.ApiResult.Success(
+                    org.prairieserver.prairie.model.settings.EffectiveSettingValuesResponse(
+                        settings = listOf(org.prairieserver.prairie.model.settings.EffectiveSettingValue(
+                            key = "ui.card_presentation",
+                            value = org.prairieserver.prairie.model.settings.CardPresentation.DEFAULT.toJsonElement(),
+                            source = "default",
+                        )),
+                    ),
+                )
+            override suspend fun putValue(
+                key: String, scope: org.prairieserver.prairie.model.settings.SettingScopeIdentity,
+                value: kotlinx.serialization.json.JsonElement, profileId: String?,
+                authority: org.prairieserver.prairie.network.AuthScopeSnapshot?,
+            ): org.prairieserver.prairie.network.ApiResult<org.prairieserver.prairie.model.settings.StoredSettingValue> {
+                writes++
+                assertEquals("profile_client", scope.scope.wire)
+                return org.prairieserver.prairie.network.ApiResult.Success(
+                    org.prairieserver.prairie.model.settings.StoredSettingValue(key, scope.scope.wire, value = value),
+                )
+            }
+        }
+        try {
+            val store = DefaultCardPresentationStore(
+                FakeLegacyCache.stubContext(), org.prairieserver.prairie.repository.SettingsRepository(api), this,
+                { "profile" }, { "https://example.invalid" }, { null },
+            )
+            store.refresh()
+            assertEquals(CardPresentationSupport.Supported, store.state.value.support)
+            store.set(org.prairieserver.prairie.model.settings.CardPresentation.DEFAULT, deviceOnly = false)
+            advanceUntilIdle()
+            assertEquals(1, writes)
+            assertEquals(CardPresentationSource.ClientFamily, store.state.value.source)
+        } finally { client.close() }
+    }
+
+
+    @Test
+    fun `legacy import carries original authority and stops after uncertain write`() = runTest {
+        var owner = org.prairieserver.prairie.network.AuthScopeSnapshot("server", activeProfileId, serverUrl, "proof", credentialEpoch = 1)
+        val original = owner
+        val client = HttpClient()
+        val seen = mutableListOf<org.prairieserver.prairie.network.AuthScopeSnapshot?>()
+        val api = object : SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(client, org.prairieserver.prairie.network.TokenManagerImpl(), ApiV2Gate.Unrestricted)) {
+            override suspend fun putValue(key: String, scope: SettingScopeIdentity, value: JsonElement,
+                profileId: String?, authority: org.prairieserver.prairie.network.AuthScopeSnapshot?): ApiResult<org.prairieserver.prairie.model.settings.StoredSettingValue> {
+                seen += authority
+                assertEquals(original.profileId, profileId)
+                owner = owner.copy(credentialEpoch = 2)
+                return ApiResult.NetworkError(IllegalStateException("uncertain"))
+            }
+        }
+        try {
+            val store = AndroidPlayerSettingsStore(mockContextStub(), fakeLegacyCache,
+                { owner.profileId }, { owner.serverUrl }, fakeFlusher,
+                settingsRepository = SettingsRepository(api), getDeviceId = { "device" }, getAuthScope = { owner },
+                dataStoreFactory = { PreferenceDataStoreFactory.create(produceFile = { File(tempFolder.root, "legacy_import.preferences_pb") }) })
+            assertFalse(store.importLegacyDeviceSettings(original, linkedMapOf(
+                PlaybackSettingsKeys.AutoPlayNext to "false", PlaybackSettingsKeys.AutoSkipCredits to "true")))
+            assertEquals(listOf<org.prairieserver.prairie.network.AuthScopeSnapshot?>(original), seen)
+            assertTrue(fakeFlusher.calls.isEmpty(), "migration must not enqueue a separate replay")
+            assertFalse(store.importLegacyDeviceSettings(original, mapOf(PlaybackSettingsKeys.AutoPlayNext to "false")))
+            assertEquals(1, seen.size)
+        } finally { client.close() }
+    }
+
+    @Test
+    fun `acknowledged legacy import updates original local values without queued replay`() = runTest {
+        val owner = org.prairieserver.prairie.network.AuthScopeSnapshot("server", activeProfileId, serverUrl, "proof", credentialEpoch = 1)
+        val client = HttpClient()
+        var writes = 0
+        val api = object : SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(client, org.prairieserver.prairie.network.TokenManagerImpl(), ApiV2Gate.Unrestricted)) {
+            override suspend fun putValue(key: String, scope: SettingScopeIdentity, value: JsonElement,
+                profileId: String?, authority: org.prairieserver.prairie.network.AuthScopeSnapshot?): ApiResult<org.prairieserver.prairie.model.settings.StoredSettingValue> {
+                assertEquals(owner,authority)
+                writes++
+                return ApiResult.Success(org.prairieserver.prairie.model.settings.StoredSettingValue(key,scope.scope.wire,value=value))
+            }
+        }
+        try {
+            val store = AndroidPlayerSettingsStore(mockContextStub(), fakeLegacyCache,
+                { owner.profileId }, { owner.serverUrl }, fakeFlusher,
+                settingsRepository = SettingsRepository(api), getDeviceId = { "device" }, getAuthScope = { owner },
+                dataStoreFactory = { PreferenceDataStoreFactory.create(produceFile = { File(tempFolder.root,"legacy_ack.preferences_pb") }) })
+            assertTrue(store.importLegacyDeviceSettings(owner, linkedMapOf(
+                PlaybackSettingsKeys.PreferredQuality to "720p", PlaybackSettingsKeys.MaxBitrateKbps to "2000",
+                PlaybackSettingsKeys.AutoPlayNext to "false")))
+            assertEquals(3,writes)
+            assertEquals("720p",store.preferredQualityFlow.first())
+            assertEquals(2000,store.maxBitrateKbpsFlow.first())
+            assertFalse(store.autoPlayNextFlow.first())
+            assertTrue(fakeFlusher.calls.isEmpty())
+        } finally { client.close() }
+    }
+
+    @Test
+    fun `legacy import rejects authority replaced during DataStore read before writes`() = runTest {
+        var owner = org.prairieserver.prairie.network.AuthScopeSnapshot("server", activeProfileId, serverUrl, "proof", credentialEpoch = 1)
+        val original = owner
+        val base = PreferenceDataStoreFactory.create(produceFile = { File(tempFolder.root, "legacy_barrier.preferences_pb") })
+        var localWrites = 0
+        val barrier = object : DataStore<Preferences> {
+            override val data = kotlinx.coroutines.flow.flow {
+                val prefs = base.data.first()
+                owner = owner.copy(credentialEpoch = 2)
+                emit(prefs)
+            }
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
+                localWrites++
+                return base.updateData(transform)
+            }
+        }
+        val client = HttpClient()
+        try {
+            val store = AndroidPlayerSettingsStore(mockContextStub(), fakeLegacyCache,
+                { owner.profileId }, { owner.serverUrl }, fakeFlusher,
+                settingsRepository = SettingsRepository(SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(client, org.prairieserver.prairie.network.TokenManagerImpl(), ApiV2Gate.Unrestricted))), getDeviceId = { "device" },
+                getAuthScope = { owner }, dataStoreFactory = { barrier })
+            assertFalse(store.importLegacyDeviceSettings(original, mapOf(PlaybackSettingsKeys.AutoPlayNext to "false")))
+            assertEquals(0,localWrites)
+            assertTrue(fakeFlusher.calls.isEmpty())
+        } finally { client.close() }
+    }
 
     @get:Rule
     val tempFolder = TemporaryFolder()
@@ -68,7 +204,6 @@ class AndroidPlayerSettingsStoreTest {
             getActiveProfileId = { profileId },
             getServerUrl = { server },
             serverSettingsFlusher = fakeFlusher,
-            scope = TestScope(),
             profileChangeSignal = flowOf(Unit),
             settingsRepository = repository,
             getDeviceId = { deviceId },
@@ -100,7 +235,6 @@ class AndroidPlayerSettingsStoreTest {
             getActiveProfileId = { activeProfileId },
             getServerUrl = { serverUrl },
             serverSettingsFlusher = fakeFlusher,
-            scope = TestScope(),
             profileChangeSignal = flowOf(Unit),
             getDeviceId = { null },
             dataStoreFactory = { shared },
@@ -179,6 +313,36 @@ class AndroidPlayerSettingsStoreTest {
             fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.PictureInPictureEnabled },
             "PiP is platform-local and must never flush an unknown setting key to the server",
         )
+    }
+
+    @Test
+    fun `HDR override is local scoped and resettable`() = runTest {
+        var profile = "profile-a"
+        var server = "https://one.example"
+        val stores = mutableMapOf<String, DataStore<Preferences>>()
+        val store = AndroidPlayerSettingsStore(
+            context = mockContextStub(), legacyCache = fakeLegacyCache,
+            getActiveProfileId = { profile }, getServerUrl = { server },
+            getDeviceId = { "device" }, serverSettingsFlusher = fakeFlusher,
+            dataStoreFactory = { id -> stores.getOrPut(id) {
+                PreferenceDataStoreFactory.create(
+                    produceFile = { File(tempFolder.root, "hdr_$id.preferences_pb") },
+                )
+            } },
+        )
+        assertFalse(store.forceHdrPassthroughFlow.first())
+        store.setForceHdrPassthrough(true)
+        assertTrue(store.forceHdrPassthroughFlow.first())
+        profile = "profile-b"
+        assertFalse(store.forceHdrPassthroughFlow.first())
+        profile = "profile-a"
+        server = "https://two.example"
+        assertFalse(store.forceHdrPassthroughFlow.first())
+        server = "https://one.example"
+        assertTrue(store.forceHdrPassthroughFlow.first())
+        store.resetAllDeviceSettings()
+        assertFalse(store.forceHdrPassthroughFlow.first())
+        assertFalse(fakeFlusher.calls.any { it.key == PlaybackSettingsKeys.ForceHdrPassthrough })
     }
 
     @Test
@@ -740,11 +904,11 @@ private class FakeServerSettingsFlusher : ServerSettingsFlusher {
     )
     val calls = mutableListOf<Call>()
     var flushNowCount: Int = 0
-    override fun enqueue(profileId: String, key: String, value: String, serverUrl: String) {
+    override fun enqueue(profileId: String, key: String, value: String, serverUrl: String, authority: org.prairieserver.prairie.network.AuthScopeSnapshot?) {
         calls.add(Call(profileId, key, value, isDelete = false, serverUrl = serverUrl))
     }
 
-    override fun enqueueDelete(profileId: String, key: String, serverUrl: String) {
+    override fun enqueueDelete(profileId: String, key: String, serverUrl: String, authority: org.prairieserver.prairie.network.AuthScopeSnapshot?) {
         calls.add(Call(profileId, key, value = null, isDelete = true, serverUrl = serverUrl))
     }
 
@@ -772,7 +936,7 @@ private fun defaulted(key: String, value: JsonElement): Pair<String, EffectiveSe
 /** Stub SettingsApi returning canned canonical effective values; HttpClient never used. */
 private class FakeSettingsApi(
     effective: Map<String, EffectiveSettingValue> = emptyMap(),
-) : SettingsApi(HttpClient()) {
+) : SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted)) {
     // Mutable so a single test can simulate the server's response
     // changing between two `refreshFromServer` calls without standing
     // up a second DataStore over the same file.
@@ -783,6 +947,7 @@ private class FakeSettingsApi(
         keys: List<String>,
         libraryIds: List<Int>,
         seriesIds: List<String>,
+        authority: org.prairieserver.prairie.network.AuthScopeSnapshot?,
     ): ApiResult<EffectiveSettingValuesResponse> {
         requestedKeys = keys
         // Like the server: answer only the keys this contract knows.
@@ -790,19 +955,6 @@ private class FakeSettingsApi(
         return ApiResult.Success(EffectiveSettingValuesResponse(settings = entries, revision = 1))
     }
 
-    override suspend fun setDeviceSetting(key: String, value: String, profileId: String?) =
-        ApiResult.Success(Unit)
-
-    override suspend fun deleteDeviceSetting(key: String) = ApiResult.Success(Unit)
-
-    override suspend fun getEffectiveSubtitleAppearance(): ApiResult<EffectiveSubtitleAppearance> =
-        ApiResult.Success(
-            EffectiveSubtitleAppearance(
-                key = PlaybackSettingsKeys.SubtitleAppearance,
-                globalValue = SubtitleAppearance.DEFAULT.toJsonString(),
-                effectiveValue = SubtitleAppearance.DEFAULT.toJsonString(),
-            ),
-        )
 }
 
 /**

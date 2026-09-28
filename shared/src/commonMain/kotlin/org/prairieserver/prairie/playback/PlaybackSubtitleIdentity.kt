@@ -9,7 +9,7 @@ import org.prairieserver.prairie.model.playback.SubtitleMediaIdentity
 import org.prairieserver.prairie.model.playback.isLocalDownloadedSubtitle
 
 const val DOWNLOADED_SUBTITLE_ARTIFACT_TRACK_ID_PREFIX =
-    "silo-downloaded-subtitle:"
+    "prairie-downloaded-subtitle:"
 
 private val HEARING_IMPAIRED_TOKEN_REGEX =
     Regex("""(^|[^a-z0-9])(cc|sdh)([^a-z0-9]|$)""")
@@ -36,6 +36,9 @@ fun playbackSubtitleIdentity(subtitle: PlayerSubtitleInfo): SubtitleIdentity {
         ).takeIf { it },
     )
 
+    subtitle.nativeContainerTrackId?.let {
+        return SubtitleIdentity.Embedded(subtitle.index, media, containerTrackId = it)
+    }
     when (subtitle.serverDelivery) {
         SUBTITLE_DELIVERY_BURN_IN_ONLY ->
             return SubtitleIdentity.ServerBurnIn(subtitle.index, media)

@@ -193,11 +193,9 @@ class ServerListViewModel(
         }
         _uiState.update { it.copy(pendingSwitchToId = serverId) }
         viewModelScope.launch {
-            serverRegistry.switchTo(serverId)
-            // Force the token manager to flush its cache and reload from the
-            // new server's slot before the navigator advances. Without this,
-            // the destination screen could read stale tokens for one frame.
-            tokenManager.switchActiveServer(serverId)
+            // Switch the registry + token scope (so the destination screen never
+            // reads stale tokens) and probe the target server.s contract.
+            authRepository.switchToServer(serverId)
 
             // Route to the deepest screen the new server's stored credentials
             // can populate. Mirrors MainActivity.resolveStartDestination so a
@@ -294,7 +292,22 @@ class ServerListViewModel(
 
     fun onRemove(serverId: String) {
         viewModelScope.launch {
+            val wasActive = serverRegistry.activeServerId.value == serverId
             serverRegistry.remove(serverId)
+
+            // Removing the ACTIVE server promotes the next-MRU entry inside
+            // the registry, which never probes: without this the promoted
+            // server keeps whatever contract verdict an older build stored
+            // (or UNKNOWN). Route it through the same durable switch path as
+            // every other promotion: the registry already points at it, so
+            // switchToServer is idempotent there, and its bounded probe hands
+            // a replacement to the repository's process-lifetime background
+            // scope — popping this screen cancels viewModelScope, which must
+            // not strand the promoted server on a stale verdict.
+            val promotedId = serverRegistry.activeServerId.value
+            if (wasActive && promotedId != null) {
+                authRepository.switchToServer(promotedId)
+            }
         }
     }
 }

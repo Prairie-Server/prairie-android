@@ -253,13 +253,13 @@ class MediaLoadRetryPolicyTest {
         // stretched to minutes of spinner before an error surfaced.
         assertEquals(
             C.TIME_UNSET,
-            siloMediaLoadRetryDelayMs(
+            prairieMediaLoadRetryDelayMs(
                 responseCode = 503,
                 errorCount = 2,
                 observedElapsedMs = MEDIA_LOAD_RETRY_WINDOW_MS,
             ),
         )
         // Unmeasured callers keep the previous derived behaviour.
-        assertTrue(siloMediaLoadRetryDelayMs(responseCode = 503, errorCount = 2) > 0L)
+        assertTrue(prairieMediaLoadRetryDelayMs(responseCode = 503, errorCount = 2) > 0L)
     }
 }

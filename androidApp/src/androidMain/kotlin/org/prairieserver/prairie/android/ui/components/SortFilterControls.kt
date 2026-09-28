@@ -23,7 +23,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,11 +33,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.prairieserver.prairie.android.ui.theme.PrairieOnOpaqueControl
+import org.prairieserver.prairie.android.ui.theme.PrairieOpaqueControl
+import org.prairieserver.prairie.android.ui.theme.PrairieOpaqueControlBorder
+import org.prairieserver.prairie.android.ui.theme.PrairieOpaqueControlSelected
 
 /** One entry in the sort dropdown. [selectedLabel] (e.g. "Title · A–Z") shows while active. */
 data class SortMenuOption(
@@ -153,9 +155,10 @@ private fun ControlPill(
         onClick = onClick,
         shape = CircleShape,
         contentPadding = PaddingValues(horizontal = 12.dp),
-        border = BorderStroke(1.5.dp, Color.White.copy(alpha = if (active) 0.9f else 0.3f)),
+        border = BorderStroke(1.dp, PrairieOpaqueControlBorder),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurface,
+            contentColor = PrairieOnOpaqueControl,
+            containerColor = if (active) PrairieOpaqueControlSelected else PrairieOpaqueControl,
         ),
         modifier = Modifier.height(34.dp),
     ) {

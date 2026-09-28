@@ -77,6 +77,7 @@ import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
 import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.prairieserver.prairie.tv.ui.theme.tvPresetGridColumns
 import java.time.LocalDate
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -257,7 +258,7 @@ private fun TvPersonDetailContent(
             },
             modifier = Modifier.fillMaxSize(),
             gridState = gridState,
-            fixedColumnCount = PersonGridColumns,
+            fixedColumnCount = tvPresetGridColumns(PersonGridColumns),
             // tvOS `TVPersonDetailContent`: 48pt page top, 72pt bottom, 40pt grid
             // column spacing, 48pt header → filmography gap (all halved to dp).
             contentPadding = PaddingValues(
@@ -300,7 +301,7 @@ private fun TvPersonDetailContent(
                         // A failed page-0 load leaves the grid with nothing
                         // focusable below the chips. Keep retry in the scrolling
                         // header instead of dead-ending on the empty state.
-                        if (state.items.isEmpty()) {
+                        run {
                             Button(
                                 onClick = onRetryItems,
                                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),

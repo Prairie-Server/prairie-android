@@ -1,12 +1,13 @@
 package org.prairieserver.prairie.android.ui.navigation
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -29,7 +31,6 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -48,9 +49,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavOptionsBuilder
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
+import org.prairieserver.prairie.android.ui.theme.PrairieNavPillBorder
+import org.prairieserver.prairie.android.ui.theme.PrairieNavPillContent
+import org.prairieserver.prairie.android.ui.theme.PrairieNavPillSelected
+import org.prairieserver.prairie.android.ui.theme.PrairieNavPillSelectedContent
+import org.prairieserver.prairie.android.ui.theme.PrairieNavPillSurface
 
 /**
  * Total height of the translucent bottom chrome (cast mini bar + nav bar +
@@ -130,40 +133,38 @@ internal fun NavOptionsBuilder.tabSwitchNavOptions(anchorRoute: String?) {
 }
 
 private val PillHeight = 60.dp
+// Keep foldable/tablet chrome at the same physical footprint as the phone
+// capsule instead of stretching one tab item across the expanded window.
+private val PillExpandedMaxWidth = 380.dp
+// BoxWithConstraints measures after the bar's 20dp side margins, so 560dp
+// corresponds to the app's 600dp expanded-window breakpoint.
+private val PillExpandedWindowBreakpoint = 560.dp
 private val PillHorizontalMargin = 20.dp
 private val PillBottomMargin = 10.dp
 private val PillTopMargin = 8.dp
-// Glass recipe: content beneath is blurred by Haze, then tinted with this
-// wash so labels stay legible over bright posters. On API < 31 Haze cannot
-// blur and paints only the tint, so the fallback fill is heavier.
-private val PillGlassTint = Color(0xFF1C1C1E).copy(alpha = 0.72f)
-private val PillFallbackFill = Color(0xFF1C1C1E).copy(alpha = 0.96f)
-private val PillBlurRadius = 24.dp
-private val PillHairline = Color.White.copy(alpha = 0.12f)
-private val SelectedChipFill = Color.White.copy(alpha = 0.14f)
 
 /**
  * Floating pill tab bar, matching the iOS app's detached bottom capsule.
  *
  * The bar draws no full-width scrim: tab content scrolls edge-to-edge and
- * shows around the capsule. The capsule itself is real glass — [hazeState]
- * must be the state the tab content is registered on via `hazeSource`, so
- * the pill blurs whatever scrolls beneath it and tints the result. The selected tab
- * carries a soft chip highlight and a filled icon; unselected tabs are
- * outlined and muted. Colors animate on switch so the highlight reads as
- * moving rather than popping.
+ * shows around the faint artwork-tinted capsule used by detail's X/remote
+ * buttons. Bright white glyphs keep the tab symbols legible without turning
+ * the material into a pale solid bar.
  */
 @Composable
 fun PrairieBottomNavBar(
     currentTab: Tab,
     onTabSelected: (Tab) -> Unit,
-    hazeState: HazeState,
+    /** iOS `tabBarMinimizeBehavior(.onScrollDown)`: Home collapses the full
+     *  capsule into one still-tappable Home control until it is reselected or
+     *  the feed returns to its top. Other tabs always render expanded. */
+    minimizedToCurrentTab: Boolean = false,
     // Caller decides which tabs to render — used to hide the Downloads tab
     // when the user has no downloads in flight or on disk. Defaults to all
     // tabs for backwards-compat.
     tabs: List<Tab> = Tab.entries.toList(),
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
@@ -174,27 +175,37 @@ fun PrairieBottomNavBar(
                 bottom = PillBottomMargin,
             ),
     ) {
+        val isExpandedWindow = maxWidth >= PillExpandedWindowBreakpoint
+        val pillWidth by animateDpAsState(
+            targetValue = if (minimizedToCurrentTab) {
+                PillHeight
+            } else {
+                maxWidth.coerceAtMost(PillExpandedMaxWidth)
+            },
+            animationSpec = tween(durationMillis = 260),
+            label = "bottomNavWidth",
+        )
+        val displayedTabs = if (minimizedToCurrentTab) listOf(currentTab) else tabs
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                // Keep alignment stable for the entire width animation:
+                // mobile grows from the left; the already-approved expanded
+                // foldable/tablet bar remains centered in both states.
+                .align(if (isExpandedWindow) Alignment.Center else Alignment.CenterStart)
+                .width(pillWidth)
                 .height(PillHeight)
-                .shadow(elevation = 16.dp, shape = CircleShape, clip = false)
+                .shadow(elevation = 20.dp, shape = CircleShape, clip = false)
                 .clip(CircleShape)
-                .hazeEffect(state = hazeState) {
-                    blurRadius = PillBlurRadius
-                    noiseFactor = 0f
-                    backgroundColor = PillFallbackFill
-                    tints = listOf(HazeTint(PillGlassTint))
-                    fallbackTint = HazeTint(PillFallbackFill)
-                }
-                .border(0.75.dp, PillHairline, CircleShape)
+                .background(PrairieNavPillSurface)
+                .border(1.dp, PrairieNavPillBorder, CircleShape)
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            tabs.forEach { tab ->
+            displayedTabs.forEach { tab ->
                 PillTabItem(
                     tab = tab,
                     selected = tab == currentTab,
+                    showSelectedChip = !minimizedToCurrentTab,
                     onClick = { onTabSelected(tab) },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
@@ -207,19 +218,23 @@ fun PrairieBottomNavBar(
 private fun PillTabItem(
     tab: Tab,
     selected: Boolean,
+    showSelectedChip: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Minimized to a lone Home control, there is no chip to sit on, so the
+    // selected tab keeps light-on-dark content instead of inverting.
+    val onLightChip = selected && showSelectedChip
     val chip by animateColorAsState(
-        targetValue = if (selected) SelectedChipFill else Color.Transparent,
+        targetValue = if (onLightChip) PrairieNavPillSelected else Color.Transparent,
         animationSpec = tween(durationMillis = 220),
         label = "tabChip",
     )
     val tint by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.onSurface
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
+        targetValue = when {
+            onLightChip -> PrairieNavPillSelectedContent
+            selected -> Color.White
+            else -> PrairieNavPillContent
         },
         animationSpec = tween(durationMillis = 220),
         label = "tabTint",
@@ -234,7 +249,7 @@ private fun PillTabItem(
             .selectable(
                 selected = selected,
                 interactionSource = interaction,
-                indication = ripple(bounded = true, color = Color.White),
+                indication = ripple(bounded = true, color = tint),
                 role = Role.Tab,
                 onClick = onClick,
             ),
@@ -245,14 +260,14 @@ private fun PillTabItem(
             imageVector = if (selected) tab.selectedIcon else tab.icon,
             contentDescription = tab.label,
             tint = tint,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(25.dp),
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = tab.label,
             color = tint,
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
         )

@@ -4,6 +4,8 @@ import android.net.Uri
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import org.prairieserver.prairie.common.player.video.VideoPlayerRouteArgs
+import org.prairieserver.prairie.model.section.LibraryCollection
+import org.prairieserver.prairie.model.section.SectionItem
 
 /**
  * All navigation routes for the Silo app.
@@ -123,15 +125,21 @@ sealed class Route(val route: String) {
     data class ItemDetail(
         val contentId: String,
         val seasonNumber: Int? = null,
+        val episodeContentId: String? = null,
+        val libraryId: Int? = null,
     ) : Route(
-        if (seasonNumber != null) {
-            "item/${contentId.routeEncode()}?seasonNumber=$seasonNumber"
-        } else {
-            "item/${contentId.routeEncode()}"
-        }
+        "item/${contentId.routeEncode()}" +
+            listOfNotNull(
+                libraryId?.let { "libraryId=$it" },
+                seasonNumber?.let { "seasonNumber=$it" },
+                episodeContentId
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { "episodeContentId=${it.routeEncode()}" },
+            ).let { params -> if (params.isEmpty()) "" else "?" + params.joinToString("&") },
     ) {
         companion object {
-            const val ROUTE = "item/{contentId}?seasonNumber={seasonNumber}"
+            const val ROUTE =
+                "item/{contentId}?seasonNumber={seasonNumber}&episodeContentId={episodeContentId}&libraryId={libraryId}"
         }
     }
 
@@ -153,15 +161,19 @@ sealed class Route(val route: String) {
     data class CollectionDetail(
         val collectionId: String,
         val libraryId: Int? = null,
+        val source: String? = null,
     ) : Route(
-        if (libraryId != null) {
-            "collection/${collectionId.routeEncode()}?libraryId=$libraryId"
-        } else {
-            "collection/${collectionId.routeEncode()}"
-        }
+        buildString {
+            append("collection/${collectionId.routeEncode()}")
+            val parameters = buildList {
+                libraryId?.let { add("libraryId=$it") }
+                source?.takeIf { it.isNotBlank() }?.let { add("source=${it.routeEncode()}") }
+            }
+            if (parameters.isNotEmpty()) append("?${parameters.joinToString("&")}")
+        },
     ) {
         companion object {
-            const val ROUTE = "collection/{collectionId}?libraryId={libraryId}"
+            const val ROUTE = "collection/{collectionId}?libraryId={libraryId}&source={source}"
         }
     }
 
@@ -176,10 +188,12 @@ sealed class Route(val route: String) {
         val subtitleTrackIndex: Int? = null,
         val resumePositionSeconds: Double? = null,
         val roomId: String? = null,
+        val libraryId: Int? = null,
     ) : Route(
         buildString {
             append("player/${contentId.routeEncode()}")
             val queryParams = listOfNotNull(
+                libraryId?.let { "libraryId=$it" },
                 fileId?.let { "fileId=$it" },
                 // normalizeQuality is a closed wire-value set, so no URI
                 // escaping (or Android framework dependency) is needed here.
@@ -198,7 +212,7 @@ sealed class Route(val route: String) {
     ) {
         companion object {
             const val ROUTE =
-                "player/{contentId}?fileId={fileId}&quality={quality}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}&resumePosition={resumePosition}&roomId={roomId}"
+                "player/{contentId}?libraryId={libraryId}&fileId={fileId}&quality={quality}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}&resumePosition={resumePosition}&roomId={roomId}"
         }
     }
 
@@ -218,9 +232,11 @@ sealed class Route(val route: String) {
         // Whole-book (global) start offset for Parts / Chapters. The player VM
         // resolves which part contains it; null resumes from the stored position.
         val startPosition: Double? = null,
+        val libraryId: Int? = null,
     ) : Route(
         "audiobook/${contentId.routeEncode()}" +
             listOfNotNull(
+                libraryId?.let { "libraryId=$it" },
                 fileId?.let { "fileId=$it" },
                 if (fromStart) "fromStart=true" else null,
                 startPosition?.takeIf { it.isFinite() && it >= 0.0 }?.let { "startPosition=$it" },
@@ -228,7 +244,7 @@ sealed class Route(val route: String) {
     ) {
         companion object {
             const val ROUTE =
-                "audiobook/{contentId}?fileId={fileId}&fromStart={fromStart}&startPosition={startPosition}"
+                "audiobook/{contentId}?libraryId={libraryId}&fileId={fileId}&fromStart={fromStart}&startPosition={startPosition}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
             const val ARG_FROM_START = "fromStart"
@@ -237,11 +253,14 @@ sealed class Route(val route: String) {
     }
 
     // --- Book reader (fullscreen, dispatches by BookFormat) ---
-    data class BookReader(val contentId: String, val fileId: Int? = null) : Route(
-        "reader/${contentId.routeEncode()}" + fileId?.let { "?fileId=$it" }.orEmpty(),
+    data class BookReader(val contentId: String, val fileId: Int? = null, val libraryId: Int? = null) : Route(
+        "reader/${contentId.routeEncode()}" + listOfNotNull(
+            fileId?.let { "fileId=$it" },
+            libraryId?.let { "libraryId=$it" },
+        ).let { params -> if (params.isEmpty()) "" else "?" + params.joinToString("&") },
     ) {
         companion object {
-            const val ROUTE = "reader/{contentId}?fileId={fileId}"
+            const val ROUTE = "reader/{contentId}?fileId={fileId}&libraryId={libraryId}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
         }
@@ -263,6 +282,37 @@ sealed class Route(val route: String) {
         }
     }
 
+}
+
+fun libraryCollectionDetailRoute(
+    collection: LibraryCollection,
+    libraryId: Int,
+): String = Route.CollectionDetail(
+    collectionId = collection.id,
+    libraryId = libraryId,
+    source = if (collection.kind == "user_collections") {
+        "user_collection"
+    } else {
+        "library_collection"
+    },
+).route
+
+/**
+ * Continue Watching episodes belong to the unified series detail surface.
+ * Preserve the episode as route state so opening (for example) S3E1 loads the
+ * parent series, selects Season 3, and focuses that exact episode in its rail.
+ */
+internal fun continueWatchingDetailRoute(item: SectionItem): String {
+    val seriesId = item.seriesId?.takeIf { it.isNotBlank() }
+    return if (item.type.equals("episode", ignoreCase = true) && seriesId != null) {
+        Route.ItemDetail(
+            contentId = seriesId,
+            seasonNumber = item.seasonNumber,
+            episodeContentId = item.contentId,
+        ).route
+    } else {
+        Route.ItemDetail(item.contentId).route
+    }
 }
 
 /**

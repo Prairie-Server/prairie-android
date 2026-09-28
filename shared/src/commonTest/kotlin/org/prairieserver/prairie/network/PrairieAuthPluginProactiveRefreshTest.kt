@@ -36,7 +36,7 @@ class PrairieAuthPluginProactiveRefreshTest {
         // token, never the doomed one. One round trip saved.
         assertEquals(
             listOf<Pair<String, String?>>(
-                "/api/v1/auth/refresh" to null,
+                "/api/v2/auth/refresh" to null,
                 "/api/v1/home/sections" to "Bearer fresh-access",
             ),
             sent,
@@ -64,7 +64,7 @@ class PrairieAuthPluginProactiveRefreshTest {
      */
     @Test
     fun aSignedOutClientDoesNotRefreshAtAll() = runTest {
-        val tokenManager = TokenManagerImpl().apply { setServerUrl("https://silo.example") }
+        val tokenManager = TokenManagerImpl().apply { setServerUrl("https://prairie.example") }
         val sent = mutableListOf<Pair<String, String?>>()
         val client = client(tokenManager, sent)
 
@@ -78,7 +78,7 @@ class PrairieAuthPluginProactiveRefreshTest {
 
     private suspend fun tokenManager(expiresIn: Long): TokenManagerImpl =
         TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens(
                 accessToken = "live-access",
                 refreshToken = "refresh-token",

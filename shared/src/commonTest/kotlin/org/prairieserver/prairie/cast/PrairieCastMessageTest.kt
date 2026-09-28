@@ -94,6 +94,37 @@ class PrairieCastMessageTest {
     }
 
     @Test
+    fun scopedLaunchPreservesLibraryThroughTheWire() {
+        val message = PrairieCastMessage.Launch(
+            PrairieCastLaunchRequest(
+                serverId = "srv-1",
+                playback = PrairieCastPlaybackRequest(
+                    contentId = "movie-42",
+                    libraryId = 8,
+                    startFromBeginning = true,
+                ),
+            ),
+        )
+        assertWireEquals(
+            """{"type":"launch","v":2,"launch":{"serverId":"srv-1","playback":{"contentId":"movie-42","startFromBeginning":true,"libraryId":8}}}""",
+            message,
+        )
+        val decoded = json.decodeFromString(
+            PrairieCastMessage.serializer(), json.encodeToString(PrairieCastMessage.serializer(), message),
+        )
+        assertEquals(message, decoded)
+    }
+
+    @Test
+    fun legacyLaunchWithoutLibraryRemainsUnscoped() {
+        val decoded = json.decodeFromString(
+            PrairieCastMessage.serializer(),
+            """{"type":"launch","v":2,"launch":{"serverId":"srv-1","playback":{"contentId":"movie-42","startFromBeginning":true}}}""",
+        )
+        assertNull(assertIs<PrairieCastMessage.Launch>(decoded).launch.playback.libraryId)
+    }
+
+    @Test
     fun controlCommandsUseAppleNamesAndFields() {
         assertEquals(PrairieCastControlCommand.Play, PrairieCastControlCommand.play().name)
         assertEquals(PrairieCastControlCommand.Pause, PrairieCastControlCommand.pause().name)

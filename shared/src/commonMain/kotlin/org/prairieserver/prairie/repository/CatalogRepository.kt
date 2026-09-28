@@ -11,6 +11,7 @@ import org.prairieserver.prairie.model.catalog.Person
 import org.prairieserver.prairie.model.catalog.SeasonsResponse
 import org.prairieserver.prairie.model.catalog.WatchDetail
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
 import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
 import org.prairieserver.prairie.network.IdentityTransitionBarrier
 import org.prairieserver.prairie.network.api.CatalogApi
@@ -18,13 +19,43 @@ import org.prairieserver.prairie.repository.port.CatalogCachePort
 import org.prairieserver.prairie.repository.port.CatalogCacheWriteLease
 import org.prairieserver.prairie.repository.port.NoOpCatalogCachePort
 import org.prairieserver.prairie.repository.port.canServeCache
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class CatalogRepository(
     private val catalogApi: CatalogApi,
     /** Offline read cache for a library's default first page (Track B). No-op by default. */
     private val catalogCache: CatalogCachePort = NoOpCatalogCachePort,
     private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
+    requestDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
+    /**
+     * Home may warm a detail immediately before its destination requests the
+     * same data. Process-owned, identity-keyed single-flight requests keep that
+     * navigation from duplicating calls, and keep useful work alive when Home
+     * leaves composition.
+     */
+    private val detailRequestScope = CoroutineScope(SupervisorJob() + requestDispatcher)
+    private val detailRequestMutex = Mutex()
+    private val itemDetailInFlight =
+        mutableMapOf<Pair<Long, String>, Deferred<ApiResult<ItemDetail>>>()
+    private val seasonsInFlight =
+        mutableMapOf<Pair<Long, String>, Deferred<ApiResult<SeasonsResponse>>>()
+    private data class EpisodesRequestKey(
+        val identityGeneration: Long,
+        val seriesId: String,
+        val seasonNumber: Int,
+    )
+    private val episodesInFlight =
+        mutableMapOf<EpisodesRequestKey, Deferred<ApiResult<EpisodesResponse>>>()
+
     /** Browse the catalog with optional filters, sorting, and pagination. */
     suspend fun browse(
         source: String? = null,
@@ -35,12 +66,11 @@ class CatalogRepository(
         contentRating: String? = null,
         sort: String? = null,
         order: String? = null,
-        offset: Int? = null,
+        continuation: CatalogContinuationV2? = null,
         limit: Int? = null,
         namePrefix: String? = null,
         yearMin: Int? = null,
         yearMax: Int? = null,
-        snapshotAt: String? = null,
         queryGroups: List<CatalogQueryGroup> = emptyList(),
         match: String? = null,
     ): ApiResult<CatalogResponse> {
@@ -54,12 +84,11 @@ class CatalogRepository(
             contentRating = contentRating,
             sort = sort,
             order = order,
-            offset = offset,
+            continuation = continuation,
             limit = limit,
             namePrefix = namePrefix,
             yearMin = yearMin,
             yearMax = yearMax,
-            snapshotAt = snapshotAt,
             queryGroups = queryGroups,
             match = match,
         )
@@ -67,10 +96,10 @@ class CatalogRepository(
         // Only the unfiltered, first-page default browse of a single library is
         // cached for offline (every request-shaping param must be at its default).
         val cacheableLibraryId = libraryId?.takeIf {
-            (offset == null || offset == 0) &&
+            continuation == null &&
                 query == null && genre == null && contentRating == null &&
                 namePrefix == null && yearMin == null && yearMax == null &&
-                source == null && mediaType == null && snapshotAt == null &&
+                source == null && mediaType == null &&
                 queryGroups.isEmpty() && match == null &&
                 (sort == null || sort == "added_at") && (order == null || order == "desc")
         } ?: return result
@@ -82,10 +111,15 @@ class CatalogRepository(
             return result
         }
         if (result.canServeCache()) {
-            catalogCache.getCachedDefaultLibraryPage(cacheableLibraryId)?.let { return ApiResult.Success(it) }
+            catalogCache.getCachedDefaultLibraryPage(cacheableLibraryId)?.let { return ApiResult.Success(it.copy(hasMore = false, continuation = null)) }
         }
         return result
     }
+
+    suspend fun searchFacet(scope: org.prairieserver.prairie.network.apiv2.CatalogFacetScopeV2, facet: String, prefix: String) =
+        catalogApi.searchFacet(scope, facet, prefix)
+
+    suspend fun searchCapabilities() = catalogApi.searchCapabilities()
 
     /** Returns available filter options (genres, studios, etc.) for the catalog. */
     suspend fun getFilters(
@@ -106,7 +140,7 @@ class CatalogRepository(
         libraryId: Int,
         groupBy: String,
         sort: String = "name",
-        offset: Int? = null,
+        continuation: CatalogContinuationV2? = null,
         limit: Int? = null,
         query: String? = null,
         includeTotal: Boolean? = null,
@@ -115,15 +149,179 @@ class CatalogRepository(
             libraryId = libraryId,
             groupBy = groupBy,
             sort = sort,
-            offset = offset,
+            continuation = continuation,
             limit = limit,
             query = query,
             includeTotal = includeTotal,
         )
 
+    // Library-scoped reads cannot use the content-only offline cache or Home warmups.
+    // Keeping them live prevents versions from leaking between browse contexts.
+
     /** Fetches full metadata for a single catalog item (offline: last cached detail). */
-    suspend fun getItemDetail(contentId: String): ApiResult<ItemDetail> {
+    suspend fun getItemDetail(contentId: String, libraryId: Int? = null): ApiResult<ItemDetail> {
+        if (libraryId != null) return catalogApi.getItemDetail(contentId, libraryId)
         val requestIdentityGeneration = identityTransitions.generation.value
+        val warmRequest = detailRequestMutex.withLock {
+            itemDetailInFlight[requestIdentityGeneration to contentId]
+        }
+        return warmRequest?.await() ?: fetchItemDetail(contentId, requestIdentityGeneration)
+    }
+
+    /**
+     * Starts a process-owned live detail warm-up. A destination calling
+     * [getItemDetail] while it is active joins this exact request.
+     */
+    suspend fun warmItemDetail(contentId: String): ApiResult<ItemDetail> {
+        val requestIdentityGeneration = identityTransitions.generation.value
+        return coalescedDetailRequest(
+            requests = itemDetailInFlight,
+            key = requestIdentityGeneration to contentId,
+        ) {
+            fetchItemDetail(contentId, requestIdentityGeneration)
+        }
+    }
+
+    /** Returns the last cached item detail without touching the network. */
+    suspend fun getCachedItemDetail(contentId: String, libraryId: Int? = null): ItemDetail? =
+        if (libraryId != null) null else catalogCache.getCachedItemDetail(contentId)
+
+    /**
+     * Cache-first detail for speculative UI enrichment. Unlike a detail screen,
+     * prefetch must not re-download metadata that is already durable locally.
+     */
+    suspend fun getItemDetailForPrefetch(contentId: String, libraryId: Int? = null): ApiResult<ItemDetail> {
+        if (libraryId != null) return catalogApi.getItemDetail(contentId, libraryId)
+        catalogCache.getCachedItemDetail(contentId)?.let { return ApiResult.Success(it) }
+        return getItemDetail(contentId)
+    }
+
+    /** Fetches playback-oriented detail (versions, user progress, intro/credits markers). */
+    suspend fun captureWatchAuthority() = catalogApi.captureWatchAuthority()
+    suspend fun isWatchAuthorityCurrent(owner: org.prairieserver.prairie.network.AuthScopeSnapshot) = catalogApi.isWatchAuthorityCurrent(owner)
+    suspend fun getWatchDetail(contentId: String, owner: org.prairieserver.prairie.network.AuthScopeSnapshot, libraryId: Int? = null) = catalogApi.getWatchDetail(contentId, owner, libraryId)
+
+    suspend fun getWatchDetail(contentId: String, libraryId: Int? = null): ApiResult<WatchDetail> =
+        catalogApi.getWatchDetail(contentId, libraryId)
+
+    /** Lists seasons for a series (offline: last cached seasons). */
+    suspend fun getSeasons(seriesId: String, libraryId: Int? = null): ApiResult<SeasonsResponse> {
+        if (libraryId != null) return catalogApi.getSeasons(seriesId, libraryId)
+        val requestIdentityGeneration = identityTransitions.generation.value
+        val warmRequest = detailRequestMutex.withLock {
+            seasonsInFlight[requestIdentityGeneration to seriesId]
+        }
+        return warmRequest?.await() ?: fetchSeasons(seriesId, requestIdentityGeneration)
+    }
+
+    /** Starts a process-owned live season-list warm-up for a pending detail route. */
+    suspend fun warmSeasons(seriesId: String): ApiResult<SeasonsResponse> {
+        val requestIdentityGeneration = identityTransitions.generation.value
+        return coalescedDetailRequest(
+            requests = seasonsInFlight,
+            key = requestIdentityGeneration to seriesId,
+        ) {
+            fetchSeasons(seriesId, requestIdentityGeneration)
+        }
+    }
+
+    /** Returns the last cached season list without touching the network. */
+    suspend fun getCachedSeasons(seriesId: String, libraryId: Int? = null): SeasonsResponse? =
+        if (libraryId != null) null else catalogCache.getCachedSeasons(seriesId)
+
+    /** Cache-first season list for speculative detail navigation. */
+    suspend fun getSeasonsForPrefetch(seriesId: String, libraryId: Int? = null): ApiResult<SeasonsResponse> {
+        if (libraryId != null) return catalogApi.getSeasons(seriesId, libraryId)
+        catalogCache.getCachedSeasons(seriesId)?.let { return ApiResult.Success(it) }
+        return getSeasons(seriesId)
+    }
+
+    /** Lists episodes for a specific season of a series (offline: last cached episodes). */
+    suspend fun getEpisodes(seriesId: String, seasonNumber: Int, libraryId: Int? = null): ApiResult<EpisodesResponse> {
+        if (libraryId != null) return catalogApi.getEpisodes(seriesId, seasonNumber, libraryId)
+        val requestIdentityGeneration = identityTransitions.generation.value
+        val requestKey = EpisodesRequestKey(requestIdentityGeneration, seriesId, seasonNumber)
+        val warmRequest = detailRequestMutex.withLock { episodesInFlight[requestKey] }
+        return warmRequest?.await()
+            ?: fetchEpisodes(seriesId, seasonNumber, requestIdentityGeneration)
+    }
+
+    /** Starts a process-owned live episode-list warm-up for a pending detail route. */
+    suspend fun warmEpisodes(
+        seriesId: String,
+        seasonNumber: Int,
+    ): ApiResult<EpisodesResponse> {
+        val requestIdentityGeneration = identityTransitions.generation.value
+        return coalescedDetailRequest(
+            requests = episodesInFlight,
+            key = EpisodesRequestKey(requestIdentityGeneration, seriesId, seasonNumber),
+        ) {
+            fetchEpisodes(seriesId, seasonNumber, requestIdentityGeneration)
+        }
+    }
+
+    /** Returns one cached season's episodes without touching the network. */
+    suspend fun getCachedEpisodes(seriesId: String, seasonNumber: Int, libraryId: Int? = null): EpisodesResponse? =
+        if (libraryId != null) null else catalogCache.getCachedEpisodes(seriesId, seasonNumber)
+
+    /** Cache-first episode list for speculative detail navigation. */
+    suspend fun getEpisodesForPrefetch(
+        seriesId: String,
+        seasonNumber: Int,
+        libraryId: Int? = null,
+    ): ApiResult<EpisodesResponse> {
+        if (libraryId != null) return catalogApi.getEpisodes(seriesId, seasonNumber, libraryId)
+        catalogCache.getCachedEpisodes(seriesId, seasonNumber)?.let {
+            return ApiResult.Success(it)
+        }
+        return getEpisodes(seriesId, seasonNumber)
+    }
+
+    /** Lists all episodes directly attached to an item (e.g. a season content ID). */
+    suspend fun getItemEpisodes(contentId: String, libraryId: Int? = null): ApiResult<EpisodesResponse> =
+        catalogApi.getItemEpisodes(contentId, libraryId)
+
+    /** Lists all available file versions for an item. */
+    suspend fun getItemVersions(contentId: String, libraryId: Int? = null): ApiResult<List<FileVersion>> =
+        catalogApi.getItemVersions(contentId, libraryId)
+
+    /**
+     * Searches for people (cast/crew) by name. [mediaScope] limits results to
+     * people with accessible credits in that scope; only send it to a server
+     * that advertises `people_media_scope`.
+     */
+    suspend fun searchPeople(query: String, mediaScope: String? = null): ApiResult<List<Person>> =
+        catalogApi.searchPeople(query, mediaScope)
+
+    /** Queues a server-side metadata refresh for a person. */
+    suspend fun refreshPerson(id: Long, owner: org.prairieserver.prairie.network.AuthScopeSnapshot): ApiResult<Unit> =
+        catalogApi.refreshPerson(id, owner)
+
+    /** Fetches details for a specific person. */
+    suspend fun getPerson(id: Long): ApiResult<Person> =
+        catalogApi.getPerson(id)
+
+    suspend fun getPerson(id: Long, owner: org.prairieserver.prairie.network.AuthScopeSnapshot): ApiResult<Person> =
+        catalogApi.getPerson(id, owner)
+
+    /** Filmography for a person — movies and series they appear in. */
+    suspend fun getPersonItems(
+        personId: Long,
+        mediaType: String? = null,
+        continuation: CatalogContinuationV2? = null,
+        limit: Int? = null,
+    ): ApiResult<CatalogResponse> =
+        catalogApi.getPersonItems(
+            personId = personId,
+            mediaType = mediaType,
+            continuation = continuation,
+            limit = limit,
+        )
+
+    private suspend fun fetchItemDetail(
+        contentId: String,
+        requestIdentityGeneration: Long,
+    ): ApiResult<ItemDetail> {
         val result = catalogApi.getItemDetail(contentId)
         if (result is ApiResult.Success) {
             writeIfIdentityUnchanged(requestIdentityGeneration) { cacheWriteLease ->
@@ -137,26 +335,10 @@ class CatalogRepository(
         return result
     }
 
-    /** Returns the last cached item detail without touching the network. */
-    suspend fun getCachedItemDetail(contentId: String): ItemDetail? =
-        catalogCache.getCachedItemDetail(contentId)
-
-    /**
-     * Cache-first detail for speculative UI enrichment. Unlike a detail screen,
-     * prefetch must not re-download metadata that is already durable locally.
-     */
-    suspend fun getItemDetailForPrefetch(contentId: String): ApiResult<ItemDetail> {
-        catalogCache.getCachedItemDetail(contentId)?.let { return ApiResult.Success(it) }
-        return getItemDetail(contentId)
-    }
-
-    /** Fetches playback-oriented detail (versions, user progress, intro/credits markers). */
-    suspend fun getWatchDetail(contentId: String): ApiResult<WatchDetail> =
-        catalogApi.getWatchDetail(contentId)
-
-    /** Lists seasons for a series (offline: last cached seasons). */
-    suspend fun getSeasons(seriesId: String): ApiResult<SeasonsResponse> {
-        val requestIdentityGeneration = identityTransitions.generation.value
+    private suspend fun fetchSeasons(
+        seriesId: String,
+        requestIdentityGeneration: Long,
+    ): ApiResult<SeasonsResponse> {
         val result = catalogApi.getSeasons(seriesId)
         if (result is ApiResult.Success) {
             writeIfIdentityUnchanged(requestIdentityGeneration) { cacheWriteLease ->
@@ -170,57 +352,30 @@ class CatalogRepository(
         return result
     }
 
-    /** Lists episodes for a specific season of a series (offline: last cached episodes). */
-    suspend fun getEpisodes(seriesId: String, seasonNumber: Int): ApiResult<EpisodesResponse> {
-        val requestIdentityGeneration = identityTransitions.generation.value
+    private suspend fun fetchEpisodes(
+        seriesId: String,
+        seasonNumber: Int,
+        requestIdentityGeneration: Long,
+    ): ApiResult<EpisodesResponse> {
         val result = catalogApi.getEpisodes(seriesId, seasonNumber)
         if (result is ApiResult.Success) {
             writeIfIdentityUnchanged(requestIdentityGeneration) { cacheWriteLease ->
-                catalogCache.cacheEpisodes(seriesId, seasonNumber, result.data, cacheWriteLease)
+                catalogCache.cacheEpisodes(
+                    seriesId,
+                    seasonNumber,
+                    result.data,
+                    cacheWriteLease,
+                )
             }
             return result
         }
         if (result.canServeCache()) {
-            catalogCache.getCachedEpisodes(seriesId, seasonNumber)?.let { return ApiResult.Success(it) }
+            catalogCache.getCachedEpisodes(seriesId, seasonNumber)?.let {
+                return ApiResult.Success(it)
+            }
         }
         return result
     }
-
-    /** Lists all episodes directly attached to an item (e.g. a season content ID). */
-    suspend fun getItemEpisodes(contentId: String): ApiResult<EpisodesResponse> =
-        catalogApi.getItemEpisodes(contentId)
-
-    /** Lists all available file versions for an item. */
-    suspend fun getItemVersions(contentId: String): ApiResult<List<FileVersion>> =
-        catalogApi.getItemVersions(contentId)
-
-    /** Searches for people (cast/crew) by name. */
-    suspend fun searchPeople(query: String): ApiResult<List<Person>> =
-        catalogApi.searchPeople(query)
-
-    /** Queues a server-side metadata refresh for a person. */
-    suspend fun refreshPerson(id: Long): ApiResult<Unit> =
-        catalogApi.refreshPerson(id)
-
-    /** Fetches details for a specific person. */
-    suspend fun getPerson(id: Long): ApiResult<Person> =
-        catalogApi.getPerson(id)
-
-    /** Filmography for a person — movies and series they appear in. */
-    suspend fun getPersonItems(
-        personId: Long,
-        mediaType: String? = null,
-        offset: Int? = null,
-        limit: Int? = null,
-        snapshotAt: String? = null,
-    ): ApiResult<CatalogResponse> =
-        catalogApi.getPersonItems(
-            personId = personId,
-            mediaType = mediaType,
-            offset = offset,
-            limit = limit,
-            snapshotAt = snapshotAt,
-        )
 
     private suspend fun writeIfIdentityUnchanged(
         requestGeneration: Long,
@@ -229,5 +384,30 @@ class CatalogRepository(
         if (requestGeneration == identityTransitions.generation.value) {
             write(CatalogCacheWriteLease(requestGeneration))
         }
+    }
+
+    private suspend fun <K, T> coalescedDetailRequest(
+        requests: MutableMap<K, Deferred<T>>,
+        key: K,
+        request: suspend () -> T,
+    ): T {
+        val deferred = detailRequestMutex.withLock {
+            requests[key] ?: run {
+                lateinit var created: Deferred<T>
+                created = detailRequestScope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        request()
+                    } finally {
+                        detailRequestMutex.withLock {
+                            if (requests[key] === created) requests.remove(key)
+                        }
+                    }
+                }
+                requests[key] = created
+                created.start()
+                created
+            }
+        }
+        return deferred.await()
     }
 }

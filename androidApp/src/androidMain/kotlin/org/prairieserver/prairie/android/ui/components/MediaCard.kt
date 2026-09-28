@@ -32,6 +32,7 @@ import org.prairieserver.prairie.android.ui.navigation.LocalHeroSourceHandoff
 import org.prairieserver.prairie.android.ui.navigation.heroSharedKeyPrefix
 import org.prairieserver.prairie.android.ui.navigation.heroSource
 import java.util.UUID
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.overlays.CardOverlayVariant
 import org.prairieserver.prairie.common.overlays.CardOverlays
 import org.prairieserver.prairie.common.overlays.LocalCardOverlayUiState
@@ -46,6 +47,16 @@ object MediaGridDefaults {
     val PosterGridMinWidth = 104.dp
     val PosterGridHorizontalSpacing = 12.dp
     val PosterGridVerticalSpacing = 16.dp
+
+    /**
+     * [PosterGridMinWidth] scaled by the card-presentation poster size.
+     * Adaptive grids scale the *minimum* cell width, so the preference
+     * shifts the column count rather than the card width (a smaller min
+     * width fits more columns).
+     */
+    val scaledPosterGridMinWidth: Dp
+        @Composable get() =
+            PosterGridMinWidth * LocalCardPresentation.current.posterSize.posterScale
 }
 
 /**
@@ -69,7 +80,7 @@ fun MediaCard(
     progress: Float? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    width: Dp = 120.dp,
+    width: Dp = 120.dp * LocalCardPresentation.current.posterSize.posterScale,
     artworkAspectRatio: Float = 2f / 3.3f,
     overlay: OverlayData? = null,
     actions: MediaCardActions = MediaCardActions(),
@@ -79,6 +90,8 @@ fun MediaCard(
      * a plain tap target — used where there is no matching hero to morph into.
      */
     sharedContentId: String? = null,
+    detailBackdropUrl: String? = null,
+    detailBackdropThumbhash: String? = null,
 ) {
     val overlayState = LocalCardOverlayUiState.current
     var menuExpanded by remember { mutableStateOf(false) }
@@ -99,6 +112,13 @@ fun MediaCard(
                     // Record which exact placement was tapped so the detail hero
                     // pairs with this card, not a duplicate elsewhere on screen.
                     if (heroKey != null) heroHandoff?.pendingKey = heroKey
+                    // Match the detail hero from its first loading frame.
+                    heroHandoff?.pendingArtworkUrl = detailBackdropUrl ?: posterUrl
+                    heroHandoff?.pendingArtworkThumbhash = if (detailBackdropUrl != null) {
+                        detailBackdropThumbhash
+                    } else {
+                        posterThumbhash
+                    }
                     onClick()
                 },
                 onLongClick = if (actions.isEmpty) null else { { menuExpanded = true } },
@@ -165,18 +185,21 @@ fun MediaCard(
             }
         }
 
-        // iOS titleText: .prairieSubheadline (14sp), 2 lines.
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        val cardCaption = LocalCardPresentation.current.caption
+        if (cardCaption.showsTitle) {
+            // iOS titleText: .prairieSubheadline (14sp), 2 lines.
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         val caption = subtitle ?: year?.takeIf { it > 0 }?.toString()
-        if (caption != null) {
+        if (cardCaption.showsMetadata && caption != null) {
             // iOS yearText: .prairieCaption (12sp) at secondary text.
             Text(
                 text = caption,

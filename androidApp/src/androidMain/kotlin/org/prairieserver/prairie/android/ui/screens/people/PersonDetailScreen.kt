@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
@@ -48,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.prairieserver.prairie.android.ui.components.TopBarEdgeMargin
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
@@ -58,6 +60,8 @@ import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceElevated
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceVariant
 import org.prairieserver.prairie.android.ui.theme.PillShape
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.catalog.Person
@@ -118,6 +122,7 @@ fun PersonDetailScreen(
                     pagingError = state.pagingError,
                     onFilterSelected = { viewModel.applyFilter(it) },
                     onLoadMore = viewModel::loadMoreIfNeeded,
+                    onRetryItems = viewModel::retryItems,
                     onItemClick = onItemClick,
                 )
                 }
@@ -130,7 +135,7 @@ fun PersonDetailScreen(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(8.dp)
+                .padding(horizontal = TopBarEdgeMargin)
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.45f)),
@@ -157,10 +162,17 @@ private fun PersonDetailContent(
     pagingError: String?,
     onFilterSelected: (PersonMediaFilter) -> Unit,
     onLoadMore: () -> Unit,
+    onRetryItems: () -> Unit,
     onItemClick: (String) -> Unit,
 ) {
+    val gridState = rememberLazyGridState()
+    DeferImagePresentationWhileScrolling(gridState) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 110.dp),
+        // Filmography cards only — the person portrait keeps its fixed size.
+        columns = GridCells.Adaptive(
+            minSize = 110.dp * LocalCardPresentation.current.posterSize.posterScale,
+        ),
+        state = gridState,
         contentPadding = PaddingValues(
             start = SafePadding,
             end = SafePadding,
@@ -226,6 +238,8 @@ private fun PersonDetailContent(
                     title = item.title,
                     posterUrl = item.posterUrl,
                     posterThumbhash = item.posterThumbhash,
+                    detailBackdropUrl = item.backdropUrl,
+                    detailBackdropThumbhash = item.backdropThumbhash,
                     year = item.year.takeIf { it > 0 },
                     type = item.type,
                     userState = userState,
@@ -245,11 +259,12 @@ private fun PersonDetailContent(
                     PagingFooter(
                         isLoading = isLoadingItems,
                         error = pagingError,
-                        onRetry = onLoadMore,
+                        onRetry = onRetryItems,
                     )
                 }
             }
         }
+    }
     }
 }
 

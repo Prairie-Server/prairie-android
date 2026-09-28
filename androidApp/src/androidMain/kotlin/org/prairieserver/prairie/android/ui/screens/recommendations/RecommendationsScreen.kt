@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
@@ -33,9 +34,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -44,12 +44,10 @@ import org.prairieserver.prairie.android.ui.screens.personal.FavoritesGridConten
 import org.prairieserver.prairie.android.ui.screens.personal.WatchlistGridContent
 import org.prairieserver.prairie.android.ui.screens.personal.PersonalListControlsRow
 import org.prairieserver.prairie.android.ui.screens.personal.PersonalListSource
-import org.prairieserver.prairie.android.ui.screens.personal.queryState
 import org.prairieserver.prairie.android.ui.screens.personal.rememberPersonalListControls
 import org.prairieserver.prairie.viewmodel.PersonalListUiState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -58,7 +56,16 @@ import org.prairieserver.prairie.android.ui.screens.home.HomeSectionRow
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.android.ui.components.MediaRowsSkeleton
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListLogger
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSnapshot
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieOnOpaqueControl
+import org.prairieserver.prairie.android.ui.theme.PrairieOpaqueControl
+import org.prairieserver.prairie.android.ui.theme.PrairieOpaqueControlBorder
+import org.prairieserver.prairie.android.ui.theme.PrairieOpaqueControlSelected
 import org.koin.compose.viewmodel.koinViewModel
+import org.prairieserver.prairie.android.ui.screens.personal.currentQuery
 
 /**
  * Phone Recommendations ("For You") screen.
@@ -94,6 +101,20 @@ fun RecommendationsScreen(
     val inFallback = !state.isLoading && state.error == null && state.sections.isEmpty()
     val displayedList = if (inFallback) savedListSelection ?: ForYouList.Watchlist else savedListSelection
     LaunchedEffect(displayedList) { onDisplayedListChange(displayedList) }
+    val diagnosticsListSnapshot = remember(state.sections) {
+        DiagnosticsListSnapshot.fromKeys(
+            keys = state.sections.map { it.id },
+            rowKeys = state.sections.map { section -> section.items.map { it.contentId } },
+        )
+    }
+    LaunchedEffect(diagnosticsListSnapshot, state.isLoading) {
+        if (!state.isLoading && state.sections.isNotEmpty()) {
+            DiagnosticsListLogger.snapshot(
+                DiagnosticsListSurface.PHONE_FOR_YOU,
+                diagnosticsListSnapshot,
+            )
+        }
+    }
 
     // Self-heal the "For You" fallback. The shared VM loads only in init{} and
     // survives tab switches (saveState/restoreState), so an empty server
@@ -231,7 +252,10 @@ fun RecommendationsScreen(
                     onRefresh = { viewModel.refresh() },
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    val listState = rememberLazyListState()
+                    DeferImagePresentationWhileScrolling(listState) {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         // Content starts under the header glass and keeps room for
                         // the floating bottom nav while preserving iOS section
@@ -258,6 +282,7 @@ fun RecommendationsScreen(
                                 onItemClick = onItemClick,
                             )
                         }
+                    }
                     }
                 }
                 else -> SavedListGrid(
@@ -299,7 +324,7 @@ private fun SavedListGrid(
         ForYouList.Favorites -> PersonalListSource.Favorites
     }
     val controls = rememberPersonalListControls(source)
-    val query by controls.queryState()
+    val query = controls.currentQuery()
     val gridHeader: @Composable (PersonalListUiState) -> Unit = { state ->
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             header()
@@ -323,7 +348,6 @@ private fun SavedListGrid(
         )
     }
 }
-
 
 /**
  * Watchlist / Favorites pill row. Mirrors iOS `SavedShortcutsRow` (phone):
@@ -369,9 +393,10 @@ private fun SavedShortcutPill(
         onClick = onClick,
         shape = CircleShape,
         contentPadding = PaddingValues(horizontal = 15.dp),
-        border = BorderStroke(1.5.dp, Color.White.copy(alpha = if (selected) 0.9f else 0.3f)),
+        border = BorderStroke(1.dp, PrairieOpaqueControlBorder),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurface,
+            contentColor = PrairieOnOpaqueControl,
+            containerColor = if (selected) PrairieOpaqueControlSelected else PrairieOpaqueControl,
         ),
         modifier = Modifier.height(40.dp),
     ) {
@@ -389,4 +414,3 @@ private fun SavedShortcutPill(
         )
     }
 }
-

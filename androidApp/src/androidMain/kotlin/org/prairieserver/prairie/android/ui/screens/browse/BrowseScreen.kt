@@ -186,7 +186,7 @@ fun BrowseScreen(
                     PosterGridSkeleton(progress = rememberShimmerProgress())
                 }
 
-                state.error != null && state.items.isEmpty() -> {
+                state.error != null -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,

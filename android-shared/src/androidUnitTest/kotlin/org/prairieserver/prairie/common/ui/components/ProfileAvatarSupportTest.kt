@@ -49,7 +49,7 @@ class ProfileAvatarSupportTest {
         // Uri.encode is stubbed under plain unit tests, so assert the routing
         // rather than the fully-encoded query.
         val resolved = resolveProfileAvatar(
-            "https://silo.example",
+            "https://prairie.example",
             ProfileAvatarRef("preset:dicebear:fun-emoji:cosmic-otter"),
         )
         assertTrue(
@@ -82,7 +82,7 @@ class ProfileAvatarSupportTest {
     fun uploadRefUsesTheServerSuppliedUrl() {
         val signed = signedUploadUrl("abc123")
         val resolved = resolveProfileAvatar(
-            "https://silo.example",
+            "https://prairie.example",
             ProfileAvatarRef(uploadRef, signed),
         )
         assertEquals(signed, resolved?.url)
@@ -91,15 +91,15 @@ class ProfileAvatarSupportTest {
     @Test
     fun uploadRefWithoutAUrlResolvesToNullRatherThanAFabricatedServerPath() {
         // The regression: this used to produce
-        // https://silo.example/upload:profile-avatars/… — a guaranteed 404.
-        assertNull(resolveProfileAvatar("https://silo.example", ProfileAvatarRef(uploadRef)))
-        assertNull(resolveAvatarUrl("https://silo.example", uploadRef))
+        // https://prairie.example/upload:profile-avatars/… — a guaranteed 404.
+        assertNull(resolveProfileAvatar("https://prairie.example", ProfileAvatarRef(uploadRef)))
+        assertNull(resolveAvatarUrl("https://prairie.example", uploadRef))
     }
 
     @Test
     fun serverSuppliedUrlWinsOverAServerRelativePath() {
         val resolved = resolveProfileAvatar(
-            "https://silo.example",
+            "https://prairie.example",
             ProfileAvatarRef("/api/v1/users/1/avatar.png", "https://cdn.example.test/a.webp"),
         )
         assertEquals("https://cdn.example.test/a.webp", resolved?.url)
@@ -145,18 +145,32 @@ class ProfileAvatarSupportTest {
     }
 
     @Test
-    fun nonUploadUrlsKeepTheirQueryInTheCacheKey() {
-        // DiceBear encodes the seed in the query. Stripping it would collapse
-        // every preset avatar onto a single cache entry, so these must opt out
-        // of the override entirely and let Coil key by URL.
-        val resolved = resolveProfileAvatar(
+    fun presetAvatarsKeepDistinctCacheKeys() {
+        // DiceBear encodes the seed in the query, so the danger is collapsing
+        // every preset onto one cache entry. Keying by the server's avatar ref
+        // avoids that — each preset carries its own ref — while also surviving
+        // a URL that changes between fetches.
+        fun keyFor(seed: String) = resolveProfileAvatar(
             "",
             ProfileAvatarRef(
-                "preset:dicebear:fun-emoji:cosmic-otter",
-                "https://api.dicebear.com/9.x/fun-emoji/png?seed=cosmic-otter&size=256",
+                "preset:dicebear:fun-emoji:$seed",
+                "https://api.dicebear.com/9.x/fun-emoji/png?seed=$seed&size=256",
             ),
-        )
-        assertNull(resolved?.cacheKey)
+        )?.cacheKey
+
+        assertEquals("preset:dicebear:fun-emoji:cosmic-otter", keyFor("cosmic-otter"))
+        assertTrue(keyFor("cosmic-otter") != keyFor("sly-badger"))
+    }
+
+    @Test
+    fun cacheKeyIsStableWhenTheServerReSignsTheSameAvatar() {
+        // The regression this guards: a re-signed avatar_url used to produce a
+        // brand-new cache key, so the same bytes were re-downloaded and the
+        // avatar visibly reloaded every time a page composed its header.
+        val ref = "preset:dicebear:fun-emoji:cosmic-otter"
+        val first = resolveProfileAvatar("", ProfileAvatarRef(ref, "https://cdn/a.png?sig=one"))
+        val second = resolveProfileAvatar("", ProfileAvatarRef(ref, "https://cdn/a.png?sig=two"))
+        assertEquals(first?.cacheKey, second?.cacheKey)
     }
 
     @Test

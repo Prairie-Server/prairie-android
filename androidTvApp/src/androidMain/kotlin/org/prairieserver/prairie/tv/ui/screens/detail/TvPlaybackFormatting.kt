@@ -1,9 +1,15 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package org.prairieserver.prairie.tv.ui.screens.detail
 
+import org.prairieserver.prairie.common.player.TrackSelectionPresets
 import org.prairieserver.prairie.model.catalog.AudioTrack
+import org.prairieserver.prairie.model.catalog.editionLabel
+import org.prairieserver.prairie.model.catalog.playbackEditions
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
 import org.prairieserver.prairie.model.playback.AutoSubtitleContext
+import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.catalogAutoSubtitleCandidates
 import org.prairieserver.prairie.model.playback.combinedSubtitleSelectionIndexes
 import org.prairieserver.prairie.model.playback.resolveAutoSubtitle
@@ -15,6 +21,20 @@ import java.util.Locale
 
 internal fun automaticTrackLabel(resolvedLabel: String?): String =
     "Auto - ${resolvedLabel ?: "None"}"
+
+internal fun resolveTvAutomaticAudioTrackOrdinal(
+    version: FileVersion?,
+    preferredAudioLanguage: String?,
+    capabilities: ClientCodecCapabilities?,
+): Int? = if (version == null || capabilities == null) {
+    null
+} else {
+    TrackSelectionPresets.selectBestCompatibleAudioTrackOrdinal(
+        tracks = version.audioTracks.orEmpty(),
+        preferredAudioLanguage = preferredAudioLanguage,
+        capabilities = capabilities,
+    )
+}
 
 /**
  * Pure formatting helpers for the TV detail playback selector row (Version /
@@ -31,12 +51,6 @@ internal fun automaticTrackLabel(resolvedLabel: String?): String =
  *   derived from catalog order plus external-track placement; it is not the raw
  *   [SubtitleTrack.index] stream index and is not the visible sorted-row ordinal.
  *
- * NOTE on editions: unlike Apple's `FileVersion` (which carries
- * `edition_key` / `edition_raw` / `edition`), the Android [FileVersion] model
- * exposes NO edition data. [editions] therefore always returns a single
- * "Standard" group (or empty for no versions), so the Edition selector in the
- * UI stays hidden. This becomes meaningful only once the model/server adds
- * edition fields (see SPEC §6 / §11).
  */
 object TvPlaybackFormatting {
 
@@ -110,6 +124,19 @@ object TvPlaybackFormatting {
         return if (tokens.isEmpty()) "Auto" else tokens.joinToString(" · ")
     }
 
+    /** Resting connected-segment value: resolution plus HDR family. */
+    fun versionCompactLabel(version: FileVersion?): String {
+        if (version == null) return "Auto"
+        val tokens = buildList {
+            resolvedResolution(version)?.let(::displayResolution)?.let { add(it) }
+            when {
+                isDolbyVision(version) -> add("DV")
+                isHdr(version) -> add("HDR")
+            }
+        }
+        return if (tokens.isEmpty()) "Auto" else tokens.joinToString(" · ")
+    }
+
     /**
      * Picker labels for a whole version list, disambiguated against each other.
      *
@@ -126,7 +153,9 @@ object TvPlaybackFormatting {
      * container is the last resort.
      */
     fun versionPickerLabels(versions: List<FileVersion>): List<String> {
-        val base = versions.map { versionShortLabel(it) }
+        val base = versions.map { version ->
+            listOfNotNull(version.editionLabel, versionShortLabel(version)).joinToString(" · ")
+        }
         val colliding = base.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
         if (colliding.isEmpty()) return base
 
@@ -231,16 +260,22 @@ object TvPlaybackFormatting {
         }
     }
 
-    fun audioValueLabel(version: FileVersion?, selectedAudioTrackIndex: Int?): String {
+    fun audioValueLabel(
+        version: FileVersion?,
+        selectedAudioTrackIndex: Int?,
+        automaticAudioTrackOrdinal: Int? = null,
+    ): String {
         val tracks = version?.audioTracks ?: return "Unknown"
-        val ordinal = resolvedAudioOrdinal(version, selectedAudioTrackIndex) ?: return "Unknown"
+        val ordinal = resolvedAudioOrdinal(
+            version,
+            selectedAudioTrackIndex,
+            automaticAudioTrackOrdinal,
+        ) ?: return "Unknown"
         val track = tracks.getOrNull(ordinal) ?: return "Unknown"
         val summary = audioSummary(track, ordinal)
         // Auto shows what it resolved to ("Auto: English · EAC3 · 5.1"); a
         // manual pick shows just the track (tvOS `annotateAuto`). Audio auto
-        // is the file's default/first track — the same signal the player uses
-        // (there is no client-side language audio resolver; the server drives
-        // audio selection), so unlike subtitles this preview needs no prefs.
+        // follows the same language/capability resolution used by playback.
         return if (selectedAudioTrackIndex == null) "Auto: $summary" else summary
     }
 
@@ -250,17 +285,32 @@ object TvPlaybackFormatting {
      * is already in the preferred subtitle language. Mirrors silo-apple's
      * `DetailPlaybackFormatting.resolvedAudioLanguage`.
      */
-    fun resolvedAudioLanguage(version: FileVersion?, selectedAudioTrackIndex: Int?): String? {
+    fun resolvedAudioLanguage(
+        version: FileVersion?,
+        selectedAudioTrackIndex: Int?,
+        automaticAudioTrackOrdinal: Int? = null,
+    ): String? {
         val tracks = version?.audioTracks ?: return null
-        val ordinal = resolvedAudioOrdinal(version, selectedAudioTrackIndex) ?: return null
+        val ordinal = resolvedAudioOrdinal(
+            version,
+            selectedAudioTrackIndex,
+            automaticAudioTrackOrdinal,
+        ) ?: return null
         return tracks.getOrNull(ordinal)?.language
     }
 
-    private fun resolvedAudioOrdinal(version: FileVersion?, selectedAudioTrackIndex: Int?): Int? {
+    private fun resolvedAudioOrdinal(
+        version: FileVersion?,
+        selectedAudioTrackIndex: Int?,
+        automaticAudioTrackOrdinal: Int? = null,
+    ): Int? {
         val tracks = version?.audioTracks ?: return null
         if (tracks.isEmpty()) return null
         if (selectedAudioTrackIndex != null && selectedAudioTrackIndex in tracks.indices) {
             return selectedAudioTrackIndex
+        }
+        if (automaticAudioTrackOrdinal != null && automaticAudioTrackOrdinal in tracks.indices) {
+            return automaticAudioTrackOrdinal
         }
         // Server-resolved effective track beats the isDefault flag (Apple
         // parity: selected → effective → default → first).
@@ -676,21 +726,14 @@ object TvPlaybackFormatting {
         return subtitleLabelIndicatesHearingImpaired(value)
     }
 
-    // --- Editions (Android model has no edition data) --------------------
+    // --- Editions -------------------------------------------------------
 
     fun currentEdition(versions: List<FileVersion>, currentVersion: FileVersion?): TvEdition? =
         edition(forFileId = currentVersion?.fileId, versions = versions)
             ?: editions(versions).firstOrNull()
 
-    /**
-     * Distinct editions in first-seen order. The Android [FileVersion] carries
-     * no edition fields, so every version lands in one "Standard" group; this
-     * keeps the UI's Edition selector hidden until model support lands.
-     */
-    fun editions(versions: List<FileVersion>): List<TvEdition> {
-        if (versions.isEmpty()) return emptyList()
-        return listOf(TvEdition(id = "standard", label = "Standard", versions = versions))
-    }
+    fun editions(versions: List<FileVersion>): List<TvEdition> =
+        playbackEditions(versions).map { TvEdition(it.id, it.label, it.versions) }
 
     private fun edition(forFileId: Int?, versions: List<FileVersion>): TvEdition? {
         if (forFileId == null) return null

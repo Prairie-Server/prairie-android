@@ -186,8 +186,8 @@ class TvServerListViewModel(
         if (_uiState.value.activeId == serverId) return
         _uiState.update { it.copy(pendingSwitchToId = serverId) }
         viewModelScope.launch {
-            serverRegistry.switchTo(serverId)
-            tokenManager.switchActiveServer(serverId)
+            // Switch the registry + token scope and probe the target server.s contract.
+            authRepository.switchToServer(serverId)
 
             val accessToken = tokenManager.getAccessToken()
             val activeEntry = serverRegistry.activeEntry.value
@@ -286,7 +286,11 @@ class TvServerListViewModel(
                 return@launch
             }
 
-            tokenManager.switchActiveServer(promotedId)
+            // The registry already points at the promoted server, but only the
+            // full switch path also moves the token scope and probes the
+            // promoted server's identity and v2 contract verdict (it is
+            // idempotent when the registry is already there).
+            authRepository.switchToServer(promotedId)
 
             val accessToken = tokenManager.getAccessToken()
             val activeEntry = serverRegistry.activeEntry.value

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.player
 
+import org.prairieserver.prairie.model.catalog.editionLabel
 import org.prairieserver.prairie.android.ui.util.formatBytes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -117,6 +118,7 @@ fun QualitySelector(
                         contentType = { _, _ -> "quality-version" },
                     ) { index, version ->
                         val label = buildString {
+                            version.editionLabel?.let { append(it).append(" · ") }
                             version.resolution?.let { append(it) } ?: append("Unknown")
                             if (version.hdr) append(" HDR")
                         }

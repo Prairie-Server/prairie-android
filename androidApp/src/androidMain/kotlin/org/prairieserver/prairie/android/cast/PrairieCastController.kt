@@ -13,6 +13,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,7 @@ import org.prairieserver.prairie.common.cast.PrairieCastNsdBrowser
 import org.prairieserver.prairie.common.cast.PrairieCastTarget
 import org.prairieserver.prairie.common.lan.PrairieCastTls
 import org.prairieserver.prairie.common.lan.PrairieCastTlsClientSession
+import org.prairieserver.prairie.network.AndroidServerRegistry
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.ApiResult
@@ -112,6 +114,23 @@ class PrairieCastController(
         ignoreUnknownKeys = true
     }
     private val sendMutex = Mutex()
+    private val controlCommands = Channel<QueuedControlCommand>(Channel.UNLIMITED)
+
+    /**
+     * Immutable identity for the socket that may receive queued controls.
+     * Capturing its output stream means an old command can never fall through
+     * to a replacement TV, even if that replacement connects while the FIFO is
+     * draining.
+     */
+    private data class ControlTransport(val output: OutputStream)
+
+    private data class QueuedControlCommand(
+        val command: PrairieCastControlCommand,
+        val transport: ControlTransport,
+    )
+
+    @Volatile
+    private var controlTransport: ControlTransport? = null
 
     // Serializes ensureConnected/closeConnection: rapid taps on different
     // targets otherwise interleave connect/teardown across IO coroutines and
@@ -124,6 +143,8 @@ class PrairieCastController(
     private val launchJobLock = Any()
     private var launchJob: Job? = null
     private val clock = PrairieCastPlaybackClock()
+    private val volumeStateLock = Any()
+    private val volumeReconciler = RemoteVolumeReconciler()
 
     private val _state = MutableStateFlow(PrairieCastControllerState())
     val state: StateFlow<PrairieCastControllerState> = _state.asStateFlow()
@@ -153,6 +174,9 @@ class PrairieCastController(
     @Volatile
     private var remoteScreenVisible = false
 
+    @Volatile
+    private var appInForeground = false
+
     private var negotiatedVersion = CompletableDeferred<Int>()
     @Volatile
     private var pendingHandoff: PendingHandoff? = null
@@ -161,6 +185,17 @@ class PrairieCastController(
         scope.launch {
             browser.targets.collect { targets ->
                 _state.update { it.copy(targets = targets) }
+            }
+        }
+        // One writer preserves absolute-command order during rapid hardware
+        // volume presses without ever performing socket I/O on the UI thread.
+        scope.launch {
+            for (queued in controlCommands) {
+                // Target switches invalidate the token before closing the old
+                // stream. Drop its backlog instead of applying it to the new TV.
+                if (controlTransport !== queued.transport) continue
+                runCatching { sendControl(queued) }
+                    .onFailure { error -> _state.update { it.copy(error = error.message) } }
             }
         }
     }
@@ -178,7 +213,7 @@ class PrairieCastController(
             val self = currentCoroutineContext()[Job] ?: return@launch
             try {
                 launchMutex.withLock {
-                    ensureConnected(target)
+                    ensureConnected(target, allowCrossServer = true)
                     // AFTER ensureConnected: its teardown of any previous session
                     // resets the flag, so setting it earlier would be undone.
                     _state.update { it.copy(isLaunching = true) }
@@ -322,12 +357,90 @@ class PrairieCastController(
     }
 
     fun setVolume(volume: Double) {
-        sendControl(PrairieCastControlCommand.setVolume(volume.coerceIn(0.0, 1.0)))
+        val clamped = volume.coerceIn(0.0, 1.0)
+        synchronized(volumeStateLock) {
+            if (_state.value.playbackState != null) {
+                applyOptimisticVolumeLocked(clamped, nowMs())
+            }
+            sendControl(PrairieCastControlCommand.setVolume(clamped))
+        }
     }
 
     fun setMuted(muted: Boolean) {
-        sendControl(PrairieCastControlCommand.setMuted(muted))
+        synchronized(volumeStateLock) {
+            val now = nowMs()
+            volumeReconciler.clearVolume()
+            volumeReconciler.requestedMuted(muted, now)
+            _state.update { state ->
+                state.copy(playbackState = state.playbackState?.copy(isMuted = muted))
+            }
+            sendControl(PrairieCastControlCommand.setMuted(muted))
+        }
     }
+
+    /**
+     * Applies one physical volume-button step while the foreground full remote
+     * owns those keys. Muted volume-down is intentionally a consumed no-op;
+     * volume-up unmutes and advances from the retained level, not display zero.
+     *
+     * @return true when the remote owned and consumed the button press.
+     */
+    fun stepVolumeOptimistic(step: Int): Boolean {
+        if (step != -1 && step != 1) return false
+        synchronized(volumeStateLock) {
+            val playback = _state.value.playbackState ?: return false
+            if (!_state.value.isConnected ||
+                !appInForeground ||
+                !remoteScreenVisible ||
+                playback.contentId.isNullOrEmpty()
+            ) {
+                return false
+            }
+
+            if (playback.isMuted && step < 0) return true
+            if (playback.isMuted) {
+                val now = nowMs()
+                volumeReconciler.clearVolume()
+                volumeReconciler.requestedMuted(isMuted = false, atMs = now)
+                _state.update { state ->
+                    state.copy(playbackState = state.playbackState?.copy(isMuted = false))
+                }
+                sendControl(PrairieCastControlCommand.setMuted(false))
+            }
+
+            val next = (playback.volume + step.toDouble() / VOLUME_STEPS).coerceIn(0.0, 1.0)
+            if (next != playback.volume) {
+                applyOptimisticVolumeLocked(next, nowMs())
+                sendControl(PrairieCastControlCommand.setVolume(next))
+            }
+            return true
+        }
+    }
+
+    /** Must be called while holding [volumeStateLock]. */
+    private fun applyOptimisticVolumeLocked(volume: Double, atMs: Long) {
+        val playback = _state.value.playbackState ?: return
+        val isMuted = volume <= SILENT_VOLUME
+        volumeReconciler.requested(volume, atMs)
+        if (playback.isMuted != isMuted) {
+            volumeReconciler.requestedMuted(isMuted, atMs)
+        }
+        _state.update { state ->
+            state.copy(
+                playbackState = state.playbackState?.copy(
+                    volume = volume,
+                    isMuted = isMuted,
+                ),
+            )
+        }
+    }
+
+    /** Whether volume-key up/repeat events should stay consumed by the remote. */
+    fun shouldInterceptHardwareVolumeKeys(): Boolean =
+        _state.value.isConnected &&
+            appInForeground &&
+            remoteScreenVisible &&
+            !_state.value.playbackState?.contentId.isNullOrEmpty()
 
     fun setVideoGravity(value: String) {
         sendControl(PrairieCastControlCommand.setVideoGravity(value))
@@ -357,6 +470,7 @@ class PrairieCastController(
     }
 
     fun onAppForeground() {
+        appInForeground = true
         if (session != null) {
             // Validate liveness immediately rather than waiting out the
             // heartbeat interval on a socket that died while backgrounded.
@@ -368,6 +482,7 @@ class PrairieCastController(
     }
 
     fun onAppBackground() {
+        appInForeground = false
         // A half-finished probe can't complete while suspended; an unengaged
         // auto-resumed session shouldn't outlive the app being visible.
         cancelAutoResumeProbe()
@@ -385,7 +500,13 @@ class PrairieCastController(
     fun attemptAutoResumeIfIdle() {
         if (session != null || reconnectJob != null || autoResumeJob != null) return
         val persisted = lastTargetStore.load() ?: return
-        if (persisted.serverId == null || persisted.serverId != serverRegistry.activeEntry.value?.id) return
+        if (!AndroidServerRegistry.serverIdsMatch(
+                persisted.serverId,
+                serverRegistry.activeEntry.value?.id,
+            )
+        ) {
+            return
+        }
 
         autoResumeJob = scope.launch {
             try {
@@ -433,13 +554,27 @@ class PrairieCastController(
         // Any outbound command counts as user engagement — the session is no
         // longer a passive auto-resume attachment after this.
         sessionIsAutoResumed = false
-        scope.launch {
-            runCatching { send(PrairieCastMessage.Control(command)) }
-                .onFailure { error -> _state.update { it.copy(error = error.message) } }
+        val transport = controlTransport
+        if (transport == null ||
+            controlCommands.trySend(QueuedControlCommand(command, transport)).isFailure
+        ) {
+            _state.update { it.copy(error = "Remote Control is unavailable.") }
         }
     }
 
-    private suspend fun ensureConnected(target: PrairieCastTarget) = connectionMutex.withLock {
+    private suspend fun ensureConnected(
+        target: PrairieCastTarget,
+        allowCrossServer: Boolean = false,
+    ) = connectionMutex.withLock {
+        val activeServerId = serverRegistry.activeEntry.value?.id
+            ?: error("Choose a server before controlling a TV.")
+        val targetsActiveServer = AndroidServerRegistry.serverIdsMatch(target.serverId, activeServerId)
+        require(
+            targetsActiveServer ||
+                (allowCrossServer && target.version >= PrairieCastProtocol.version),
+        ) {
+            "That TV is connected to a different server."
+        }
         if (_state.value.connectedTarget?.deviceId == target.deviceId && session?.isConnected == true) return@withLock
         reconnectJob?.cancel()
         reconnectJob = null
@@ -454,9 +589,11 @@ class PrairieCastController(
             )
         }
         openSessionLocked(target)
-        lastTargetStore.save(
-            PrairieCastPersistedTarget(deviceId = target.deviceId, name = target.name, serverId = target.serverId),
-        )
+        if (targetsActiveServer) {
+            lastTargetStore.save(
+                PrairieCastPersistedTarget(deviceId = target.deviceId, name = target.name, serverId = target.serverId),
+            )
+        }
         Unit
     }
 
@@ -480,6 +617,9 @@ class PrairieCastController(
             negotiatedVersion = CompletableDeferred()
             missedHeartbeats = 0
             send(PrairieCastMessage.Hello(makeHello()))
+            // Publish the queue token only after Hello is fully written, so a
+            // control can never overtake the session handshake.
+            controlTransport = ControlTransport(newSession.output)
             _state.update {
                 it.copy(
                     connectedTarget = target,
@@ -574,7 +714,10 @@ class PrairieCastController(
                 }
                 else -> error("The TV sent an unexpected handoff reply.")
             }
-            require(ready.serverId == server.id && ready.profileId == profileId) {
+            require(
+                AndroidServerRegistry.serverIdsMatch(ready.serverId, server.id) &&
+                    ready.profileId == profileId,
+            ) {
                 "The TV activated a different remote playback profile."
             }
         } catch (t: Throwable) {
@@ -762,7 +905,6 @@ class PrairieCastController(
                 }
             }
             is PrairieCastMessage.State -> {
-                clock.ingest(message.state, nowMs())
                 val isIdle = message.state.contentId.isNullOrEmpty()
                 if (sessionIsAutoResumed && isIdle && !remoteScreenVisible) {
                     // The user never engaged with this silently-resumed
@@ -771,14 +913,28 @@ class PrairieCastController(
                     quietDisconnect()
                     return
                 }
-                _state.update {
-                    it.copy(
-                        playbackState = message.state,
-                        error = null,
-                        isAutoResuming = if (!isIdle) false else it.isAutoResuming,
-                        isLaunching = if (!isIdle) false else it.isLaunching,
-                    )
+                val now = nowMs()
+                val reconciled = synchronized(volumeStateLock) {
+                    val next = if (isIdle) {
+                        volumeReconciler.clear()
+                        message.state
+                    } else {
+                        message.state.copy(
+                            volume = volumeReconciler.reconcile(message.state.volume, now),
+                            isMuted = volumeReconciler.reconcileMuted(message.state.isMuted, now),
+                        )
+                    }
+                    _state.update {
+                        it.copy(
+                            playbackState = next,
+                            error = null,
+                            isAutoResuming = if (!isIdle) false else it.isAutoResuming,
+                            isLaunching = if (!isIdle) false else it.isLaunching,
+                        )
+                    }
+                    next
                 }
+                clock.ingest(reconciled, now)
             }
             is PrairieCastMessage.Error -> {
                 if (sessionIsAutoResumed && !remoteScreenVisible) {
@@ -813,11 +969,37 @@ class PrairieCastController(
         }
     }
 
+    private suspend fun sendControl(queued: QueuedControlCommand) {
+        val frame = PrairieCastFrame.encode(
+            json.encodeToString(
+                PrairieCastMessage.serializer(),
+                PrairieCastMessage.Control(queued.command),
+            ).encodeToByteArray(),
+        )
+        sendMutex.withLock {
+            // Recheck after waiting behind any in-flight frame. A teardown can
+            // invalidate the token meanwhile; if it happens after this check,
+            // the captured old stream is still the only stream we can touch.
+            if (controlTransport !== queued.transport) return@withLock
+            withContext(Dispatchers.IO) {
+                queued.transport.output.write(frame)
+                queued.transport.output.flush()
+            }
+        }
+    }
+
     private suspend fun closeConnection() = connectionMutex.withLock { closeConnectionLocked() }
 
     /** Tears the transport down but keeps the connected-target/playback state
      *  fields, so a reconnect renders continuity instead of a blank remote. */
     private fun teardownTransportLocked() {
+        // Invalidate queued controls before closing or replacing the stream.
+        controlTransport = null
+        synchronized(volumeStateLock) {
+            // Requests queued for this socket can no longer be acknowledged.
+            // Let the replacement session's first state become authoritative.
+            volumeReconciler.clear()
+        }
         runCatching { session?.close() }
         session = null
         output = null
@@ -833,16 +1015,19 @@ class PrairieCastController(
     private fun closeConnectionLocked() {
         teardownTransportLocked()
         sessionIsAutoResumed = false
-        _state.update {
-            it.copy(
-                connectedTarget = null,
-                playbackState = null,
-                isConnecting = false,
-                connectingDeviceId = null,
-                isReconnecting = false,
-                isAutoResuming = false,
-                isLaunching = false,
-            )
+        synchronized(volumeStateLock) {
+            volumeReconciler.clear()
+            _state.update {
+                it.copy(
+                    connectedTarget = null,
+                    playbackState = null,
+                    isConnecting = false,
+                    connectingDeviceId = null,
+                    isReconnecting = false,
+                    isAutoResuming = false,
+                    isLaunching = false,
+                )
+            }
         }
     }
 
@@ -851,6 +1036,7 @@ class PrairieCastController(
         cancelReconnect()
         cancelAutoResumeProbe()
         closeConnectionLocked()
+        controlCommands.close()
         scope.cancel()
     }
 
@@ -899,5 +1085,7 @@ class PrairieCastController(
         const val AUTO_RESUME_SCAN_ROUNDS = 8
         const val AUTO_RESUME_SCAN_STEP_MS = 500L
         const val AUTO_RESUME_CONFIRM_TIMEOUT_MS = 6_000L
+        const val VOLUME_STEPS = 16.0
+        const val SILENT_VOLUME = 0.001
     }
 }

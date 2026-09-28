@@ -2,10 +2,13 @@ package org.prairieserver.prairie.common.diagnostics
 
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.Locale
 import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
 import org.prairieserver.prairie.common.player.video.PlaybackDiagnosticsCode
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsLogCategory
 import org.prairieserver.prairie.network.NetworkDiagnosticsObserver
+import org.prairieserver.prairie.viewmodel.HomeDiagnosticsObserver
+import org.prairieserver.prairie.viewmodel.HomeLoadObservation
 
 object DiagnosticsCaptureDetailState {
     private val enabled = AtomicBoolean(false)
@@ -90,6 +93,29 @@ internal fun safeDiagnosticsNetworkPath(rawPath: String): String {
     return (listOf("", "api", segments[1], resource) + template).joinToString("/")
 }
 
+enum class DiagnosticsPlayerState(internal val message: String) {
+    Idle("player idle"),
+    Buffering("player buffering"),
+    Ready("player ready"),
+    Ended("player ended"),
+}
+
+/** Seek routing and recovery steps shared by the phone and TV player view models. */
+enum class DiagnosticsSeekEvent(internal val message: String, internal val warning: Boolean = false) {
+    CommittedNative("seek committed native"),
+    CommittedServerReanchor("seek committed reanchor"),
+    CommittedWithoutPlan("seek committed without plan"),
+    QueuedUntilMount("seek queued until mount"),
+    QueuedBehindRecovery("seek queued behind recovery"),
+    RecoveryQueued("seek recovery queued"),
+    Settled("seek settled"),
+    SettleDeadlineReached("seek settle deadline reached", warning = true),
+    PlayerErrorIgnored("seek player error ignored", warning = true),
+    PlayerErrorReanchor("seek reanchor after player error", warning = true),
+    RolledBack("seek rolled back", warning = true),
+    Failed("seek failed", warning = true),
+}
+
 object DiagnosticsPlaybackLogger {
     fun sessionEvent(message: String) = playbackInfo(message)
 
@@ -155,6 +181,35 @@ object DiagnosticsPlaybackLogger {
     fun playerError() = PrairieLog.e(DiagnosticsLogCategory.PLAYBACK, "Media3Analytics", "player error")
 
     fun loadError() = PrairieLog.w(DiagnosticsLogCategory.PLAYBACK, "Media3Analytics", "media load error")
+
+    // Seek and state lines carry their meaning in the message, not attributes:
+    // the hosted collector strips position_ms and reason. Reason codes come from
+    // fixed vocabularies (Media3 constants, enum names), so appending them to
+    // the message keeps them in hosted reports without free text.
+    fun seekStarted(positionMs: Long) = playbackInfo(
+        "seek started",
+        mapOf("position_ms" to PrairieLogAttribute.Integer(positionMs.coerceAtLeast(0))),
+    )
+
+    fun playerState(state: DiagnosticsPlayerState) = playbackInfo(state.message)
+
+    fun playWhenReadyChanged(playWhenReady: Boolean, reason: String) = playbackInfo(
+        withReasonCode(if (playWhenReady) "play requested" else "pause requested", reason),
+    )
+
+    fun seek(event: DiagnosticsSeekEvent, reason: String? = null) {
+        val message = withReasonCode(event.message, reason)
+        if (event.warning) {
+            PrairieLog.w(DiagnosticsLogCategory.PLAYBACK, SEEK_TAG, message)
+        } else {
+            PrairieLog.i(DiagnosticsLogCategory.PLAYBACK, SEEK_TAG, message)
+        }
+    }
+
+    private fun withReasonCode(message: String, reason: String?): String =
+        if (reason.isNullOrBlank()) message else "$message ($reason)"
+
+    private const val SEEK_TAG = "PlaybackSeek"
 
     fun statsSnapshot(snapshot: PlayerStatsSnapshot) = playbackInfo(
         "player stats snapshot",
@@ -223,6 +278,248 @@ object DiagnosticsLifecycleLogger {
         DiagnosticsPerformanceRoute.update(identifier)
         state("route:$identifier")
     }
+}
+
+enum class DiagnosticsHomeContentState(internal val wireValue: String) {
+    LOADING("loading"),
+    ERROR("error"),
+    EMPTY("empty"),
+    READY("ready"),
+}
+
+enum class DiagnosticsHomeScrollRegion(internal val wireValue: String) {
+    UNKNOWN("unknown"),
+    TOP("top"),
+    CONTENT("content"),
+    END("end"),
+}
+
+enum class DiagnosticsListSurface(internal val wireValue: String) {
+    PHONE_HOME("phone_home"),
+    PHONE_FOR_YOU("phone_for_you"),
+    PHONE_LIBRARY_RECOMMENDED("phone_lib_rec"),
+    TV_HOME("tv_home"),
+    TV_FOR_YOU("tv_for_you"),
+    TV_LIBRARY_RECOMMENDED("tv_lib_rec"),
+}
+
+enum class DiagnosticsKeyCollection(internal val wireValue: String) {
+    PHONE_MEDIA_ROW("phone_media_row"),
+    PHONE_CATALOG_GRID("phone_catalog_grid"),
+    TV_MEDIA_ROW("tv_media_row"),
+}
+
+/** Only aggregate counts escape this factory; the input keys are never logged. */
+data class DiagnosticsListSnapshot(
+    val itemCount: Int,
+    val duplicateKeyCount: Int,
+    val duplicateItemRowCount: Int,
+    val maxRowItemCount: Int,
+    val fullyResolved: Boolean?,
+) {
+    companion object {
+        fun fromKeys(
+            keys: List<String>,
+            rowKeys: List<List<String>> = emptyList(),
+            fullyResolved: Boolean? = null,
+        ): DiagnosticsListSnapshot = DiagnosticsListSnapshot(
+            itemCount = keys.size,
+            duplicateKeyCount = keys.size - keys.distinct().size,
+            duplicateItemRowCount = rowKeys.count { row -> row.size != row.distinct().size },
+            maxRowItemCount = rowKeys.maxOfOrNull(List<String>::size) ?: 0,
+            fullyResolved = fullyResolved,
+        )
+    }
+}
+
+object DiagnosticsListLogger {
+    fun snapshot(surface: DiagnosticsListSurface, snapshot: DiagnosticsListSnapshot) {
+        PrairieLog.breadcrumb(
+            DiagnosticsLogCategory.LIFECYCLE,
+            "UiList",
+            "list integrity snapshot",
+            mapOf(
+                "phase" to PrairieLogAttribute.Text("${surface.wireValue}_list"),
+                "outcome" to PrairieLogAttribute.Text(
+                    diagnosticsDuplicateOutcome(snapshot.duplicateKeyCount, "keys"),
+                ),
+                "reason" to PrairieLogAttribute.Text("items_${diagnosticsCountBucket(snapshot.itemCount)}"),
+            ),
+        )
+        PrairieLog.breadcrumb(
+            DiagnosticsLogCategory.LIFECYCLE,
+            "UiList",
+            "row integrity snapshot",
+            mapOf(
+                "phase" to PrairieLogAttribute.Text("${surface.wireValue}_rows"),
+                "outcome" to PrairieLogAttribute.Text(
+                    diagnosticsDuplicateOutcome(snapshot.duplicateItemRowCount, "rows"),
+                ),
+                "reason" to PrairieLogAttribute.Text(
+                    "max_items_${diagnosticsCountBucket(snapshot.maxRowItemCount)}",
+                ),
+            ),
+        )
+        snapshot.fullyResolved?.let { fullyResolved ->
+            PrairieLog.breadcrumb(
+                DiagnosticsLogCategory.LIFECYCLE,
+                "UiList",
+                "list resolution snapshot",
+                mapOf(
+                    "phase" to PrairieLogAttribute.Text("${surface.wireValue}_resolution"),
+                    "outcome" to PrairieLogAttribute.Text(if (fullyResolved) "complete" else "partial"),
+                ),
+            )
+        }
+        DiagnosticsResourceCheckpoints.request(surface)
+    }
+
+}
+
+object DiagnosticsKeyAnomalyLogger {
+    /** Healthy reusable rows/grids stay silent; only a duplicate-key hazard is persisted. */
+    fun snapshot(collection: DiagnosticsKeyCollection, snapshot: DiagnosticsListSnapshot) {
+        val duplicateCount = snapshot.duplicateKeyCount
+        if (duplicateCount <= 0) return
+        PrairieLog.breadcrumb(
+            DiagnosticsLogCategory.LIFECYCLE,
+            "UiKeys",
+            "duplicate lazy keys detected",
+            mapOf(
+                "phase" to PrairieLogAttribute.Text("${collection.wireValue}_keys"),
+                "outcome" to PrairieLogAttribute.Text(
+                    if (duplicateCount == 1) "duplicate_one" else "duplicate_multiple",
+                ),
+                "reason" to PrairieLogAttribute.Text("items_${diagnosticsCountBucket(snapshot.itemCount)}"),
+            ),
+        )
+    }
+}
+
+object DiagnosticsHomeLoadObserver : HomeDiagnosticsObserver {
+    override fun completed(observation: HomeLoadObservation) {
+        PrairieLog.breadcrumb(
+            DiagnosticsLogCategory.LIFECYCLE,
+            "HomeData",
+            "home data source completed",
+            mapOf(
+                "phase" to PrairieLogAttribute.Text(
+                    "home_${observation.source.name.lowercase(Locale.ROOT)}_" +
+                        observation.trigger.name.lowercase(Locale.ROOT),
+                ),
+                "duration_ms" to PrairieLogAttribute.Integer(observation.durationMs.coerceAtLeast(0)),
+                "outcome" to PrairieLogAttribute.Text(observation.outcome.name.lowercase(Locale.ROOT)),
+                "reason" to PrairieLogAttribute.Text(
+                    "sections_${diagnosticsCountBucket(observation.sectionCount)}",
+                ),
+            ),
+        )
+        if (observation.outcome in HOME_CONTENT_OUTCOMES) {
+            PrairieLog.breadcrumb(
+                DiagnosticsLogCategory.LIFECYCLE,
+                "HomeData",
+                "home source integrity snapshot",
+                mapOf(
+                    "phase" to PrairieLogAttribute.Text("home_source_keys"),
+                    "outcome" to PrairieLogAttribute.Text(
+                        diagnosticsDuplicateOutcome(observation.duplicateSectionKeyCount, "section_keys"),
+                    ),
+                    "reason" to PrairieLogAttribute.Text(
+                        diagnosticsDuplicateOutcome(observation.duplicateItemRowCount, "item_rows"),
+                    ),
+                ),
+            )
+        }
+    }
+}
+
+/**
+ * Curated, identifier-free context for diagnosing phone-homepage failures.
+ * Scroll evidence records state transitions and broad regions, never offsets,
+ * section names, media titles, or item identifiers.
+ */
+object DiagnosticsHomeLogger {
+    fun content(state: DiagnosticsHomeContentState) = PrairieLog.breadcrumb(
+        DiagnosticsLogCategory.LIFECYCLE,
+        "HomeScreen",
+        "home content state changed",
+        mapOf(
+            "phase" to PrairieLogAttribute.Text("home_content"),
+            "outcome" to PrairieLogAttribute.Text(state.wireValue),
+        ),
+    )
+
+    fun scroll(
+        scrolling: Boolean,
+        region: DiagnosticsHomeScrollRegion,
+        visibleRowOrdinal: Int? = null,
+        rawSectionType: String? = null,
+    ) {
+        PrairieLog.breadcrumb(
+            DiagnosticsLogCategory.LIFECYCLE,
+            "HomeScreen",
+            "home scroll state changed",
+            mapOf(
+                "phase" to PrairieLogAttribute.Text("home_scroll"),
+                "outcome" to PrairieLogAttribute.Text(if (scrolling) "scrolling" else "idle"),
+                "reason" to PrairieLogAttribute.Text(
+                    homeScrollReason(region, visibleRowOrdinal, rawSectionType),
+                ),
+            ),
+        )
+        if (scrolling) {
+            DiagnosticsResourceCheckpoints.request(
+                DiagnosticsListSurface.PHONE_HOME,
+                DiagnosticsResourceCheckpointCause.SCROLL_START,
+            )
+        }
+    }
+}
+
+internal fun homeScrollReason(
+    region: DiagnosticsHomeScrollRegion,
+    visibleRowOrdinal: Int?,
+    rawSectionType: String?,
+): String {
+    if (visibleRowOrdinal == null && rawSectionType == null) return region.wireValue
+    val ordinal = visibleRowOrdinal?.let(::diagnosticsOrdinalBucket) ?: "row_unknown"
+    return "${region.wireValue}:$ordinal:${safeHomeSectionType(rawSectionType)}"
+}
+
+private fun safeHomeSectionType(raw: String?): String {
+    val normalized = raw
+        ?.lowercase(Locale.ROOT)
+        ?.replace('-', '_')
+        ?.replace(' ', '_')
+        ?.take(64)
+        ?: return "unknown"
+    return normalized.takeIf(KNOWN_HOME_SECTION_TYPES::contains) ?: "unknown"
+}
+
+private fun diagnosticsOrdinalBucket(value: Int): String = when (value.coerceAtLeast(0)) {
+    0 -> "row_1"
+    1 -> "row_2"
+    in 2..3 -> "row_3_4"
+    in 4..7 -> "row_5_8"
+    in 8..15 -> "row_9_16"
+    else -> "row_17_plus"
+}
+
+internal fun diagnosticsCountBucket(value: Int): String = when (value.coerceAtLeast(0)) {
+    0 -> "0"
+    1 -> "1"
+    in 2..4 -> "2_4"
+    in 5..8 -> "5_8"
+    in 9..16 -> "9_16"
+    in 17..32 -> "17_32"
+    in 33..64 -> "33_64"
+    else -> "65_plus"
+}
+
+private fun diagnosticsDuplicateOutcome(count: Int, unit: String): String = when (count.coerceAtLeast(0)) {
+    0 -> "unique_$unit"
+    1 -> "duplicate_${unit}_one"
+    else -> "duplicate_${unit}_multiple"
 }
 
 private object DiagnosticsPerformanceRoute {
@@ -339,6 +636,28 @@ private val KNOWN_ROUTE_ROOTS = setOf(
     "prairiecast",
     "watch_together",
     "watchlist",
+)
+private val KNOWN_HOME_SECTION_TYPES = setOf(
+    "continue_watching",
+    "favorites",
+    "featured",
+    "genre",
+    "history",
+    "in_progress",
+    "latest",
+    "next_up",
+    "popular",
+    "recently_added",
+    "recommendations",
+    "recommended",
+    "trending",
+    "up_next",
+    "watchlist",
+)
+private val HOME_CONTENT_OUTCOMES = setOf(
+    org.prairieserver.prairie.viewmodel.HomeLoadOutcome.HIT,
+    org.prairieserver.prairie.viewmodel.HomeLoadOutcome.SUCCESS,
+    org.prairieserver.prairie.viewmodel.HomeLoadOutcome.PARTIAL,
 )
 private const val DYNAMIC_ROUTE_SEGMENT = "{id}"
 private val API_ROUTE_TEMPLATES: Map<String, List<List<String>>> = mapOf(

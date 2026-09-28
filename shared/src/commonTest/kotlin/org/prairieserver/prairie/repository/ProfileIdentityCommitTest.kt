@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.repository
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import org.prairieserver.prairie.model.profile.VerifyPinResponse
 import org.prairieserver.prairie.model.profile.authorizedProfileToken
 import org.prairieserver.prairie.network.AuthScopeSnapshot
@@ -37,7 +39,7 @@ class ProfileIdentityCommitTest {
         tokenManager: org.prairieserver.prairie.network.TokenManager,
         barrier: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
     ) = ProfileRepository(
-        profileApi = ProfileApi(noOpClient),
+        profileApi = ProfileApi(noOpClient, ApiV2Gate.Unrestricted),
         tokenManager = tokenManager,
         identityTransitions = barrier,
     )

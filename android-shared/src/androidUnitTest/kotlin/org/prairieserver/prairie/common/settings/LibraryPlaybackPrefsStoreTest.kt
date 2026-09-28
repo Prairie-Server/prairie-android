@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.common.settings
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import org.prairieserver.prairie.model.settings.LibraryPlaybackPref
 import org.prairieserver.prairie.model.settings.LibraryPlaybackPrefRequest
 import org.prairieserver.prairie.model.settings.LibraryPlaybackPrefsResponse
@@ -7,6 +9,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.LibraryPlaybackPrefsApi
 import org.prairieserver.prairie.repository.LibraryPlaybackPrefsRepository
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -101,6 +104,30 @@ class LibraryPlaybackPrefsStoreTest {
         assertEquals("boom", store.lastError.value)
     }
 
+    @Test
+    fun `clear fences an in-flight list publication`() = runTest {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val reply = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val client = HttpClient()
+        val api = object : LibraryPlaybackPrefsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(client, org.prairieserver.prairie.network.TokenManagerImpl(), ApiV2Gate.Unrestricted)) {
+            override suspend fun list(): ApiResult<LibraryPlaybackPrefsResponse> {
+                started.complete(Unit)
+                reply.await()
+                return ApiResult.Success(LibraryPlaybackPrefsResponse(listOf(prefFor(1))))
+            }
+        }
+        try {
+            val store = DefaultLibraryPlaybackPrefsStore(LibraryPlaybackPrefsRepository(api))
+            val refresh = async { store.refresh() }
+            started.await()
+            store.clear()
+            reply.complete(Unit)
+            refresh.await()
+            assertTrue(store.libraryPrefs.value.isEmpty())
+            assertNull(store.lastError.value)
+        } finally { client.close() }
+    }
+
     private fun prefFor(libraryId: Int, audio: String? = null, sub: String? = null) =
         LibraryPlaybackPref(
             profileId = "p",
@@ -113,7 +140,7 @@ class LibraryPlaybackPrefsStoreTest {
 private class FakeLibraryPlaybackPrefsApi(
     initial: List<LibraryPlaybackPref>,
     private var failNextWith: String? = null,
-) : LibraryPlaybackPrefsApi(HttpClient()) {
+) : LibraryPlaybackPrefsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted)) {
     data class SetCall(val libraryId: Int, val request: LibraryPlaybackPrefRequest)
 
     private var currentList: List<LibraryPlaybackPref> = initial

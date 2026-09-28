@@ -3,17 +3,42 @@ package org.prairieserver.prairie.android.ui.screens.detail
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.CompositionLocalProvider
+import org.prairieserver.prairie.android.ui.theme.PrairiePageBackground
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.SettingsRemote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,19 +59,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import org.prairieserver.prairie.android.downloads.hasLegacyPublicDownloadPermission
-import org.prairieserver.prairie.android.ui.components.DetailLoadingSkeleton
 import org.prairieserver.prairie.android.ui.components.ErrorView
-import org.prairieserver.prairie.android.ui.components.swipeBackToDismiss
+import org.prairieserver.prairie.android.ui.theme.PrairieOverlayPillSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieNavPillSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieNavPillBorder
+import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastTargetPickerSheet
 import org.prairieserver.prairie.android.ui.screens.downloads.openDownloadTargetInExternalApp
 import org.prairieserver.prairie.android.ui.screens.watchtogether.SuggestToRoomViewModel
 import org.prairieserver.prairie.android.ui.util.playbackResumePosition
-import org.prairieserver.prairie.cast.PrairieCastLaunchRequest
-import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
 import org.prairieserver.prairie.common.downloads.DownloadEnqueuer
 import org.prairieserver.prairie.common.downloads.DownloadOpenTarget
 import org.prairieserver.prairie.common.downloads.DownloadStorage
 import org.prairieserver.prairie.model.catalog.FileVersion
+import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.model.catalog.isBookLikeItemType
 import org.prairieserver.prairie.model.ebook.chooseEbookVersion
@@ -62,7 +89,20 @@ import org.prairieserver.prairie.metadata.DescriptionTranslationPhase
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.metadata.MetadataAiOnView
 
-private const val PLAY_ON_DEVICE_LABEL = "Play on device"
+internal data class SeriesDetailRedirect(
+    val seriesContentId: String,
+    val seasonNumber: Int,
+    val episodeContentId: String?,
+)
+
+internal fun seriesDetailRedirect(detail: ItemDetail): SeriesDetailRedirect? {
+    val type = detail.type.trim().lowercase()
+    if (type != "season" && type != "episode") return null
+    val seriesId = detail.seriesId?.trim()
+        ?.takeIf { it.isNotEmpty() && it != detail.contentId } ?: return null
+    val seasonNumber = detail.seasonNumber ?: return null
+    return SeriesDetailRedirect(seriesId, seasonNumber, detail.contentId.takeIf { type == "episode" })
+}
 
 /**
  * Item detail dispatcher. Routes to [MovieDetailContent] or
@@ -76,12 +116,15 @@ private const val PLAY_ON_DEVICE_LABEL = "Play on device"
  */
 @Composable
 fun ItemDetailScreen(
+    openingArtworkUrl: String? = null,
+    openingArtworkThumbhash: String? = null,
     onBackClick: () -> Unit,
     onPlayClick: (String, Int?, Int?, Int?, Double?) -> Unit,
     onItemDetailClick: (String) -> Unit,
+    onEpisodeDetailClick: (String) -> Unit = onItemDetailClick,
     onPersonClick: (String) -> Unit,
     onSeriesClick: (String) -> Unit,
-    onSeasonClick: (String, Int) -> Unit,
+    onSeriesDetailReplace: (String, Int, String?) -> Unit,
     onAudiobookPlayClick: (contentId: String, fileId: Int?, fromStart: Boolean, startPosition: Double?) -> Unit = { _, _, _, _ -> },
     onBookReadClick: (String, Int?) -> Unit = { _, _ -> },
     onWatchTogether: (String, Int?) -> Unit = { _, _ -> },
@@ -92,6 +135,26 @@ fun ItemDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val seriesRedirect = remember(state.detail) { state.detail?.let(::seriesDetailRedirect) }
+    var seriesRedirectFailed by rememberSaveable(state.detail?.contentId) { mutableStateOf(false) }
+    LaunchedEffect(seriesRedirect) {
+        val redirect = seriesRedirect ?: return@LaunchedEffect
+        if (seriesRedirectFailed) return@LaunchedEffect
+        if (viewModel.hasSeriesDetailForRedirect(redirect.seriesContentId)) {
+            onSeriesDetailReplace(redirect.seriesContentId, redirect.seasonNumber, redirect.episodeContentId)
+        } else {
+            // Keep the original detail usable if its parent cannot be opened.
+            seriesRedirectFailed = true
+        }
+    }
+    val siloCastController: PrairieCastController = koinInject()
+    val siloCastState by siloCastController.state.collectAsState()
+    var showRemoteTargetPicker by remember { mutableStateOf(false) }
+    var remoteMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.selectedEpisodeContentId) {
+        if (state.selectedEpisodeContentId != null) viewModel.ensureSelectedEpisodeDetailLoaded()
+    }
     val suggestViewModel: SuggestToRoomViewModel = koinViewModel()
     val suggestRoom by suggestViewModel.room.collectAsState()
     val suggestState by suggestViewModel.uiState.collectAsState()
@@ -170,7 +233,6 @@ fun ItemDetailScreen(
         mutableStateOf<org.prairieserver.prairie.model.download.DownloadSizeEstimate?>(null)
     }
     var showDownloadQualityPicker by remember { mutableStateOf(false) }
-    var pendingPrairieCastLaunchRequest by remember { mutableStateOf<PrairieCastLaunchRequest?>(null) }
     val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -264,55 +326,52 @@ fun ItemDetailScreen(
         }
     }
 
-    // Launch shape mirrors Apple's PrairieControlLaunchRequest: serverId +
-    // nested playback request. A missing active server produces no request —
-    // the receiver would reject it as a server mismatch anyway.
-    fun videoCastRequest(
-        contentId: String,
-        title: String,
-        subtitle: String? = null,
-        fileId: Int? = null,
-        audioTrackIndex: Int? = null,
-        subtitleTrackIndex: Int? = null,
-        resumePositionSeconds: Double? = null,
-    ): PrairieCastLaunchRequest? {
-        val serverId = serverRegistry.activeServerId.value ?: return null
-        return PrairieCastLaunchRequest(
-            serverId = serverId,
-            playback = PrairieCastPlaybackRequest(
-                contentId = contentId,
-                fileId = fileId,
-                audioTrackIndex = audioTrackIndex,
-                subtitleTrackIndex = subtitleTrackIndex,
-                startFromBeginning = resumePositionSeconds == null,
-                resumePosition = resumePositionSeconds,
-            ),
-        )
-    }
-
+    val detailScroll = remember { DetailScrollState() }
     Box(
         modifier = modifier
             .fillMaxSize()
-            // Swipe right on the page to go back (iOS interactive pop) — a
-            // lighter alternative to reaching for the back arrow on a tall
-            // detail page.
-            .swipeBackToDismiss(onDismiss = onBackClick)
+            // A full-screen page, not a card: the hero runs edge to edge under
+            // the status bar. This used to be inset below the safe area with
+            // rounded top corners, a drop shadow, and its own swipe-back and
+            // pull-down dismissals. Back is the platform's job now — the
+            // manifest opts into predictive back, so the system draws the page
+            // behind while the user drags the edge gesture.
             .background(MaterialTheme.colorScheme.background),
     ) {
+        CompositionLocalProvider(LocalDetailScrollState provides detailScroll) {
+        // Only the initial branch change dissolves; metadata refreshes keep
+        // the current detail mounted. Loading shares the loaded hero frame.
+        val loadedBranch = when {
+            // A pending series redirect is about to replace this page's content
+            // with the parent series. Hold the skeleton rather than dissolving
+            // into a season or episode detail that is on its way out.
+            seriesRedirect != null && !seriesRedirectFailed -> "loading"
+            state.detail != null -> "detail"
+            state.error != null -> "error"
+            else -> "loading"
+        }
+        Crossfade(
+            targetState = loadedBranch,
+            animationSpec = tween(durationMillis = 180),
+            label = "detailBranch",
+        ) { branch ->
         when {
-            state.isLoading && state.detail == null -> {
-                DetailLoadingSkeleton()
+            branch == "loading" -> {
+                DetailLoadingSkeleton(
+                    artworkUrl = openingArtworkUrl,
+                    artworkThumbhash = openingArtworkThumbhash,
+                )
             }
 
-            state.error != null && state.detail == null -> {
+            branch == "error" -> {
                 ErrorView(
                     message = state.error ?: "Something went wrong",
                     onRetry = { viewModel.loadDetail() },
                 )
             }
 
-            state.detail != null -> {
-                val detail = state.detail!!
+            else -> {
+                val detail = state.detail ?: return@Crossfade
                 val metadataAiStore: MetadataAiFeatureStore = koinInject()
                 val metadataAiStatus by metadataAiStore.status.collectAsState()
                 val translationPhase by viewModel.translationPhase.collectAsState()
@@ -558,6 +617,33 @@ fun ItemDetailScreen(
                         } else {
                             playbackResumePosition(detail.userData)
                         }
+                        val selectedEpisode = state.episodes.firstOrNull {
+                            it.contentId == state.selectedEpisodeContentId
+                        }
+                        val selectedEpisodeDetail = state.selectedEpisodeDetail
+                        val selectedEpisodeVersionIndex = state.selectedVersionIndex
+                            .coerceIn(0, (selectedEpisodeDetail?.versions?.lastIndex ?: 0).coerceAtLeast(0))
+                        val selectedEpisodeFileId = selectedEpisodeDetail?.versions
+                            ?.getOrNull(selectedEpisodeVersionIndex)
+                            ?.fileId
+                            ?.takeIf {
+                                state.hasExplicitVersionSelection ||
+                                    state.hasExplicitAudioSelection ||
+                                    state.hasExplicitSubtitleSelection
+                            }
+                        val selectedEpisodeVersion = selectedEpisodeDetail?.versions
+                            ?.getOrNull(selectedEpisodeVersionIndex)
+                        val episodeDownloadState = detailDownloadStateFor(
+                            version = selectedEpisodeVersion,
+                            records = episodeDownloadRecords,
+                            hasLocalMedia = selectedEpisodeVersion?.let { localDownloadFor(it.fileId) != null },
+                        )
+                        val selectedEpisodeResume = selectedEpisode?.let(::playbackResumePosition)
+                        val activeSeriesResume = if (selectedEpisode != null) {
+                            selectedEpisodeResume
+                        } else {
+                            seriesResume
+                        }
                         SeriesDetailContent(
                             translation = translationSlot,
                             detail = detail,
@@ -570,8 +656,32 @@ fun ItemDetailScreen(
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
                             nextEpisodeLabel = nextEpisodeLabel,
+                            selectedEpisodeContentId = state.selectedEpisodeContentId,
+                            selectedEpisodeDetail = selectedEpisodeDetail,
+                            isLoadingSelectedEpisodeDetail = state.isLoadingSelectedEpisodeDetail,
+                            selectedVersionIndex = selectedEpisodeVersionIndex,
+                            isAutoVersion = !state.hasExplicitVersionSelection,
+                            selectedAudioIndex = state.selectedAudioIndex.takeIf { state.hasExplicitAudioSelection },
+                            selectedSubtitleIndex = state.selectedSubtitleIndex.takeIf { state.hasExplicitSubtitleSelection },
+                            onVersionSelected = { index ->
+                                if (index == null) viewModel.selectAutoVersion() else viewModel.selectVersion(index)
+                            },
+                            onAudioSelected = { index ->
+                                if (index == null) viewModel.selectAutoAudioTrack() else viewModel.selectAudioTrack(index)
+                            },
+                            onSubtitleSelected = { index ->
+                                if (index == null) viewModel.selectAutoSubtitle() else viewModel.selectSubtitle(index)
+                            },
                             onPlayClick = {
-                                nextEpisode?.let {
+                                selectedEpisode?.let {
+                                    onPlayClick(
+                                        it.contentId,
+                                        selectedEpisodeFileId,
+                                        state.selectedAudioIndex.takeIf { state.hasExplicitAudioSelection },
+                                        state.selectedSubtitleIndex.takeIf { state.hasExplicitSubtitleSelection },
+                                        selectedEpisodeResume,
+                                    )
+                                } ?: nextEpisode?.let {
                                     onPlayClick(it.contentId, null, null, null, playbackResumePosition(it))
                                 } ?: onPlayClick(
                                     detail.contentId,
@@ -581,27 +691,38 @@ fun ItemDetailScreen(
                                     playbackResumePosition(detail.userData),
                                 )
                             },
-                            onPlayFromBeginning = seriesResume?.let {
+                            onPlayFromBeginning = activeSeriesResume?.let {
                                 {
-                                    nextEpisode?.let { ep ->
+                                    selectedEpisode?.let { ep ->
+                                        onPlayClick(
+                                            ep.contentId,
+                                            selectedEpisodeFileId,
+                                            state.selectedAudioIndex.takeIf { state.hasExplicitAudioSelection },
+                                            state.selectedSubtitleIndex.takeIf { state.hasExplicitSubtitleSelection },
+                                            0.0,
+                                        )
+                                    } ?: nextEpisode?.let { ep ->
                                         onPlayClick(ep.contentId, null, null, null, 0.0)
                                     } ?: onPlayClick(detail.contentId, null, null, null, 0.0)
                                 }
                             },
-                            resumeStoppedAtLabel = seriesResume?.let { formatResumeStoppedAt(it) },
+                            resumeStoppedAtLabel = activeSeriesResume?.let { formatResumeStoppedAt(it) },
                             onEpisodePlayClick = { contentId, resumePositionSeconds ->
                                 onPlayClick(contentId, null, null, null, resumePositionSeconds)
                             },
-                            onEpisodeDetailClick = onItemDetailClick,
+                            onEpisodeDetailClick = { viewModel.selectSeriesEpisode(it) },
+                            onEpisodeWatchedChange = { episodeContentId, watched ->
+                                viewModel.setEpisodeWatched(episodeContentId, watched)
+                            },
                             onSeasonSelected = { viewModel.selectSeason(it) },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
                             onToggleWatched = { viewModel.toggleWatched() },
-                            userRating = state.userRating,
-                            onSetRating = { viewModel.setRating(it) },
-                            onClearRating = { viewModel.clearRating() },
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
+                            onPlayExtra = { extra ->
+                                onPlayClick(extra.contentId, extra.fileId, null, null, 0.0)
+                            },
                             onSeriesDownloadClick = {
                                 // Series/season batches are Original-only server-side
                                 // (501 bulk_quality_unavailable otherwise), so no
@@ -616,44 +737,33 @@ fun ItemDetailScreen(
                                     }
                                 }
                             },
-                            onSeasonDownloadClick = { season ->
-                                runDownloadAction {
-                                    viewModel.onSeasonDownloadTapped(season)
-                                }
-                            },
-                            onEpisodeDownloadClick = { ep ->
-                                val episodeState = detailDownloadStateForFile(
-                                    fileId = ep.files.firstOrNull()?.fileId,
-                                    records = episodeDownloadRecords,
-                                )
-                                runDownloadTap(
-                                    downloadState = episodeState,
-                                    directAction = { viewModel.onEpisodeDownloadTapped(ep) },
-                                    qualityAction = { quality ->
-                                        viewModel.onEpisodeDownloadTapped(ep, downloadQuality = quality)
-                                    },
-                                    estimate = org.prairieserver.prairie.model.download.DownloadSizeEstimate
-                                        .estimate(fileSizes = ep.files.map { it.fileSize }),
-                                )
-                            },
-                            episodeDownloadState = { ep ->
-                                detailDownloadStateForFile(
-                                    fileId = ep.files.firstOrNull()?.fileId,
-                                    records = episodeDownloadRecords,
-                                )
-                            },
                             seriesDownloadState = seriesDownloadState,
-                            playOnDeviceLabel = PLAY_ON_DEVICE_LABEL,
-                            onPlayOnDevice = {
-                                val castContentId = nextEpisode?.contentId ?: detail.contentId
-                                pendingPrairieCastLaunchRequest = videoCastRequest(
-                                    contentId = castContentId,
-                                    title = nextEpisode?.title ?: detail.title,
-                                    subtitle = nextEpisodeLabel,
-                                    resumePositionSeconds = nextEpisode
-                                        ?.let { playbackResumePosition(it) }
-                                        ?: playbackResumePosition(detail.userData),
-                                )
+                            episodeDownloadState = episodeDownloadState,
+                            onEpisodeDownloadClick = selectedEpisodeVersion?.let { version ->
+                                selectedEpisodeDetail?.let { episode ->
+                                    {
+                                        runDownloadTap(
+                                            downloadState = episodeDownloadState,
+                                            directAction = {
+                                                viewModel.onDownloadTapped(
+                                                    version, episode.title,
+                                                    forceRedownloadMissingLocal = episodeDownloadState.needsLocalRecovery,
+                                                    downloadContentId = episode.contentId,
+                                                )
+                                            },
+                                            qualityAction = { quality ->
+                                                viewModel.onDownloadTapped(
+                                                    version, episode.title,
+                                                    forceRedownloadMissingLocal = episodeDownloadState.needsLocalRecovery,
+                                                    downloadQuality = quality,
+                                                    downloadContentId = episode.contentId,
+                                                )
+                                            },
+                                            estimate = org.prairieserver.prairie.model.download.DownloadSizeEstimate
+                                                .estimate(versions = listOf(version), fileId = version.fileId),
+                                        )
+                                    }
+                                }
                             },
                             onSuggestToRoom = if (
                                 CLIENT_WATCH_TOGETHER_SURFACE_ENABLED &&
@@ -792,9 +902,6 @@ fun ItemDetailScreen(
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
                             onToggleWatched = { viewModel.toggleWatched() },
-                            userRating = state.userRating,
-                            onSetRating = { viewModel.setRating(it) },
-                            onClearRating = { viewModel.clearRating() },
                             onVersionSelected = { index ->
                                 if (index != null) viewModel.selectVersion(index) else viewModel.selectAutoVersion()
                             },
@@ -806,13 +913,11 @@ fun ItemDetailScreen(
                             },
                             onPersonClick = onPersonClick,
                             onItemDetailClick = onItemDetailClick,
+                            onPlayExtra = { extra ->
+                                onPlayClick(extra.contentId, extra.fileId, null, null, 0.0)
+                            },
                             onSeriesClick = seriesId?.let { resolvedSeriesId ->
                                 { onSeriesClick(resolvedSeriesId) }
-                            },
-                            onSeasonClick = if (seriesId != null && seasonNumber != null) {
-                                { onSeasonClick(seriesId, seasonNumber) }
-                            } else {
-                                null
                             },
                             seasons = state.seasons,
                             selectedSeasonNumber = state.selectedSeasonNumber,
@@ -820,34 +925,12 @@ fun ItemDetailScreen(
                             episodesBySeason = state.episodesBySeason,
                             isLoadingEpisodes = state.isLoadingEpisodes,
                             onSeasonSelected = { viewModel.selectSeason(it) },
-                            onEpisodePlayClick = { contentId, resumePositionSeconds ->
-                                onPlayClick(contentId, null, null, null, resumePositionSeconds)
-                            },
-                            onEpisodeDetailClick = onItemDetailClick,
-                            onEpisodeDownloadClick = { ep ->
-                                val episodeState = detailDownloadStateForFile(
-                                    fileId = ep.files.firstOrNull()?.fileId,
-                                    records = downloadRecords,
-                                )
-                                runDownloadTap(
-                                    downloadState = episodeState,
-                                    directAction = { viewModel.onEpisodeDownloadTapped(ep) },
-                                    qualityAction = { quality ->
-                                        viewModel.onEpisodeDownloadTapped(ep, downloadQuality = quality)
-                                    },
-                                    estimate = org.prairieserver.prairie.model.download.DownloadSizeEstimate
-                                        .estimate(fileSizes = ep.files.map { it.fileSize }),
-                                )
-                            },
-                            episodeDownloadState = { ep ->
-                                detailDownloadStateForFile(
-                                    fileId = ep.files.firstOrNull()?.fileId,
-                                    records = downloadRecords,
-                                )
+                            onEpisodeDetailClick = onEpisodeDetailClick,
+                            onEpisodeWatchedChange = { episodeContentId, watched ->
+                                viewModel.setEpisodeWatched(episodeContentId, watched)
                             },
                             isDownloaded = downloadState.isDownloaded,
                             downloadProgress = downloadState.progress,
-                            playOnDeviceLabel = PLAY_ON_DEVICE_LABEL,
                             onDownloadTapped = selectedVersion?.let { v ->
                                 {
                                     runDownloadTap(
@@ -871,16 +954,6 @@ fun ItemDetailScreen(
                                             .estimate(versions = listOf(v), fileId = v.fileId),
                                     )
                                 }
-                            },
-                            onPlayOnDevice = {
-                                pendingPrairieCastLaunchRequest = videoCastRequest(
-                                    contentId = detail.contentId,
-                                    title = detail.title,
-                                    fileId = playbackFileId,
-                                    audioTrackIndex = explicitAudioIndex,
-                                    subtitleTrackIndex = explicitSubtitleIndex,
-                                    resumePositionSeconds = playbackResumePosition(detail.userData),
-                                )
                             },
                             onSuggestToRoom = if (
                                 CLIENT_WATCH_TOGETHER_SURFACE_ENABLED && suggestRoom != null
@@ -932,11 +1005,10 @@ fun ItemDetailScreen(
             )
         }
 
-        pendingPrairieCastLaunchRequest?.let { request ->
+        if (showRemoteTargetPicker) {
             PrairieCastTargetPickerSheet(
-                launchRequest = request,
-                onDismiss = { pendingPrairieCastLaunchRequest = null },
-                onLaunched = onOpenCastRemote,
+                onDismiss = { showRemoteTargetPicker = false },
+                controller = siloCastController,
             )
         }
 
@@ -963,23 +1035,155 @@ fun ItemDetailScreen(
             )
         }
 
-        // Floating back button — sits on the hero artwork without
-        // pushing content down, mirroring iOS's transparent nav bar.
+        }
+        }
+
+        // Pinned header. The strip fades in first so the controls gain a
+        // backing as the artwork leaves, then the title arrives once the hero
+        // is mostly gone — the two ranges and the smoothstep are iOS's.
+        val headerTitle = state.detail?.title.orEmpty()
+        val barAlpha = detailHeaderProgress(
+            detailScroll.offsetDp,
+            HeaderBarFadeFromDp,
+            HeaderBarFadeToDp,
+        )
+        val titleAlpha = detailHeaderProgress(
+            detailScroll.offsetDp,
+            HeaderTitleFadeFromDp,
+            HeaderTitleFadeToDp,
+        )
+        if (barAlpha > 0f) {
+            // Runs from the very top of the window, not from below the status
+            // bar: the page is edge to edge, so insetting the strip left the
+            // status-bar band uncovered above it.
+            val statusBarHeight = WindowInsets.statusBars
+                .asPaddingValues()
+                .calculateTopPadding()
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(statusBarHeight + DetailHeaderBarHeight)
+                    .graphicsLayer { alpha = barAlpha }
+                    .background(PrairiePageBackground)
+                    .drawBehind {
+                        drawRect(
+                            color = Color.White.copy(alpha = 0.10f),
+                            topLeft = Offset(0f, size.height - 1f),
+                            size = Size(size.width, 1f),
+                        )
+                    },
+            )
+        }
+        if (titleAlpha > 0f && headerTitle.isNotBlank()) {
+            Text(
+                text = headerTitle,
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .height(DetailHeaderBarHeight)
+                    .fillMaxWidth()
+                    // Clear of the back and remote controls on either side,
+                    // and centred on them: both sit in the same strip.
+                    .padding(horizontal = 72.dp)
+                    .wrapContentHeight(Alignment.CenterVertically)
+                    .graphicsLayer { alpha = titleAlpha },
+            )
+        }
+
+        // These two glyphs sit on hero artwork that can be any colour, so they
+        // keep a disc — the bottom-nav pill, made translucent. A dark disc
+        // holds a white glyph over a pale poster and still lets the artwork
+        // through, which the previous white-tinted wash could not.
         IconButton(
             onClick = onBackClick,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(8.dp)
+                // Same geometry as the Home header's actions: a 40dp target
+                // 16dp from the edge, sitting directly below the status bar,
+                // so the controls do not jump when moving between the two.
+                .padding(horizontal = 16.dp)
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.45f)),
+                .background(PrairieOverlayPillSurface)
+                .border(1.dp, PrairieNavPillBorder, CircleShape),
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",
                 tint = Color.White,
             )
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp),
+        ) {
+            IconButton(
+                onClick = {
+                    if (siloCastState.hasActiveSession) {
+                        remoteMenuExpanded = true
+                    } else {
+                        showRemoteTargetPicker = true
+                    }
+                },
+                // Solid pill while a cast session is live, translucent at
+                // rest, so the fill still reports state.
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (siloCastState.hasActiveSession) {
+                            PrairieNavPillSurface
+                        } else {
+                            PrairieOverlayPillSurface
+                        },
+                    )
+                    .border(1.dp, PrairieNavPillBorder, CircleShape),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.SettingsRemote,
+                    contentDescription = "Remote Control",
+                    tint = Color.White,
+                )
+            }
+            DropdownMenu(
+                expanded = remoteMenuExpanded,
+                onDismissRequest = { remoteMenuExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Remote Control") },
+                    onClick = {
+                        remoteMenuExpanded = false
+                        onOpenCastRemote()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Choose TV") },
+                    onClick = {
+                        remoteMenuExpanded = false
+                        showRemoteTargetPicker = true
+                    },
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = {
+                        Text("Turn Off Control Mode", color = MaterialTheme.colorScheme.error)
+                    },
+                    onClick = {
+                        remoteMenuExpanded = false
+                        siloCastController.disconnect()
+                    },
+                )
+            }
         }
     }
 }

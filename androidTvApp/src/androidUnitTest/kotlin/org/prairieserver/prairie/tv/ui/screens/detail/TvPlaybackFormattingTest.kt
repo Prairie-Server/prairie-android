@@ -255,6 +255,22 @@ class TvPlaybackFormattingTest {
         assertEquals("Auto", TvPlaybackFormatting.versionShortLabel(fileVersion(resolution = null, hdr = false)))
     }
 
+    @Test fun versionCompactLabel_keepsResolutionAndDynamicRangeOnly() {
+        val v = fileVersion(
+            resolution = "2160p",
+            codecVideo = "hevc",
+            codecAudio = "truehd",
+            hdr = true,
+        )
+
+        assertEquals("4K · HDR", TvPlaybackFormatting.versionCompactLabel(v))
+    }
+
+    @Test fun compactSubtitleSelectorValue_dropsAutoAndTechnicalSuffixes() {
+        assertEquals("English", compactSubtitleSelectorValue("Auto - English · SRT"))
+        assertEquals("Off", compactSubtitleSelectorValue("Off"))
+    }
+
     @Test fun versionValueLabel_matchesTvOsDolbyVisionSummary() {
         val v = fileVersion(
             resolution = "2160p",
@@ -701,7 +717,7 @@ class TvPlaybackFormattingTest {
         assertEquals(listOf(1, 0, 2), opts.map { it.selectionIndex })
     }
 
-    // --- editions (Android model has no edition data → single group) ---
+    // --- editions without metadata retain a single group ---
 
     @Test fun editions_collapseToSingleGroup() {
         val versions = listOf(fileVersion(fileId = 1), fileVersion(fileId = 2))

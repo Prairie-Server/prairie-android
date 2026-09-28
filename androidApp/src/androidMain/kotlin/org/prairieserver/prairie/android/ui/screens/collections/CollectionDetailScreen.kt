@@ -34,6 +34,7 @@ import org.prairieserver.prairie.android.ui.components.LoadingIndicator
 import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
 import org.prairieserver.prairie.android.ui.screens.personal.MediaGridItem
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,7 +78,7 @@ fun CollectionDetailScreen(
             state.isLoading -> {
                 LoadingIndicator(modifier = Modifier.padding(padding))
             }
-            state.error != null && state.items.isEmpty() -> {
+            state.error != null -> {
                 ErrorView(
                     message = state.error ?: "Unknown error",
                     onRetry = viewModel::refresh,
@@ -100,8 +101,9 @@ fun CollectionDetailScreen(
                         .fillMaxSize()
                         .padding(padding),
                 ) {
+                    DeferImagePresentationWhileScrolling(gridState) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
+                        columns = GridCells.Adaptive(MediaGridDefaults.scaledPosterGridMinWidth),
                         state = gridState,
                         contentPadding = PaddingValues(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
@@ -132,6 +134,7 @@ fun CollectionDetailScreen(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }

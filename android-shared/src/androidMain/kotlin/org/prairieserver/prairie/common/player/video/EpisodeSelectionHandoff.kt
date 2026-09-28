@@ -5,6 +5,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.prairieserver.prairie.common.player.normalizedSubtitleCodecFamily
+import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.player.DolbyVisionDetection
@@ -139,6 +140,37 @@ data class EpisodeAudioCandidate(
     val title: String? = null,
 )
 
+/**
+ * Carries a manual audio choice across a file-version replacement by semantic
+ * identity, never by list position. A null result deliberately hands control
+ * back to the target file's persisted/language/default selection chain.
+ */
+fun resolveAudioSelectionAcrossVersions(
+    sourceTracks: List<AudioTrack>,
+    selectedSourceOrdinal: Int?,
+    targetTracks: List<AudioTrack>,
+): Int? {
+    val source = selectedSourceOrdinal?.let(sourceTracks::getOrNull) ?: return null
+    return resolveEpisodeAudioIntent(
+        intent = EpisodeAudioIntent(
+            mode = EpisodeAudioMode.TRACK,
+            language = source.language,
+            codecFamily = source.codec,
+            channelCount = source.channels?.takeIf { it > 0 },
+            title = source.title,
+        ),
+        candidates = targetTracks.mapIndexed { ordinal, track ->
+            EpisodeAudioCandidate(
+                index = ordinal,
+                language = track.language,
+                codecFamily = track.codec,
+                channelCount = track.channels?.takeIf { it > 0 },
+                title = track.title,
+            )
+        },
+    )
+}
+
 @Serializable
 data class EpisodeSourceIntent(
     val resolution: String,
@@ -255,22 +287,6 @@ fun resolveEpisodeSubtitleIntent(
                     ?.index
             },
         intentSpecified = true,
-    )
-}
-
-fun resolveEpisodeSelectionHandoff(
-    handoff: EpisodeSelectionHandoff?,
-    targetVersions: List<FileVersion>,
-    targetSubtitles: List<PlayerSubtitleInfo>,
-): ResolvedEpisodeSelection {
-    val subtitle = resolveEpisodeSubtitleIntent(
-        handoff?.subtitle ?: EpisodeSubtitleIntent.auto(),
-        targetSubtitles,
-    )
-    return ResolvedEpisodeSelection(
-        fileId = resolveEpisodeSourceIntent(handoff?.source, targetVersions),
-        subtitleTrackIndex = subtitle.trackIndex,
-        subtitleIntentSpecified = subtitle.intentSpecified,
     )
 }
 

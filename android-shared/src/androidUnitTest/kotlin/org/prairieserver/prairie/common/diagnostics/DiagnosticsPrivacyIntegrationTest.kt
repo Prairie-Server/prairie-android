@@ -120,6 +120,41 @@ class DiagnosticsPrivacyIntegrationTest {
     }
 
     @Test
+    fun debugAndTimedCaptureImmediatelyReenablePersistentBreadcrumbs() = runTest {
+        val root = temporaryFolder.newFolder()
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val journal = BreadcrumbJournal(root, writerDispatcher = dispatcher, directorySync = {})
+        val capture = FileDiagnosticsCaptureController(
+            logBuffer = LogRing(),
+            fileLogger = DiagnosticsFileLogger(root, dispatcher, directorySync = {}),
+            breadcrumbJournal = journal,
+            reports = FilePendingReportStore(
+                root,
+                nowMs = { CAPTURED_AT },
+                directorySync = {},
+                atomicRename = ::testAtomicRename,
+            ),
+            deviceSnapshots = DeviceSnapshotCollector(StableProbe, nowRfc3339 = { "2026-07-22T00:00:00Z" }),
+            deviceSnapshotCache = DeviceSnapshotCache(),
+            environment = ENVIRONMENT,
+            nowMs = { CAPTURED_AT },
+        )
+
+        capture.setPersistentBreadcrumbs(ADULT, true)
+        capture.setDebugLogging(ADULT, true)
+        val debugLine = diagnosticsLine("debug-run", "debug capture breadcrumb")
+        journal.offer(debugLine)
+
+        assertEquals(listOf(debugLine), journal.linesForRun("debug-run", ADULT.identityKey))
+
+        capture.start(ADULT)
+        val timedLine = diagnosticsLine("timed-run", "timed capture breadcrumb")
+        journal.offer(timedLine)
+
+        assertEquals(listOf(timedLine), journal.linesForRun("timed-run", ADULT.identityKey))
+    }
+
+    @Test
     fun hostedManualBundleOmitsSourceServerAccountAndProfileIdentity() = runTest {
         val root = temporaryFolder.newFolder()
         val ring = LogRing()
@@ -273,6 +308,7 @@ class DiagnosticsPrivacyIntegrationTest {
         )
         val outerManifest = bundle.manifestBytes.decodeToString()
         val archive = GZIPInputStream(ByteArrayInputStream(bundle.bytes)).use { it.readBytes() }.decodeToString()
+        assertTrue(archive.contains("illegal_state_other"), archive)
         listOf(
             SOURCE_SERVER_ID,
             SOURCE_PROFILE_ID,
@@ -485,6 +521,9 @@ class DiagnosticsPrivacyIntegrationTest {
         override fun trace(maxBytes: Int): ByteArray? = null
     }
 
+    private fun diagnosticsLine(run: String, message: String): String =
+        """{"ts":"2026-07-22T00:00:00Z","run":"$run","lvl":"I","cat":"lifecycle","tag":"Test","msg":"$message"}"""
+
     private class MutableIdentity(var current: DiagnosticsCaptureContext?) : DiagnosticsIdentityResolver {
         override suspend fun resolve(requirePersistentCapture: Boolean): DiagnosticsCaptureContext? = current
     }
@@ -530,7 +569,7 @@ class DiagnosticsPrivacyIntegrationTest {
         val DEVICE_WITH_BUILD_FINGERPRINT =
             """{"captured_at":"2026-07-22T00:00:00Z","identity":{"manufacturer":"Google","build_fingerprint_hash":"${"a".repeat(32)}"}}"""
         const val SOURCE_SERVER_ID = "private-server-id"
-        const val SOURCE_SERVER_URL = "https://private-silo.example"
+        const val SOURCE_SERVER_URL = "https://private-prairie.example"
         const val SOURCE_PROFILE_ID = "private-profile-id"
         const val SOURCE_ACCOUNT_ID = "private-account-id"
         const val LOCAL_HOSTED_OWNER = "local-hosted-owner-hash"

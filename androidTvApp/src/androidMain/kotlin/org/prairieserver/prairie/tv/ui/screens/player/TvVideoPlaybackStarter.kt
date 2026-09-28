@@ -1,11 +1,13 @@
 package org.prairieserver.prairie.tv.ui.screens.player
 
 import android.util.Log
+import androidx.media3.common.util.UnstableApi
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.StartParams
+import org.prairieserver.prairie.common.player.TrackSelectionPresets
 import org.prairieserver.prairie.common.player.VideoSessionStartV3
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartRequest
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartResult
@@ -17,13 +19,16 @@ import org.prairieserver.prairie.common.player.video.ResolvedEpisodeSelection
 import org.prairieserver.prairie.common.player.video.resolveEpisodeSourceIntent
 import org.prairieserver.prairie.common.player.video.EpisodeAudioCandidate
 import org.prairieserver.prairie.common.player.video.EpisodeAudioIntent
+import org.prairieserver.prairie.common.player.video.EpisodeAudioMode
 import org.prairieserver.prairie.common.player.video.resolveEpisodeAudioIntent
 import org.prairieserver.prairie.common.player.video.resolveEpisodeSubtitleIntent
 import org.prairieserver.prairie.common.player.video.resolvedPlaybackDelivery
+import org.prairieserver.prairie.common.player.video.serverTerminalUserMessage
 import org.prairieserver.prairie.common.player.video.shouldReachServerForPlayback
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.dolbyVisionPolicySnapshot
 import org.prairieserver.prairie.model.catalog.FileVersion
+import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.applyResumeRewind
 import org.prairieserver.prairie.model.playback.buildPlaybackSubtitleChoices
 import org.prairieserver.prairie.model.playback.enrichAuthoritativePlaybackSubtitleChoices
@@ -32,13 +37,20 @@ import org.prairieserver.prairie.model.playback.resolvePlaybackStartRequestPosit
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartPosition
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.orNullIfBlank
+import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
 import org.prairieserver.prairie.playback.selectPlaybackVersion
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.ProfileRepository
+import org.prairieserver.prairie.repository.port.UserItemStatePort
 import org.prairieserver.prairie.tv.BuildConfig
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
+@UnstableApi
 class TvVideoPlaybackStarter(
     private val catalogRepository: CatalogRepository,
     private val playbackSessionManager: PlaybackSessionManager,
@@ -47,6 +59,7 @@ class TvVideoPlaybackStarter(
     private val playerSettingsStore: PlayerSettingsStore,
     private val sessionLifecycle: PlaybackSessionLifecycle,
     private val reachabilityMonitor: ServerReachabilityMonitor,
+    private val userItemStatePort: UserItemStatePort,
 ) : VideoPlaybackStarter {
 
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult {
@@ -56,9 +69,18 @@ class TvVideoPlaybackStarter(
         if (!shouldReachServerForPlayback(reachabilityMonitor, request.force)) {
             return VideoPlaybackStartResult.ServerUnreachable(request.contentId)
         }
+        val expectedMetadataOwner = catalogRepository.captureWatchAuthority()
+            ?: return failure(request.contentId, "Playback metadata needs an authenticated profile.", diagnosticsCode = PlaybackDiagnosticsCode.NOT_AUTHENTICATED)
+        suspend fun ownerCurrent(): Boolean {
+            val valid = catalogRepository.isWatchAuthorityCurrent(expectedMetadataOwner)
+            currentCoroutineContext().ensureActive()
+            return valid
+        }
         val ownershipEpoch = sessionLifecycle.acquireOwnershipEpoch()
+        var unpublishedSessionId: String? = null
+        var lifecycleAdopted = false
         return try {
-            val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId)) {
+            val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId, expectedMetadataOwner, request.libraryId)) {
                 is ApiResult.Success -> r.data
                 is ApiResult.Error -> return failure(
                     request.contentId,
@@ -106,8 +128,24 @@ class TvVideoPlaybackStarter(
                     "No active profile selected",
                     diagnosticsCode = PlaybackDiagnosticsCode.NO_ACTIVE_PROFILE,
                 )
-            val preferredAudioLanguage = playerSettingsStore.audioLanguageFlow
+            val configuredAudioLanguage = playerSettingsStore.audioLanguageFlow
                 .first().ifBlank { null }
+            val preferredAudioLanguage = configuredAudioLanguage
+                ?: activeProfile?.language.orNullIfBlank()
+            val carriedAudioIndex = resolvedEpisodeSelection.audioTrackIndex
+            val unresolvedCarriedChoice = request.episodeSelectionHandoff
+                ?.audio
+                ?.mode == EpisodeAudioMode.TRACK && carriedAudioIndex == null
+            val durableAudioFingerprint = if (
+                request.audioTrackIndex == null &&
+                carriedAudioIndex == null &&
+                !unresolvedCarriedChoice
+            ) {
+                userItemStatePort.localTrackSelection(request.contentId, version.fileId)
+                    ?.audioFingerprint
+            } else {
+                null
+            }
             val accessToken = playbackSessionManager.getAccessToken()
                 ?: return failure(
                     request.contentId,
@@ -116,8 +154,9 @@ class TvVideoPlaybackStarter(
                 )
 
             val dolbyVision = playerSettingsStore.dolbyVisionPolicySnapshot()
+            val forceHdrPassthrough = playerSettingsStore.forceHdrPassthroughFlow.first()
             val capabilities = request.recoveryStartParams?.capabilities
-                ?: capabilityDetector.detect(dolbyVision = dolbyVision)
+                ?: capabilityDetector.detect(dolbyVision = dolbyVision, forceHdrPassthrough = forceHdrPassthrough)
             val playbackContext = request.recoveryStartParams?.clientPlaybackContext
                 ?: capabilityDetector.detectPlaybackContext(
                     formFactor = "tv",
@@ -125,6 +164,22 @@ class TvVideoPlaybackStarter(
                     dolbyVision = dolbyVision,
                     capabilities = capabilities,
                 )
+            val effectivePreferredAudioLanguage = TrackSelectionPresets.effectivePreferredAudioLanguage(
+                settingsLanguage = preferredAudioLanguage,
+                profileLanguage = activeProfile?.language,
+            )
+            // Explicit, carried, and durable choices win. Otherwise resolve the
+            // automatic language + quality policy against the detected device
+            // capabilities before asking the server for a plan.
+            val startAudioTrackIndex = resolveTvInitialAudioTrackIndex(
+                requestedAudioIndex = request.audioTrackIndex,
+                carriedAudioIndex = carriedAudioIndex,
+                unresolvedCarriedChoice = unresolvedCarriedChoice,
+                tracks = version.audioTracks.orEmpty(),
+                durableAudioFingerprint = durableAudioFingerprint,
+                preferredAudioLanguage = effectivePreferredAudioLanguage,
+                capabilities = capabilities,
+            )
             // Skip-back-on-resume — see MobileVideoPlaybackStarter for the rationale.
             // Suppressed for Start Over / retry (request flag) and Watch Together
             // (roomId); the one rewound value drives both the server seek and the
@@ -147,6 +202,10 @@ class TvVideoPlaybackStarter(
                 ),
             )
 
+            val maxBitrateKbps = playerSettingsStore.maxBitrateKbpsFlow.first()
+            if (!ownerCurrent() || profileId != expectedMetadataOwner.profileId || serverUrl != expectedMetadataOwner.serverUrl) {
+                return failure(request.contentId, "The metadata viewer changed before playback admission.", diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST)
+            }
             val v3Start = when (
                 val r = playbackSessionManager.startVideoSessionV3(
                     fileId = version.fileId,
@@ -158,8 +217,7 @@ class TvVideoPlaybackStarter(
                     // the carry-over resolved a track and then threw it away,
                     // and a dubbed household was returned to the server default
                     // at every automatic transition.
-                    audioTrackIndex = request.audioTrackIndex
-                        ?: resolvedEpisodeSelection.audioTrackIndex,
+                    audioTrackIndex = startAudioTrackIndex,
                     subtitleTrackIndex = serverSubtitleTrackIndex,
                     qualityPreference = playbackQualityIntent,
                     startPosition = startRequestPosition,
@@ -167,8 +225,9 @@ class TvVideoPlaybackStarter(
                     // applies the cap only from what the request carries, so
                     // sending the resolution alone lets a capped preset stream
                     // at the bandwidth the user explicitly declined.
-                    maxBitrateKbps = playerSettingsStore.maxBitrateKbpsFlow.first(),
+                    maxBitrateKbps = maxBitrateKbps,
                     deferPublication = true,
+                    expectedMetadataOwner = expectedMetadataOwner,
                 )
             ) {
                 is ApiResult.Success -> r.data
@@ -188,7 +247,7 @@ class TvVideoPlaybackStarter(
                 is VideoSessionStartV3.Ready -> v3Start
                 is VideoSessionStartV3.Terminal -> return failure(
                     request.contentId,
-                    "Playback unavailable (${v3Start.reason}): ${v3Start.message}",
+                    serverTerminalUserMessage(v3Start.message),
                     diagnosticsCode = PlaybackDiagnosticsCode.serverTerminal(v3Start.reason),
                 )
                 VideoSessionStartV3.ServerUpgradeRequired -> return failure(
@@ -198,6 +257,12 @@ class TvVideoPlaybackStarter(
                 )
             }
             val resolved = readyV3.session
+            unpublishedSessionId = resolved.sessionId
+            if (!ownerCurrent()) {
+                discardUnpublishedSession(unpublishedSessionId, lifecycleAdopted)
+                unpublishedSessionId = null
+                return failure(request.contentId, "The metadata viewer changed after playback admission.", diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST)
+            }
             val effectiveFileId = resolved.mediaFileId.takeIf { it > 0 }
                 ?: readyV3.plan.effectiveMediaFileId
                 ?: version.fileId
@@ -231,26 +296,34 @@ class TvVideoPlaybackStarter(
                 playerStartPosition = playerStartPos,
             )
 
-            val adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
-                params = StartParams(
-                    contentId = request.contentId,
-                    fileId = effectiveFileId,
-                    capabilities = readyV3.capabilities,
-                    audioTrackIndex = resolved.audioTrackIndex,
-                    subtitleTrackIndex = if (request.episodeSelectionHandoff != null) {
-                        serverSubtitleTrackIndex
-                    } else {
-                        request.subtitleTrackIndex
-                    },
-                    qualityPreference = playbackQualityIntent,
-                    startPosition = sourceStartPos,
-                    clientPlaybackContext = readyV3.clientPlaybackContext,
-                ),
-                session = resolved,
-                deferPublication = true,
-                expectedOwnershipEpoch = ownershipEpoch,
-            )
+            val adopted = try {
+                sessionLifecycle.adoptActiveSessionIfCurrent(
+                    params = StartParams(
+                        contentId = request.contentId,
+                        fileId = effectiveFileId,
+                        capabilities = readyV3.capabilities,
+                        audioTrackIndex = resolved.audioTrackIndex,
+                        subtitleTrackIndex = if (request.episodeSelectionHandoff != null) {
+                            serverSubtitleTrackIndex
+                        } else {
+                            request.subtitleTrackIndex
+                        },
+                        qualityPreference = playbackQualityIntent,
+                        startPosition = sourceStartPos,
+                        clientPlaybackContext = readyV3.clientPlaybackContext,
+                    ),
+                    session = resolved,
+                    deferPublication = true,
+                    expectedOwnershipEpoch = ownershipEpoch,
+                    expectedMetadataOwnerCurrent = ::ownerCurrent,
+                )
+            } catch (cancellation: CancellationException) {
+                // The lifecycle owns acknowledged cleanup once adoption begins.
+                unpublishedSessionId = null
+                throw cancellation
+            }
             if (!adopted) {
+                unpublishedSessionId = null
                 return failure(
                     request.contentId,
                     "Playback start was superseded.",
@@ -258,7 +331,13 @@ class TvVideoPlaybackStarter(
                 )
             }
 
-            VideoPlaybackStartResult.Ready(
+            lifecycleAdopted = true
+            if (!ownerCurrent()) {
+                discardUnpublishedSession(unpublishedSessionId, lifecycleAdopted)
+                unpublishedSessionId = null
+                return failure(request.contentId, "The metadata viewer changed during playback adoption.", diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST)
+            }
+            val result = VideoPlaybackStartResult.Ready(
                 contentId = request.contentId,
                 fileId = effectiveFileId,
                 versions = watchDetail.versions,
@@ -269,7 +348,7 @@ class TvVideoPlaybackStarter(
                 playMethod = resolved.playMethod,
                 playbackPlan = resolved.playbackPlan,
                 playbackPlanV3 = readyV3.plan,
-                requestHeaders = readyV3.plan.stream.headers,
+                requestHeaders = readyV3.plan.stream.effectiveRequestHeaders,
                 delivery = resolvedDelivery,
                 container = readyV3.plan.stream.container ?: effectiveVersion?.container,
                 title = watchDetail.title,
@@ -281,6 +360,7 @@ class TvVideoPlaybackStarter(
                 serverUrl = serverUrl,
                 accessToken = accessToken,
                 mediaFileId = effectiveFileId,
+                audioTrackIndex = resolved.audioTrackIndex,
                 // Protocol v3 source duration is authoritative. Unknown stays
                 // unknown; catalog/player runtimes must not fill this field.
                 durationSeconds = resolved.durationSeconds,
@@ -288,7 +368,7 @@ class TvVideoPlaybackStarter(
                     catalogTracks = effectiveVersion?.subtitleTracks.orEmpty(),
                     plannedTracks = resolved.subtitleUrls.orEmpty(),
                 ),
-                preferredAudioLanguage = preferredAudioLanguage ?: activeProfile?.language,
+                preferredAudioLanguage = effectivePreferredAudioLanguage ?: "en",
                 // Blank normalizes to null on every rung: a canonical row
                 // holding JSON null ("no preference") arrives here as a
                 // present-but-empty string, and TV auto-selection reads a
@@ -306,15 +386,39 @@ class TvVideoPlaybackStarter(
                 preview = watchDetail.preview,
                 chapters = effectiveVersion?.chapters.orEmpty(),
                 seriesId = watchDetail.seriesId,
+                seriesTitle = watchDetail.seriesTitle,
                 seasonNumber = watchDetail.seasonNumber,
                 episodeNumber = watchDetail.episodeNumber,
                 resolvedEpisodeSelection = resolvedEpisodeSelection,
             )
+            unpublishedSessionId = null
+            result
         } catch (e: CancellationException) {
+            discardUnpublishedSession(unpublishedSessionId, lifecycleAdopted)
             throw e
         } catch (e: Exception) {
+            discardUnpublishedSession(unpublishedSessionId, lifecycleAdopted)
             Log.e(TAG, "Error loading content", e)
             failure(request.contentId, "Unexpected error: ${e.message}", e, PlaybackDiagnosticsCode.UNEXPECTED)
+        }
+    }
+
+    private suspend fun discardUnpublishedSession(sessionId: String?, lifecycleAdopted: Boolean) {
+        val id = sessionId ?: return
+        withContext(NonCancellable) {
+            try {
+                if (lifecycleAdopted) {
+                    val rolledBack = sessionLifecycle.settlePendingPublicationIfCurrent(id, confirm = false) {
+                        playbackSessionManager.rollbackUnpublishedVideoSession(id)
+                    }
+                    if (rolledBack || sessionLifecycle.retireUnpublishedSession(id)) return@withContext
+                }
+                if (!playbackSessionManager.rollbackUnpublishedVideoSession(id)) {
+                    playbackSessionManager.stopSession(id)
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not stop unpublished playback session $id", error)
+            }
         }
     }
 
@@ -337,6 +441,27 @@ class TvVideoPlaybackStarter(
     private companion object {
         const val TAG = "TvVideoPlaybackStarter"
     }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+internal fun resolveTvInitialAudioTrackIndex(
+    requestedAudioIndex: Int?,
+    carriedAudioIndex: Int?,
+    unresolvedCarriedChoice: Boolean,
+    tracks: List<org.prairieserver.prairie.model.catalog.AudioTrack>,
+    durableAudioFingerprint: String?,
+    preferredAudioLanguage: String?,
+    capabilities: ClientCodecCapabilities,
+): Int? {
+    requestedAudioIndex?.let { return it }
+    carriedAudioIndex?.let { return it }
+    if (unresolvedCarriedChoice) return null
+    return resolveAudioTrackOrdinal(tracks, durableAudioFingerprint)
+        ?: TrackSelectionPresets.selectBestCompatibleAudioTrackOrdinal(
+            tracks = tracks,
+            preferredAudioLanguage = preferredAudioLanguage,
+            capabilities = capabilities,
+        )
 }
 
 internal fun resolveTvSourceStartPosition(
@@ -406,6 +531,20 @@ fun resolveTvPlaybackStartSelection(
         audioTrackIndex = resolvedAudioIndex,
     )
 }
+
+/**
+ * Playback authority for audio at launch. A track chosen on the movie/show
+ * detail is title-level intent and therefore outranks both a carried episode
+ * choice and the global language/quality preference. The preference is only
+ * the fallback when neither manual source supplied a track.
+ */
+internal fun resolveTvStartAudioTrackIndex(
+    requestedTitleTrackIndex: Int?,
+    episodeHandoffTrackIndex: Int?,
+    automaticPreferenceTrackIndex: Int?,
+): Int? = requestedTitleTrackIndex
+    ?: episodeHandoffTrackIndex
+    ?: automaticPreferenceTrackIndex
 
 /** Converts the client-side selection to the server's non-negative index contract. */
 fun resolveTvServerSubtitleTrackIndex(

@@ -26,7 +26,9 @@ import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.components.MediaCard
 import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
 import org.prairieserver.prairie.android.ui.components.rememberBrowseItemCardActions
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.catalog.BrowseItem
+import org.prairieserver.prairie.model.catalog.Person
 
 /**
  * Displays search results in a vertical grid of media cards.
@@ -34,20 +36,25 @@ import org.prairieserver.prairie.model.catalog.BrowseItem
  * Supports infinite scroll to load additional results.
  *
  * @param results The search result items to display.
+ * @param people Cast and crew matching the query, shown above the titles.
  * @param total Total number of matching results.
  * @param isSearching Whether a search request is in flight.
  * @param hasMore Whether more results are available.
  * @param onItemClick Callback with content ID when a result card is tapped.
+ * @param onPersonClick Callback with person ID when a person is tapped.
  * @param onLoadMore Callback to load the next page of results.
  * @param modifier Compose modifier.
  */
 @Composable
 fun SearchResults(
     results: List<BrowseItem>,
+    people: List<Person>,
     total: Int,
+    totalExact: Boolean = true,
     isSearching: Boolean,
     hasMore: Boolean,
     onItemClick: (String) -> Unit,
+    onPersonClick: (Long) -> Unit,
     onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
     footer: (@Composable () -> Unit)? = null,
@@ -65,8 +72,10 @@ fun SearchResults(
         }
     }
 
-    // Trigger load more when scrolled near bottom
-    val shouldLoadMore by remember {
+    // Trigger load more when scrolled near bottom. Keyed on the flags: a
+    // keyless remember would freeze their first-composition values inside the
+    // derived lambda (they are plain params, not snapshot state).
+    val shouldLoadMore by remember(hasMore, isSearching) {
         derivedStateOf {
             val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val totalItems = gridState.layoutInfo.totalItemsCount
@@ -78,24 +87,38 @@ fun SearchResults(
         if (shouldLoadMore) onLoadMore()
     }
 
+    val gridCellMinWidth = MediaGridDefaults.scaledPosterGridMinWidth
+    DeferImagePresentationWhileScrolling(gridState) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
+        columns = GridCells.Adaptive(gridCellMinWidth),
         state = gridState,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
         verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
         modifier = modifier,
     ) {
-        // Result count header
-        item(span = { GridItemSpan(maxLineSpan) }, contentType = "search-result-count") {
-            Text(
-                text = "$total result${if (total == 1) "" else "s"}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                // The grid's own contentPadding supplies the 16.dp gutters, so
-                // the header only needs to clear the first row of cards.
-                modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
-            )
+        if (people.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, contentType = "search-people") {
+                SearchPeopleRow(
+                    people = people,
+                    onPersonClick = onPersonClick,
+                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
+                )
+            }
+        }
+
+        // Result count header. A people-only answer has no titles to count.
+        if (results.isNotEmpty() || people.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, contentType = "search-result-count") {
+                Text(
+                    text = "${if (totalExact) "" else "About "}$total result${if (total == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // The grid's own contentPadding supplies the 16.dp gutters, so
+                    // the header only needs to clear the first row of cards.
+                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
+                )
+            }
         }
 
         items(
@@ -108,11 +131,13 @@ fun SearchResults(
                 title = item.title,
                 posterUrl = item.posterUrl,
                 posterThumbhash = item.posterThumbhash,
+                detailBackdropUrl = item.backdropUrl,
+                detailBackdropThumbhash = item.backdropThumbhash,
                 year = item.year,
                 type = item.type,
                 userState = userState,
                 onClick = { onItemClick(item.contentId) },
-                width = MediaGridDefaults.PosterGridMinWidth,
+                width = gridCellMinWidth,
                 overlay = org.prairieserver.prairie.overlays.OverlayDataExtractor.fromBrowseItem(item),
                 actions = actions,
             )
@@ -139,5 +164,6 @@ fun SearchResults(
                 }
             }
         }
+    }
     }
 }

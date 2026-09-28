@@ -4,6 +4,7 @@ import android.media.MediaCodecInfo.CodecProfileLevel
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
+import org.prairieserver.prairie.model.playback.DolbyVisionProfileCapability
 import org.prairieserver.prairie.model.playback.HdrCapabilities
 import org.prairieserver.prairie.model.playback.VideoDecodeCapability
 
@@ -25,6 +26,13 @@ object MediaCodecCapabilitiesProbe {
         val hdr: HdrCapabilities,
         val maxResolution: String,
         val supportsDvProfile7: Boolean,
+        /**
+         * A hardware HEVC decoder reported `HEVCProfileMain10HDR10` (or
+         * HDR10+). [hdr] aggregates HDR10 across HEVC and AV1, so a route that
+         * hands a PQ HEVC base layer to the HEVC decoder must check this
+         * rather than the aggregate.
+         */
+        val hevcHdr10Decoder: Boolean = false,
     )
 
     // Decoder/HDR support is static for the process lifetime; the MediaCodecList
@@ -35,6 +43,11 @@ object MediaCodecCapabilitiesProbe {
 
     fun probe(): ProbeResult =
         cached ?: synchronized(this) { cached ?: computeProbe().also { cached = it } }
+
+    /** Drops the cached probe so a test can re-run it against a shadowed codec list. */
+    internal fun resetCacheForTest() {
+        synchronized(this) { cached = null }
+    }
 
     /** Returns an immutable copy for diagnostics without reconfiguring or opening any codec. */
     fun diagnosticsSnapshot(): ProbeResult {
@@ -48,7 +61,10 @@ object MediaCodecCapabilitiesProbe {
                     bitDepths = capability.bitDepths.toList(),
                 )
             },
-            hdr = result.hdr.copy(dolbyVisionProfiles = result.hdr.dolbyVisionProfiles.toList()),
+            hdr = result.hdr.copy(
+                dolbyVisionProfiles = result.hdr.dolbyVisionProfiles.toList(),
+                dolbyVisionProfileLevels = result.hdr.dolbyVisionProfileLevels.toList(),
+            ),
         )
     }
 
@@ -64,6 +80,10 @@ object MediaCodecCapabilitiesProbe {
         var hdr10p = false
         var hlg = false
         val dv = sortedSetOf<Int>()
+        // Highest Dolby Vision level any decoder reports per profile. Sent as
+        // dolby_vision_profile_levels so the server can refuse a level-9
+        // stream on a level-6 decoder instead of assuming unbounded support.
+        val dvMaxLevels = mutableMapOf<Int, Int>()
         var dvP7DecoderMultiInstance = false
         var hevcMultiInstance = false
         var hevcHdrCapable = false
@@ -105,15 +125,13 @@ object MediaCodecCapabilitiesProbe {
                         val multiInstance = runCatching { caps.maxSupportedInstances >= 2 }
                             .getOrDefault(false)
                         for (pl in caps.profileLevels) {
-                            when (pl.profile) {
-                                CodecProfileLevel.DolbyVisionProfileDvheStn -> dv += 5
-                                CodecProfileLevel.DolbyVisionProfileDvheDtr -> dv += 4
-                                CodecProfileLevel.DolbyVisionProfileDvheDth -> dv += 6
-                                CodecProfileLevel.DolbyVisionProfileDvheDtb -> {
-                                    dv += 7
-                                    dvP7DecoderMultiInstance = dvP7DecoderMultiInstance || multiInstance
-                                }
-                                CodecProfileLevel.DolbyVisionProfileDvheSt -> dv += 8
+                            val profile = dolbyVisionProfileNumber(pl.profile) ?: continue
+                            dv += profile
+                            if (profile == 7) {
+                                dvP7DecoderMultiInstance = dvP7DecoderMultiInstance || multiInstance
+                            }
+                            dolbyVisionLevelNumber(pl.level)?.let { level ->
+                                dvMaxLevels[profile] = maxOf(dvMaxLevels[profile] ?: 0, level)
                             }
                         }
                     }
@@ -150,6 +168,16 @@ object MediaCodecCapabilitiesProbe {
         val dvP7Supported = dvP7DecoderMultiInstance && hevcMultiInstance
         val dvProfiles = if (dvP7Supported || !dv.contains(7)) dv.toList()
         else dv.filterNot { it == 7 }
+        // The server requires bounds for every advertised profile once any
+        // are present. A profile whose decoder reported no recognizable level
+        // therefore keeps the legacy unbounded contract for the whole list.
+        val dvProfileLevels = if (dvProfiles.all { it in dvMaxLevels }) {
+            dvProfiles.map { profile ->
+                DolbyVisionProfileCapability(profile = profile, maxLevel = dvMaxLevels.getValue(profile))
+            }
+        } else {
+            emptyList()
+        }
 
         val overallMaxH = videoMaxHeights.values.maxOrNull() ?: 0
         val claimedBucket = resolutionBucket(overallMaxH)
@@ -174,9 +202,11 @@ object MediaCodecCapabilitiesProbe {
                 hdr10Plus = effectiveHdr10p,
                 hlg = effectiveHlg,
                 dolbyVisionProfiles = dvProfiles,
+                dolbyVisionProfileLevels = dvProfileLevels,
             ),
             maxResolution = claimedBucket,
             supportsDvProfile7 = dvP7Supported,
+            hevcHdr10Decoder = hevcHdrCapable && "hevc" in advertisedVideo,
         )
     }
 
@@ -186,6 +216,7 @@ object MediaCodecCapabilitiesProbe {
         mimeType.equals(MediaFormat.MIMETYPE_VIDEO_VP9, ignoreCase = true) -> "vp9"
         mimeType.equals(MediaFormat.MIMETYPE_VIDEO_VP8, ignoreCase = true) -> "vp8"
         mimeType.equals(MediaFormat.MIMETYPE_VIDEO_AV1, ignoreCase = true) -> "av1"
+        mimeType.equals(MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION, ignoreCase = true) -> "dolby_vision"
         mimeType.equals(MediaFormat.MIMETYPE_VIDEO_MPEG2, ignoreCase = true) -> "mpeg2video"
         mimeType.equals(MediaFormat.MIMETYPE_VIDEO_MPEG4, ignoreCase = true) -> "mpeg4"
         mimeType.equals(MediaFormat.MIMETYPE_VIDEO_H263, ignoreCase = true) -> "h263"
@@ -325,6 +356,7 @@ object MediaCodecCapabilitiesProbe {
             -> "main 10"
             else -> null
         }
+        "dolby_vision" -> dolbyVisionProfileNumber(profile)?.let { "profile $it" }
         "vp9" -> when (profile) {
             CodecProfileLevel.VP9Profile0 -> "profile 0"
             CodecProfileLevel.VP9Profile1 -> "profile 1"
@@ -467,12 +499,50 @@ object MediaCodecCapabilitiesProbe {
         }
         "vp8" -> if (profile == CodecProfileLevel.VP8ProfileMain) 8 else null
         "h263" -> if (profileName("h263", profile) != null) 8 else null
+        "dolby_vision" -> if (dolbyVisionProfileNumber(profile) != null) 10 else null
         else -> null
+    }
+
+    /** MediaCodec Dolby Vision profile constant → Dolby profile number. */
+    internal fun dolbyVisionProfileNumber(profile: Int): Int? = when (profile) {
+        CodecProfileLevel.DolbyVisionProfileDvavPer -> 0
+        CodecProfileLevel.DolbyVisionProfileDvavPen -> 1
+        CodecProfileLevel.DolbyVisionProfileDvheDer -> 2
+        CodecProfileLevel.DolbyVisionProfileDvheDen -> 3
+        CodecProfileLevel.DolbyVisionProfileDvheDtr -> 4
+        CodecProfileLevel.DolbyVisionProfileDvheStn -> 5
+        CodecProfileLevel.DolbyVisionProfileDvheDth -> 6
+        CodecProfileLevel.DolbyVisionProfileDvheDtb -> 7
+        CodecProfileLevel.DolbyVisionProfileDvheSt -> 8
+        CodecProfileLevel.DolbyVisionProfileDvavSe -> 9
+        else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            profile == CodecProfileLevel.DolbyVisionProfileDvav110
+        ) 10 else null
+    }
+
+    /** MediaCodec Dolby Vision level bit → Dolby level number (1..13). */
+    internal fun dolbyVisionLevelNumber(level: Int): Int? = when (level) {
+        CodecProfileLevel.DolbyVisionLevelHd24 -> 1
+        CodecProfileLevel.DolbyVisionLevelHd30 -> 2
+        CodecProfileLevel.DolbyVisionLevelFhd24 -> 3
+        CodecProfileLevel.DolbyVisionLevelFhd30 -> 4
+        CodecProfileLevel.DolbyVisionLevelFhd60 -> 5
+        CodecProfileLevel.DolbyVisionLevelUhd24 -> 6
+        CodecProfileLevel.DolbyVisionLevelUhd30 -> 7
+        CodecProfileLevel.DolbyVisionLevelUhd48 -> 8
+        CodecProfileLevel.DolbyVisionLevelUhd60 -> 9
+        else -> when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && level == CodecProfileLevel.DolbyVisionLevelUhd120 -> 10
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && level == CodecProfileLevel.DolbyVisionLevel8k30 -> 11
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && level == CodecProfileLevel.DolbyVisionLevel8k60 -> 12
+            else -> null
+        }
     }
 
     internal fun normalizedLevel(codec: String, level: Int): Int? = when (codec) {
         "h264" -> AVC_LEVELS[level]
         "hevc" -> HEVC_LEVELS[level]
+        "dolby_vision" -> dolbyVisionLevelNumber(level)
         else -> null
     }
 

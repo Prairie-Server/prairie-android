@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.profile.authorizedProfileToken
+import org.prairieserver.prairie.model.server.ServerContract
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileCommitResult
 import org.prairieserver.prairie.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +18,7 @@ import kotlinx.coroutines.launch
 
 data class ProfileSelectionUiState(
     val profiles: List<Profile> = emptyList(),
+    val canManageProfiles: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
     val isManageMode: Boolean = false,
@@ -34,6 +37,7 @@ data class ProfileSelectionUiState(
 
 class ProfileSelectionViewModel(
     private val profileRepository: ProfileRepository,
+    private val authRepository: AuthRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ProfileSelectionUiState())
@@ -47,6 +51,27 @@ class ProfileSelectionViewModel(
 
     init {
         loadProfiles()
+        reloadWhenUpdateRequiredLifts()
+    }
+
+    /**
+     * The admin lookup in [loadProfiles] is a gated v2 call. On launch the
+     * stored verdict can be a stale UPDATE_REQUIRED (server upgraded since),
+     * which the gate rejects without a request; once the launch probe
+     * records V2 the grid must be reloaded so the manage affordances match
+     * the real answer.
+     */
+    private fun reloadWhenUpdateRequiredLifts() {
+        val contracts = authRepository?.activeServerContractFlow ?: return
+        viewModelScope.launch {
+            var previous: ServerContract? = null
+            contracts.collect { contract ->
+                if (previous == ServerContract.UPDATE_REQUIRED && contract == ServerContract.V2) {
+                    loadProfiles()
+                }
+                previous = contract
+            }
+        }
     }
 
     /**
@@ -72,6 +97,7 @@ class ProfileSelectionViewModel(
 
             val scope = profileRepository.captureIdentityScope()
             val activeId = profileRepository.getActiveProfileId()
+            val isAdmin = (authRepository?.getCurrentUser() as? ApiResult.Success)?.data?.role?.equals("admin", ignoreCase = true) == true
             val result = profileRepository.listProfiles()
             // Two separate reasons to drop this response: a newer load
             // superseded it, or the identity it was fetched under is gone.
@@ -83,7 +109,15 @@ class ProfileSelectionViewModel(
                 // Leaving a scope behind for an empty grid is stale metadata
                 // that a later selection could be qualified against.
                 gridScope = null
-                _uiState.update { it.copy(isLoading = false, profiles = emptyList()) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        profiles = emptyList(),
+                        canManageProfiles = false,
+                        isManageMode = false,
+                        deleteDialogProfile = null,
+                    )
+                }
                 return@launch
             }
 
@@ -97,7 +131,14 @@ class ProfileSelectionViewModel(
                     // the unguarded commit this was meant to fix.
                     gridScope = scope
                     _uiState.update {
-                        it.copy(isLoading = false, profiles = result.data, activeProfileId = activeId)
+                        it.copy(
+                            isLoading = false,
+                            profiles = result.data,
+                            activeProfileId = activeId,
+                            canManageProfiles = isAdmin,
+                            isManageMode = if (isAdmin) it.isManageMode else false,
+                            deleteDialogProfile = if (isAdmin) it.deleteDialogProfile else null,
+                        )
                     }
                 }
 
@@ -120,6 +161,7 @@ class ProfileSelectionViewModel(
     }
 
     fun toggleManageMode() {
+        if (!_uiState.value.canManageProfiles) return
         _uiState.update { it.copy(isManageMode = !it.isManageMode) }
     }
 
@@ -223,6 +265,7 @@ class ProfileSelectionViewModel(
 
     /** Manage-mode delete tap — opens the confirmation dialog. */
     fun requestDeleteProfile(profile: Profile) {
+        if (!_uiState.value.canManageProfiles) return
         _uiState.update { it.copy(deleteDialogProfile = profile) }
     }
 

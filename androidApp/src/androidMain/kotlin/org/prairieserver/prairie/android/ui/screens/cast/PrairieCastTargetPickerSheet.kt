@@ -40,6 +40,7 @@ import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.cast.PrairieCastLaunchRequest
 import org.prairieserver.prairie.cast.PrairieCastProtocol
 import org.prairieserver.prairie.common.cast.PrairieCastTarget
+import org.prairieserver.prairie.network.AndroidServerRegistry
 import org.prairieserver.prairie.network.ServerRegistry
 
 /**
@@ -87,7 +88,9 @@ fun PrairieCastTargetPickerSheet(
     val displayedTargets = if (launchRequest != null) {
         state.targets
     } else {
-        state.targets.filter { it.serverId != null && it.serverId == activeServerId }
+        state.targets.filter {
+            AndroidServerRegistry.serverIdsMatch(it.serverId, activeServerId)
+        }
     }
 
     ModalBottomSheet(
@@ -204,6 +207,7 @@ private fun TargetRow(
 ) {
     val needsUpdate = target.version < PrairieCastProtocol.version
     val enabled = !needsUpdate
+    val targetsActiveServer = AndroidServerRegistry.serverIdsMatch(target.serverId, activeServerId)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -238,9 +242,9 @@ private fun TargetRow(
                     "Update Prairie on this TV to use your profile" to MaterialTheme.colorScheme.onSurfaceVariant
                 target.isPlaying ->
                     "Playing now" to MaterialTheme.colorScheme.primary
-                target.serverId != null && target.serverId == activeServerId && target.serverName != null ->
+                targetsActiveServer && target.serverName != null ->
                     target.serverName!! to MaterialTheme.colorScheme.onSurfaceVariant
-                target.serverId != null && target.serverId != activeServerId ->
+                target.serverId != null && !targetsActiveServer ->
                     "Will temporarily use your server" to MaterialTheme.colorScheme.onSurfaceVariant
                 else -> null
             }

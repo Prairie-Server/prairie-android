@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.navigation
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -70,6 +71,74 @@ class TvItemDetailNavigationTest {
                 seasonNumber = 3,
             ),
         )
+    }
+
+    @Test
+    fun `the same continue watching episode is the current page`() {
+        assertTrue(
+            tvIsAlreadyShowingItemDetail(
+                currentRoute = TvRoute.ItemDetail.ROUTE,
+                currentContentId = "series-a",
+                currentSeasonNumber = 3,
+                currentEpisodeContentId = "episode-1",
+                contentId = "series-a",
+                seasonNumber = 3,
+                episodeContentId = "episode-1",
+            ),
+        )
+    }
+
+    @Test
+    fun `another episode in the same season is a different detail request`() {
+        assertFalse(
+            tvIsAlreadyShowingItemDetail(
+                currentRoute = TvRoute.ItemDetail.ROUTE,
+                currentContentId = "series-a",
+                currentSeasonNumber = 3,
+                currentEpisodeContentId = "episode-1",
+                contentId = "series-a",
+                seasonNumber = 3,
+                episodeContentId = "episode-2",
+            ),
+        )
+    }
+
+    @Test
+    fun `continue watching route carries encoded series season and episode`() {
+        assertEquals(
+            "item/series%2Fa?seasonNumber=3&episodeContentId=episode%2F1",
+            TvRoute.ItemDetail(
+                contentId = "series/a",
+                seasonNumber = 3,
+                episodeContentId = "episode/1",
+            ).route,
+        )
+    }
+
+    @Test
+    fun `season canonicalization route carries no episode selection`() {
+        assertEquals(
+            "item/series%2Fa?seasonNumber=3",
+            TvRoute.ItemDetail(
+                contentId = "series/a",
+                seasonNumber = 3,
+            ).route,
+        )
+    }
+
+    @Test
+    fun `canonical replacement is owned by the raw detail entry`() {
+        val source = File(
+            "src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvAppNavigation.kt",
+        ).readText()
+        val replacement = source
+            .substringAfter("onSeriesDetailReplace = canonicalizeSeries@")
+            .substringBefore("onSeriesClick =")
+
+        assertTrue(replacement.contains("currentBackStackEntry?.id != backStack.id"))
+        assertTrue(replacement.contains("return@canonicalizeSeries"))
+        assertTrue(replacement.contains("episodeContentId = episodeContentId"))
+        assertTrue(replacement.contains("popUpTo(it) { inclusive = true }"))
     }
 
     @Test

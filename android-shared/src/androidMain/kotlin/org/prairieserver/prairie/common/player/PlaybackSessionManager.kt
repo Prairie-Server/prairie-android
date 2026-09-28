@@ -11,6 +11,7 @@ import org.prairieserver.prairie.model.playback.SubtitleFidelityPreference
 import org.prairieserver.prairie.model.playback.validateForMedia3
 import org.prairieserver.prairie.model.playback.PlaybackFailureV3
 import org.prairieserver.prairie.model.playback.PlaybackPlanV3
+import org.prairieserver.prairie.model.playback.PlaybackOutputContext
 import org.prairieserver.prairie.model.playback.PlaybackReplanRequestV3
 import org.prairieserver.prairie.model.playback.ProgressPersistenceV3
 import org.prairieserver.prairie.model.playback.PlaybackRouteEventV3
@@ -27,6 +28,8 @@ import org.prairieserver.prairie.model.playback.TRACK_CHANGE_V3_OPERATION
 import org.prairieserver.prairie.model.playback.playbackClientFeaturesV3
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.acceptsMetadataOwner
 import org.prairieserver.prairie.repository.PlaybackRepository
 import java.util.IdentityHashMap
 import java.util.UUID
@@ -62,6 +65,24 @@ data class StagedVideoReplan(
      */
     val outputContextId: String?,
 )
+
+/**
+ * Whether two output snapshots can produce different playback recipes.
+ *
+ * The opaque context id is provenance, not a capability. Spatializer state is
+ * also excluded because the server does not route on it and Android may toggle
+ * it as a consequence of remounting the player. A callback that changes only
+ * those fields must not erase the failed-plan history and reopen a fallback
+ * route that just failed.
+ */
+internal fun PlaybackOutputContext.hasSamePlanningRouteAs(other: PlaybackOutputContext): Boolean =
+    copy(
+        outputContextId = null,
+        audioPassthrough = audioPassthrough?.copy(spatializerEnabled = false),
+    ) == other.copy(
+        outputContextId = null,
+        audioPassthrough = other.audioPassthrough?.copy(spatializerEnabled = false),
+    )
 
 /**
  * Manages the playback session lifecycle: creation, progress reporting,
@@ -275,7 +296,10 @@ open class PlaybackSessionManager(
         subtitleFidelityPreference: SubtitleFidelityPreference = SubtitleFidelityPreference.PRESERVE,
         progressPersistence: ProgressPersistenceV3 = ProgressPersistenceV3.SERVER,
         deferPublication: Boolean = false,
+        expectedMetadataOwner: AuthScopeSnapshot? = null,
     ): ApiResult<VideoSessionStartV3> = contentStartMutex.withLock {
+        if (!tokenManager.acceptsMetadataOwner(expectedMetadataOwner, profileId))
+            return@withLock ApiResult.Error(0, "identity_changed", "The metadata viewer changed before playback admission.")
         /**
          * The session this call is currently answerable for.
          *
@@ -313,11 +337,17 @@ open class PlaybackSessionManager(
                 )
             }
             beginContentReset()
+            if (!tokenManager.acceptsMetadataOwner(expectedMetadataOwner, profileId))
+                return@withLock ApiResult.Error(0, "identity_changed", "The metadata viewer changed before playback admission.")
             val predecessorForPublication = videoAttemptMutex.withLock {
                 activeVideoAttempt.get()
             }
-            val playbackAttemptId = UUID.randomUUID().toString()
+            if (!tokenManager.acceptsMetadataOwner(expectedMetadataOwner, profileId))
+                return@withLock ApiResult.Error(0, "identity_changed", "The metadata viewer changed before playback admission.")
             val network = networkEvidenceProvider.snapshot()
+            if (!tokenManager.acceptsMetadataOwner(expectedMetadataOwner, profileId))
+                return@withLock ApiResult.Error(0, "identity_changed", "The metadata viewer changed before playback admission.")
+            val playbackAttemptId = UUID.randomUUID().toString()
             val request = PlaybackStartRequestV3(
                 fileId = fileId,
                 profileId = profileId,
@@ -346,10 +376,14 @@ open class PlaybackSessionManager(
                 capabilities = capabilities,
                 clientPlaybackContext = clientPlaybackContext,
             )
-            return@withLock when (val result = playbackRepository.startPlaybackV3(request)) {
+            if (!tokenManager.acceptsMetadataOwner(expectedMetadataOwner, profileId))
+                return@withLock ApiResult.Error(0, "identity_changed", "The metadata viewer changed before playback admission.")
+            return@withLock when (val result = playbackRepository.startPlaybackV3(request, expectedMetadataOwner)) {
                 is ApiResult.Success -> when (val validated = result.data.validateForMedia3()) {
                     is PlaybackV3Validation.Playable -> {
                         leasedSessionId = validated.sessionId
+                        if (!tokenManager.acceptsMetadataOwner(expectedMetadataOwner, profileId))
+                            return@withLock ApiResult.Error(0, "identity_changed", "The metadata viewer changed after playback admission.")
                         val planAttemptId = UUID.randomUUID().toString()
                         val active = newActiveAttempt(
                             request = request,
@@ -360,6 +394,8 @@ open class PlaybackSessionManager(
                             planAttemptId = planAttemptId,
                         )
                         videoAttemptMutex.withLock {
+                            if (!tokenManager.acceptsMetadataOwner(expectedMetadataOwner, profileId))
+                                throw CancellationException("The metadata viewer changed before playback publication.")
                             installActiveVideoAttemptLocked(
                                 replacement = active,
                                 predecessor = predecessorForPublication,
@@ -708,7 +744,9 @@ open class PlaybackSessionManager(
                 capabilities = capabilities,
                 clientPlaybackContext = clientPlaybackContext,
                 operation = replanOperationForClassification(classification),
-                preserveImmediateOutcomes = true,
+                // A rejected subtitle retry must not tear down healthy video.
+                // Reuse staged rejection cleanup while successful retries still commit.
+                preserveImmediateOutcomes = classification != "subtitle_embedded_failed",
             )
         ) {
             is ApiResult.Success -> when (val value = prepared.data) {
@@ -826,9 +864,17 @@ open class PlaybackSessionManager(
         // An intent operation is a user's choice, not a failure: the previous
         // route stays eligible, so no attempt history is sent and the attempt
         // counter restarts. `output_route_changed` is still failure-shaped —
-        // the route the client was using genuinely stopped working — so it
-        // keeps the legacy classification path while resetting the same state.
-        val invalidation = intent || classification in USER_INVALIDATION_CLASSIFICATIONS
+        // the route the client was using genuinely stopped working — but its
+        // history restarts only when planning-relevant output capabilities
+        // changed. Android may advance an opaque context generation during a
+        // player remount; reopening failed plans for that callback creates an
+        // endless direct/remux/transcode cycle.
+        val materiallyChangedOutputRoute = classification == "output_route_changed" &&
+            !active.context.output.hasSamePlanningRouteAs(currentContext.output)
+        val invalidation = intent || (
+            classification in USER_INVALIDATION_CLASSIFICATIONS &&
+                (classification != "output_route_changed" || materiallyChangedOutputRoute)
+        )
         val attemptedKeys = if (invalidation) {
             emptyList()
         } else {
@@ -1753,6 +1799,9 @@ open class PlaybackSessionManager(
             PlaybackSubtitleModeV3.CONVERT,
             PlaybackSubtitleModeV3.RENDER,
             -> {
+                if (subtitle.embedded != null && candidate.delivery == org.prairieserver.prairie.model.playback.PlaybackDelivery.ORIGINAL_HTTP &&
+                    subtitle.embedded?.containerTrackId != null && subtitle.artifact == null
+                ) return null
                 val artifact = subtitle.artifact
                 if (artifact == null ||
                     artifact.url.isBlank() ||
@@ -2525,6 +2574,8 @@ open class PlaybackSessionManager(
             "The server returned a playback route this client cannot execute."
     }
 
+    open fun isSequenced(sessionId: String): Boolean = playbackRepository.isSequenced(sessionId)
+
     /**
      * Reports the current playback position to the server.
      * Called periodically (every ~10 seconds) during active playback.
@@ -2654,172 +2705,8 @@ open class PlaybackSessionManager(
 
     /** Returns the server base URL for resolving relative stream URLs. */
     suspend fun getServerUrl(): String = tokenManager.getServerUrl()
-
-    enum class TranscodeMode { REMUX, FULL }
-
-    /**
-     * Issue a `TranscodeStartRequest` for a fallback path — either because the
-     * server chose REMUX / TRANSCODE up front (`handleSessionStarted`) or
-     * because client-side preflight determined direct play was impossible
-     * ([PlaybackPreflightListener] in PR 8). Folds the resulting HLS URL back
-     * into a [PlaybackSessionResponse] so both VMs can treat the result like
-     * any other session start.
-     *
-     * Does **not** stop the caller's current session — ViewModels handle that
-     * alongside their state cleanup, which is the point they also tear down
-     * progress reporting.
-     */
-    suspend fun startTranscodeFallback(
-        session: PlaybackSessionResponse,
-        seekSeconds: Double,
-        resolution: String,
-        mode: TranscodeMode,
-        audioTrackIndex: Int? = null,
-        subtitleTrackIndex: Int? = null,
-        targetBitrateKbps: Int? = null,
-        copyVideo: Boolean = false,
-    ): ApiResult<PlaybackSessionResponse> {
-        val isRemux = mode == TranscodeMode.REMUX || copyVideo
-        val bitrate = when {
-            isRemux -> 0
-            targetBitrateKbps != null && targetBitrateKbps > 0 -> targetBitrateKbps
-            else -> 8000
-        }
-        val request = TranscodeStartRequest(
-            sessionId = session.sessionId,
-            seekSeconds = seekSeconds,
-            targetResolution = if (isRemux) "" else resolution,
-            targetCodecVideo = if (isRemux) "copy" else "h264",
-            // REMUX copies audio to preserve passthrough codecs
-            // (EAC3/TrueHD/DTS). Forcing AAC clobbers the play-method
-            // decision.
-            targetCodecAudio = if (isRemux) "copy" else "aac",
-            targetBitrateKbps = bitrate,
-            segmentDuration = 2,
-            audioTrackIndex = audioTrackIndex,
-            subtitleTrackIndex = subtitleTrackIndex,
-            subtitleBurnIn = shouldBurnStyledSubtitle(
-                isRemux = isRemux,
-                subtitleTrackIndex = subtitleTrackIndex,
-                subtitleCodec = session.playbackPlan?.source?.subtitleCodec,
-            ),
-        )
-        Log.i(
-            TAG,
-            "startTranscodeFallback session=${session.sessionId} mode=$mode seekSeconds=$seekSeconds " +
-                "targetResolution=${request.targetResolution} " +
-                "targetCodecVideo=${request.targetCodecVideo} " +
-                "targetCodecAudio=${request.targetCodecAudio} " +
-                "targetBitrateKbps=${request.targetBitrateKbps} " +
-                "audioTrackIndex=$audioTrackIndex subtitleTrackIndex=$subtitleTrackIndex",
-        )
-        return when (val r = playbackRepository.startTranscode(request)) {
-            is ApiResult.Success -> {
-                val tc = r.data
-                ApiResult.Success(
-                    session.copy(
-                        sessionId = tc.sessionId,
-                        playMethod = if (isRemux) {
-                            org.prairieserver.prairie.model.playback.PlayMethod.REMUX
-                        } else {
-                            org.prairieserver.prairie.model.playback.PlayMethod.TRANSCODE
-                        },
-                        streamUrl = tc.manifestUrl,
-                        durationSeconds = tc.durationSeconds ?: session.durationSeconds,
-                        position = tc.playerStartSeconds,
-                        playbackPlan = session.playbackPlan?.let { plan ->
-                            plan.copy(
-                                delivery = if (isRemux) {
-                                    PlaybackDelivery.SERVER_REMUX_HLS
-                                } else {
-                                    PlaybackDelivery.SERVER_TRANSCODE_HLS
-                                },
-                                engine = PlaybackEngineKind.MEDIA3_HLS,
-                                routeFamily = PlaybackRouteFamily.SERVER_ADAPTIVE,
-                                stream = PlaybackStreamRequest(
-                                    url = tc.manifestUrl,
-                                    streamType = "hls",
-                                    playMethod = if (isRemux) {
-                                        org.prairieserver.prairie.model.playback.PlayMethod.REMUX
-                                    } else {
-                                        org.prairieserver.prairie.model.playback.PlayMethod.TRANSCODE
-                                    },
-                                ),
-                                timeline = PlaybackTimeline(
-                                    playerStartSeconds = tc.playerStartSeconds,
-                                    streamOriginSeconds = tc.streamOriginSeconds,
-                                    timelineOffsetSeconds = tc.timelineOffsetSeconds,
-                                    canSeekAnywhere = tc.canSeekAnywhere,
-                                ),
-                                degradationWarnings = plan.degradationWarnings +
-                                    org.prairieserver.prairie.model.playback.PlaybackDegradationWarning(
-                                        code = if (isRemux) {
-                                            "server_remux_fallback"
-                                        } else {
-                                            "server_transcode_fallback"
-                                        },
-                                        message = if (isRemux) {
-                                            "Playback fell back to server remux."
-                                        } else {
-                                            "Playback fell back to server transcode."
-                                        },
-                                    ),
-                            )
-                        },
-                    ),
-                )
-            }
-            is ApiResult.Error -> r
-            is ApiResult.NetworkError -> r
-        }
-    }
-
-    suspend fun startTranscodeFallbackRecoveringMissingSession(
-        session: PlaybackSessionResponse,
-        seekSeconds: Double,
-        resolution: String,
-        mode: TranscodeMode,
-        audioTrackIndex: Int? = null,
-        subtitleTrackIndex: Int? = null,
-        targetBitrateKbps: Int? = null,
-        copyVideo: Boolean = false,
-        renewSession: suspend () -> ApiResult<PlaybackSessionResponse>,
-    ): ApiResult<PlaybackSessionResponse> {
-        val first = startTranscodeFallback(
-            session = session,
-            seekSeconds = seekSeconds,
-            resolution = resolution,
-            mode = mode,
-            audioTrackIndex = audioTrackIndex,
-            subtitleTrackIndex = subtitleTrackIndex,
-            targetBitrateKbps = targetBitrateKbps,
-            copyVideo = copyVideo,
-        )
-        if (!first.isPlaybackSessionMissingError()) return first
-
-        Log.w(TAG, "Fallback session missing; renewing playback session before retry")
-        return when (val renewed = renewSession()) {
-            is ApiResult.Success -> {
-                val retry = startTranscodeFallback(
-                    session = renewed.data,
-                    seekSeconds = seekSeconds,
-                    resolution = resolution,
-                    mode = mode,
-                    audioTrackIndex = audioTrackIndex,
-                    subtitleTrackIndex = subtitleTrackIndex,
-                    targetBitrateKbps = targetBitrateKbps,
-                    copyVideo = copyVideo,
-                )
-                if (retry !is ApiResult.Success) {
-                    stopSession(renewed.data.sessionId)
-                }
-                retry
-            }
-            is ApiResult.Error -> renewed
-            is ApiResult.NetworkError -> renewed
-        }
-    }
 }
+
 
 internal fun ApiResult<*>.isPlaybackSessionMissingError(): Boolean {
     val error = this as? ApiResult.Error ?: return false

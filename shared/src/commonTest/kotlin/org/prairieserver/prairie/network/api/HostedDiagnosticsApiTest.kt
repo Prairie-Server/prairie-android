@@ -357,7 +357,7 @@ class HostedDiagnosticsApiTest {
         const val SOURCE_ACCESS = "silo-access-token"
         const val SOURCE_PROFILE = "source-profile-id"
         const val SOURCE_ACCOUNT = "source-account-id"
-        const val SOURCE_SERVER = "https://private-silo.example"
+        const val SOURCE_SERVER = "https://private-prairie.example"
         val BUNDLE = byteArrayOf(0x1f, 0x8b.toByte(), 1, 2, 3, 4)
         val CAPABILITIES = """{
             "status":"available","collector_id":"collector-public","accepted_schema_versions":[1],

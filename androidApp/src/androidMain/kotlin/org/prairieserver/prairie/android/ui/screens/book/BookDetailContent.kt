@@ -51,6 +51,13 @@ import org.prairieserver.prairie.model.ebook.bookFormatFromEbookVersion
 import org.prairieserver.prairie.model.ebook.ebookFormatDisplayName
 import org.prairieserver.prairie.model.ebook.ebookFormatSupport
 import org.prairieserver.prairie.model.ebook.isSupportedEbookVersion
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalDensity
+import org.prairieserver.prairie.android.ui.screens.detail.HeaderSettledDp
+import org.prairieserver.prairie.android.ui.screens.detail.LocalDetailScrollState
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 
 /**
  * Phone book detail. Tall cover on the left (2:3 like a movie poster
@@ -137,7 +144,24 @@ fun BookDetailContent(
     // Clear the status bar / camera cutout so the cover + title aren't tucked
     // under it (matches the audiobook detail).
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val feedState = rememberLazyListState()
+    // Feed the pinned header (see DetailScrollState).
+    val detailScroll = LocalDetailScrollState.current
+    if (detailScroll != null) {
+        val density = LocalDensity.current
+        LaunchedEffect(feedState, detailScroll, density) {
+            snapshotFlow {
+                if (feedState.firstVisibleItemIndex > 0) {
+                    HeaderSettledDp
+                } else {
+                    with(density) { feedState.firstVisibleItemScrollOffset.toDp().value }
+                }
+            }.collect { detailScroll.update(it) }
+        }
+    }
+    DeferImagePresentationWhileScrolling(feedState) {
     LazyColumn(
+        state = feedState,
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
@@ -266,6 +290,7 @@ fun BookDetailContent(
                         contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
                         onClick = onFavoriteClick,
                         activeTint = Color(0xFFEF5350),
+                        label = "Favorite",
                     )
                     CircleActionButton(
                         icon = Icons.Filled.BookmarkBorder,
@@ -273,6 +298,7 @@ fun BookDetailContent(
                         isActive = isInWatchlist,
                         contentDescription = if (isInWatchlist) "Remove from watchlist" else "Add to watchlist",
                         onClick = onWatchlistClick,
+                        label = "Watchlist",
                     )
                 }
                 downloadProgress?.let { progress ->
@@ -374,6 +400,7 @@ fun BookDetailContent(
                 )
             }
         }
+    }
     }
 }
 

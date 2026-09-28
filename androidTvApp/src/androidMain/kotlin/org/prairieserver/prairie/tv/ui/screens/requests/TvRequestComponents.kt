@@ -35,6 +35,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.request.MediaRequest
 import org.prairieserver.prairie.model.request.RequestAvailability
@@ -50,6 +51,7 @@ import org.prairieserver.prairie.tv.ui.components.TvCardWidth
 import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
 import org.prairieserver.prairie.tv.ui.theme.DarkOnPrimary
 import org.prairieserver.prairie.tv.ui.theme.RowDimens
+import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -63,8 +65,9 @@ fun TvRequestCard(
 ) {
     val cardShape = RoundedCornerShape(8.dp)
     val cardFocus = prairieCardDefaults(shape = cardShape)
+    val caption = LocalCardPresentation.current.caption
 
-    Column(modifier = modifier.width(TvCardWidth)) {
+    Column(modifier = modifier.width(TvCardWidth.cardScaled())) {
         Card(
             onClick = onClick,
             shape = CardDefaults.shape(shape = cardShape),
@@ -74,7 +77,7 @@ fun TvRequestCard(
             modifier = Modifier
                 .then(cardModifier)
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .size(RowDimens.PosterWidth, RowDimens.PosterHeight),
+                .size(RowDimens.PosterWidth.cardScaled(), RowDimens.PosterHeight.cardScaled()),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 ThumbhashImage(
@@ -93,16 +96,20 @@ fun TvRequestCard(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = result.title,
-            style = MaterialTheme.typography.titleSmall,
-            color = Color.White.copy(alpha = 0.82f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        RequestMetaLine(mediaType = result.mediaType, year = result.year)
+        if (caption.showsTitle) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = result.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White.copy(alpha = 0.82f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (caption.showsMetadata) {
+                RequestMetaLine(mediaType = result.mediaType, year = result.year)
+            }
+        }
     }
 }
 

@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
@@ -164,7 +165,10 @@ fun DownloadsScreen(
                     .fillMaxSize()
                     .padding(padding),
             ) {
+                val listState = rememberLazyListState()
+                DeferImagePresentationWhileScrolling(listState) {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalBottomChromeInset.current),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -253,6 +257,7 @@ fun DownloadsScreen(
                         }
                     }
                 }
+                }
 
                 if (isSelecting && selectedEntryIds.isNotEmpty()) {
                     Button(
@@ -317,7 +322,7 @@ fun DownloadsScreen(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel") }
             },
         )
@@ -346,7 +351,7 @@ fun DownloadsScreen(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Reclaim")
                 }
             },
@@ -447,7 +452,7 @@ private fun DownloadsSelectBar(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Done") }
         } else {
             Spacer(modifier = Modifier.weight(1f))
@@ -456,7 +461,7 @@ private fun DownloadsSelectBar(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Select") }
         }
     }
@@ -569,49 +574,6 @@ private fun MonitoredDownloadsCard(
                 )
             }
         }
-    }
-}
-
-@Suppress("unused")  // kept for reference, no longer wired into the tree
-@Composable
-private fun DownloadsHeaderCard(
-    activeCount: Int,
-    readyCount: Int,
-    totalBytesUsed: Long,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Downloads",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-            )
-            Text(
-                text = buildString {
-                    if (activeCount > 0) append("$activeCount active")
-                    if (activeCount > 0 && readyCount > 0) append(" · ")
-                    if (readyCount > 0) append("$readyCount ready")
-                    if (activeCount == 0 && readyCount == 0) append("Nothing downloading")
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-            )
-        }
-        Text(
-            text = formatBytes(totalBytesUsed),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Medium,
-            fontSize = 14.sp,
-        )
     }
 }
 

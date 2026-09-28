@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.detail
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.ktor.client.HttpClient
@@ -29,7 +31,9 @@ import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
 import org.prairieserver.prairie.model.settings.SettingsContractCapabilities
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeAttributeKey
 import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.apiv2.CatalogV2Api
 import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
 import org.prairieserver.prairie.network.IdentityTransitionBarrier
 import org.prairieserver.prairie.network.IdentityTransitionKind
@@ -40,7 +44,6 @@ import org.prairieserver.prairie.network.api.DefaultMetadataAiApi
 import org.prairieserver.prairie.network.api.PersonalDataApi
 import org.prairieserver.prairie.network.api.ProfileApi
 import org.prairieserver.prairie.network.api.SettingsApi
-import org.prairieserver.prairie.network.api.SettingsCapabilitiesResult
 import org.prairieserver.prairie.playback.audioTrackFingerprint
 import org.prairieserver.prairie.playback.subtitleTrackFingerprint
 import org.prairieserver.prairie.repository.CatalogRepository
@@ -50,6 +53,8 @@ import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SettingsRepository
 import org.prairieserver.prairie.repository.port.LocalTrackSelection
 import org.prairieserver.prairie.repository.port.OutboxHandle
+import org.prairieserver.prairie.repository.port.PersonalWrite
+import org.prairieserver.prairie.repository.port.PersonalWriteHandle
 import org.prairieserver.prairie.repository.port.UserItemStatePort
 import org.prairieserver.prairie.repository.port.WriteOutcome
 import org.prairieserver.prairie.tv.testing.FakePlayerSettingsStore
@@ -59,6 +64,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -69,6 +75,200 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TvNextUpSelectionHandoffTest {
+    @Test
+    fun routedEpisodeReplacesAnEarlierSeasonJump() = runDetailTest {
+        val scenario = Scenario(suffix = "-routed-season-jump")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onSeasonSelected(2)
+        awaitEpisode(fixture.viewModel, scenario.seasonTwoEpisodeId)
+        fixture.viewModel.onSeasonSelected(1)
+        awaitCondition { fixture.viewModel.uiState.value.carouselJump?.contentId == scenario.episodeOneId }
+        fixture.viewModel.onEntrySeriesEpisodeRequested(scenario.episodeTwoId)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+        assertEquals(scenario.episodeTwoId, fixture.viewModel.uiState.value.carouselJump?.contentId)
+    }
+
+    @Test
+    fun mixedCaseSeriesPublishesAndPrefetchesTheCarousel() = runDetailTest {
+        val scenario = Scenario(suffix = "-mixed-case", seriesType = "Series")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        awaitCondition { fixture.viewModel.uiState.value.carouselEpisodes.size == 3 }
+        assertEquals(1, fixture.viewModel.uiState.value.selectedSeason)
+    }
+
+    @Test
+    fun returningToLoadedEpisodeCancelsPendingSeasonJump() = runDetailTest {
+        val scenario = Scenario(suffix = "-continuous-cancel-jump")
+        scenario.seasonTwoEpisodesGate = CompletableDeferred()
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onSeasonSelected(2)
+        fixture.viewModel.onSeriesEpisodeActivated(scenario.episodeTwoId)
+        scenario.seasonTwoEpisodesGate?.complete(Unit)
+        awaitCondition { fixture.viewModel.uiState.value.carouselEpisodes.size == 3 }
+        assertEquals(1, fixture.viewModel.uiState.value.selectedSeason)
+        assertEquals(null, fixture.viewModel.uiState.value.carouselJump)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+    }
+
+    @Test
+    fun prefetchedSeasonExtendsRailWithoutChangingPlayTarget() = runDetailTest {
+        val scenario = Scenario(suffix = "-continuous-prefetch")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        awaitCondition { fixture.viewModel.uiState.value.carouselEpisodes.size == 3 }
+        assertEquals(1, fixture.viewModel.uiState.value.selectedSeason)
+        assertEquals(scenario.episodeOneId, fixture.viewModel.uiState.value.nextUpEpisode?.contentId)
+
+        fixture.viewModel.onSeriesEpisodeActivated(scenario.seasonTwoEpisodeId)
+        awaitEpisode(fixture.viewModel, scenario.seasonTwoEpisodeId)
+        assertEquals(2, fixture.viewModel.uiState.value.selectedSeason)
+        assertEquals(listOf(scenario.seasonTwoEpisodeId), fixture.viewModel.uiState.value.episodes.map { it.contentId })
+
+        fixture.viewModel.onSeriesEpisodeActivated(scenario.episodeTwoId)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+        assertEquals(1, fixture.viewModel.uiState.value.selectedSeason)
+    }
+
+    @Test
+    fun delayedEdgeRequestsFocusOnlyAfterItsPageArrives() = runDetailTest {
+        val scenario = Scenario(suffix = "-continuous-delayed")
+        scenario.seasonTwoEpisodesGate = CompletableDeferred()
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onSeriesEpisodeActivated(scenario.episodeTwoId)
+        fixture.viewModel.onCarouselEdgeRequested(scenario.episodeTwoId, 1)
+        assertEquals(null, fixture.viewModel.uiState.value.carouselJump)
+        scenario.seasonTwoEpisodesGate?.complete(Unit)
+        awaitCondition { fixture.viewModel.uiState.value.carouselJump != null }
+        assertEquals(scenario.seasonTwoEpisodeId, fixture.viewModel.uiState.value.carouselJump?.contentId)
+        assertTrue(fixture.viewModel.uiState.value.carouselJump?.requestFocus == true)
+    }
+
+    @Test
+    fun leavingRailCancelsPendingEdgeFocus() = runDetailTest {
+        val scenario = Scenario(suffix = "-continuous-focus-cancel")
+        scenario.seasonTwoEpisodesGate = CompletableDeferred()
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+        fixture.viewModel.onCarouselEdgeRequested(scenario.episodeTwoId, 1)
+        fixture.viewModel.onCarouselFocusLost()
+        scenario.seasonTwoEpisodesGate?.complete(Unit)
+        awaitCondition { fixture.viewModel.uiState.value.carouselEpisodes.size == 3 }
+        assertEquals(null, fixture.viewModel.uiState.value.carouselJump)
+    }
+
+    @Test
+    fun cancelledPriorSeasonCannotEndReplacementLoad() = runDetailTest {
+        val scenario = Scenario(suffix = "-cancelled-season-owner")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+
+        scenario.seasonOneEpisodesGate = CompletableDeferred()
+        scenario.seasonTwoEpisodesGate = CompletableDeferred()
+        fixture.viewModel.onSeasonSelected(2)
+        awaitCondition {
+            fixture.viewModel.uiState.value.let { it.selectedSeason == 2 && it.episodesLoading }
+        }
+
+        fixture.viewModel.onSeasonSelected(1)
+        awaitCondition { fixture.viewModel.uiState.value.selectedSeason == 1 }
+        delay(20)
+
+        assertTrue(
+            fixture.viewModel.uiState.value.episodesLoading,
+            "a canceled season request must not end the replacement request's loading state",
+        )
+
+        scenario.seasonOneEpisodesGate?.complete(Unit)
+        scenario.seasonTwoEpisodesGate?.complete(Unit)
+        awaitCondition {
+            fixture.viewModel.uiState.value.let { state ->
+                !state.episodesLoading && state.episodes.all { it.seasonNumber == 1 }
+            }
+        }
+    }
+
+    @Test
+    fun seasonRefreshStartedAfterSelectionKeepsThatSelection() = runDetailTest {
+        val scenario = Scenario(suffix = "-season-refresh-after-selection")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+
+        fixture.viewModel.onSeasonSelected(2)
+        awaitCondition {
+            fixture.viewModel.uiState.value.episodes.any { it.seasonNumber == 2 }
+        }
+
+        val seasonsBeforeRefresh = scenario.seasonsRequests.get()
+        scenario.seasonsGate = CompletableDeferred()
+        fixture.viewModel.loadAll()
+        awaitCondition { scenario.seasonsRequests.get() > seasonsBeforeRefresh }
+
+        scenario.seasonsGate?.complete(Unit)
+        awaitCondition { !fixture.viewModel.uiState.value.seasonsLoading }
+
+        assertEquals(2, fixture.viewModel.uiState.value.selectedSeason)
+        assertTrue(fixture.viewModel.uiState.value.episodes.all { it.seasonNumber == 2 })
+    }
+
+    @Test
+    fun delayedSeasonRefreshPreservesNewerSelectionAndInvalidatesOldPlayTarget() = runDetailTest {
+        val scenario = Scenario(suffix = "-season-refresh")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+
+        val seasonsBeforeRefresh = scenario.seasonsRequests.get()
+        scenario.seasonsGate = CompletableDeferred()
+        scenario.seasonTwoEpisodesGate = CompletableDeferred()
+        fixture.viewModel.loadAll()
+        awaitCondition { scenario.seasonsRequests.get() > seasonsBeforeRefresh }
+
+        fixture.viewModel.onSeasonSelected(2)
+        awaitCondition {
+            fixture.viewModel.uiState.value.let { it.selectedSeason == 2 && it.episodesLoading }
+        }
+        assertEquals(
+            scenario.episodeOneId,
+            fixture.viewModel.uiState.value.nextUpEpisode?.contentId,
+            "the previous target stays rendered so the action row keeps its geometry",
+        )
+        assertFalse(
+            fixture.viewModel.uiState.value.nextUpTargetReady,
+            "the placeholder must not remain playable while season 2 loads",
+        )
+
+        scenario.seasonsGate?.complete(Unit)
+        awaitCondition { !fixture.viewModel.uiState.value.seasonsLoading }
+        assertEquals(
+            2,
+            fixture.viewModel.uiState.value.selectedSeason,
+            "a late seasons refresh must not replay its older initial selection",
+        )
+
+        scenario.seasonTwoEpisodesGate?.complete(Unit)
+        awaitCondition {
+            fixture.viewModel.uiState.value.episodes.any { it.seasonNumber == 2 }
+        }
+        assertEquals(2, fixture.viewModel.uiState.value.selectedSeason)
+        assertTrue(fixture.viewModel.uiState.value.nextUpTargetReady)
+    }
+
+    @Test
+    fun focusedSeriesEpisodeBecomesHeroPlayAndSelectorTarget() = runDetailTest {
+        val scenario = Scenario(suffix = "-focus-target")
+        val fixture = createFixture(scenario)
+        awaitEpisode(fixture.viewModel, scenario.episodeOneId)
+
+        fixture.viewModel.onSeriesEpisodeActivated(scenario.episodeTwoId)
+        awaitEpisode(fixture.viewModel, scenario.episodeTwoId)
+
+        val state = fixture.viewModel.uiState.value
+        assertEquals(scenario.episodeTwoId, state.nextUpEpisode?.contentId)
+        assertEquals(scenario.episodeTwoId, state.nextUpPlaybackDetail?.contentId)
+    }
 
     @Test
     fun absentVersionCodecAndContainerDecodeAsNull() = runDetailTest {
@@ -340,12 +540,10 @@ class TvNextUpSelectionHandoffTest {
 
             fixture.viewModel.onSetEpisodeWatched(scenario.episodeOneId, true)
             awaitCondition { scenario.episodeTwoRequests.get() > 0 }
-            fixture.identityTransitions.changing(kind) {
-                when (kind) {
-                    IdentityTransitionKind.PROFILE_SWITCH -> fixture.tokenManager.profileId = "profile-2"
-                    IdentityTransitionKind.SERVER_SWITCH -> fixture.tokenManager.serverId = "server-2"
-                    else -> error("unexpected kind")
-                }
+            when (kind) {
+                IdentityTransitionKind.PROFILE_SWITCH -> fixture.tokenManager.switchIdentity(kind, profileId = "profile-2")
+                IdentityTransitionKind.SERVER_SWITCH -> fixture.tokenManager.switchIdentity(kind, serverId = "server-2")
+                else -> error("unexpected kind")
             }
             gate.complete(Unit)
             awaitCondition {
@@ -523,19 +721,24 @@ class TvNextUpSelectionHandoffTest {
     private fun createFixture(scenario: Scenario): Fixture {
         val identityTransitions = DefaultIdentityTransitionBarrier()
         val tokenManager = FakeTokenManager(identityTransitions)
-        val client = scenario.client()
-        val userState = RecordingUserItemState()
+        val client = scenario.client(tokenManager)
+        val userState = RecordingUserItemState(tokenManager)
+        // Queued snapshots below control handoff races. Personal writes capture
+        // the same current identity without consuming those handoff checkpoints.
+        val personalTokens = object : TokenManager by tokenManager {
+            override suspend fun snapshotCurrentScope() = tokenManager.currentScope()
+        }
         val catalogRepository = CatalogRepository(
-            catalogApi = CatalogApi(client),
+            catalogApi = CatalogApi(client, CatalogV2Api(client, ApiV2Gate.Unrestricted, tokenManager)),
             identityTransitions = identityTransitions,
         )
         val personalDataRepository = PersonalDataRepository(
-            personalDataApi = PersonalDataApi(client),
+            personalDataApi = PersonalDataApi(client, tokenManager = personalTokens),
             userItemStatePort = userState,
             identityTransitions = identityTransitions,
         )
         val profileRepository = ProfileRepository(
-            profileApi = ProfileApi(client),
+            profileApi = ProfileApi(client, ApiV2Gate.Unrestricted, tokenManager),
             tokenManager = tokenManager,
             identityTransitions = identityTransitions,
         )
@@ -547,7 +750,7 @@ class TvNextUpSelectionHandoffTest {
             },
             profileRepository = profileRepository,
             profileSettings = ProfileSettingsController(SettingsRepository(UnavailableSettingsApi())),
-            metadataAiRepository = MetadataAiRepository(DefaultMetadataAiApi(client)),
+            metadataAiRepository = MetadataAiRepository(DefaultMetadataAiApi(client, gate = ApiV2Gate.Unrestricted)),
             contentId = scenario.seriesId,
             userItemState = userState,
             tokenManager = tokenManager,
@@ -587,6 +790,7 @@ class TvNextUpSelectionHandoffTest {
 
     private class Scenario(
         val suffix: String = "",
+        val seriesType: String = "series",
         val oldVersions: List<VersionFixture> = listOf(version(101, "1080p")),
         val newVersions: List<VersionFixture> = listOf(version(201, "1080p")),
         val oldLastFileId: Int? = null,
@@ -596,31 +800,61 @@ class TvNextUpSelectionHandoffTest {
         val seriesId = "series$suffix"
         val episodeOneId = "episode-1$suffix"
         val episodeTwoId = "episode-2$suffix"
+        val seasonTwoEpisodeId = "season-2-episode-1$suffix"
         var episodeOneWatched = false
         var episodeTwoWatched = false
         var episodeTwoGate: CompletableDeferred<Unit>? = null
         var episodeOneWatchGate: CompletableDeferred<Unit>? = null
+        var seasonsGate: CompletableDeferred<Unit>? = null
+        var seasonOneEpisodesGate: CompletableDeferred<Unit>? = null
+        var seasonTwoEpisodesGate: CompletableDeferred<Unit>? = null
+        val seasonsRequests = AtomicInteger()
         val episodeTwoRequests = AtomicInteger()
         val pendingEpisodeOneResponses = AtomicInteger()
         var episodeOneDefaultVersions = oldVersions
         val episodeOneResponses = ConcurrentLinkedDeque<DetailResponse>()
 
-        fun client(): HttpClient = HttpClient(
+        fun client(tokenManager: FakeTokenManager): HttpClient = HttpClient(
             MockEngine { request ->
+                if (request.url.encodedPath.startsWith("/api/v2/")) {
+                    // The engine runs handlers on its own threads, so comparing
+                    // against the live scope races any concurrent transition.
+                    // Check the owner against the servers its own generation had.
+                    val owner = request.attributes[AuthScopeAttributeKey]
+                    assertTrue(owner.serverId in tokenManager.serversDuring(owner.identityGeneration))
+                }
                 fun json(content: String) = respond(
                     content = content,
                     status = HttpStatusCode.OK,
                     headers = JSON_HEADERS,
                 )
                 when (request.url.encodedPath) {
-                    "/api/v1/catalog/items/$seriesId" -> json(
-                        """{"content_id":"$seriesId","type":"series","title":"Series"}""",
+                    "/api/v2/catalog/items/$seriesId" -> json(
+                        """{"content_id":"$seriesId","type":"$seriesType","title":"Series","cast":[],"crew":[],"versions":[],"subtitles":[]}""",
                     )
-                    "/api/v1/catalog/series/$seriesId/seasons" -> json(
-                        """{"seasons":[{"content_id":"season$suffix","season_number":1,"title":"Season 1"}]}""",
-                    )
-                    "/api/v1/catalog/series/$seriesId/seasons/1/episodes" -> json(episodesJson())
-                    "/api/v1/catalog/items/$episodeOneId" -> {
+                    "/api/v2/catalog/series/$seriesId/seasons" -> {
+                        seasonsRequests.incrementAndGet()
+                        seasonsGate?.await()
+                        json(
+                            """{"items":[
+                                {"content_id":"season-1$suffix","season_number":1,"title":"Season 1"},
+                                {"content_id":"season-2$suffix","season_number":2,"title":"Season 2"}
+                            ]}""".trimIndent(),
+                        )
+                    }
+                    "/api/v2/catalog/series/$seriesId/seasons/1/episodes" -> {
+                        seasonOneEpisodesGate?.await()
+                        json(episodesJson())
+                    }
+                    "/api/v2/catalog/series/$seriesId/seasons/2/episodes" -> {
+                        seasonTwoEpisodesGate?.await()
+                        json(
+                            """{"items":[
+                                {"content_id":"$seasonTwoEpisodeId","season_number":2,"episode_number":1,"title":"Season Two"}
+                            ]}""".trimIndent(),
+                        )
+                    }
+                    "/api/v2/catalog/items/$episodeOneId" -> {
                         val queued = episodeOneResponses.pollFirst()
                         if (queued == null) {
                             json(itemDetailJson(episodeOneId, episodeOneDefaultVersions, oldLastFileId))
@@ -630,22 +864,24 @@ class TvNextUpSelectionHandoffTest {
                             json(queued.json)
                         }
                     }
-                    "/api/v1/catalog/items/$episodeTwoId" -> {
+                    "/api/v2/catalog/items/$episodeTwoId" -> {
                         episodeTwoRequests.incrementAndGet()
                         episodeTwoGate?.await()
                         json(itemDetailJson(episodeTwoId, newVersions, newLastFileId))
                     }
-                    "/api/v1/watched/$episodeOneId" -> {
+                    "/api/v2/catalog/items/$seasonTwoEpisodeId" ->
+                        json(itemDetailJson(seasonTwoEpisodeId, newVersions, newLastFileId))
+                    "/api/v2/watched/$episodeOneId" -> {
                         episodeOneWatchGate?.await()
                         episodeOneWatched = request.method.value != "DELETE"
                         respond("", HttpStatusCode.NoContent)
                     }
-                    "/api/v1/watched/$episodeTwoId" -> {
+                    "/api/v2/watched/$episodeTwoId" -> {
                         episodeTwoWatched = request.method.value != "DELETE"
                         respond("", HttpStatusCode.NoContent)
                     }
-                    "/api/v1/profiles" -> json(
-                        """{"profiles":[{"id":"profile-1","name":"Profile"}]}""",
+                    "/api/v2/profiles" -> json(
+                        """{"items":[{"id":"profile-1","name":"Profile","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}""",
                     )
                     else -> respond(
                         content = """{"error":"not_found","message":"not found"}""",
@@ -659,19 +895,23 @@ class TvNextUpSelectionHandoffTest {
         }
 
         private fun episodesJson(): String =
-            """{"episodes":[
+            """{"items":[
                 {"content_id":"$episodeOneId","season_number":1,"episode_number":1,"title":"One","user_data":{"played":$episodeOneWatched}},
                 {"content_id":"$episodeTwoId","season_number":1,"episode_number":2,"title":"Two","user_data":{"played":$episodeTwoWatched}}
             ]}""".trimIndent()
     }
 
-    private class RecordingUserItemState : UserItemStatePort {
+    private class RecordingUserItemState(private val tokens: FakeTokenManager) : UserItemStatePort {
         data class Write(val contentId: String, val fileId: Int, val kind: String, val fingerprint: String?)
 
         val saved = ConcurrentHashMap<Pair<String, Int>, LocalTrackSelection>()
         val writes = CopyOnWriteArrayList<Write>()
         val readGates = ConcurrentHashMap<Pair<String, Int>, CompletableDeferred<Unit>>()
         val startedReads: MutableSet<Pair<String, Int>> = ConcurrentHashMap.newKeySet()
+
+        private var nextPersonalWrite = 0L
+        override suspend fun beginPersonalWrite(command: PersonalWrite) =
+            PersonalWriteHandle(++nextPersonalWrite, tokens.currentScope(), command)
 
         override suspend fun recordWatched(contentId: String, watched: Boolean) = OutboxHandle.NONE
         override suspend fun recordFavorite(contentId: String, favorite: Boolean) = OutboxHandle.NONE
@@ -705,8 +945,13 @@ class TvNextUpSelectionHandoffTest {
     private class FakeTokenManager(
         private val identityTransitions: IdentityTransitionBarrier,
     ) : TokenManager {
-        var serverId = "server-1"
-        var profileId = "profile-1"
+        @Volatile var serverId = "server-1"
+        @Volatile var profileId = "profile-1"
+
+        // Server committed by each generation. The barrier bumps the generation
+        // before the switch block runs, so a scope stamped in between carries
+        // the new generation with the previous server.
+        private val committedServers = ConcurrentHashMap(mapOf(0L to serverId))
         val snapshotCalls = AtomicInteger()
         val snapshotResponses = ConcurrentLinkedDeque<SnapshotResponse>()
 
@@ -729,6 +974,20 @@ class TvNextUpSelectionHandoffTest {
             this.serverId = serverId.orEmpty()
         }
         override suspend fun signOutCurrentServer() = Unit
+        suspend fun switchIdentity(
+            kind: IdentityTransitionKind,
+            serverId: String = this.serverId,
+            profileId: String = this.profileId,
+        ) = identityTransitions.changing(kind) {
+            // Record before publishing so no reader sees the new server unrecorded.
+            committedServers[identityTransitions.generation.value] = serverId
+            this.serverId = serverId
+            this.profileId = profileId
+        }
+
+        fun serversDuring(generation: Long): Set<String> =
+            setOfNotNull(committedServers[generation - 1], committedServers[generation])
+
         fun currentScope(profileId: String? = this.profileId) = AuthScopeSnapshot(
             serverId = serverId,
             profileId = profileId,
@@ -745,9 +1004,9 @@ class TvNextUpSelectionHandoffTest {
         }
     }
 
-    private class UnavailableSettingsApi : SettingsApi(HttpClient()) {
-        override suspend fun getContractCapabilities(): SettingsCapabilitiesResult =
-            SettingsCapabilitiesResult.ServerUpgradeRequired
+    private class UnavailableSettingsApi : SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted)) {
+        override suspend fun getContractCapabilities(): ApiResult<org.prairieserver.prairie.model.settings.SettingsContractCapabilities> =
+            ApiResult.Error(404, "not_found", "404 page not found")
     }
 
     private data class DetailResponse(val gate: CompletableDeferred<Unit>?, val json: String)
@@ -795,12 +1054,12 @@ class TvNextUpSelectionHandoffTest {
             versions: List<VersionFixture>,
             lastFileId: Int? = null,
         ): String =
-            """{"content_id":"$contentId","type":"episode","title":"Episode","user_data":{"last_file_id":$lastFileId},"versions":[${versions.joinToString(",", transform = ::versionJson)}]}"""
+            """{"content_id":"$contentId","type":"episode","title":"Episode","cast":[],"crew":[],"subtitles":[],"user_data":{"last_file_id":${lastFileId?.let { "\"$it\"" } ?: "null"}},"versions":[${versions.joinToString(",", transform = ::versionJson)}]}"""
 
         private fun jsonString(value: String?): String = value?.let { "\"$it\"" } ?: "null"
 
         private fun versionJson(version: VersionFixture): String =
-            """{"file_id":${version.fileId},"resolution":"${version.resolution}","codec_video":${jsonString(version.codec)},"container":${jsonString(version.container)},"subtitle_tracks":[${version.subtitles.joinToString(",", transform = ::subtitleJson)}],"audio_tracks":[${version.audio.joinToString(",", transform = ::audioJson)}]}"""
+            """{"file_id":"${version.fileId}","resolution":"${version.resolution}","codec_video":${jsonString(version.codec)},"container":${jsonString(version.container)},"subtitle_tracks":[${version.subtitles.joinToString(",", transform = ::subtitleJson)}],"audio_tracks":[${version.audio.joinToString(",", transform = ::audioJson)}]}"""
 
         private fun subtitleJson(track: SubtitleTrack): String =
             """{"index":${track.index},"codec":"${track.codec}","language":"${track.language}","title":${track.title?.let { "\"$it\"" } ?: "null"},"forced":${track.forced},"external":${track.external}}"""

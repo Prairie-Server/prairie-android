@@ -1,8 +1,10 @@
 package org.prairieserver.prairie.tv.ui.screens.detail
 
 import org.prairieserver.prairie.model.catalog.FileVersion
+import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
+import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -48,13 +50,34 @@ internal object TvDetailMetadata {
     fun ratingChip(detail: ItemDetail): String? =
         detail.contentRating?.trim()?.takeIf { it.isNotEmpty() }
 
+    fun seriesEpisodeSourceTokens(episode: EpisodeListItem): List<String> = listOfNotNull(
+        if (episode.seasonNumber == 0) "Specials" else "Season ${episode.seasonNumber}",
+        "Episode ${episode.episodeNumber}".takeIf { episode.episodeNumber > 0 },
+    )
+
+    /** Episode editorial facts used by the combined Series page. These mirror
+     * tvOS: the episode's air date and runtime replace the Show facts, while
+     * version choices remain directly beneath the episode carousel. */
+    fun seriesEpisodeFactsLine(
+        episode: EpisodeListItem,
+        runtimeMinutes: Int = episode.runtime,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): List<TvHeroFactToken> = buildList {
+        abbreviatedDate(episode.airDate, zone)?.let {
+            add(TvHeroFactToken.TextToken(it))
+        }
+        runtimeLabel(runtimeMinutes)?.let { add(TvHeroFactToken.TextToken(it)) }
+    }
+
     fun factsLine(
         detail: ItemDetail,
         preferredQuality: String? = null,
         selectedFileId: Int? = null,
+        includePlaybackFormats: Boolean = true,
         zone: ZoneId = ZoneId.systemDefault(),
     ): List<TvHeroFactToken> {
         val tokens = mutableListOf<TvHeroFactToken>()
+        val selectedVersion = preferredVersion(detail, preferredQuality, selectedFileId)
         if (detail.type.equals("episode", ignoreCase = true)) {
             abbreviatedDate(detail.airDate ?: detail.releaseDate, zone)?.let {
                 tokens += TvHeroFactToken.TextToken(it)
@@ -68,12 +91,16 @@ internal object TvDetailMetadata {
                     tokens += TvHeroFactToken.TextToken("$it Season${if (it == 1) "" else "s"}")
                 }
             else ->
-                runtimeLabel(detail.runtime)?.let { tokens += TvHeroFactToken.TextToken(it) }
+                runtimeLabel(selectedMediaRuntimeMinutes(detail, selectedVersion))?.let {
+                    tokens += TvHeroFactToken.TextToken(it)
+                }
         }
         detail.ratingImdb?.let {
             tokens += TvHeroFactToken.TextToken("★ ${formatOneDecimal(it)}")
         }
-        tokens += qualityTokens(detail, preferredQuality, selectedFileId)
+        if (includePlaybackFormats) {
+            tokens += qualityTokens(selectedVersion)
+        }
         return tokens
     }
 
@@ -139,12 +166,8 @@ internal object TvDetailMetadata {
         return "$whole.$tenths"
     }
 
-    private fun qualityTokens(
-        detail: ItemDetail,
-        preferredQuality: String?,
-        selectedFileId: Int?,
-    ): List<TvHeroFactToken> {
-        val version = preferredVersion(detail, preferredQuality, selectedFileId) ?: return emptyList()
+    private fun qualityTokens(version: FileVersion?): List<TvHeroFactToken> {
+        version ?: return emptyList()
         val tokens = mutableListOf<TvHeroFactToken>()
         resolutionLabel(version.resolution)?.let { tokens += TvHeroFactToken.Chip(it) }
         when {
@@ -154,7 +177,7 @@ internal object TvDetailMetadata {
                 tokens += TvHeroFactToken.Chip("HDR")
         }
         primaryAudioLabel(version)?.let { tokens += TvHeroFactToken.Chip(it) }
-        if (hasSubtitles(version, detail)) tokens += TvHeroFactToken.Chip("CC")
+        if (!version.subtitleTracks.isNullOrEmpty()) tokens += TvHeroFactToken.Chip("CC")
         return tokens
     }
 
@@ -198,9 +221,4 @@ internal object TvDetailMetadata {
         }
     }
 
-    private fun hasSubtitles(version: FileVersion, detail: ItemDetail): Boolean {
-        val versionSubs = version.subtitleTracks
-        if (!versionSubs.isNullOrEmpty()) return true
-        return detail.subtitles.isNotEmpty()
-    }
 }

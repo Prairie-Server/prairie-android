@@ -6,6 +6,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.SettingsRepository
 import org.prairieserver.prairie.tv.BuildConfig
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
+import org.prairieserver.prairie.tv.data.preferences.TvHomeSectionPreferences
 import org.prairieserver.prairie.tv.data.preferences.TvLibrarySelectionStore
 import org.prairieserver.prairie.common.network.AndroidDeviceMetadataProvider
 import org.prairieserver.prairie.common.network.PrairieClientBuildIdentity
@@ -35,7 +36,7 @@ import org.prairieserver.prairie.common.player.SubtitleManager
 import org.prairieserver.prairie.common.cast.PrairieCastNsdAdvertiser
 import org.prairieserver.prairie.common.player.video.VideoPlaybackSessionCoordinator
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
-import org.prairieserver.prairie.tv.cast.TvSiloCastReceiver
+import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
 import org.prairieserver.prairie.tv.cast.RemotePlaybackIdentityManager
 import org.prairieserver.prairie.tv.ui.screens.player.TvPlayerLaunchArgs
 import org.prairieserver.prairie.tv.ui.screens.auth.TvLoginViewModel
@@ -95,7 +96,15 @@ val androidTvModule = module {
     // commonMain in-memory TokenManager. Koin 3.1+ replaces same-key bindings
     // when the redefining module is loaded after the original — sharedModules()
     // is registered first in PrairieTvApplication, so this wins.
-    single<TokenManager> { EncryptedTokenManagerImpl(get(), get(), get()) }
+    single { EncryptedTokenManagerImpl(get(), get(), get()) }
+    single<TokenManager> { get<EncryptedTokenManagerImpl>() }
+    single<org.prairieserver.prairie.network.DurableLoginAuthorityProvider> { get<EncryptedTokenManagerImpl>() }
+    single<org.prairieserver.prairie.repository.port.MembershipPort> {
+        org.prairieserver.prairie.common.data.sync.RoomMembershipPort(
+            get<org.prairieserver.prairie.common.data.db.PrairieDatabase>(),
+            get(), get(), get(), get(), get(),
+        )
+    }
 
     // Offline-first Room store (Track B). Bound after sharedModules() so the
     // commonMain PersonalDataRepository's `getOrNull<UserItemStatePort>()` picks
@@ -110,7 +119,7 @@ val androidTvModule = module {
     single<org.prairieserver.prairie.repository.port.UserItemStatePort> {
         val tokenManager: TokenManager = get()
         org.prairieserver.prairie.common.data.repository.RoomUserItemStateRepository(
-            db = get(),
+            db = get(), ebookAuthorities = get(), identityTransitions = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
             syncScheduler = get(),
         )
@@ -132,14 +141,15 @@ val androidTvModule = module {
         )
     }
     single<org.prairieserver.prairie.repository.port.DownloadDeletionPort> {
-        org.prairieserver.prairie.common.data.repository.RoomDownloadDeletionStore(db = get())
+        org.prairieserver.prairie.common.data.repository.RoomDownloadDeletionStore(db = get(), authorities = get(), devices = get(), identityTransitions = get())
     }
     single {
         val tokenManager: TokenManager = get()
         org.prairieserver.prairie.common.data.sync.SyncEngine(
             db = get(),
             personalDataApi = get(),
-            ebookReaderApi = get(),
+            memberships = get(),
+            ebookReaderApi = get(), ebookAuthorities = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }
@@ -184,6 +194,7 @@ val androidTvModule = module {
             delayProcessor = get(),
             subtitleOffsetHolder = get(),
             libassBridge = get(),
+            playbackAnalytics = get(),
         )
     }
     single { PlaybackSessionManager(get(), get(), get()) }
@@ -204,6 +215,7 @@ val androidTvModule = module {
             playerSettingsStore = get(),
             sessionLifecycle = get(),
             reachabilityMonitor = get(),
+            userItemStatePort = get(),
         )
     }
     factory {
@@ -252,6 +264,8 @@ val androidTvModule = module {
             profileRepository = get(),
             offlineMediaResolver = get(),
             audiobookSettings = get(),
+            seekIntervalStore = get(),
+            audiobookSeekRouter = get(),
             savedStateHandle = get(),
         )
     }
@@ -264,6 +278,10 @@ val androidTvModule = module {
         org.prairieserver.prairie.tv.data.preferences.TvLibraryScopeStore(androidContext(), get())
     }
 
+    // tvOS-parity Home row visibility/order, local to this TV and partitioned
+    // by active server + profile.
+    single { TvHomeSectionPreferences(androidContext(), get()) }
+
     // One-shot legacy `tv_prefs` import (playback settings → server device
     // overrides; selected-library id → active profile's selection store).
     // Sentinel-gated; invoked from TvSettingsViewModel.loadSettings and
@@ -275,13 +293,9 @@ val androidTvModule = module {
             settingsCache = get(),
             playerSettingsStore = get(),
             librarySelectionStore = get(),
-            getServerUrl = { get<TokenManager>().getServerUrl() },
-            getProfileId = { get<TokenManager>().getProfileId() },
-            getEffectiveSettings = { keys ->
-                when (val result = get<SettingsRepository>().getEffectiveSettings(keys)) {
-                    is ApiResult.Success -> result.data
-                    is ApiResult.Error, is ApiResult.NetworkError -> emptyMap()
-                }
+            getAuthority = { get<TokenManager>().snapshotCurrentScope() },
+            getEffectiveSettings = { keys, owner ->
+                get<SettingsRepository>().getEffectiveValues(keys, authority = owner)
             },
         )
     }
@@ -308,7 +322,7 @@ val androidTvModule = module {
     // machine. A later step wires the UI to PairingReceiver.status.
     single {
         org.prairieserver.prairie.common.pairing.PairingReceiver(
-            authPort = org.prairieserver.prairie.common.pairing.RegistryPairingAuthPort(get(), get(), get()),
+            authPort = org.prairieserver.prairie.common.pairing.RegistryPairingAuthPort(get(), get(), get(), get()),
             deviceLogin = org.prairieserver.prairie.common.pairing.DeviceLoginRepositoryPort(get()),
             identityProvider = {
                 org.prairieserver.prairie.common.pairing.PairingDeviceIdentity(
@@ -350,7 +364,7 @@ val androidTvModule = module {
         )
     }
     single {
-        TvSiloCastReceiver(
+        TvPrairieCastReceiver(
             advertiser = get(),
             serverRegistry = get(),
             identityManager = get(),
@@ -366,7 +380,7 @@ val androidTvModule = module {
     viewModel { org.prairieserver.prairie.tv.ui.screens.auth.TvSetupViewModel(get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.auth.TvSignupViewModel(get()) }
     viewModel { TvLoginViewModel(get(), get(), get()) }
-    viewModel { TvProfileSelectionViewModel(get()) }
+    viewModel { TvProfileSelectionViewModel(get(), get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.profiles.TvCreateProfileViewModel(get()) }
     viewModel { params ->
         org.prairieserver.prairie.tv.ui.screens.profiles.TvEditProfileViewModel(
@@ -374,7 +388,7 @@ val androidTvModule = module {
             profileId = params.get(),
         )
     }
-    viewModel { TvServerListViewModel(get(), get(), get()) }
+    viewModel { TvServerListViewModel(get(), get(), get(), get()) }
 
     viewModel { params ->
         org.prairieserver.prairie.viewmodel.RequestDetailViewModel(get(), params.get(), params.get())
@@ -389,7 +403,7 @@ val androidTvModule = module {
     }
 
     // Content ViewModels
-    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get()) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { RequestsViewModel(get()) }
@@ -438,6 +452,7 @@ val androidTvModule = module {
     viewModel { TvSearchViewModel(get(), get(), get()) }
     viewModel { params ->
         TvItemDetailViewModel(
+            libraryId = params.getOrNull<Int>(),
             catalogRepository = get(),
             personalDataRepository = get(),
             playerSettingsStore = get(),
@@ -450,6 +465,7 @@ val androidTvModule = module {
             recommendationRepository = getOrNull(),
             tokenManager = get(),
             identityTransitions = get(),
+            capabilityDetector = get(),
         )
     }
     // Watch Together entry (create/join orchestration) — backs the entry +
@@ -494,7 +510,7 @@ val androidTvModule = module {
     // Personal data grids.
     viewModel { FavoritesViewModel(get(), get()) }
     viewModel { WatchlistViewModel(get(), get()) }
-    viewModel { HistoryViewModel(get()) }
+    viewModel { HistoryViewModel(get(), get()) }
     // Sort/filter state for the favorites and watchlist grids, keyed by source.
     viewModel { params ->
         TvPersonalListControlsViewModel(
@@ -523,9 +539,12 @@ val androidTvModule = module {
             playerSettingsStore = get(),
             libraryPlaybackPrefsStore = get(),
             overlayPrefsStore = get(),
+            cardPresentationStore = get(),
             legacyTvPrefsMigration = get(),
             profileSettings = get(),
             tvLibraryScopeStore = getOrNull(),
+            seekIntervalStore = get(),
+            audiobookSettingsStore = get(),
         )
     }
     viewModel { TvDiagnosticsViewModel(get()) }

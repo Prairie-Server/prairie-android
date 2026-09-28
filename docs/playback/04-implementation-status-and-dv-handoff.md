@@ -5,7 +5,7 @@
 > evidence remains useful; its server compatibility claims do not establish
 > compatibility with the neutral server revision.
 
-Status date: 2026-07-12
+Status date: 2026-09-01
 
 This file records proof and remaining gates. It does not redefine the
 architecture or migration contract in documents 01 and 02.
@@ -33,7 +33,17 @@ architecture or migration contract in documents 01 and 02.
 - MediaCodec and display probes are intersected. Dolby Vision profiles 4/6/7/8
   map to their Android constants; Profile 7 additionally requires concurrent
   DV and HEVC decoder capacity. Profile 8 is not assumed.
-- Platform audio remains first and the Media3 1.10.1 FFmpeg extension is
+- Android TV advertises the client `client_dv7_to_hdr10` transformation when
+  the decoder ∩ display intersection carries HDR10 and a hardware 10-bit HEVC
+  decoder exists. The extractor drops the enhancement layer, RPU, and dvcC
+  record and hands the untouched Main 10 PQ base layer to the HEVC decoder,
+  so a Profile 7 title on a non-DV output direct-plays with TrueHD/DTS
+  passthrough instead of taking the server HLS remux, which must convert
+  that audio to AAC. Phones stay on the server strip. A recipe wedge is
+  classified `dv7_transform_stall` only when the player holds at least the
+  rebuffer threshold of media, so a Wi-Fi rebuffer on a 70-110 Mbps remux
+  keeps the transport clock and does not quarantine the route.
+- Platform audio remains first and the Media3 1.11.0 FFmpeg extension is
   fallback-only. One sink failure may suppress the exact encoded MIME/layout
   and reprepare through PCM. Audio delay is labelled PCM-only and disabled
   while the validated plan uses passthrough.
@@ -46,12 +56,12 @@ architecture or migration contract in documents 01 and 02.
 
 ## Build and automated evidence
 
-- Media3 runtime and FFmpeg extension are aligned at 1.10.1.
-- FFmpeg inputs: Media3 `1.10.1`, FFmpeg `n6.0`, NDK `26.3.11579264`;
-  decoders `ac3`, `eac3`, `mlp`, `truehd`, `dca`; ABIs `armeabi-v7a`,
+- Media3 runtime and FFmpeg extension are aligned at 1.11.0.
+- FFmpeg inputs: Media3 `1.11.0`, FFmpeg `n6.0`, NDK `26.3.11579264`;
+  decoders `ac3`, `eac3`, `mlp`, `truehd`, `dca`, `alac`; ABIs `armeabi-v7a`,
   `arm64-v8a`, `x86_64`.
 - Checked-in AAR SHA-256:
-  `8b07dee59e97ec821a11fb2cf30de5aa345ee4815869794e226067ae6412491d`.
+  `bbe661491dd342f2930ffd3bafd6f3e496da3d84586cc5d603432d49daea6b4f`.
   Builds are not byte-identical; pinned inputs and archive contents are the
   reviewable contract.
 - Phone and TV debug APKs assemble successfully.

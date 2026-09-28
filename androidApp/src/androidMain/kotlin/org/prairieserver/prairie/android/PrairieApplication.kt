@@ -9,8 +9,6 @@ import androidx.work.WorkManager
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
-import coil3.disk.DiskCache
-import coil3.request.crossfade
 import org.prairieserver.prairie.android.di.androidModule
 import org.prairieserver.prairie.android.downloads.AppWorkerFactory
 import org.prairieserver.prairie.android.notifications.NotificationsForegroundStarter
@@ -24,9 +22,9 @@ import org.prairieserver.prairie.common.downloads.DownloadWorker
 import org.prairieserver.prairie.di.sharedModules
 import org.prairieserver.prairie.util.ImageFormats
 import kotlinx.coroutines.launch
-import okio.Path.Companion.toOkioPath
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import org.prairieserver.prairie.common.images.buildPrairieImageLoader
 
 /**
  * Implements `Configuration.Provider` rather than calling
@@ -47,6 +45,9 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
             modules(sharedModules() + playerModule + playerInfraModule + androidModule + diagnosticsModule)
         }
         DiagnosticsStartup.startCoordinator { koinApp.koin.get<DiagnosticsCoordinator>() }
+        koinApp.koin.get<org.prairieserver.prairie.repository.ImageCapabilitiesSession>().start(
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+        )
         // Drive notifications realtime off the app foreground lifecycle. Guarded:
         // it's a foreground accelerator, never load-bearing for cold start.
         runCatching {
@@ -161,22 +162,9 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
                 .build()
         }
 
-    /**
-     * Tunes the shared Coil image loader: a generous on-disk artwork cache so
-     * posters/backdrops survive between sessions (Coil's default disk cap is
-     * small — 2% of free space, capped at 250MB). Memory cache and network
-     * stack stay at Coil's heap-proportional defaults.
-     */
+    /** Coil setup is shared with the TV app — see [buildPrairieImageLoader]. */
     override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context)
-            .crossfade(true)
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache").toOkioPath())
-                    .maxSizeBytes(512L * 1024 * 1024)
-                    .build()
-            }
-            .build()
+        buildPrairieImageLoader(context, cacheDir)
 
     /**
      * Channel for offline download progress / completion notifications.

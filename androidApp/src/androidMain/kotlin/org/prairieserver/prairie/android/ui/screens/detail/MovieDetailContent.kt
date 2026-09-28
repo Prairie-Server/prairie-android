@@ -1,17 +1,13 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -19,19 +15,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.outlined.AudioFile
-import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableStateOf
@@ -41,11 +34,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.theme.PrairieBackground
+import org.prairieserver.prairie.android.ui.theme.PrairieDetailActionControl
+import org.prairieserver.prairie.android.ui.theme.PrairieDetailActionControlActive
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
 import org.prairieserver.prairie.common.ui.movieDirectorCredit
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.catalog.ItemExtra
 import org.prairieserver.prairie.model.catalog.Season
+import org.prairieserver.prairie.model.catalog.trailerRailEntries
+import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalDensity
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 
 /**
  * Phone movie / episode detail. Cinematic backdrop hero up top, then a
@@ -62,7 +65,7 @@ fun MovieDetailContent(
         url = detail.posterUrl,
         thumbhash = detail.posterThumbhash,
     ),
-    similarItems: List<ItemDetail> = emptyList(),
+    similarItems: List<org.prairieserver.prairie.model.catalog.BrowseItem> = emptyList(),
     isFavorite: Boolean,
     isInWatchlist: Boolean,
     selectedVersionIndex: Int,
@@ -75,16 +78,13 @@ fun MovieDetailContent(
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
     onToggleWatched: () -> Unit,
-    userRating: Int? = null,
-    onSetRating: (Int) -> Unit = {},
-    onClearRating: () -> Unit = {},
     onVersionSelected: (Int?) -> Unit,
     onAudioSelected: (Int?) -> Unit,
     onSubtitleSelected: (Int?) -> Unit,
     onPersonClick: (String) -> Unit,
     onItemDetailClick: (String) -> Unit,
     onSeriesClick: (() -> Unit)? = null,
-    onSeasonClick: (() -> Unit)? = null,
+    onPlayExtra: (ItemExtra) -> Unit = {},
     // Episode pages only: the parent series' seasons + the selected
     // season's siblings, for the in-page season/episode selector.
     seasons: List<Season> = emptyList(),
@@ -93,50 +93,70 @@ fun MovieDetailContent(
     episodesBySeason: Map<Int, List<EpisodeListItem>> = emptyMap(),
     isLoadingEpisodes: Boolean = false,
     onSeasonSelected: (Int) -> Unit = {},
-    onEpisodePlayClick: (String, Double?) -> Unit = { _, _ -> },
     onEpisodeDetailClick: (String) -> Unit = {},
-    onEpisodeDownloadClick: ((EpisodeListItem) -> Unit)? = null,
-    episodeDownloadState: (EpisodeListItem) -> DetailDownloadState = { DetailDownloadState() },
+    onEpisodeWatchedChange: (String, Boolean) -> Unit = { _, _ -> },
     isDownloaded: Boolean = false,
     downloadProgress: Float? = null,
-    playOnDeviceLabel: String = "Play on device",
     onDownloadTapped: (() -> Unit)? = null,
-    onPlayOnDevice: (() -> Unit)? = null,
     onWatchTogether: (() -> Unit)? = null,
     onSuggestToRoom: (() -> Unit)? = null,
     translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var showVersionPicker by remember { mutableStateOf(false) }
     var showAudioPicker by remember { mutableStateOf(false) }
     var showSubtitlePicker by remember { mutableStateOf(false) }
-    var showRatingSheet by remember { mutableStateOf(false) }
 
-    val dominantColor by rememberDominantColor(detail.backdropUrl, fallback = PrairieBackground)
+    val dominantColor by rememberDominantColor(
+        imageUrl = detail.backdropUrl,
+        fallback = PrairieBackground,
+        thumbhash = detail.backdropThumbhash,
+    )
 
     val selectedVersion = detail.versions.getOrNull(selectedVersionIndex)
     val audioTracks = selectedVersion?.audioTracks.orEmpty()
     val subtitleTracks = selectedVersion?.subtitleTracks.orEmpty()
     val hasTrackSelectors = detail.versions.isNotEmpty()
-    val hasOverflow = onPlayOnDevice != null ||
-        onSeriesClick != null || onSeasonClick != null || onWatchTogether != null ||
+    val hasOverflow = onSeriesClick != null || onWatchTogether != null ||
         onSuggestToRoom != null
 
     val eyebrow = if (detail.type == "episode") {
         HeroMetadata.episodeEyebrow(detail)
     } else {
-        HeroMetadata.movieEyebrow(detail)
+        null
     }
     val sourceTokens = HeroMetadata.movieSourceTokens(detail)
-    val factsLine = HeroMetadata.movieFactsLine(detail)
+    val selectedRuntimeMinutes = selectedMediaRuntimeMinutes(detail, selectedVersion)
+    val factsLine = HeroMetadata.movieFactsLine(detail, selectedRuntimeMinutes)
 
     // iOS below-fold section spacing is 36 (hero→first section 32). Use 36
     // uniformly — the closest single-value match to the iOS column rhythm.
+    val feedState = rememberLazyListState()
+    // Feed the pinned header. Only the first item (the hero) matters: it is
+    // taller than the fade range, so once it has scrolled away the header is
+    // already fully settled.
+    val detailScroll = LocalDetailScrollState.current
+    if (detailScroll != null) {
+        val density = LocalDensity.current
+        LaunchedEffect(feedState, detailScroll, density) {
+            snapshotFlow {
+                if (feedState.firstVisibleItemIndex > 0) {
+                    HeaderSettledDp
+                } else {
+                    with(density) { feedState.firstVisibleItemScrollOffset.toDp().value }
+                }
+            }.collect { detailScroll.update(it) }
+        }
+    }
+    DetailPageSurface(
+        backdropUrl = detail.backdropUrl,
+        backdropThumbhash = detail.backdropThumbhash,
+        tint = dominantColor,
+    ) {
+    DeferImagePresentationWhileScrolling(feedState) {
     LazyColumn(
+        state = feedState,
         modifier = modifier
-            .fillMaxSize()
-            .background(PrairieBackground)
-            .background(detailScreenBackgroundBrush(dominantColor)),
+            .fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(36.dp),
     ) {
         item(contentType = "detail-hero") {
@@ -149,6 +169,44 @@ fun MovieDetailContent(
                 dominantColor = dominantColor,
                 directorText = movieDirectorCredit(detail),
                 translation = translation,
+                belowOverview = {
+                    // PR #212 places the grouped playback card after overview,
+                    // credits, and translation—not inside the action stack.
+                    if (hasTrackSelectors) {
+                        PlaybackSelectorCard {
+                            EditionVersionSelectorRows(
+                                detail = detail,
+                                selectedVersionIndex = selectedVersionIndex,
+                                isAutoVersion = isAutoVersion,
+                                onVersionSelected = onVersionSelected,
+                            )
+                            if (audioTracks.isNotEmpty()) {
+                                PlaybackSelectorDivider()
+                                TrackSelectorRow(
+                                    icon = Icons.Outlined.AudioFile,
+                                    label = "Audio",
+                                    value = formatAudioValueLabel(
+                                        audioTracks,
+                                        selectedAudioIndex,
+                                        selectedVersion?.effectiveAudioTrackIndex,
+                                    ),
+                                    onClick = { showAudioPicker = true },
+                                    interactive = audioTracks.size > 1,
+                                )
+                            }
+                            if (subtitleTracks.isNotEmpty()) {
+                                PlaybackSelectorDivider()
+                                TrackSelectorRow(
+                                    icon = Icons.Outlined.ClosedCaption,
+                                    label = "Subtitles",
+                                    value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
+                                    onClick = { showSubtitlePicker = true },
+                                    interactive = subtitleTracks.size > 1,
+                                )
+                            }
+                        }
+                    }
+                },
             ) {
                 HeroActionStack(
                     primaryLabel = computePlayLabel(detail),
@@ -161,31 +219,8 @@ fun MovieDetailContent(
                     onToggleFavorite = onFavoriteClick,
                     onToggleWatchlist = onWatchlistClick,
                     onToggleWatched = onToggleWatched,
-                    userRating = userRating,
-                    onRateClick = { showRatingSheet = true },
                     overflow = if (hasOverflow) {
                         { dismiss ->
-                            if (onPlayOnDevice != null) {
-                                DropdownMenuItem(
-                                    text = { Text(playOnDeviceLabel) },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.Cast, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        onPlayOnDevice()
-                                    },
-                                )
-                            }
-                            if (onSeasonClick != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Go to Season") },
-                                    onClick = {
-                                        dismiss()
-                                        onSeasonClick()
-                                    },
-                                )
-                            }
                             if (onSeriesClick != null) {
                                 DropdownMenuItem(
                                     text = { Text("Go to Series") },
@@ -235,65 +270,6 @@ fun MovieDetailContent(
                         null
                     },
                 )
-                // Downloaded confirmation under the action row — the circle
-                // button's filled state alone is easy to miss (QA 2026-07-08);
-                // iOS pairs its green check with an accessible "Downloaded".
-                if (isDownloaded) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.DownloadDone,
-                            contentDescription = null,
-                            tint = Color(0xFF30D158),
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = "Downloaded",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.85f),
-                        )
-                    }
-                }
-                // Box-style track group list (Video / Audio / Subtitles) —
-                // TV & Apple parity; Auto rows preview the resolved track.
-                if (hasTrackSelectors) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        TrackSelectorRow(
-                            icon = Icons.Outlined.HighQuality,
-                            label = "Video",
-                            value = formatVersionValueLabel(selectedVersion, isAutoVersion),
-                            onClick = { showVersionPicker = true },
-                            // Apple's shouldEnable*Selector: a picker is offered
-                            // only when there is more than one real choice. The
-                            // sheets' Auto/Off rows are pseudo-entries and do
-                            // not count toward it.
-                            interactive = detail.versions.size > 1,
-                        )
-                        if (audioTracks.isNotEmpty()) {
-                            TrackSelectorRow(
-                                icon = Icons.Outlined.AudioFile,
-                                label = "Audio",
-                                value = formatAudioValueLabel(audioTracks, selectedAudioIndex, selectedVersion?.effectiveAudioTrackIndex),
-                                onClick = { showAudioPicker = true },
-                                interactive = audioTracks.size > 1,
-                            )
-                        }
-                        if (subtitleTracks.isNotEmpty()) {
-                            TrackSelectorRow(
-                                icon = Icons.Outlined.ClosedCaption,
-                                label = "Subtitles",
-                                value = formatSubtitleValueLabel(subtitleTracks, selectedSubtitleIndex),
-                                onClick = { showSubtitlePicker = true },
-                                interactive = subtitleTracks.size > 1,
-                            )
-                        }
-                    }
-                }
             }
         }
 
@@ -307,9 +283,24 @@ fun MovieDetailContent(
         if (detail.type == "episode" && (seasons.isNotEmpty() || episodes.isNotEmpty() || isLoadingEpisodes)) {
             item(contentType = "detail-episodes") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (seasons.isNotEmpty()) {
+                        SeasonChips(
+                            seasons = seasons,
+                            selectedSeasonNumber = selectedSeasonNumber,
+                            onSeasonSelected = onSeasonSelected,
+                        )
+                    }
+                    val selectedSeason = seasons.firstOrNull {
+                        it.seasonNumber == selectedSeasonNumber
+                    }
                     SectionHeader(
-                        label = if (selectedSeasonNumber == 0) "Specials" else "Season $selectedSeasonNumber",
-                        title = "Episodes",
+                        title = selectedSeason?.let(::seriesSeasonSectionTitle) ?: if (
+                            selectedSeasonNumber == 0
+                        ) {
+                            "Specials Episodes"
+                        } else {
+                            "Season $selectedSeasonNumber Episodes"
+                        },
                     )
                     SeasonEpisodePager(
                         seasons = seasons,
@@ -318,11 +309,12 @@ fun MovieDetailContent(
                         episodesBySeason = episodesBySeason,
                         isLoadingEpisodes = isLoadingEpisodes,
                         onSeasonSelected = onSeasonSelected,
-                        onEpisodePlayClick = onEpisodePlayClick,
+                        onEpisodePlayClick = null,
                         onEpisodeDetailClick = onEpisodeDetailClick,
-                        onEpisodeDownloadClick = onEpisodeDownloadClick,
-                        episodeDownloadState = episodeDownloadState,
+                        onEpisodeWatchedChange = onEpisodeWatchedChange,
                         highlightContentId = detail.contentId,
+                        showsSeasonSelector = false,
+                        allowsSeasonPaging = false,
                     )
                 }
             }
@@ -334,16 +326,22 @@ fun MovieDetailContent(
                     SectionHeader(title = "Cast & Crew")
                     CastCrewSection(
                         cast = detail.cast,
-                        crew = detail.crew,
                         onPersonClick = onPersonClick,
                     )
                 }
             }
         }
 
+        val trailerEntries = trailerRailEntries(detail)
+        if (trailerEntries.isNotEmpty()) {
+            item(contentType = "detail-trailers") {
+                TrailersRail(entries = trailerEntries, onPlayExtra = onPlayExtra)
+            }
+        }
+
         item(contentType = "detail-facts") {
             // Header renders inside DetailFactsList, gated on having facts.
-            DetailFactsList(detail = detail)
+            DetailFactsList(detail = detail, runtimeMinutes = selectedRuntimeMinutes)
         }
 
         // Hide the similar rail on episode pages — viewers usually want
@@ -361,17 +359,6 @@ fun MovieDetailContent(
             Spacer(modifier = Modifier.height(40.dp))
         }
     }
-
-    if (showVersionPicker) {
-        VersionPickerSheet(
-            versions = detail.versions,
-            selectedIndex = selectedVersionIndex.takeUnless { isAutoVersion },
-            onSelect = { index ->
-                onVersionSelected(index)
-                showVersionPicker = false
-            },
-            onDismiss = { showVersionPicker = false },
-        )
     }
 
     if (showAudioPicker && audioTracks.isNotEmpty()) {
@@ -397,25 +384,12 @@ fun MovieDetailContent(
             onDismiss = { showSubtitlePicker = false },
         )
     }
-
-    if (showRatingSheet) {
-        RatingSheet(
-            currentRating = userRating,
-            onSetRating = { stars ->
-                onSetRating(stars)
-                showRatingSheet = false
-            },
-            onClearRating = {
-                onClearRating()
-                showRatingSheet = false
-            },
-            onDismiss = { showRatingSheet = false },
-        )
     }
+
 }
 
 /**
- * 44dp circle download button styled to sit alongside [CircleActionButton]
+ * 42dp circle download button styled to sit alongside [CircleActionButton]
  * (favorite / watchlist / watched) in [HeroActionStack]. Three visual states:
  *
  *   - Not downloaded:  white download icon over a ghost circle (matches the
@@ -432,23 +406,19 @@ internal fun DownloadCircleButton(
     isDownloaded: Boolean,
     progress: Float?,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     val isInFlight = progress != null && !isDownloaded
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(42.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
             .background(
-                if (isDownloaded) Color.White
-                else Color.White.copy(alpha = 0.10f)
+                if (isDownloaded) PrairieDetailActionControlActive
+                else PrairieDetailActionControl
             )
-            .border(
-                width = 1.dp,
-                color = if (isDownloaded) Color.White
-                else Color.White.copy(alpha = 0.25f),
-                shape = CircleShape,
-            )
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         if (isInFlight) {
@@ -463,7 +433,7 @@ internal fun DownloadCircleButton(
         Icon(
             imageVector = if (isDownloaded) Icons.Filled.Check else Icons.Filled.Download,
             contentDescription = if (isDownloaded) "Downloaded" else "Download",
-            tint = if (isDownloaded) Color.Black else Color.White,
+            tint = Color.White,
             modifier = Modifier.size(if (isDownloaded) 22.dp else 18.dp),
         )
     }

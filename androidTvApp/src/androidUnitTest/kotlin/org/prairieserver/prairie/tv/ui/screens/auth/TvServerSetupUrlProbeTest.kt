@@ -3,7 +3,9 @@ package org.prairieserver.prairie.tv.ui.screens.auth
 import kotlinx.coroutines.test.runTest
 import org.prairieserver.prairie.model.auth.SetupStatusResponse
 import org.prairieserver.prairie.model.auth.SignupStatusResponse
+import org.prairieserver.prairie.model.server.ServerContract
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.apiv2.ApiV2ProbeResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -55,5 +57,36 @@ class TvServerSetupUrlProbeTest {
         assertEquals(TvServerSetupDestination.Login(signupEnabled = true), success.destination)
         assertEquals(listOf("https://media.local", "http://media.local"), setupRequests)
         assertEquals(listOf("http://media.local"), signupRequests)
+    }
+
+    @Test
+    fun failedProbeWithSuccessfulSetupYieldsV2NotUnknown() = runTest {
+        // A transient probe failure (or timeout) is no verdict; the v2 setup
+        // call succeeding is proof of v2, so the connect result carries V2
+        // for setServerUrl to record over any stale UPDATE_REQUIRED.
+        val result = probeTvServerSetupCandidates(
+            candidates = listOf("https://media.local"),
+            getSetupStatus = { ApiResult.Success(SetupStatusResponse(needsSetup = false)) },
+            getSignupStatus = { ApiResult.Success(SignupStatusResponse(enabled = false)) },
+            probeContract = { ApiV2ProbeResult.Failure(ApiV2ProbeResult.Kind.TIMEOUT) },
+        )
+
+        val success = assertIs<TvServerSetupProbeResult.Success>(result)
+        assertEquals(ServerContract.V2, success.contract)
+    }
+
+    @Test
+    fun updateServerProbeStillShortCircuitsBeforeSetup() = runTest {
+        var setupCalls = 0
+        val result = probeTvServerSetupCandidates(
+            candidates = listOf("https://media.local"),
+            getSetupStatus = { setupCalls += 1; ApiResult.Success(SetupStatusResponse(needsSetup = false)) },
+            getSignupStatus = { ApiResult.Success(SignupStatusResponse(enabled = false)) },
+            probeContract = { ApiV2ProbeResult.UpdateServer },
+        )
+
+        val failure = assertIs<TvServerSetupProbeResult.Failure>(result)
+        assertEquals(ServerContract.UPDATE_REQUIRED_MESSAGE, failure.message)
+        assertEquals(0, setupCalls)
     }
 }

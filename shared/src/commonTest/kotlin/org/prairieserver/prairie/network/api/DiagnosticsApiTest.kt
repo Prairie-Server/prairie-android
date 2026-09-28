@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.network.api
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -56,7 +58,7 @@ class DiagnosticsApiTest {
         val status = assertIs<org.prairieserver.prairie.model.diagnostics.DiagnosticsStatusResponse>(result.data)
 
         assertEquals(HttpMethod.Get, fixture.request?.method)
-        assertEquals("/api/v1/diagnostics/status", fixture.request?.url?.encodedPath)
+        assertEquals("/api/v2/diagnostics/capabilities", fixture.request?.url?.encodedPath)
         assertEquals(DiagnosticsAvailabilityStatus.AVAILABLE, status.status)
         assertEquals(10_485_760L, status.maxBundleBytes)
         assertEquals(2, status.consentNoticeVersion)
@@ -78,7 +80,7 @@ class DiagnosticsApiTest {
         val upload = assertIs<DiagnosticsUploadResult.Success>(result)
         assertEquals("ABC123", upload.response.shortId)
         assertEquals(HttpMethod.Post, fixture.request?.method)
-        assertEquals("/api/v1/diagnostics/reports", fixture.request?.url?.encodedPath)
+        assertEquals("/api/v2/diagnostics/reports", fixture.request?.url?.encodedPath)
         assertTrue(fixture.request?.body?.contentType?.match(ContentType.MultiPart.FormData) == true)
 
         val body = fixture.requestBody
@@ -122,7 +124,7 @@ class DiagnosticsApiTest {
     fun serverErrorCodeIsPreservedForUploaderPolicy() = runTest {
         val fixture = fixture(
             responseStatus = HttpStatusCode.BadRequest,
-            responseBody = """{"error":"unsupported_schema","message":"upgrade required"}""",
+            responseBody = """{"type":"urn:silo:error:malformed_request","title":"Malformed request","status":400,"detail":"upgrade required"}""",
         )
 
         val result = assertIs<DiagnosticsUploadResult.Failure>(
@@ -130,7 +132,7 @@ class DiagnosticsApiTest {
         )
 
         assertEquals(400, result.httpStatus)
-        assertEquals(DiagnosticsErrorCode.UNSUPPORTED_SCHEMA, result.code)
+        assertEquals(DiagnosticsErrorCode.UNKNOWN, result.code)
         assertEquals("upgrade required", result.message)
     }
 
@@ -165,7 +167,13 @@ class DiagnosticsApiTest {
                 errorCode,
             )
             assertEquals(status.value, result.httpStatus, errorCode)
-            assertEquals(DiagnosticsErrorCode.fromWire(errorCode), result.code, errorCode)
+            assertEquals(when (status.value) {
+                401 -> DiagnosticsErrorCode.UNAUTHORIZED
+                403 -> DiagnosticsErrorCode.FORBIDDEN
+                413 -> DiagnosticsErrorCode.TOO_LARGE
+                429 -> DiagnosticsErrorCode.RATE_LIMITED
+                else -> DiagnosticsErrorCode.UNKNOWN
+            }, result.code, errorCode)
         }
     }
 
@@ -206,8 +214,8 @@ class DiagnosticsApiTest {
 
         fixture.api.getStatus()
 
-        assertEquals("active-profile", fixture.request?.headers?.get("X-Profile-Id"))
-        assertEquals("active-profile-token", fixture.request?.headers?.get("X-Profile-Token"))
+        assertNull(fixture.request?.headers?.get("X-Profile-Id"))
+        assertNull(fixture.request?.headers?.get("X-Profile-Token"))
         assertFalse(fixture.requestBody.contains("manifest"))
     }
 
@@ -215,7 +223,7 @@ class DiagnosticsApiTest {
     fun exactUploadDoesNotProactivelyRefreshWhileIdentityLeaseIsHeld() = runTest {
         val transitions = DefaultIdentityTransitionBarrier()
         val tokenManager = TokenManagerImpl(transitions).apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("expired-active", "refresh-token", 0)
             setProfileIdentity("active-profile", "active-profile-token")
         }
@@ -237,7 +245,7 @@ class DiagnosticsApiTest {
         val result = withContext(Dispatchers.Default.limitedParallelism(1)) {
             withTimeout(1_000) {
                 transitions.withCurrentGeneration(transitions.generation.value) {
-                    DefaultDiagnosticsApi(client).upload(
+                    DefaultDiagnosticsApi(client, gate = ApiV2Gate.Unrestricted).upload(
                         byteArrayOf(1),
                         byteArrayOf(2),
                         capturedProfileId = "captured-profile",
@@ -248,7 +256,7 @@ class DiagnosticsApiTest {
         }
 
         assertIs<DiagnosticsUploadResult.Success>(result)
-        assertEquals(listOf("/api/v1/diagnostics/reports"), requests.map { it.url.encodedPath })
+        assertEquals(listOf("/api/v2/diagnostics/reports"), requests.map { it.url.encodedPath })
         assertEquals("Bearer captured-access", requests.single().headers[HttpHeaders.Authorization])
         assertEquals("captured-profile", requests.single().headers["X-Profile-Id"])
         assertNull(requests.single().headers["X-Profile-Token"])
@@ -258,7 +266,7 @@ class DiagnosticsApiTest {
     fun exactUploadSurfacesUnauthorizedWithoutRefreshOrSessionInvalidationUnderLease() = runTest {
         val transitions = DefaultIdentityTransitionBarrier()
         val tokenManager = TokenManagerImpl(transitions).apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("rejected-active", "refresh-token", 3_600)
         }
         val paths = mutableListOf<String>()
@@ -275,7 +283,7 @@ class DiagnosticsApiTest {
         val result = withContext(Dispatchers.Default.limitedParallelism(1)) {
             withTimeout(1_000) {
                 transitions.withCurrentGeneration(transitions.generation.value) {
-                    DefaultDiagnosticsApi(client).upload(
+                    DefaultDiagnosticsApi(client, gate = ApiV2Gate.Unrestricted).upload(
                         byteArrayOf(1),
                         byteArrayOf(2),
                         capturedProfileId = null,
@@ -287,7 +295,7 @@ class DiagnosticsApiTest {
 
         val failure = assertIs<DiagnosticsUploadResult.Failure>(result)
         assertEquals(DiagnosticsErrorCode.UNAUTHORIZED, failure.code)
-        assertEquals(listOf("/api/v1/diagnostics/reports"), paths)
+        assertEquals(listOf("/api/v2/diagnostics/reports"), paths)
         assertEquals("rejected-active", tokenManager.getAccessToken())
         assertEquals("refresh-token", tokenManager.getRefreshToken())
     }
@@ -305,7 +313,7 @@ class DiagnosticsApiTest {
         accessToken: String,
     ) = DiagnosticsUploadAuthorization(
         serverId = "server-1",
-        serverUrl = "https://silo.example",
+        serverUrl = "https://prairie.example",
         accessToken = accessToken,
         activeProfileId = "active-profile",
         identityGeneration = identityGeneration,
@@ -330,7 +338,7 @@ class DiagnosticsApiTest {
         retryAfterHeader: String? = retryAfterSeconds?.toString(),
     ): Fixture {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("access-token", "refresh-token", 3_600)
             setProfileId("active-profile")
             setProfileToken("active-profile-token")
@@ -354,7 +362,7 @@ class DiagnosticsApiTest {
             install(ContentNegotiation) { json(PrairieJson) }
             install(PrairieAuthPlugin) { this.tokenManager = tokenManager }
         }
-        val api = DefaultDiagnosticsApi(client, nowMs = { NOW_MS })
+        val api = DefaultDiagnosticsApi(client, nowMs = { NOW_MS }, gate = ApiV2Gate.Unrestricted)
         return Fixture(
             api = api,
             requestProvider = { capturedRequest },

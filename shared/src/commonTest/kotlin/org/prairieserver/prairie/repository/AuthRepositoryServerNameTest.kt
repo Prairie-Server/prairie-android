@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.repository
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -80,12 +82,23 @@ class AuthRepositoryServerNameTest {
         assertNull(registry.fetchedName)
     }
 
+    @Test
+    fun `refresh preserves cached name on branding failure`() = runTest {
+        val registry = RecordingServerRegistry()
+        val health = FakeHealthApi(ApiResult.Success(HealthStatus("ok", "Wrong fallback")))
+        val repository = repository(registry,
+            FakeBrandingApi(ApiResult.Error(503, "unavailable", "unavailable")), health)
+        repository.refreshActiveServerName()
+        assertNull(registry.fetchedName)
+        assertEquals(0, health.calls)
+    }
+
     private fun repository(
         registry: RecordingServerRegistry,
         branding: BrandingApi,
         health: HealthApi,
     ) = AuthRepository(
-        authApi = AuthApi(unusedClient()),
+        authApi = AuthApi(unusedClient(), ApiV2Gate.Unrestricted),
         tokenManager = FakeTokenManager,
         serverRegistry = registry,
         healthApi = health,
@@ -118,7 +131,7 @@ private class FakeHealthApi(
 private class RecordingServerRegistry : ServerRegistry {
     private val activeId = MutableStateFlow<String?>("active")
     private val savedEntries = MutableStateFlow(
-        listOf(ServerEntry(id = "active", url = "https://silo.example")),
+        listOf(ServerEntry(id = "active", url = "https://prairie.example")),
     )
 
     var fetchedName: String? = null
@@ -157,7 +170,7 @@ private object FakeTokenManager : TokenManager {
     override suspend fun setProfileId(profileId: String?) = Unit
     override suspend fun getProfileToken(): String? = null
     override suspend fun setProfileToken(token: String?) = Unit
-    override suspend fun getServerUrl(): String = "https://silo.example"
+    override suspend fun getServerUrl(): String = "https://prairie.example"
     override suspend fun setServerUrl(url: String) = Unit
     override suspend fun getCurrentServerId(): String? = "active"
     override suspend fun switchActiveServer(serverId: String?) = Unit

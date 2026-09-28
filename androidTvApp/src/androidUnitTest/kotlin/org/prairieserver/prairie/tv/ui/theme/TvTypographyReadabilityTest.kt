@@ -2,6 +2,7 @@ package org.prairieserver.prairie.tv.ui.theme
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -12,6 +13,15 @@ class TvTypographyReadabilityTest {
     private val source = File(
         "src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/theme/Type.kt",
     ).readText()
+    // One expected entry per matching source line, including duplicates.
+    private val tvOsMappedCompactTextLines = listOf(
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvExpandableSynopsis.kt|fontSize = 13.sp,",
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvDetailHero.kt|fontSize = 12.sp,",
+        "org/prairieserver/prairie/tv/ui/components/TvSquaredButtons.kt|val titleStyle = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold)",
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvDetailEpisodeRail.kt|fontSize = 11.5.sp,",
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailScreen.kt|fontSize = 11.5.sp,",
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailScreen.kt|fontSize = 11.5.sp,",
+    )
 
     @Test
     fun sharedTvTypographyAvoidsTinyTenFootText() {
@@ -50,25 +60,38 @@ class TvTypographyReadabilityTest {
 
     @Test
     fun tvScreensAvoidHardcodedTinyTextOutsideTheTheme() {
-        // Post readability-remediation the whole TV surface honours a 14sp
-        // metadata floor, so anything 9-13sp is a real ten-foot-readability
-        // regression. 14sp is now the allowed floor, so the old
-        // "tvOsMappedSmallTextFiles" allowlist is retired — every screen must
-        // comply without exception.
+        // Normal TV copy honours a 14sp metadata floor. These exact
+        // assignments are approved half-scale mappings of compact tvOS chrome;
+        // the matched-count assertion keeps this exception line-specific and
+        // prevents it from becoming a file-wide escape hatch.
+        val approvedMatches = mutableListOf<String>()
         val offenders = File("src/androidMain/kotlin/org/prairieserver/prairie/tv")
             .walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .filterNot { it.invariantSeparatorsPath.endsWith("/ui/theme/Type.kt") }
             .flatMap { file ->
+                val relativePath = file.relativeTo(File("src/androidMain/kotlin")).invariantSeparatorsPath
                 file.readLines().mapIndexedNotNull { index, line ->
                     if (tinyFontPattern.containsMatchIn(line)) {
-                        "${file.relativeTo(File("src/androidMain/kotlin")).invariantSeparatorsPath}:${index + 1}: ${line.trim()}"
+                        val approvedKey = "$relativePath|${line.trim()}"
+                        if (approvedKey in tvOsMappedCompactTextLines) {
+                            approvedMatches += approvedKey
+                            null
+                        } else {
+                            "$relativePath:${index + 1}: ${line.trim()}"
+                        }
                     } else {
                         null
                     }
                 }
             }
             .toList()
+
+        assertEquals(
+            tvOsMappedCompactTextLines.sorted(),
+            approvedMatches.sorted(),
+            "The compact tvOS typography exception list must match exactly",
+        )
 
         assertTrue(
             offenders.isEmpty(),

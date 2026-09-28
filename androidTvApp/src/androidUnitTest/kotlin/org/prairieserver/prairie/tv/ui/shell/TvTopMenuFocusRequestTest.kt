@@ -1,10 +1,30 @@
 package org.prairieserver.prairie.tv.ui.shell
 
+import java.io.File
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class TvTopMenuFocusRequestTest {
+    @Test
+    fun shellPagesDoNotDrawATopNavigationShadow() {
+        val barSource = File(
+            "src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvTopMenuBar.kt",
+        ).readText()
+        val shellSource = File(
+            "src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt",
+        ).readText()
+        val rootBackdropSource = File(
+            "src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/components/TvRootHeroBackdrop.kt",
+        ).readText()
+
+        assertFalse(barSource.contains("internal fun TvTopMenuDropShadow("))
+        assertFalse(shellSource.contains("TvTopMenuDropShadow("))
+        assertFalse(rootBackdropSource.contains("TopScrimHeight"))
+    }
+
     @Test
     fun focusIsRequestedOnlyAfterTheTargetHasHadAFrameToCompose() = runTest {
         val events = mutableListOf<String>()

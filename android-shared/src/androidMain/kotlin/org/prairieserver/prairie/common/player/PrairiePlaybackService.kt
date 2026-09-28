@@ -24,6 +24,8 @@ import org.prairieserver.prairie.common.BuildConfig
 import org.prairieserver.prairie.common.player.audio.DelayAudioProcessor
 import org.prairieserver.prairie.common.player.subtitle.SubtitleOffsetHolder
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.model.settings.SeekIntervalPair
 import org.koin.android.ext.android.inject
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -53,8 +55,6 @@ class PrairiePlaybackService : MediaSessionService() {
         private val playerInstanceCount = AtomicInteger(0)
         private const val TAG = "PrairiePlayback"
         private const val POSITION_TICK_MS = 500L
-        private const val PIP_SKIP_BACK_MS = 10_000L
-        private const val PIP_SKIP_FORWARD_MS = 30_000L
         private val PIP_ACTIONS = setOf(
             ACTION_PIP_PLAY,
             ACTION_PIP_PAUSE,
@@ -62,7 +62,11 @@ class PrairiePlaybackService : MediaSessionService() {
             ACTION_PIP_SKIP_FORWARD,
         )
 
-        internal fun dispatchPictureInPictureAction(intent: Intent?, player: Player?): Boolean {
+        internal fun dispatchPictureInPictureAction(
+            intent: Intent?,
+            player: Player?,
+            intervals: SeekIntervalPair = LEGACY_PLAYER_SEEK_INTERVALS,
+        ): Boolean {
             val action = intent?.action
             if (intent == null || action !in PIP_ACTIONS) return false
             if (!PipActionCapability.isAuthorized(intent)) return true
@@ -75,12 +79,12 @@ class PrairiePlaybackService : MediaSessionService() {
                 }
                 ACTION_PIP_PAUSE -> player.pause()
                 ACTION_PIP_SKIP_BACK -> player.seekTo(
-                    (player.currentPosition - PIP_SKIP_BACK_MS).coerceAtLeast(0L),
+                    (player.currentPosition - intervals.backMs).coerceAtLeast(0L),
                 )
                 ACTION_PIP_SKIP_FORWARD -> {
                     val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
                     player.seekTo(
-                        (player.currentPosition + PIP_SKIP_FORWARD_MS).coerceAtMost(duration),
+                        (player.currentPosition + intervals.forwardMs).coerceAtMost(duration),
                     )
                 }
             }
@@ -118,10 +122,12 @@ class PrairiePlaybackService : MediaSessionService() {
 
     private val playerFactory: PrairiePlayerFactory by inject()
     private val activePlayerHolder: ActivePlayerHolder by inject()
+    private val audiobookSeekRouter: AudiobookSeekRouter by inject()
     private val analyticsListener: PlaybackAnalyticsListener by inject()
     private val playerSettingsStore: PlayerSettingsStore by inject()
     private val delayProcessor: DelayAudioProcessor by inject()
     private val subtitleOffsetHolder: SubtitleOffsetHolder by inject()
+    private val seekIntervalStore: SeekIntervalStore by inject()
 
     private var mediaSession: MediaSession? = null
     private var mediaSessionBitmapLoader: PrairieMediaSessionBitmapLoader? = null
@@ -163,15 +169,30 @@ class PrairiePlaybackService : MediaSessionService() {
         // the logcat to show the player's FFmpeg-audio mode alongside the
         // analytics listener's `onAudioDecoderInitialized` callback, which
         // reports the specific decoder the renderer selected.
+        val ffmpegAvailable = FfmpegAudioSupport.isAvailable()
+        val ffmpegCodecs = if (ffmpegAvailable) {
+            FfmpegAudioSupport.supportedCodecShortCodes().joinToString(",")
+        } else {
+            "none"
+        }
         android.util.Log.i(
             TAG,
-            "FFmpeg audio preferred = ${BuildConfig.FFMPEG_AUDIO_ENABLED}, " +
-                "extension on classpath = ${FfmpegAudioSupport.isAvailable()}",
+            "FFmpeg audio enabled = ${BuildConfig.FFMPEG_AUDIO_ENABLED}, " +
+                "native extension available = $ffmpegAvailable, " +
+                "verified codecs = $ffmpegCodecs",
         )
 
         val bitmapLoader = PrairieMediaSessionBitmapLoader(this)
         mediaSessionBitmapLoader = bitmapLoader
-        mediaSession = MediaSession.Builder(this, player)
+        // Session controllers (lock screen, notification, headset, Bluetooth)
+        // seek through the profile-wide intervals, read per call so a settings
+        // change applies without restarting playback. The UIs and PiP keep
+        // talking to the unwrapped player via [activePlayer].
+        val sessionPlayer = SeekIntervalForwardingPlayer(
+            player = player,
+            audiobookSeek = audiobookSeekRouter::seek,
+        ) { seekIntervalStore.state.value }
+        mediaSession = MediaSession.Builder(this, sessionPlayer)
             .setBitmapLoader(bitmapLoader)
             .build()
 
@@ -303,7 +324,13 @@ class PrairiePlaybackService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (dispatchPictureInPictureAction(intent, activePlayer ?: mediaSession?.player)) {
+        if (
+            dispatchPictureInPictureAction(
+                intent,
+                activePlayer ?: mediaSession?.player,
+                seekIntervalStore.state.value.video(LEGACY_PLAYER_SEEK_INTERVALS),
+            )
+        ) {
             // PiP transport actions reach us through `PendingIntent.getService()`
             // (PrairiePictureInPictureCoordinator), i.e. a plain startService(), so
             // unlike the media-button PendingIntent above this branch does not arm
@@ -351,7 +378,12 @@ class PrairiePlaybackService : MediaSessionService() {
         subtitleSyncJob?.cancel()
         scope.cancel()
         mediaSession?.run {
-            playerFactory.releasePlayer(player)
+            // Release the unwrapped player: the factory's libass teardown
+            // needs the ExoPlayer, not the session's forwarding wrapper.
+            val sessionPlayer = player
+            playerFactory.releasePlayer(
+                (sessionPlayer as? SeekIntervalForwardingPlayer)?.wrappedPlayer ?: sessionPlayer,
+            )
             release()
         }
         mediaSession = null

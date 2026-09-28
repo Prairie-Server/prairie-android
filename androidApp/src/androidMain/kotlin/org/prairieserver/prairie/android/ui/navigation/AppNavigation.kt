@@ -1,6 +1,8 @@
 package org.prairieserver.prairie.android.ui.navigation
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -13,20 +15,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
+import org.prairieserver.prairie.android.ui.components.rememberVideoSeekIntervals
+import org.prairieserver.prairie.android.cast.GOOGLE_CAST_LEGACY_SEEK_INTERVALS
 import org.prairieserver.prairie.android.ui.screens.auth.DevicePairingWrongServerScreen
 import org.prairieserver.prairie.android.ui.screens.auth.DevicePairingUnknownServerScreen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import androidx.lifecycle.DEFAULT_ARGS_KEY
+import androidx.lifecycle.viewmodel.MutableCreationExtras
+import androidx.core.os.bundleOf
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -86,12 +97,20 @@ import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.Diagnos
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsSettingsScreen
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
 import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
+import org.prairieserver.prairie.common.cards.ProvideCardPresentation
 import org.prairieserver.prairie.common.overlays.ProvideCardOverlays
 import org.prairieserver.prairie.common.player.video.VideoPlayerRouteArgs
+import org.prairieserver.prairie.common.settings.CardPresentationStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.network.TokenManager
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+
+/**
+ * Detail identity actually on screen, which a series redirect can move away
+ * from the route's own `contentId` argument.
+ */
+private const val DisplayedDetailContentIdKey = "displayedDetailContentId"
 
 /** Page-to-page cross-fade duration (ms). Snappier than Compose Nav's 700ms default. */
 private const val PageFadeDurationMs = 200
@@ -127,8 +146,16 @@ fun AppNavigation(
 ) {
     val tokenManager: TokenManager = koinInject()
     val serverRegistry: org.prairieserver.prairie.network.ServerRegistry = koinInject()
+    val authRepository: org.prairieserver.prairie.repository.AuthRepository = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
+    val activeProfileStore: ActiveProfileStore = koinInject()
+    val cardPresentationStore: CardPresentationStore = koinInject()
+    val seekIntervalStore: org.prairieserver.prairie.common.settings.SeekIntervalStore = koinInject()
     val siloCastController: PrairieCastController = koinInject()
+    // Lives as long as the nav host, so work started from a destination that is
+    // popped in the same gesture (re-hydrating after a profile switch) is not
+    // cancelled with that destination's own scope.
+    val navScope = rememberCoroutineScope()
     val diagnosticsViewModel = koinViewModel<DiagnosticsViewModel>()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     var activePlayerTargetProvider by remember {
@@ -218,14 +245,15 @@ fun AppNavigation(
                     // external link to item B while item A's detail is showing
                     // reused A's entry and Back skipped A entirely — the same
                     // defect this branch fixes for in-app navigation.
-                    val useSingleTop = shouldLaunchExternalRouteSingleTop(
-                        currentDestinationRoute = navController.currentBackStackEntry
-                            ?.destination?.route,
-                        currentContentId = navController.currentBackStackEntry
-                            ?.arguments
-                            ?.getString("contentId"),
-                        targetRoute = route,
-                    )
+                    val useSingleTop = navController.currentBackStackEntry?.arguments?.getString("libraryId") == null &&
+                        shouldLaunchExternalRouteSingleTop(
+                            currentDestinationRoute = navController.currentBackStackEntry
+                                ?.destination?.route,
+                            currentContentId = navController.currentBackStackEntry
+                                ?.savedStateHandle?.get<String>(DisplayedDetailContentIdKey)
+                                ?: navController.currentBackStackEntry?.arguments?.getString("contentId"),
+                            targetRoute = route,
+                        )
                     navController.navigate(route) {
                         if (replaceCurrentPlayer) {
                             popUpTo(Route.Player.ROUTE) { inclusive = true }
@@ -275,13 +303,14 @@ fun AppNavigation(
     }
 
     ProvideCardOverlays(store = overlayPrefsStore, sessionKey = overlaySessionKey) {
+    ProvideCardPresentation(store = cardPresentationStore, sessionKey = overlaySessionKey) {
     // Shared-element host: lets a tapped poster morph into the item-detail
     // backdrop. The scope is published via CompositionLocal so deep descendants
     // (a poster card, the detail hero) can opt in without threading it through
     // every composable signature in between.
     SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-    // One hand-off shared by every poster source and the detail hero target, so
-    // the tapped card's unique key reaches the backdrop (iOS pendingZoomSourceID).
+    // One hand-off shared by every media source. It also carries the browse
+    // deck used by the horizontally paged detail sheet.
     val heroSourceHandoff = remember { HeroSourceHandoff() }
     CompositionLocalProvider(
         LocalSharedTransitionScope provides this,
@@ -295,10 +324,10 @@ fun AppNavigation(
         // this the host wraps to content, leaking unbounded height into screens
         // like the reader whose WebView paginates against the viewport height.
         modifier = Modifier.fillMaxSize(),
-        // Compose Navigation defaults to a 700ms cross-fade, which reads as
-        // sluggish page-to-page (Jim, Fold). Snap it to a quick fade; the
-        // poster→detail hero morph rides the same scope, so keep it long enough
-        // to stay smooth.
+        // Item detail is an ordinary full-screen page, so every route shares the
+        // same short fade. It used to be presented as a rounded card rising
+        // from the bottom, which needed the source page held underneath and
+        // then cross-dissolved to hide the seam.
         enterTransition = { fadeIn(tween(PageFadeDurationMs)) },
         exitTransition = { fadeOut(tween(PageFadeDurationMs)) },
         popEnterTransition = { fadeIn(tween(PageFadeDurationMs)) },
@@ -441,7 +470,7 @@ fun AppNavigation(
                         serverName = resolved.entry.displayName,
                         onSwitch = {
                             pairingScope.launch {
-                                serverRegistry.switchTo(resolved.entry.id)
+                                authRepository.switchToServer(resolved.entry.id)
                                 // Re-queue ONLY if the target server will send
                                 // the user through auth: that flow ends at
                                 // profile selection, whose popUpTo(0) wipes this
@@ -552,7 +581,19 @@ fun AppNavigation(
                         ServerSwitchDestination.Home -> Route.OnboardingTour.route
                         ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
                         ServerSwitchDestination.Login -> Route.Login.route
+                        ServerSwitchDestination.Setup -> Route.Setup.route
                     }
+                    // Overlays and card presentation are cached per profile on
+                    // the old server. Drop them so the new server's shell can't
+                    // render — or write back — the previous identity's values;
+                    // the providers above re-hydrate for the new session.
+                    // Parity with the TV shell's server-switch path.
+                    overlayPrefsStore.clear()
+                    activeProfileStore.reset()
+                    cardPresentationStore.clear()
+                    // Not seekIntervalStore.clear(): the registry switch has already
+                    // reset it and started hydrating the new server's profile through
+                    // its identity flow, and a clear here would discard that load.
                     navController.navigate(target) {
                         popUpTo(0) { inclusive = true }
                         launchSingleTop = true
@@ -566,6 +607,17 @@ fun AppNavigation(
         composable(Route.ProfileSelection.route) {
             ProfileSelectionScreen(
                 onNavigateToHome = {
+                    // The switch-profile paths dropped the per-profile card
+                    // and seek-interval caches; re-hydrate for the profile just picked. The
+                    // providers above the graph only re-run when the profile id
+                    // itself changes, so re-selecting the SAME profile would
+                    // otherwise render cleared (default) cards until the next
+                    // foreground refresh. Idempotent when they already ran.
+                    navScope.launch {
+                        overlayPrefsStore.hydrateIfNeeded()
+                        cardPresentationStore.hydrateIfNeeded()
+                        seekIntervalStore.hydrateIfNeeded()
+                    }
                     // Route through the tour gate: OnboardingTourScreen checks
                     // server-side state and immediately hands off to Home when
                     // the profile has already completed or skipped the tour.
@@ -684,7 +736,15 @@ fun AppNavigation(
                 onPairDevice = {
                     navController.navigate(Route.PairDevice().route)
                 },
-                onSwitchProfile = { navController.navigate(Route.ProfileSelection.route) },
+                onSwitchProfile = {
+                    // Leave the shell first, then drop the per-profile caches
+                    // (see the profile-menu path in MainScreen).
+                    navController.navigate(Route.ProfileSelection.route)
+                    overlayPrefsStore.clear()
+                    activeProfileStore.reset()
+                    cardPresentationStore.clear()
+                    seekIntervalStore.clear()
+                },
                 onNavigateToWatchlist = { navController.navigate(Route.Watchlist.route) },
                 onNavigateToFavorites = { navController.navigate(Route.Favorites.route) },
                 onNavigateToHistory = { navController.navigate(Route.History.route) },
@@ -735,6 +795,9 @@ fun AppNavigation(
             SearchScreen(
                 onItemClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
+                },
+                onPersonClick = { personId ->
+                    navController.navigate(Route.PersonDetail(personId).route)
                 },
                 onRequestMediaClick = { item ->
                     navController.navigate(Route.RequestDetail(item.mediaType, item.tmdbId).route)
@@ -805,11 +868,16 @@ fun AppNavigation(
                     defaultValue = null
                 },
             ),
-        ) {
+        ) { backStackEntry ->
             val browseViewModel = koinViewModel<BrowseViewModel>()
             BrowseScreen(
                 onItemClick = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
+                    navController.navigate(
+                        Route.ItemDetail(
+                            contentId,
+                            libraryId = backStackEntry.arguments?.getString("libraryId")?.toIntOrNull(),
+                        ).route,
+                    )
                 },
                 onBackClick = { navController.popBackStack() },
                 viewModel = browseViewModel,
@@ -825,13 +893,23 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("source") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStackEntry ->
             CollectionDetailScreen(
                 collectionId = backStackEntry.arguments?.getString("collectionId") ?: "",
                 onBackClick = { navController.popBackStack() },
                 onItemClick = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
+                    navController.navigate(
+                        Route.ItemDetail(
+                            contentId,
+                            libraryId = backStackEntry.arguments?.getString("libraryId")?.toIntOrNull(),
+                        ).route,
+                    )
                 },
             )
         }
@@ -840,25 +918,78 @@ fun AppNavigation(
         composable(
             route = Route.ItemDetail.ROUTE,
             arguments = listOf(
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument("contentId") { type = NavType.StringType },
                 navArgument("seasonNumber") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("episodeContentId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
-        ) {
-            // Publish this destination's visibility scope so the detail backdrop
-            // (and the "More Like This" rail) take part in the hero morph.
+        ) { backStackEntry ->
+            val libraryId = backStackEntry.arguments?.getString("libraryId")?.toIntOrNull()
+            // Keep the destination scope available to media cards nested in
+            // the detail page so the poster shared-element hand-off still runs.
             CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
-            val detailViewModel = koinViewModel<ItemDetailViewModel>()
             var wtTarget by remember { mutableStateOf<Pair<String, Int?>?>(null) }
+            val initialContentId = backStackEntry.arguments?.getString("contentId").orEmpty()
+            val openingArtworkUrl = remember(initialContentId) { heroSourceHandoff.pendingArtworkUrl }
+            val openingArtworkThumbhash = remember(initialContentId) {
+                heroSourceHandoff.pendingArtworkThumbhash
+            }
+            LaunchedEffect(Unit) {
+                heroSourceHandoff.pendingArtworkUrl = null
+                heroSourceHandoff.pendingArtworkThumbhash = null
+            }
+            // A season or episode detail replaces this page's content with its
+            // series in place, preserving the Back destination. Saved across
+            // recreation so the redirect does not have to run again.
+            var resolvedSeriesId by rememberSaveable(initialContentId) { mutableStateOf<String?>(null) }
+            var resolvedSeason by rememberSaveable(initialContentId) { mutableStateOf<Int?>(null) }
+            var resolvedEpisodeId by rememberSaveable(initialContentId) { mutableStateOf<String?>(null) }
+            val resolvedContentId = resolvedSeriesId ?: initialContentId
+            SideEffect {
+                // A redirected episode now displays Series. External links
+                // must compare against this identity, not the original args.
+                backStackEntry.savedStateHandle[DisplayedDetailContentIdKey] = resolvedContentId
+            }
+            val detailViewModel: ItemDetailViewModel = if (resolvedSeriesId == null) {
+                koinViewModel()
+            } else {
+                koinViewModel(
+                    key = "detail-${backStackEntry.id}-$resolvedContentId",
+                    extras = MutableCreationExtras(backStackEntry.defaultViewModelCreationExtras).apply {
+                        // Koin supplies SavedStateHandle from creation extras
+                        // ahead of explicit parameters, so replace its route args.
+                        set(DEFAULT_ARGS_KEY, bundleOf(
+                            "contentId" to resolvedContentId,
+                            "libraryId" to libraryId?.toString(),
+                            "seasonNumber" to resolvedSeason?.toString(),
+                            "episodeContentId" to resolvedEpisodeId,
+                        ))
+                    },
+                )
+            }
+            CompositionLocalProvider(LocalHeroSourceHandoff provides heroSourceHandoff) {
+            key(resolvedContentId) {
             ItemDetailScreen(
+                openingArtworkUrl = openingArtworkUrl,
+                openingArtworkThumbhash = openingArtworkThumbhash,
                 onBackClick = { navController.popBackStack() },
                 onPlayClick = { contentId, fileId, audioTrackIndex, subtitleTrackIndex, resumePositionSeconds ->
                     val launchedRemotely = siloCastController.launchOnConnectedTarget(
                         PrairieCastPlaybackRequest(
                             contentId = contentId,
+                            libraryId = libraryId,
                             fileId = fileId,
                             audioTrackIndex = audioTrackIndex,
                             subtitleTrackIndex = subtitleTrackIndex,
@@ -871,6 +1002,7 @@ fun AppNavigation(
                     } else {
                         navController.navigate(
                             Route.Player(
+                                libraryId = libraryId,
                                 contentId = contentId,
                                 fileId = fileId,
                                 audioTrackIndex = audioTrackIndex,
@@ -883,11 +1015,16 @@ fun AppNavigation(
                 onItemDetailClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
-                onSeriesClick = { seriesId ->
-                    navController.navigate(Route.ItemDetail(seriesId).route)
+                onEpisodeDetailClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId, libraryId = libraryId).route)
                 },
-                onSeasonClick = { seriesId, seasonNumber ->
-                    navController.navigate(Route.ItemDetail(seriesId, seasonNumber).route)
+                onSeriesClick = { seriesId ->
+                    navController.navigate(Route.ItemDetail(seriesId, libraryId = libraryId).route)
+                },
+                onSeriesDetailReplace = { seriesId, seasonNumber, episodeId ->
+                    resolvedSeason = seasonNumber
+                    resolvedEpisodeId = episodeId
+                    resolvedSeriesId = seriesId
                 },
                 onPersonClick = { personId ->
                     personId.toLongOrNull()?.let { id ->
@@ -896,11 +1033,11 @@ fun AppNavigation(
                 },
                 onAudiobookPlayClick = { contentId, fileId, fromStart, startPosition ->
                     navController.navigate(
-                        Route.AudiobookPlayer(contentId, fileId, fromStart, startPosition).route,
+                        Route.AudiobookPlayer(contentId, fileId, fromStart, startPosition, libraryId).route,
                     )
                 },
                 onBookReadClick = { contentId, fileId ->
-                    navController.navigate(Route.BookReader(contentId, fileId).route)
+                    navController.navigate(Route.BookReader(contentId, fileId, libraryId).route)
                 },
                 onWatchTogether = { contentId, fileId -> wtTarget = contentId to fileId },
                 onOpenCastRemote = {
@@ -908,6 +1045,7 @@ fun AppNavigation(
                 },
                 viewModel = detailViewModel,
             )
+            }
             wtTarget?.let { (cid, fid) ->
                 WatchTogetherEntrySheet(
                     contentId = cid,
@@ -915,6 +1053,7 @@ fun AppNavigation(
                     onNavigate = { route -> navController.navigate(route) },
                     onDismiss = { wtTarget = null },
                 )
+            }
             }
             }
         }
@@ -944,6 +1083,11 @@ fun AppNavigation(
         composable(
             route = Route.AudiobookPlayer.ROUTE,
             arguments = listOf(
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(Route.AudiobookPlayer.ARG_CONTENT_ID) { type = NavType.StringType },
                 navArgument(Route.AudiobookPlayer.ARG_FILE_ID) {
                     type = NavType.StringType
@@ -970,6 +1114,11 @@ fun AppNavigation(
         composable(
             route = Route.BookReader.ROUTE,
             arguments = listOf(
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(Route.BookReader.ARG_CONTENT_ID) { type = NavType.StringType },
                 navArgument(Route.BookReader.ARG_FILE_ID) {
                     type = NavType.StringType
@@ -1003,6 +1152,11 @@ fun AppNavigation(
         composable(
             route = Route.Player.ROUTE,
             arguments = listOf(
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument("contentId") { type = NavType.StringType },
                 navArgument("fileId") {
                     type = NavType.StringType
@@ -1050,6 +1204,7 @@ fun AppNavigation(
                 }
             }
             PlayerScreen(
+                libraryId = backStackEntry.arguments?.getString("libraryId")?.toIntOrNull(),
                 contentId = backStackEntry.arguments?.getString("contentId") ?: "",
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
                 initialQuality = VideoPlayerRouteArgs.normalizeQuality(
@@ -1116,8 +1271,10 @@ fun AppNavigation(
             if (libraryId != null) {
                 LibraryCollectionsScreen(
                     onBackClick = { navController.popBackStack() },
-                    onCollectionClick = { collectionId ->
-                        navController.navigate(Route.CollectionDetail(collectionId, libraryId).route)
+                    onCollectionClick = { collection ->
+                        navController.navigate(
+                            libraryCollectionDetailRoute(collection, libraryId),
+                        )
                     },
                 )
             } else {
@@ -1131,6 +1288,11 @@ fun AppNavigation(
         }
 
     }
+    val membershipRepository: org.prairieserver.prairie.repository.PersonalDataRepository = koinInject()
+    org.prairieserver.prairie.common.ui.MembershipStatusBanner(
+        membershipRepository.memberships,
+        Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth(),
+    )
         diagnosticsState.prompt
             ?.takeIf {
                 currentEntry?.destination?.route != Route.Diagnostics.route &&
@@ -1183,11 +1345,15 @@ fun AppNavigation(
                 Route.Downloads.route,
                 Route.Calendar.route,
             )
+            // Profile-wide video intervals; the mini bar's 30s/30s on older servers.
+            val castSeekIntervals = rememberVideoSeekIntervals(GOOGLE_CAST_LEGACY_SEEK_INTERVALS)
             GoogleCastMiniBar(
                 castState = googleCastState,
                 onPlayPause = { googleCastManager.togglePlayback() },
-                onSkipBack = { googleCastManager.skipBy(-30.0) },
-                onSkipForward = { googleCastManager.skipBy(30.0) },
+                onSkipBack = { googleCastManager.skipBy(-castSeekIntervals.backSeconds.toDouble()) },
+                onSkipForward = { googleCastManager.skipBy(castSeekIntervals.forwardSeconds.toDouble()) },
+                skipBackSeconds = castSeekIntervals.backSeconds,
+                skipForwardSeconds = castSeekIntervals.forwardSeconds,
                 onSelectSubtitle = { googleCastManager.selectSubtitleTrack(it) },
                 onStop = { googleCastManager.disconnect() },
                 modifier = Modifier
@@ -1196,6 +1362,7 @@ fun AppNavigation(
                     .padding(bottom = if (currentRoute in tabRoutes) 80.dp else 0.dp),
             )
         }
+    }
     }
     }
     }
@@ -1218,6 +1385,7 @@ private fun NavHostController.isDisplayingExactPlayerRoute(
     // merely because a Watch Together room currently happens to play the same
     // content/file.
     if (!arguments.getString("roomId").isNullOrBlank()) return false
+    if (arguments.getString("libraryId") != null) return false
     val requestedTarget = playerRouteIntentOrNull(route) ?: return false
     return currentPlayerTarget?.let(requestedTarget::matches) == true
 }

@@ -17,7 +17,6 @@ import org.prairieserver.prairie.playback.encodeSubtitleIdentityPreference
 import org.prairieserver.prairie.playback.matchesSubtitleMediaIdentity
 import org.prairieserver.prairie.playback.resolveCatalogSubtitlePreferenceOrdinal
 import org.prairieserver.prairie.playback.resolveDownloadedSubtitlePreferenceOrdinal
-import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
 import org.prairieserver.prairie.playback.subtitleTrackFingerprint
 import org.prairieserver.prairie.repository.port.TrackSelectionFingerprintUpdate
 
@@ -161,7 +160,7 @@ internal suspend fun resolveOwnedTvFreshSubtitleRestore(
             // Hydration returns the full merged set, not downloads alone.
             // Prefer its rebased rows and deduplicate by the server index used
             // by picker identities and replans.
-            val rows = (downloaded + retained).distinctBy(PlayerSubtitleInfo::index)
+            val rows = (downloaded.filter { it.url.isNotBlank() } + retained).distinctBy(PlayerSubtitleInfo::index)
             TvFreshSubtitleRestoreResult(
                 rows = rows,
                 resolution = resolveTvFreshSubtitlePreference(
@@ -223,20 +222,6 @@ internal fun failTvReplacementLoad(
     serverUnreachable = false,
     subtitleFailureMessage = message,
 )
-
-internal suspend fun stopReplacedTvSessionAfterPublication(
-    replacedSessionId: String?,
-    publishedSessionId: String?,
-    stopSession: suspend (String) -> Unit,
-) {
-    val stale = replacedSessionId
-        ?.takeIf(String::isNotBlank)
-        ?.takeUnless { it == publishedSessionId }
-        ?: return
-    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-        runCatching { stopSession(stale) }
-    }
-}
 
 internal fun tvAudioTrackPersistenceUpdate(
     committedAudioTrackIndex: Int?,

@@ -3,13 +3,11 @@ package org.prairieserver.prairie.domain.settings
 import org.prairieserver.prairie.model.settings.EffectiveSettingValue
 import org.prairieserver.prairie.model.settings.SettingKeys
 import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.network.api.SettingsCapabilitiesResult
 import org.prairieserver.prairie.repository.SettingsRepository
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
@@ -32,17 +30,11 @@ class ProfileSettingsController(
     private val repository: SettingsRepository,
 ) {
 
-    /**
-     * Whether the connected server can serve canonical settings at all.
-     * [ServerUpgradeRequired] is not an error to swallow — the screen says so,
-     * and playback continues on local defaults.
-     */
+    /** Whether the connected server answered the canonical settings probe. */
     enum class Availability {
         /** Not probed yet. */
         UNKNOWN,
         AVAILABLE,
-        /** The server predates the canonical settings API (404 on the contract). */
-        SERVER_UPGRADE_REQUIRED,
         /** Reachable server, failed probe — transient, retryable. */
         UNAVAILABLE,
     }
@@ -90,11 +82,8 @@ class ProfileSettingsController(
      */
     suspend fun load(): LoadResult {
         val availability = when (repository.contractCapabilities()) {
-            is SettingsCapabilitiesResult.Available -> Availability.AVAILABLE
-            is SettingsCapabilitiesResult.ServerUpgradeRequired ->
-                Availability.SERVER_UPGRADE_REQUIRED
-            is SettingsCapabilitiesResult.Error,
-            is SettingsCapabilitiesResult.NetworkError -> Availability.UNAVAILABLE
+            is ApiResult.Success -> Availability.AVAILABLE
+            is ApiResult.Error, is ApiResult.NetworkError -> Availability.UNAVAILABLE
         }
         if (availability != Availability.AVAILABLE) return LoadResult(availability, null)
 
@@ -216,12 +205,6 @@ class ProfileSettingsController(
         fun Map<String, EffectiveSettingValue>.boolOr(key: String, fallback: Boolean): Boolean {
             val value = this[key]?.value ?: return fallback
             return runCatching { value.jsonPrimitive.booleanOrNull }.getOrNull() ?: fallback
-        }
-
-        fun Map<String, EffectiveSettingValue>.intOrNull(key: String): Int? {
-            val value = this[key]?.value ?: return null
-            if (value is JsonNull) return null
-            return runCatching { value.jsonPrimitive.intOrNull }.getOrNull()
         }
     }
 }
