@@ -39,16 +39,16 @@ class AuthenticatedDataSourceFactoryTest {
     @Test
     fun streamRelativeUrlWithoutApiMountResolvesAgainstOrigin() {
         assertEquals(
-            "https://silo.example/stream/session-1",
-            resolveRoutedDataSourceUrl("https://silo.example", "/stream/session-1"),
+            "https://prairie.example/stream/session-1",
+            resolveRoutedDataSourceUrl("https://prairie.example", "/stream/session-1"),
         )
     }
 
     @Test
     fun apiRelativeFallbackIsNotDoublePrefixed() {
         assertEquals(
-            "https://silo.example/api/v2/stream/session-1",
-            resolveRoutedDataSourceUrl("https://silo.example", "/api/v2/stream/session-1"),
+            "https://prairie.example/api/v2/stream/session-1",
+            resolveRoutedDataSourceUrl("https://prairie.example", "/api/v2/stream/session-1"),
         )
     }
 
@@ -414,7 +414,7 @@ class AuthenticatedDataSourceFactoryTest {
             MediaAuthSession(tokens, refreshClient),
         )
 
-        source.open(DataSpec(Uri.parse("https://silo.example/api/v2/stream/session")))
+        source.open(DataSpec(Uri.parse("https://prairie.example/api/v2/stream/session")))
 
         assertEquals(
             "Bearer expired-access",

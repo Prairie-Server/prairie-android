@@ -64,7 +64,7 @@ class WatchTogetherApiTest {
          "page":{"has_more":false}}
     """.trimIndent()
 
-    private val problem = """{"type":"https://silo.example/problems/conflict","title":"Conflict","status":409,"detail":"Already voted"}"""
+    private val problem = """{"type":"https://prairie.example/problems/conflict","title":"Conflict","status":409,"detail":"Already voted"}"""
 
     /** Routes by method: the first response answers the mutation, a suggestions GET always answers with the list. */
     private fun api(
@@ -294,7 +294,7 @@ class WatchTogetherApiTest {
     fun `join 410 problem surfaces as ApiResult Error`() = runTest {
         val (api, _) = api(
             status = HttpStatusCode.Gone,
-            responseBody = """{"type":"https://silo.example/problems/gone","title":"Gone","status":410,"detail":"Room is no longer active"}""",
+            responseBody = """{"type":"https://prairie.example/problems/gone","title":"Gone","status":410,"detail":"Room is no longer active"}""",
         )
         val r = api.joinRoom(JoinRoomRequest(code = "DEAD0000"), scope)
         assertIs<ApiResult.Error>(r)

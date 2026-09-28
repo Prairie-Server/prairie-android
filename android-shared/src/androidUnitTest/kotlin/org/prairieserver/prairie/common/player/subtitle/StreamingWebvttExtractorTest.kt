@@ -53,7 +53,7 @@ class StreamingWebvttExtractorTest {
         assertEquals(2, track.sampleCount)
         assertEquals(1_000_000L, track.getSampleTimeUs(0))
         assertEquals(3_000_000L, track.getSampleTimeUs(1))
-        assertEquals("silo-subtitle:7", track.lastFormat!!.id)
+        assertEquals("prairie-subtitle:7", track.lastFormat!!.id)
         assertEquals("en", track.lastFormat!!.language)
         assertEquals("English", track.lastFormat!!.label)
         assertEquals(MimeTypes.TEXT_VTT, track.lastFormat!!.codecs)
@@ -105,7 +105,7 @@ class StreamingWebvttExtractorTest {
     )
 
     private fun sourceFormat() = Format.Builder()
-        .setId("silo-subtitle:7")
+        .setId("prairie-subtitle:7")
         .setSampleMimeType(MimeTypes.TEXT_VTT)
         .setLanguage("en")
         .setLabel("English")

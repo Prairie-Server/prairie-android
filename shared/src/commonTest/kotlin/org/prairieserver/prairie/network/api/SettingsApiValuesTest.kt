@@ -105,7 +105,7 @@ class SettingsApiValuesTest {
     }
 
     private fun problem(code: String, detail: String) =
-        """{"type":"https://silo.example/problems/$code","title":"$code","status":0,"detail":"$detail"}"""
+        """{"type":"https://prairie.example/problems/$code","title":"$code","status":0,"detail":"$detail"}"""
 
     // ---- capabilities / server-upgrade-required ----
 

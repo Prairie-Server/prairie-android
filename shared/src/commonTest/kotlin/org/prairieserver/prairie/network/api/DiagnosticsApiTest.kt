@@ -223,7 +223,7 @@ class DiagnosticsApiTest {
     fun exactUploadDoesNotProactivelyRefreshWhileIdentityLeaseIsHeld() = runTest {
         val transitions = DefaultIdentityTransitionBarrier()
         val tokenManager = TokenManagerImpl(transitions).apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("expired-active", "refresh-token", 0)
             setProfileIdentity("active-profile", "active-profile-token")
         }
@@ -266,7 +266,7 @@ class DiagnosticsApiTest {
     fun exactUploadSurfacesUnauthorizedWithoutRefreshOrSessionInvalidationUnderLease() = runTest {
         val transitions = DefaultIdentityTransitionBarrier()
         val tokenManager = TokenManagerImpl(transitions).apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("rejected-active", "refresh-token", 3_600)
         }
         val paths = mutableListOf<String>()
@@ -313,7 +313,7 @@ class DiagnosticsApiTest {
         accessToken: String,
     ) = DiagnosticsUploadAuthorization(
         serverId = "server-1",
-        serverUrl = "https://silo.example",
+        serverUrl = "https://prairie.example",
         accessToken = accessToken,
         activeProfileId = "active-profile",
         identityGeneration = identityGeneration,
@@ -338,7 +338,7 @@ class DiagnosticsApiTest {
         retryAfterHeader: String? = retryAfterSeconds?.toString(),
     ): Fixture {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("access-token", "refresh-token", 3_600)
             setProfileId("active-profile")
             setProfileToken("active-profile-token")

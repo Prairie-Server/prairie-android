@@ -121,7 +121,7 @@ class TvLoginViewModelRaceTest {
 
     private fun installRace(qr: Boolean) = runTest(dispatcher) {
         val actualTokens = TokenManagerImpl()
-        actualTokens.setServerUrl("https://silo.test")
+        actualTokens.setServerUrl("https://prairie.test")
         val installing = CompletableDeferred<Unit>()
         val releaseInstall = CompletableDeferred<Unit>()
         var pauseInstall = true

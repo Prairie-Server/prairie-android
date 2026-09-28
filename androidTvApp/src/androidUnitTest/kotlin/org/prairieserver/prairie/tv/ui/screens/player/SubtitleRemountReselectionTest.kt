@@ -143,7 +143,7 @@ class SubtitleRemountReselectionTest {
     @Test
     fun `ViewModel does not settle the first nonempty remount snapshot`() {
         val tracker = TvSubtitleSnapshotSettlementTracker()
-        val first = listOf(track(index = 1, trackId = "silo-subtitle:4"))
+        val first = listOf(track(index = 1, trackId = "prairie-subtitle:4"))
 
         assertFalse(tracker.observe(first))
         assertTrue(tracker.observe(first))
@@ -152,8 +152,8 @@ class SubtitleRemountReselectionTest {
     @Test
     fun `changed remount snapshot must stabilize again before it is terminal`() {
         val tracker = TvSubtitleSnapshotSettlementTracker()
-        val first = listOf(track(index = 1, trackId = "silo-subtitle:4"))
-        val changed = listOf(track(index = 2, trackId = "silo-subtitle:4"))
+        val first = listOf(track(index = 1, trackId = "prairie-subtitle:4"))
+        val changed = listOf(track(index = 2, trackId = "prairie-subtitle:4"))
 
         assertFalse(tracker.observe(first))
         assertFalse(tracker.observe(changed))
@@ -217,7 +217,7 @@ class SubtitleRemountReselectionTest {
     @Test
     fun `catalog B followed by embedded C remounts only C`() {
         val latch = SubtitleRemountReselection()
-        val b = SubtitleIdentity.ServerSidecar(4, media(trackId = "silo-subtitle:4"))
+        val b = SubtitleIdentity.ServerSidecar(4, media(trackId = "prairie-subtitle:4"))
         val c = SubtitleIdentity.Embedded(8, media(trackId = "embedded-c"))
         latch.arm(b, generation = 1)
         latch.arm(c, generation = 2)
@@ -225,7 +225,7 @@ class SubtitleRemountReselectionTest {
         val event = assertIs<TvSubtitleRemountEvent.Select>(
             latch.consume(
                 subtitleTracks = listOf(
-                    track(index = 4, trackId = "silo-subtitle:4"),
+                    track(index = 4, trackId = "prairie-subtitle:4"),
                     track(index = 8, trackId = "embedded-c"),
                 ),
                 snapshotKey = "ready",
@@ -235,7 +235,7 @@ class SubtitleRemountReselectionTest {
 
         assertEquals(8, event.trackIndex)
         assertEquals(c, event.owner.identity)
-        assertNull(latch.consume(listOf(track(index = 4, trackId = "silo-subtitle:4")), snapshotKey = "late-b", settled = true))
+        assertNull(latch.consume(listOf(track(index = 4, trackId = "prairie-subtitle:4")), snapshotKey = "late-b", settled = true))
     }
 
     @Test
@@ -248,7 +248,7 @@ class SubtitleRemountReselectionTest {
         val event = assertIs<TvSubtitleRemountEvent.Select>(
             latch.consume(
                 subtitleTracks = listOf(
-                    track(index = 4, trackId = "silo-subtitle:4"),
+                    track(index = 4, trackId = "prairie-subtitle:4"),
                     track(index = 9, trackId = "local-c"),
                 ),
                 snapshotKey = "ready",
@@ -327,7 +327,7 @@ class SubtitleRemountReselectionTest {
 
         latch.clear()
 
-        assertNull(latch.consume(listOf(track(index = 4, trackId = "silo-subtitle:4")), snapshotKey = "late", settled = true))
+        assertNull(latch.consume(listOf(track(index = 4, trackId = "prairie-subtitle:4")), snapshotKey = "late", settled = true))
     }
 
     @Test
@@ -357,8 +357,8 @@ class SubtitleRemountReselectionTest {
     @Test
     fun `merged sidecar carrying the Media3 source prefix still mounts`() {
         // Media3 reports a merged sidecar's Format.id with the MergingMediaSource
-        // child index: the id authored as "silo-subtitle:0" comes back as
-        // "1:silo-subtitle:0", alongside primary-stream tracks like "0:3".
+        // child index: the id authored as "prairie-subtitle:0" comes back as
+        // "1:prairie-subtitle:0", alongside primary-stream tracks like "0:3".
         // Exact equality never matched, so the mount timed out and the whole
         // subtitle transaction rolled back to Off.
         val latch = SubtitleRemountReselection()
@@ -451,8 +451,8 @@ class SubtitleRemountReselectionTest {
         val event = assertIs<TvSubtitleRemountEvent.Select>(
             latch.consume(
                 listOf(
-                    track(index = 2, trackId = "silo-downloaded-subtitle:90", label = "English"),
-                    track(index = 3, trackId = "silo-downloaded-subtitle:91", label = "English"),
+                    track(index = 2, trackId = "prairie-downloaded-subtitle:90", label = "English"),
+                    track(index = 3, trackId = "prairie-downloaded-subtitle:91", label = "English"),
                 ),
                 snapshotKey = "ready",
                 settled = true,
@@ -470,8 +470,8 @@ class SubtitleRemountReselectionTest {
         val event = assertIs<TvSubtitleRemountEvent.Select>(
             latch.consume(
                 listOf(
-                    track(index = 2, trackId = "silo-subtitle:8"),
-                    track(index = 3, trackId = "silo-subtitle:7"),
+                    track(index = 2, trackId = "prairie-subtitle:8"),
+                    track(index = 3, trackId = "prairie-subtitle:7"),
                 ),
                 snapshotKey = "ready",
                 settled = true,

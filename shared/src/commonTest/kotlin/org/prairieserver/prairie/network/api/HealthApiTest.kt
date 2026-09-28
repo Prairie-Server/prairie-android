@@ -99,7 +99,7 @@ class HealthApiTest {
 
     @Test
     fun `checkHealth is sent to the active server`() = runTest {
-        val tokenManager = TokenManagerImpl().apply { setServerUrl("https://silo.example.com:8443") }
+        val tokenManager = TokenManagerImpl().apply { setServerUrl("https://prairie.example.com:8443") }
         var captured: HttpRequestData? = null
         val client = HttpClient(
             MockEngine { request ->
@@ -118,7 +118,7 @@ class HealthApiTest {
         val result = HealthApi(client).checkHealth()
 
         assertIs<ApiResult.Success<HealthStatus>>(result)
-        assertEquals("silo.example.com", captured?.url?.host)
+        assertEquals("prairie.example.com", captured?.url?.host)
         assertEquals(8443, captured?.url?.port)
         assertEquals("/health", captured?.url?.encodedPath)
         client.close()

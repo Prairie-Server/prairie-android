@@ -25,14 +25,14 @@ class ArtworkUrlsTest {
 
     @Test
     fun signedPathAndQueryArePreservedAndBasePathIsDiscarded() {
-        assertEquals("https://silo.test:8443$signed", resolveArtworkUrl(signed, "https://user:password@silo.test:8443/silo/base?ignored=yes"))
+        assertEquals("https://prairie.test:8443$signed", resolveArtworkUrl(signed, "https://user:password@prairie.test:8443/silo/base?ignored=yes"))
         assertEquals("http://[::1]:8096$signed", resolveArtworkUrl(signed, "http://[::1]:8096/silo"))
     }
 
     @Test
     fun absoluteS3AndLocalFilesRemainUnchanged() {
         listOf("https://bucket.s3.test/a%2Fb.jpg?X-Amz-Signature=a%2Bb", "file:///downloads/poster.jpg", "content://images/1", "", "//cdn.test/poster.jpg").forEach {
-            assertEquals(it, resolveArtworkUrl(it, "https://silo.test/base"))
+            assertEquals(it, resolveArtworkUrl(it, "https://prairie.test/base"))
         }
     }
 

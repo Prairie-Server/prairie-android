@@ -35,7 +35,7 @@ class TvAutoSubtitleFallbackTest {
         codec = "srt",
         label = "English",
         source = "external",
-        url = "https://silo.example/stream/s1/subtitles/0.vtt",
+        url = "https://prairie.example/stream/s1/subtitles/0.vtt",
         catalogLabel = "English",
         catalogSource = "external",
     )

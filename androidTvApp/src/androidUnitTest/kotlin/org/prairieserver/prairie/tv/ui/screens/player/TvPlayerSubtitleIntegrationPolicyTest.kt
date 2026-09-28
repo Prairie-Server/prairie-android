@@ -106,7 +106,7 @@ class TvPlayerSubtitleIntegrationPolicyTest {
         val legacy = SubtitleIdentity.Downloaded(
             downloadId = 91,
             media = org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
-                trackId = "silo-downloaded-subtitle:91",
+                trackId = "prairie-downloaded-subtitle:91",
                 label = "Downloaded English",
                 language = "en",
                 codecFamily = "webvtt",
@@ -231,7 +231,7 @@ class TvPlayerSubtitleIntegrationPolicyTest {
             isSelected = false,
             displayLabel = "English",
             codecOrMime = "srt",
-            trackId = "silo-subtitle:8",
+            trackId = "prairie-subtitle:8",
         )
 
         val identity = resolveTvRemoteSubtitleIntent(
@@ -623,6 +623,6 @@ class TvPlayerSubtitleIntegrationPolicyTest {
         forced = false,
         url = "/subtitles/${downloadId ?: "legacy"}.vtt",
         downloadId = downloadId,
-        mediaTrackId = downloadId?.let { "silo-downloaded-subtitle:$it" },
+        mediaTrackId = downloadId?.let { "prairie-downloaded-subtitle:$it" },
     )
 }

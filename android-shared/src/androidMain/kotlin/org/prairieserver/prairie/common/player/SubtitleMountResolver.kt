@@ -10,7 +10,7 @@ import org.prairieserver.prairie.playback.downloadedSubtitleArtifactTrackId
 import org.prairieserver.prairie.playback.isTextSubtitleCodecFamily
 import org.prairieserver.prairie.playback.subtitleLabelIndicatesHearingImpaired
 
-private const val SUBTITLE_ARTIFACT_TRACK_ID_PREFIX = "silo-subtitle:"
+private const val SUBTITLE_ARTIFACT_TRACK_ID_PREFIX = "prairie-subtitle:"
 
 /**
  * Stable Media3 identity for a server-authored subtitle artifact.
@@ -24,8 +24,8 @@ fun subtitleArtifactTrackId(serverIndex: Int): String =
  * True when a mounted Media3 `Format.id` denotes [expected].
  *
  * A sidecar merged with the primary stream comes back from Media3 carrying the
- * MergingMediaSource child index: the id we authored as `silo-subtitle:0` is
- * reported as `1:silo-subtitle:0`, while the primary stream's own tracks read
+ * MergingMediaSource child index: the id we authored as `prairie-subtitle:0` is
+ * reported as `1:prairie-subtitle:0`, while the primary stream's own tracks read
  * `0:3`, `0:4` and so on. Comparing with `==` therefore never matches a merged
  * sidecar, so the mount waits for a track that appears to be absent and the
  * whole subtitle transaction times out and rolls back.

@@ -1127,7 +1127,7 @@ private class FakeProfileRepository(
 }
 
 private class FakeTokenManager : TokenManager {
-    var metadataOwner: org.prairieserver.prairie.network.AuthScopeSnapshot? = org.prairieserver.prairie.network.AuthScopeSnapshot(SERVER_ID, PROFILE_ID, "https://silo.test", null, identityGeneration = 1, isIdentityGenerationStamped = true, credentialEpoch = 1)
+    var metadataOwner: org.prairieserver.prairie.network.AuthScopeSnapshot? = org.prairieserver.prairie.network.AuthScopeSnapshot(SERVER_ID, PROFILE_ID, "https://prairie.test", null, identityGeneration = 1, isIdentityGenerationStamped = true, credentialEpoch = 1)
     var beforeSnapshot: suspend () -> Unit = {}
     override suspend fun snapshotCurrentScope(): org.prairieserver.prairie.network.AuthScopeSnapshot? {
         beforeSnapshot()
@@ -1143,7 +1143,7 @@ private class FakeTokenManager : TokenManager {
     override suspend fun setProfileId(profileId: String?) = Unit
     override suspend fun getProfileToken(): String? = null
     override suspend fun setProfileToken(token: String?) = Unit
-    override suspend fun getServerUrl(): String = "https://silo.test"
+    override suspend fun getServerUrl(): String = "https://prairie.test"
     override suspend fun setServerUrl(url: String) = Unit
     override suspend fun getCurrentServerId(): String = SERVER_ID
     override suspend fun switchActiveServer(serverId: String?) = Unit
@@ -1248,7 +1248,7 @@ private fun allocatedReady(
         sessionId = sessionId,
         delivery = PlaybackDelivery.ORIGINAL_HTTP,
         stream = PlaybackStreamV3(
-            url = "https://silo.test/stream/$sessionId",
+            url = "https://prairie.test/stream/$sessionId",
             protocol = PlaybackStreamProtocol.HTTP_PROGRESSIVE,
             container = "mkv",
         ),

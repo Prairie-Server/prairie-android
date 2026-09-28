@@ -131,7 +131,7 @@ private class FakeHealthApi(
 private class RecordingServerRegistry : ServerRegistry {
     private val activeId = MutableStateFlow<String?>("active")
     private val savedEntries = MutableStateFlow(
-        listOf(ServerEntry(id = "active", url = "https://silo.example")),
+        listOf(ServerEntry(id = "active", url = "https://prairie.example")),
     )
 
     var fetchedName: String? = null
@@ -170,7 +170,7 @@ private object FakeTokenManager : TokenManager {
     override suspend fun setProfileId(profileId: String?) = Unit
     override suspend fun getProfileToken(): String? = null
     override suspend fun setProfileToken(token: String?) = Unit
-    override suspend fun getServerUrl(): String = "https://silo.example"
+    override suspend fun getServerUrl(): String = "https://prairie.example"
     override suspend fun setServerUrl(url: String) = Unit
     override suspend fun getCurrentServerId(): String? = "active"
     override suspend fun switchActiveServer(serverId: String?) = Unit

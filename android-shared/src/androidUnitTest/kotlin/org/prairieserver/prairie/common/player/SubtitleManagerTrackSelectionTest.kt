@@ -86,7 +86,7 @@ class SubtitleManagerTrackSelectionTest {
                 label = "English",
                 language = "en",
                 sampleMimeType = MimeTypes.TEXT_VTT,
-                id = "silo-subtitle:7",
+                id = "prairie-subtitle:7",
             ),
         )
         val tracks = Tracks(
@@ -124,11 +124,11 @@ class SubtitleManagerTrackSelectionTest {
                 PlayerSubtitleInfo(3, "en", "webvtt", "Server subtitle", "server_artifact", true, "/api/v2/stream/s1/subtitles/3.vtt"),
                 PlayerSubtitleInfo(4, "en", "webvtt", "Server subtitle", "server_artifact", false, "/api/v2/stream/s1/subtitles/4.vtt"),
             ),
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(
-            listOf("silo-subtitle:3", "silo-subtitle:4"),
+            listOf("prairie-subtitle:3", "prairie-subtitle:4"),
             configurations.map { it.id },
         )
     }
@@ -171,15 +171,15 @@ class SubtitleManagerTrackSelectionTest {
                     downloadId = 314,
                 ),
             ),
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(
             listOf(
-                "silo-subtitle:3",
-                "silo-downloaded-subtitle:312",
-                "silo-downloaded-subtitle:313",
-                "silo-downloaded-subtitle:314",
+                "prairie-subtitle:3",
+                "prairie-downloaded-subtitle:312",
+                "prairie-downloaded-subtitle:313",
+                "prairie-downloaded-subtitle:314",
             ),
             configurations.map { it.id },
         )
@@ -201,12 +201,12 @@ class SubtitleManagerTrackSelectionTest {
                         downloadId = 312,
                     ),
                 ),
-                serverUrl = "https://silo.example",
+                serverUrl = "https://prairie.example",
             ).single().id
 
-        assertEquals("silo-downloaded-subtitle:312", mountedId(index = 1))
-        assertEquals("silo-downloaded-subtitle:312", mountedId(index = 2))
-        assertEquals("silo-downloaded-subtitle:312", mountedId(index = 8))
+        assertEquals("prairie-downloaded-subtitle:312", mountedId(index = 1))
+        assertEquals("prairie-downloaded-subtitle:312", mountedId(index = 2))
+        assertEquals("prairie-downloaded-subtitle:312", mountedId(index = 8))
     }
 
     @Test
@@ -223,7 +223,7 @@ class SubtitleManagerTrackSelectionTest {
                     url = "/api/v2/stream/s1/subtitles/4.vtt",
                 ),
             ),
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         ).single()
 
         assertNull(configuration.id)
@@ -269,10 +269,10 @@ class SubtitleManagerTrackSelectionTest {
     @Test
     fun mobileSelectionUsesDownloadedStableIdAcrossDuplicateLabels() {
         val server = TrackGroup(
-            subtitle("English", "en", id = "silo-subtitle:3"),
+            subtitle("English", "en", id = "prairie-subtitle:3"),
         )
         val downloaded = TrackGroup(
-            subtitle("English", "en", id = "silo-downloaded-subtitle:312"),
+            subtitle("English", "en", id = "prairie-downloaded-subtitle:312"),
         )
         val tracks = Tracks(
             listOf(
@@ -303,10 +303,10 @@ class SubtitleManagerTrackSelectionTest {
     @Test
     fun mobileMetadataSelectionUsesStableIdAcrossDuplicateRuntimeLabels() {
         val forced = TrackGroup(
-            subtitle("Server subtitle", "en", id = "silo-subtitle:3", forced = true),
+            subtitle("Server subtitle", "en", id = "prairie-subtitle:3", forced = true),
         )
         val full = TrackGroup(
-            subtitle("Server subtitle", "en", id = "silo-subtitle:4", forced = false),
+            subtitle("Server subtitle", "en", id = "prairie-subtitle:4", forced = false),
         )
         val tracks = Tracks(
             listOf(
@@ -327,16 +327,16 @@ class SubtitleManagerTrackSelectionTest {
     @Test
     fun relativeSubtitleUrlsWithoutApiMountResolveAgainstOrigin() {
         assertEquals(
-            "https://silo.example/stream/session-1/subtitles/0.srt",
-            resolveSubtitleUrl("https://silo.example", "/stream/session-1/subtitles/0.srt"),
+            "https://prairie.example/stream/session-1/subtitles/0.srt",
+            resolveSubtitleUrl("https://prairie.example", "/stream/session-1/subtitles/0.srt"),
         )
     }
 
     @Test
     fun apiRelativeStreamUrlsAreNotDoublePrefixed() {
         assertEquals(
-            "https://silo.example/api/v2/stream/session-1/subtitles/0.srt",
-            resolveSubtitleUrl("https://silo.example", "/api/v2/stream/session-1/subtitles/0.srt"),
+            "https://prairie.example/api/v2/stream/session-1/subtitles/0.srt",
+            resolveSubtitleUrl("https://prairie.example", "/api/v2/stream/session-1/subtitles/0.srt"),
         )
     }
 
@@ -499,7 +499,7 @@ class SubtitleManagerTrackSelectionTest {
                     url = "/api/v2/stream/session-1/subtitles/0.vtt",
                 )
             ),
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         ).single()
 
         assertEquals(MimeTypes.TEXT_VTT, configuration.mimeType)
@@ -519,7 +519,7 @@ class SubtitleManagerTrackSelectionTest {
                     url = "/api/v2/stream/session-1/subtitles/0.srt",
                 )
             ),
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         ).single()
 
         assertEquals(MimeTypes.APPLICATION_SUBRIP, configuration.mimeType)
@@ -548,7 +548,7 @@ class SubtitleManagerTrackSelectionTest {
                     url = "/api/v2/stream/session-1/subtitles/1.sup",
                 ),
             ),
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertEquals(2, configurations.size)
@@ -569,7 +569,7 @@ class SubtitleManagerTrackSelectionTest {
                     url = "",
                 ),
             ),
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
         )
 
         assertTrue(configurations.isEmpty())

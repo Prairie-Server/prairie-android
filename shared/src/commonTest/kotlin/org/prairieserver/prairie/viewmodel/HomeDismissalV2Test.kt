@@ -34,7 +34,7 @@ class HomeDismissalV2Test {
     private fun scenario(stage: String) = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
-        var owner = AuthScopeSnapshot("server", "profile", "https://silo.test", "pin", identityGeneration = 1)
+        var owner = AuthScopeSnapshot("server", "profile", "https://prairie.test", "pin", identityGeneration = 1)
         val original = owner
         val tokens = object : TokenManager by TokenManagerImpl() { override suspend fun snapshotCurrentScope() = owner }
         val stamp = "2026-09-06T01:02:03.456Z"

@@ -235,7 +235,7 @@ class SubtitlesApiTest {
         // 503 = AI engine unconfigured; 429 = quota exhausted — same mapping path.
         val (api, _) = api(
             status = HttpStatusCode.ServiceUnavailable,
-            responseBody = """{"type":"https://silo.example/problems/ai_unavailable","title":"Service Unavailable",
+            responseBody = """{"type":"https://prairie.example/problems/ai_unavailable","title":"Service Unavailable",
                 "status":503,"detail":"AI translation is not configured"}""",
         )
 

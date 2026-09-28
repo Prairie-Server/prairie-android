@@ -77,7 +77,7 @@ class PrairieAuthPluginPinTest {
         }
 
         assertFailsWith<CleartextOriginNotApprovedException> {
-            client.get("ws://silo.lan/api/v2/watch-together/rooms/r/ws")
+            client.get("ws://prairie.lan/api/v2/watch-together/rooms/r/ws")
         }
         assertEquals(false, engineCalled)
         client.close()
@@ -439,7 +439,7 @@ class PrairieAuthPluginPinTest {
             tokenManager = tokenManager,
             captured = captured,
             deviceMetadataProvider = provider,
-        ).get("https://silo.example/api/v2/auth/login") {
+        ).get("https://prairie.example/api/v2/auth/login") {
             skipPrairieAuth()
         }
 
@@ -472,7 +472,7 @@ class PrairieAuthPluginPinTest {
             }
         }
 
-        client.get("https://silo.example/api/v2/auth/login") {
+        client.get("https://prairie.example/api/v2/auth/login") {
             skipPrairieAuth()
         }
 

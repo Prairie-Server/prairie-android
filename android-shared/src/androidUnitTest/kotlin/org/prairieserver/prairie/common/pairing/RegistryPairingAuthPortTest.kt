@@ -54,7 +54,7 @@ class RegistryPairingAuthPortTest {
 
         assertFailsWith<CleartextOriginNotApprovedException> {
             RegistryPairingAuthPort(tokens, registry, consent).persistApprovedSession(
-                serverUrl = "http://silo.lan",
+                serverUrl = "http://prairie.lan",
                 serverName = "Unsafe",
                 accessToken = "access",
                 refreshToken = "refresh",
@@ -73,7 +73,7 @@ class RegistryPairingAuthPortTest {
         prefs.edit().clear().commit()
         val registry = AndroidServerRegistry(prefs)
         val tokens = EncryptedTokenManagerImpl(prefs, registry)
-        val serverUrl = "https://silo.example"
+        val serverUrl = "https://prairie.example"
         val serverId = registry.addOrUpdate(serverUrl, fetchedName = "Old Server Name")
         registry.rename(serverId, "Living Room")
         registry.switchTo(serverId)
@@ -108,7 +108,7 @@ class RegistryPairingAuthPortTest {
         prefs.edit().clear().commit()
         val transitions = DefaultIdentityTransitionBarrier()
         val registry = AndroidServerRegistry(prefs, transitions)
-        val serverUrl = "https://silo.example"
+        val serverUrl = "https://prairie.example"
         val serverId = registry.addOrUpdate(serverUrl)
         registry.switchTo(serverId)
         val tokens = EncryptedTokenManagerImpl(prefs, registry, transitions)
@@ -152,7 +152,7 @@ class RegistryPairingAuthPortTest {
         prefs.edit().clear().commit()
         val transitions = DefaultIdentityTransitionBarrier()
         val registry = AndroidServerRegistry(prefs, transitions)
-        val serverUrl = "https://silo.example"
+        val serverUrl = "https://prairie.example"
         val serverId = registry.addOrUpdate(serverUrl)
         registry.switchTo(serverId)
         val tokens = EncryptedTokenManagerImpl(prefs, registry, transitions)

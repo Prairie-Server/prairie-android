@@ -326,7 +326,7 @@ class LibrariesViewModelTest {
     private class FakeServerRegistry : ServerRegistry {
         private val entry = ServerEntry(
             id = "server-1",
-            url = "https://silo.test",
+            url = "https://prairie.test",
             profileId = "profile-1",
         )
         override val entries: StateFlow<List<ServerEntry>> = MutableStateFlow(listOf(entry))

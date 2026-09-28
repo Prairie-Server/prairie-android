@@ -27,7 +27,7 @@ class MediaAuthSessionTest {
         }
         val refreshClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
-                assertEquals("https://silo.example/api/v2/auth/refresh", chain.request().url.toString())
+                assertEquals("https://prairie.example/api/v2/auth/refresh", chain.request().url.toString())
                 assertEquals("POST", chain.request().method)
                 Response.Builder()
                     .request(chain.request())

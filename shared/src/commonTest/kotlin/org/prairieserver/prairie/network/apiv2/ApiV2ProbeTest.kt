@@ -42,8 +42,8 @@ class ApiV2ProbeTest {
             recorded += request.url.toString()
             respond(body, status, headersOf(HttpHeaders.ContentType, contentType))
         }
-        val result = ApiV2Probe(client).probe("https://silo.example/")
-        assertEquals(listOf("https://silo.example/api/v2/system/info"), recorded)
+        val result = ApiV2Probe(client).probe("https://prairie.example/")
+        assertEquals(listOf("https://prairie.example/api/v2/system/info"), recorded)
         return result
     }
 
@@ -156,18 +156,18 @@ class ApiV2ProbeTest {
 
     @Test
     fun timeoutIsTimeout() = runTest {
-        val client = client { throw HttpRequestTimeoutException("https://silo.example/api/v2/system/info", 30_000L) }
-        val result = ApiV2Probe(client).probe("https://silo.example")
+        val client = client { throw HttpRequestTimeoutException("https://prairie.example/api/v2/system/info", 30_000L) }
+        val result = ApiV2Probe(client).probe("https://prairie.example")
         assertEquals(ApiV2ProbeResult.Kind.TIMEOUT, assertIs<ApiV2ProbeResult.Failure>(result).kind)
 
         val connect = client { throw ConnectTimeoutException("connect timed out", null) }
-        assertEquals(ApiV2ProbeResult.Kind.TIMEOUT, assertIs<ApiV2ProbeResult.Failure>(ApiV2Probe(connect).probe("https://silo.example")).kind)
+        assertEquals(ApiV2ProbeResult.Kind.TIMEOUT, assertIs<ApiV2ProbeResult.Failure>(ApiV2Probe(connect).probe("https://prairie.example")).kind)
     }
 
     @Test
     fun tlsOrConnectFailureIsConnection() = runTest {
         val client = client { throw IllegalStateException("SSL handshake failed: certificate unknown") }
-        val result = ApiV2Probe(client).probe("https://silo.example")
+        val result = ApiV2Probe(client).probe("https://prairie.example")
         val failure = assertIs<ApiV2ProbeResult.Failure>(result)
         assertEquals(ApiV2ProbeResult.Kind.CONNECTION, failure.kind)
         assertEquals("SSL handshake failed: certificate unknown", failure.cause?.message)

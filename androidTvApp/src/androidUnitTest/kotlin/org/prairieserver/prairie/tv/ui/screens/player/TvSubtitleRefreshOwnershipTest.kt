@@ -202,7 +202,7 @@ class TvSubtitleRefreshOwnershipTest {
         )
 
         assertEquals(
-            "https://silo.test/api/v1/stream/stale/subtitles/91.vtt?token=stale",
+            "https://prairie.test/api/v1/stream/stale/subtitles/91.vtt?token=stale",
             harness.adapter.snapshot.subtitleTracks.single { it.downloadId == 91 }.url,
         )
     }
@@ -255,7 +255,7 @@ class TvSubtitleRefreshOwnershipTest {
         codec = "webvtt",
         label = "Server $index",
         source = "server_artifact",
-        url = "https://silo.test/api/v1/stream/s1/subtitles/$index.vtt",
+        url = "https://prairie.test/api/v1/stream/s1/subtitles/$index.vtt",
     )
 
     private fun downloaded(
@@ -268,7 +268,7 @@ class TvSubtitleRefreshOwnershipTest {
         codec = "webvtt",
         label = label,
         source = "downloaded",
-        url = "https://silo.test/api/v1/stream/$sessionId/subtitles/$id.vtt?token=$sessionId",
+        url = "https://prairie.test/api/v1/stream/$sessionId/subtitles/$id.vtt?token=$sessionId",
         downloadId = id,
     )
 

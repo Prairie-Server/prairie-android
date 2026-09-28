@@ -365,7 +365,7 @@ class MobileDetailActionsTest {
             engineDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
         ) : this(
             responses,
-            AuthScopeSnapshot("s1", "p1", "https://silo.example", "pt", identityGeneration = 1),
+            AuthScopeSnapshot("s1", "p1", "https://prairie.example", "pt", identityGeneration = 1),
             engineDispatcher,
             mutableListOf(),
         )

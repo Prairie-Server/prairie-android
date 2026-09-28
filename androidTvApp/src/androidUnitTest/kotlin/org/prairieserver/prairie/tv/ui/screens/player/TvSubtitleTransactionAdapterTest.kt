@@ -1664,7 +1664,7 @@ class TvSubtitleTransactionAdapterTest {
             label = "Downloaded English",
             source = "downloaded",
             forced = false,
-            url = "https://silo.test/api/v1/stream/s1/subtitles/4.vtt",
+            url = "https://prairie.test/api/v1/stream/s1/subtitles/4.vtt",
             downloadId = 91,
             serverTrackId = "file:22:subtitle:4",
             serverDelivery = "sidecar",

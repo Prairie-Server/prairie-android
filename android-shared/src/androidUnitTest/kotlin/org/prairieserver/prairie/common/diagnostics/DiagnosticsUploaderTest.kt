@@ -1102,7 +1102,7 @@ class DiagnosticsUploaderTest {
             selfHostedAuthorization = DiagnosticsSelfHostedAuthorizationProvider {
                 DiagnosticsUploadAuthorization(
                     serverId = "local-server-1",
-                    serverUrl = "https://silo.example",
+                    serverUrl = "https://prairie.example",
                     accessToken = "access-token",
                     activeProfileId = identity.current?.profileId,
                     identityGeneration = identityTransitions.generation.value,

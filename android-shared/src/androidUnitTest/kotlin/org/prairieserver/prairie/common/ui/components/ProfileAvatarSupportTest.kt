@@ -49,7 +49,7 @@ class ProfileAvatarSupportTest {
         // Uri.encode is stubbed under plain unit tests, so assert the routing
         // rather than the fully-encoded query.
         val resolved = resolveProfileAvatar(
-            "https://silo.example",
+            "https://prairie.example",
             ProfileAvatarRef("preset:dicebear:fun-emoji:cosmic-otter"),
         )
         assertTrue(
@@ -82,7 +82,7 @@ class ProfileAvatarSupportTest {
     fun uploadRefUsesTheServerSuppliedUrl() {
         val signed = signedUploadUrl("abc123")
         val resolved = resolveProfileAvatar(
-            "https://silo.example",
+            "https://prairie.example",
             ProfileAvatarRef(uploadRef, signed),
         )
         assertEquals(signed, resolved?.url)
@@ -91,15 +91,15 @@ class ProfileAvatarSupportTest {
     @Test
     fun uploadRefWithoutAUrlResolvesToNullRatherThanAFabricatedServerPath() {
         // The regression: this used to produce
-        // https://silo.example/upload:profile-avatars/… — a guaranteed 404.
-        assertNull(resolveProfileAvatar("https://silo.example", ProfileAvatarRef(uploadRef)))
-        assertNull(resolveAvatarUrl("https://silo.example", uploadRef))
+        // https://prairie.example/upload:profile-avatars/… — a guaranteed 404.
+        assertNull(resolveProfileAvatar("https://prairie.example", ProfileAvatarRef(uploadRef)))
+        assertNull(resolveAvatarUrl("https://prairie.example", uploadRef))
     }
 
     @Test
     fun serverSuppliedUrlWinsOverAServerRelativePath() {
         val resolved = resolveProfileAvatar(
-            "https://silo.example",
+            "https://prairie.example",
             ProfileAvatarRef("/api/v1/users/1/avatar.png", "https://cdn.example.test/a.webp"),
         )
         assertEquals("https://cdn.example.test/a.webp", resolved?.url)

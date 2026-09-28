@@ -40,7 +40,7 @@ class NativeEmbeddedSubtitleTest {
         assertEquals(7, resolveMountedSubtitle(identity, listOf(track("2", 0), track("0:19", 7)))?.track?.index)
         assertNull(resolveMountedSubtitle(identity, listOf(track("2", 0))))
         assertNull(resolveMountedSubtitle(identity, listOf(track("19", 0), track("0:19", 1))))
-        assertNull(resolveMountedSubtitle(identity, listOf(track("1:silo-subtitle:0", 0))))
+        assertNull(resolveMountedSubtitle(identity, listOf(track("1:prairie-subtitle:0", 0))))
     }
 
     @Test fun declaredV3SidecarNeverSkipsMountForHeuristicMuxedMatch() {

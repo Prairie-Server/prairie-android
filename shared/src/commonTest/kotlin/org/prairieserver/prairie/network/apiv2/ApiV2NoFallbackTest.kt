@@ -111,7 +111,7 @@ class ApiV2NoFallbackTest {
 }
 
 private class ContractRegistry(contract: ServerContract) : ServerRegistry {
-    private val entry = ServerEntry(id = "active", url = "https://silo.example", contract = contract)
+    private val entry = ServerEntry(id = "active", url = "https://prairie.example", contract = contract)
     override val entries: StateFlow<List<ServerEntry>> = MutableStateFlow(listOf(entry))
     override val activeServerId: StateFlow<String?> = MutableStateFlow("active")
     override val activeEntry: StateFlow<ServerEntry?> = MutableStateFlow(entry)

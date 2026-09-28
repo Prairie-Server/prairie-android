@@ -569,7 +569,7 @@ class DiagnosticsPrivacyIntegrationTest {
         val DEVICE_WITH_BUILD_FINGERPRINT =
             """{"captured_at":"2026-07-22T00:00:00Z","identity":{"manufacturer":"Google","build_fingerprint_hash":"${"a".repeat(32)}"}}"""
         const val SOURCE_SERVER_ID = "private-server-id"
-        const val SOURCE_SERVER_URL = "https://private-silo.example"
+        const val SOURCE_SERVER_URL = "https://private-prairie.example"
         const val SOURCE_PROFILE_ID = "private-profile-id"
         const val SOURCE_ACCOUNT_ID = "private-account-id"
         const val LOCAL_HOSTED_OWNER = "local-hosted-owner-hash"

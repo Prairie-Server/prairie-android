@@ -35,7 +35,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
     @Test
     fun aServerIssuingShortTokensDoesNotRefreshOnEveryRequest() = runTest {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("live-access", "refresh-token", expiresIn = 30)
         }
         val sent = mutableListOf<Pair<String, String?>>()
@@ -63,7 +63,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
     @Test
     fun aRepudiatedSessionDoesNotSendTheRequestAtAll() = runTest {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("live-access", "revoked-refresh", expiresIn = 0)
             setProfileId("profile-1")
             setProfileToken("profile-token-1")
@@ -160,7 +160,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
     @Test
     fun aTransientRefreshFailureIsNotImmediatelyRetriedByTheReactivePath() = runTest {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("live-access", "refresh-token", expiresIn = 0)
         }
         val sent = mutableListOf<Pair<String, String?>>()
@@ -205,7 +205,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
     @Test
     fun aConcurrentlyRotatedTokenStillRecoversAfterATransientFailure() = runTest {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("stale-access", "refresh-token", expiresIn = 0)
         }
         val sent = mutableListOf<Pair<String, String?>>()
@@ -296,7 +296,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
     @Test
     fun aSignOutWhileWaitingStopsTheRequestBeingSent() = runTest {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("live-access", "refresh-token", expiresIn = 0)
         }
         val sent = mutableListOf<Pair<String, String?>>()
@@ -342,7 +342,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
     @Test
     fun credentialsRotatedWhileWaitingAreSpentInsteadOfTheStaleCapture() = runTest {
         val tokenManager = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("stale-access", "refresh-token", expiresIn = 0)
         }
         val sent = mutableListOf<Pair<String, String?>>()
@@ -380,7 +380,7 @@ class PrairieAuthPluginProactiveRefreshHazardTest {
 
     private suspend fun repudiatedTokenManager(): TokenManagerImpl =
         TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("live-access", "revoked-refresh", expiresIn = 0)
         }
 

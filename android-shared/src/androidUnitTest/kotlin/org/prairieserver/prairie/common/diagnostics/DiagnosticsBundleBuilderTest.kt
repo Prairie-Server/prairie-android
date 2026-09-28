@@ -457,7 +457,7 @@ class DiagnosticsBundleBuilderTest {
 
     @Test
     fun hostedBundleCanonicalizesPrivateHostsPathsAndIdentifierAssignmentsInEveryTextField() {
-        val privateHost = "saved-private-silo.example"
+        val privateHost = "saved-private-prairie.example"
         val networkLine = """{"ts":"2026-08-11T00:00:00Z","run":"run-1","lvl":"I","cat":"network","tag":"wss://$privateHost/items/42 planAttemptKey=attempt-private","msg":"host_0123456789abcdef selectedFileId=991 playbackSessionId=session-private","attrs":{"method":"GET","path":"/users/42/items/0123456789abcdef","status":200,"duration_ms":5}}"""
         val device = """{"server":"$privateHost","socket":"ws://$privateHost/items/42?token=private","note":"sessionId=session-private trackId=track-private","host_token":"host_fedcba9876543210"}"""
         val bundle = builder.build(

@@ -70,7 +70,7 @@ class TvStartupMetadataOwnerTest {
                         status = HttpStatusCode.Created
                         assertEquals(original, req.attributes[AuthScopeAttributeKey])
                         val session = if (stage == "predecessor" && starts == 1) "predecessor" else "allocated"
-                        """{"protocol_version":3,"server_features":["playback_plan_v3","neutral_playback_v3_contract_v1","sequenced_progress_v1"],"outcome":"playable","session_id":"$session","playback_plan":{"plan_id":"plan","plan_attempt_key":"key","session_id":"$session","delivery":"original_http","stream":{"url":"https://silo.test/stream/$session","protocol":"http_progressive"},"decision_reason":"direct","requested_media_file_id":"41","effective_media_file_id":"41"}}"""
+                        """{"protocol_version":3,"server_features":["playback_plan_v3","neutral_playback_v3_contract_v1","sequenced_progress_v1"],"outcome":"playable","session_id":"$session","playback_plan":{"plan_id":"plan","plan_attempt_key":"key","session_id":"$session","delivery":"original_http","stream":{"url":"https://prairie.test/stream/$session","protocol":"http_progressive"},"decision_reason":"direct","requested_media_file_id":"41","effective_media_file_id":"41"}}"""
                     }
                     path == "/api/v2/playback/route-events" -> {
                         status = HttpStatusCode.Accepted
@@ -178,7 +178,7 @@ private class StartupPlaybackJournal : PlaybackJournalStore {
 }
 
 private class FakeTokenManager : TokenManager {
-    var metadataOwner: org.prairieserver.prairie.network.AuthScopeSnapshot? = org.prairieserver.prairie.network.AuthScopeSnapshot("server", "profile", "https://silo.test", null, identityGeneration = 1, isIdentityGenerationStamped = true, credentialEpoch = 1)
+    var metadataOwner: org.prairieserver.prairie.network.AuthScopeSnapshot? = org.prairieserver.prairie.network.AuthScopeSnapshot("server", "profile", "https://prairie.test", null, identityGeneration = 1, isIdentityGenerationStamped = true, credentialEpoch = 1)
     var beforeSnapshot: suspend () -> Unit = {}
     override suspend fun snapshotCurrentScope(): org.prairieserver.prairie.network.AuthScopeSnapshot? {
         beforeSnapshot()
@@ -194,7 +194,7 @@ private class FakeTokenManager : TokenManager {
     override suspend fun setProfileId(profileId: String?) = Unit
     override suspend fun getProfileToken(): String? = null
     override suspend fun setProfileToken(token: String?) = Unit
-    override suspend fun getServerUrl(): String = "https://silo.test"
+    override suspend fun getServerUrl(): String = "https://prairie.test"
     override suspend fun setServerUrl(url: String) = Unit
     override suspend fun getCurrentServerId(): String = "server"
     override suspend fun switchActiveServer(serverId: String?) = Unit

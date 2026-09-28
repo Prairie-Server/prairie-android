@@ -51,7 +51,7 @@ class MobileSubtitleAutoSelectionTest {
         val persisted = SubtitleIdentity.Downloaded(
             downloadId = 312,
             media = org.prairieserver.prairie.model.playback.SubtitleMediaIdentity(
-                trackId = "silo-downloaded-subtitle:312",
+                trackId = "prairie-downloaded-subtitle:312",
                 label = "English",
                 language = "en",
                 codecFamily = "webvtt",
@@ -94,7 +94,7 @@ class MobileSubtitleAutoSelectionTest {
         val persisted = SubtitleIdentity.Downloaded(
             downloadId = 312,
             media = SubtitleMediaIdentity(
-                trackId = "silo-downloaded-subtitle:312",
+                trackId = "prairie-downloaded-subtitle:312",
                 label = "English",
                 language = "en",
                 codecFamily = "webvtt",

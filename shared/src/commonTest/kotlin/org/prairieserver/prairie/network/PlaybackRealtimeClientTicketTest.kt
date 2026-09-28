@@ -18,11 +18,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class PlaybackRealtimeClientTicketTest {
-    private val scope = AuthScopeSnapshot("server", "profile", "https://silo.example.com:8443", "pin-proof", identityGeneration = 1)
+    private val scope = AuthScopeSnapshot("server", "profile", "https://prairie.example.com:8443", "pin-proof", identityGeneration = 1)
 
     @Test
     fun `control ticket is minted against the active server`() = runTest {
-        val impl = TokenManagerImpl().apply { setServerUrl("https://silo.example.com:8443"); saveTokens("access", "refresh", 3600) }
+        val impl = TokenManagerImpl().apply { setServerUrl("https://prairie.example.com:8443"); saveTokens("access", "refresh", 3600) }
         val tokenManager = object : TokenManager by impl { override suspend fun snapshotCurrentScope() = scope }
         var captured: HttpRequestData? = null
         val client = HttpClient(MockEngine { request ->
@@ -38,7 +38,7 @@ class PlaybackRealtimeClientTicketTest {
             val realtime = DefaultPlaybackRealtimeClient(client, tokenManager, gate = ApiV2Gate.Unrestricted,
                 ownerProvider = { scope to "install-1" })
             realtime.connect("session-1").first()
-            assertEquals("silo.example.com", captured?.url?.host)
+            assertEquals("prairie.example.com", captured?.url?.host)
             assertEquals(8443, captured?.url?.port)
             assertEquals("/api/v2/playback/sessions/session-1/control/ws-ticket", captured?.url?.encodedPath)
         } finally { client.close() }
@@ -49,6 +49,6 @@ class PlaybackRealtimeClientTicketTest {
         val request = HttpRequestBuilder().apply {
             playbackControlUpgrade(scope, "session-1", WsTicketResponse("opaque-proof", 30, 300, PLAYBACK_CONTROL_PROTOCOL))
         }.build()
-        assertEquals("wss://silo.example.com:8443/api/v2/playback/sessions/session-1/control/ws", request.url.toString())
+        assertEquals("wss://prairie.example.com:8443/api/v2/playback/sessions/session-1/control/ws", request.url.toString())
     }
 }

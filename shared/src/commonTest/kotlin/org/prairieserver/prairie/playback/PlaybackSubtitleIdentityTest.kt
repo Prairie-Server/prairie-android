@@ -30,7 +30,7 @@ class PlaybackSubtitleIdentityTest {
         val identity = SubtitleIdentity.Downloaded(
             downloadId = 91,
             media = SubtitleMediaIdentity(
-                trackId = "silo-downloaded-subtitle:91",
+                trackId = "prairie-downloaded-subtitle:91",
                 label = "Downloaded English",
                 language = "eng",
                 codecFamily = "vtt",
@@ -53,7 +53,7 @@ class PlaybackSubtitleIdentityTest {
         val identity = SubtitleIdentity.Downloaded(
             downloadId = 91,
             media = SubtitleMediaIdentity(
-                trackId = "silo-downloaded-subtitle:91",
+                trackId = "prairie-downloaded-subtitle:91",
                 forced = false,
                 hearingImpaired = false,
             ),
@@ -70,7 +70,7 @@ class PlaybackSubtitleIdentityTest {
 
     @Test
     fun sharedSubtitleMetadataHelpersStayCanonical() {
-        assertEquals("silo-downloaded-subtitle:91", downloadedSubtitleArtifactTrackId(91))
+        assertEquals("prairie-downloaded-subtitle:91", downloadedSubtitleArtifactTrackId(91))
         assertTrue(subtitleLabelIndicatesHearingImpaired("English SDH"))
         assertTrue(subtitleLabelIndicatesHearingImpaired("English CC"))
         assertFalse(subtitleLabelIndicatesHearingImpaired("hi"))
