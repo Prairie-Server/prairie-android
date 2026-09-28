@@ -9,7 +9,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
-import org.prairieserver.prairie.model.playback.TranscodeStartRequest
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.DurableLoginAuthority
 import org.prairieserver.prairie.network.DurableLoginAuthorityProvider
@@ -23,7 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
-/** Covers the Prairie-only transcode / quality-ladder surface of [PlaybackRepository]. */
+/** Covers the Prairie-only quality-ladder surface of [PlaybackRepository]. */
 class PlaybackRepositoryTest {
     private class Identity : TokenManager by TokenManagerImpl(), DurableLoginAuthorityProvider {
         override suspend fun snapshotDurableLoginAuthority(): DurableLoginAuthority? = null
@@ -44,29 +43,16 @@ class PlaybackRepositoryTest {
         return SequencedPlayback(PlaybackV2Api(client, ApiV2Gate.Unrestricted), identity, identity, Store()) { "stop" }
     }
 
-    private val transcodeRequest = TranscodeStartRequest(
-        sessionId = "s1",
-        seekSeconds = 10.0,
-        targetBitrateKbps = 4000,
-        segmentDuration = 4,
-        subtitleBurnIn = false,
-    )
-
     @Test
-    fun startTranscodeAndQualityLadderUseTheTranscodeApi() = runTest {
-        val transcodeClient = client("""{"session_id":"t1","status":"ok","manifest_url":"https://x/t"}""")
-        val repo = PlaybackRepository(sequenced(client("{}")), PlaybackApi(transcodeClient))
-        assertIs<ApiResult.Success<*>>(repo.startTranscode(transcodeRequest))
-
+    fun qualityLadderUsesThePlaybackApi() = runTest {
         val ladderClient = client("""{"rungs":[],"modes":["auto"],"source_height":1080}""")
         val ladderRepo = PlaybackRepository(sequenced(client("{}")), PlaybackApi(ladderClient))
         assertIs<ApiResult.Success<*>>(ladderRepo.getQualityLadder(1080))
     }
 
     @Test
-    fun transcodeRoutesReportUnavailableWithoutTheTranscodeApi() = runTest {
+    fun qualityLadderReportsUnavailableWithoutThePlaybackApi() = runTest {
         val repo = PlaybackRepository(sequenced(client("{}")))
-        assertEquals("transcode_unavailable", assertIs<ApiResult.Error>(repo.startTranscode(transcodeRequest)).error)
         assertEquals("transcode_unavailable", assertIs<ApiResult.Error>(repo.getQualityLadder()).error)
     }
 }

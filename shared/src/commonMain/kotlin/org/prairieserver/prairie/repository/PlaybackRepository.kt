@@ -4,8 +4,6 @@ import org.prairieserver.prairie.model.playback.PlaybackDecisionResponseV3
 import org.prairieserver.prairie.model.playback.PlaybackReplanRequestV3
 import org.prairieserver.prairie.model.playback.PlaybackRouteEventV3
 import org.prairieserver.prairie.model.playback.PlaybackStartRequestV3
-import org.prairieserver.prairie.model.playback.TranscodeStartRequest
-import org.prairieserver.prairie.model.playback.TranscodeStartResponse
 import kotlinx.coroutines.CancellationException
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.PlaybackApi
@@ -13,7 +11,7 @@ import org.prairieserver.prairie.playback.QualityLadderResponse
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 
 /**
- * [transcodeApi] carries the Prairie-only v1 transcode/quality-ladder routes; it is
+ * [transcodeApi] carries the Prairie-only v1 quality-ladder route; it is
  * optional so upstream call sites that only drive [SequencedPlayback] keep working.
  */
 class PlaybackRepository(
@@ -57,14 +55,10 @@ class PlaybackRepository(
     suspend fun stopPlayback(sessionId: String): ApiResult<Unit> =
         guarded { sequenced.stop(sessionId) ?: unknownSession() }
 
-    /** Explicitly requests a transcode session (e.g. for quality changes). Prairie-only. */
-    suspend fun startTranscode(request: TranscodeStartRequest): ApiResult<TranscodeStartResponse> =
-        transcodeApi?.startTranscode(request) ?: transcodeUnavailable()
-
     /** Server's transcode quality ladder for the in-player quality menu. Prairie-only. */
     suspend fun getQualityLadder(sourceHeight: Int? = null): ApiResult<QualityLadderResponse> =
         transcodeApi?.getQualityLadder(sourceHeight) ?: transcodeUnavailable()
 
     private fun transcodeUnavailable() =
-        ApiResult.Error(0, "transcode_unavailable", "Transcode routes are not configured.")
+        ApiResult.Error(0, "transcode_unavailable", "Quality ladder route is not configured.")
 }
