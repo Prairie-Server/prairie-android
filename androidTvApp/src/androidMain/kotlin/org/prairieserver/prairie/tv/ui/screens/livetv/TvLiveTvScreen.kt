@@ -25,12 +25,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +50,8 @@ import coil3.compose.AsyncImage
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.model.livetv.LiveTvChannel
 import org.prairieserver.prairie.model.livetv.LiveTvRecording
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.shell.TvTopMenuLayout
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.viewmodel.LiveTvChannelRow
@@ -61,10 +67,16 @@ fun TvLiveTvScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val firstFocus = remember { FocusRequester() }
+    var channelListHasFocus by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.channels.firstOrNull()?.channel?.id, state.isLoading, state.selectedTab) {
         if (!state.isLoading && state.channels.isNotEmpty()) {
-            runCatching { firstFocus.requestFocus() }
+            requestFocusUntilObserved(
+                maxAttempts = TvContentInitialFocusMaxAttempts,
+                awaitAttempt = { withFrameNanos { } },
+                requestFocus = firstFocus::requestFocus,
+                isFocused = { channelListHasFocus },
+            )
             onInitialContentFocus()
         }
     }
@@ -148,7 +160,9 @@ fun TvLiveTvScreen(
             }
             else -> {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onFocusChanged { channelListHasFocus = it.hasFocus },
                     contentPadding = PaddingValues(
                         start = Spacing.safeArea,
                         end = Spacing.safeArea,
