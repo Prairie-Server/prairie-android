@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -94,8 +93,6 @@ import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.settings.SubtitleBackgroundStylePreset
-import org.prairieserver.prairie.model.settings.SubtitleFontSizePreset
-import org.prairieserver.prairie.model.settings.SubtitlePositionPreset
 import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
 import org.prairieserver.prairie.tv.ui.focus.TvFocusLog
 import org.prairieserver.prairie.tv.ui.focus.TvFrameRelocationMaxAttempts
@@ -1317,60 +1314,6 @@ private fun HudVideoPane(
                 }
             }
         }
-    }
-}
-
-/**
- * Like [HudOptionChip] but commits on explicit Select (click), NOT on focus —
- * use for multi-option rows where focus-driven commit would change the value
- * while the user is just traversing chips.
- */
-@Composable
-private fun HudClickChip(
-    label: String,
-    selected: Boolean,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    val bg = when {
-        isFocused -> Color.White.copy(alpha = 0.94f)
-        selected -> Color.White.copy(alpha = 0.18f)
-        else -> Color.White.copy(alpha = 0.06f)
-    }
-    val fg = when {
-        isFocused -> Color.Black
-        selected -> Color.White
-        else -> Color.White.copy(alpha = 0.72f)
-    }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.0f else 0.96f,
-        animationSpec = tween(120),
-        label = "hudClickChipScale",
-    )
-    Box(
-        modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(50))
-            .background(bg)
-            .clickable(
-                enabled = enabled,
-                interactionSource = interactionSource,
-                indication = null,
-            ) { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color = fg,
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontSize = HudBodyTextSize,
-                lineHeight = HudBodyLineHeight,
-                fontWeight = FontWeight.SemiBold,
-            ),
-        )
     }
 }
 

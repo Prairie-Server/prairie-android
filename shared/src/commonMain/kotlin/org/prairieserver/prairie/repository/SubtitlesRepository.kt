@@ -2,6 +2,8 @@
 package org.prairieserver.prairie.repository
 
 import org.prairieserver.prairie.model.subtitles.DownloadedSubtitlesResponse
+import org.prairieserver.prairie.network.apiv2.OwnerPolicy
+import org.prairieserver.prairie.network.apiv2.stillOwns
 import org.prairieserver.prairie.model.subtitles.SubtitleAiJob
 import org.prairieserver.prairie.model.subtitles.SubtitleAiJobResponse
 import org.prairieserver.prairie.model.subtitles.SubtitleAiJobsResponse
@@ -30,7 +32,7 @@ import kotlinx.coroutines.delay
  *  - rethrows [CancellationException] so callers can cancel via structured
  *    concurrency (player exit cancels the viewModelScope job)
  */
-class SubtitlesRepository(private val api: SubtitlesApi) {
+class SubtitlesRepository(private val api: SubtitlesApi, private val tokens: org.prairieserver.prairie.network.TokenManager? = null) {
 
     /** Terminal result of [pollJob]. */
     sealed class SubtitleJobOutcome {
@@ -54,15 +56,15 @@ class SubtitlesRepository(private val api: SubtitlesApi) {
 
     suspend fun aiQuota(): ApiResult<SubtitleAiQuota> = api.aiQuota()
 
-    suspend fun translate(request: SubtitleTranslateRequest): ApiResult<SubtitleAiJobResponse> =
-        api.translate(request)
+    suspend fun translate(request: SubtitleTranslateRequest, scope: org.prairieserver.prairie.network.AuthScopeSnapshot? = null): ApiResult<SubtitleAiJobResponse> =
+        api.translate(request, scope)
 
     suspend fun listJobs(mediaFileId: Int): ApiResult<SubtitleAiJobsResponse> =
         api.listJobs(mediaFileId)
 
-    suspend fun getJob(jobId: Long): ApiResult<SubtitleAiJobResponse> = api.getJob(jobId)
+    suspend fun captureJobAuthority(): org.prairieserver.prairie.network.AuthScopeSnapshot? = tokens?.snapshotCurrentScope()
 
-    suspend fun cancelJob(jobId: Long): ApiResult<Unit> = api.cancelJob(jobId)
+    suspend fun cancelJob(jobId: Long, scope: org.prairieserver.prairie.network.AuthScopeSnapshot? = null): ApiResult<Unit> = api.cancelJob(jobId, scope)
 
     /**
      * Polls GET /ai/jobs/{id} every [intervalMs] until the job reaches a
@@ -73,13 +75,20 @@ class SubtitlesRepository(private val api: SubtitlesApi) {
     suspend fun pollJob(
         jobId: Long,
         intervalMs: Long = 1_000L,
+        expectedScope: org.prairieserver.prairie.network.AuthScopeSnapshot? = null,
         onUpdate: (SubtitleAiJob) -> Unit = {},
     ): SubtitleJobOutcome {
+        val ownerChanged = SubtitleJobOutcome.Failed("The subtitle job's account or profile changed.")
+        val scope = expectedScope ?: tokens?.snapshotCurrentScope()
+        if (tokens != null && scope == null) return ownerChanged
+        suspend fun ownerLost() = tokens != null && scope != null && !scope.stillOwns(tokens, OwnerPolicy.PROFILE)
         while (true) {
+            if (ownerLost()) return ownerChanged
             try {
-                val job = when (val r = api.getJob(jobId)) {
+                val job = when (val r = api.getJob(jobId, scope)) {
                     is ApiResult.Success -> r.data.job
                     is ApiResult.Error -> {
+                        if (r.code == 0) return SubtitleJobOutcome.Failed(r.message)
                         if (r.code == 404) {
                             return SubtitleJobOutcome.Failed(
                                 "This job no longer exists on the server.",
@@ -96,6 +105,7 @@ class SubtitlesRepository(private val api: SubtitlesApi) {
                     }
                 }
 
+                if (ownerLost()) return ownerChanged
                 onUpdate(job)
 
                 when (job.status) {

@@ -56,6 +56,7 @@ class FileDiagnosticsCaptureController(
             error("diagnostics capture started concurrently")
         }
         PrairieLog.installSink(FanOutDiagnosticsLogSink(logBuffer, fileLogger))
+        breadcrumbJournal?.setEnabled(context.identityKey)
         setDetailedCaptureEnabled(true)
         return capture
     }
@@ -117,6 +118,7 @@ class FileDiagnosticsCaptureController(
             error("diagnostics debug logging started concurrently")
         }
         PrairieLog.installSink(FanOutDiagnosticsLogSink(logBuffer, fileLogger))
+        breadcrumbJournal?.setEnabled(context.identityKey)
         setDetailedCaptureEnabled(true)
     }
 

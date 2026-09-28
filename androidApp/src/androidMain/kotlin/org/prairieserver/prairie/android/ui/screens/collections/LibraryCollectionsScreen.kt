@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CollectionsBookmark
@@ -43,6 +44,8 @@ import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
 import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.section.LibraryCollection
 import org.prairieserver.prairie.model.section.LibraryCollectionsResponse
@@ -192,7 +195,7 @@ class LibraryCollectionsViewModel(
 @Composable
 fun LibraryCollectionsScreen(
     onBackClick: () -> Unit,
-    onCollectionClick: (String) -> Unit,
+    onCollectionClick: (LibraryCollection) -> Unit,
     viewModel: LibraryCollectionsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -233,8 +236,11 @@ fun LibraryCollectionsScreen(
                         .fillMaxSize()
                         .padding(padding),
                 ) {
+                    val gridState = rememberLazyGridState()
+                    DeferImagePresentationWhileScrolling(gridState) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(MediaGridDefaults.PosterGridMinWidth),
+                        columns = GridCells.Adaptive(MediaGridDefaults.scaledPosterGridMinWidth),
+                        state = gridState,
                         contentPadding = PaddingValues(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridHorizontalSpacing),
                         verticalArrangement = Arrangement.spacedBy(MediaGridDefaults.PosterGridVerticalSpacing),
@@ -261,10 +267,11 @@ fun LibraryCollectionsScreen(
                             ) { collection ->
                                 LibraryCollectionCard(
                                     collection = collection,
-                                    onClick = { onCollectionClick(collection.id) },
+                                    onClick = { onCollectionClick(collection) },
                                 )
                             }
                         }
+                    }
                     }
                 }
             }
@@ -277,6 +284,10 @@ private fun LibraryCollectionCard(
     collection: LibraryCollection,
     onClick: () -> Unit,
 ) {
+    // Caption gating mirrors CollectionsView.swift: the name line follows
+    // showsTitle, the type line showsMetadata. The count badge sits on the
+    // artwork, so it stays either way.
+    val caption = LocalCardPresentation.current.caption
     val countLabel = collection.itemCount?.takeIf { it > 0 }?.toString() ?: "Smart"
     val typeLabel = when {
         collection.kind == "user_collections" -> "User collection"
@@ -334,20 +345,24 @@ private fun LibraryCollectionCard(
             )
         }
 
-        Text(
-            text = collection.name,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (caption.showsTitle) {
+            Text(
+                text = collection.name,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
-        Text(
-            text = typeLabel,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (caption.showsMetadata) {
+            Text(
+                text = typeLabel,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

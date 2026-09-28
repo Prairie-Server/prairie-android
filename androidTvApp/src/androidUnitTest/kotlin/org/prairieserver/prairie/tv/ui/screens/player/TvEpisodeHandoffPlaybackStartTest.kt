@@ -8,10 +8,49 @@ import org.prairieserver.prairie.common.player.video.EpisodeSelectionHandoff
 import org.prairieserver.prairie.common.player.video.EpisodeSourceIntent
 import org.prairieserver.prairie.common.player.video.EpisodeSubtitleIntent
 import org.prairieserver.prairie.common.player.video.EpisodeSubtitleMode
+import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
+import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
+import org.prairieserver.prairie.playback.audioTrackFingerprint
 
 class TvEpisodeHandoffPlaybackStartTest {
+    @Test
+    fun manualTitleAudioChoiceWinsOverHandoffAndPlaybackSettings() {
+        assertEquals(
+            2,
+            resolveTvStartAudioTrackIndex(
+                requestedTitleTrackIndex = 2,
+                episodeHandoffTrackIndex = 1,
+                automaticPreferenceTrackIndex = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun playbackAudioSettingIsOnlyTheAutomaticFallback() {
+        assertEquals(
+            0,
+            resolveTvStartAudioTrackIndex(
+                requestedTitleTrackIndex = null,
+                episodeHandoffTrackIndex = null,
+                automaticPreferenceTrackIndex = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun episodeHandoffAudioWinsOverAutomaticPlaybackSetting() {
+        assertEquals(
+            1,
+            resolveTvStartAudioTrackIndex(
+                requestedTitleTrackIndex = null,
+                episodeHandoffTrackIndex = 1,
+                automaticPreferenceTrackIndex = 0,
+            ),
+        )
+    }
+
     @Test
     fun explicitDetailFileIdWinsOverEpisodeHandoff() {
         val resolved = resolveTvPlaybackStartSelection(
@@ -139,6 +178,44 @@ class TvEpisodeHandoffPlaybackStartTest {
                 episodeSelectionHandoff = handoff,
                 resolvedEpisodeSelection = resolved,
                 requestedSubtitleTrackIndex = 4,
+            ),
+        )
+    }
+
+    @Test
+    fun tvAudioPrecedenceIsManualThenCarryThenPerFileThenLanguage() {
+        val tracks = listOf(
+            AudioTrack(codec = "aac", language = "eng", title = "English"),
+            AudioTrack(codec = "truehd", language = "jpn", title = "Japanese"),
+            AudioTrack(codec = "eac3", language = "fra", title = "French"),
+        )
+        val durable = audioTrackFingerprint(tracks[1])
+        val capabilities = ClientCodecCapabilities(codecsAudio = listOf("aac", "truehd", "eac3"))
+
+        assertEquals(0, resolveTvInitialAudioTrackIndex(0, 2, false, tracks, durable, "fr", capabilities))
+        assertEquals(2, resolveTvInitialAudioTrackIndex(null, 2, false, tracks, durable, "fr", capabilities))
+        assertEquals(1, resolveTvInitialAudioTrackIndex(null, null, false, tracks, durable, "fr", capabilities))
+        assertEquals(2, resolveTvInitialAudioTrackIndex(null, null, false, tracks, null, "fr", capabilities))
+        assertNull(resolveTvInitialAudioTrackIndex(null, null, true, tracks, durable, "fr", capabilities))
+    }
+
+    @Test
+    fun tvAutomaticAudioFallsBackFromUnsupportedDefaultToSupportedTrack() {
+        val tracks = listOf(
+            AudioTrack(codec = "truehd", language = "eng", isDefault = true),
+            AudioTrack(codec = "aac", language = "eng"),
+        )
+
+        assertEquals(
+            1,
+            resolveTvInitialAudioTrackIndex(
+                requestedAudioIndex = null,
+                carriedAudioIndex = null,
+                unresolvedCarriedChoice = false,
+                tracks = tracks,
+                durableAudioFingerprint = null,
+                preferredAudioLanguage = "eng",
+                capabilities = ClientCodecCapabilities(codecsAudio = listOf("aac")),
             ),
         )
     }

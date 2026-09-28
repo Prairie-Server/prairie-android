@@ -7,8 +7,8 @@ kotlinx-serialization = "1.8.1"
 kotlinx-coroutines = "1.10.2"
 koin = "4.1.0"
 coil = "3.1.0"
-media3 = "1.10.1"
-ass-media = "0.4.0"
+media3 = "1.11.0"
+ass-media = "0.5.1"
 datastore = "1.2.1"
 security-crypto = "1.1.0"
 palette = "1.0.0"
@@ -68,7 +68,6 @@ ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negoti
 ktor-serialization-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
-ktor-client-auth = { module = "io.ktor:ktor-client-auth", version.ref = "ktor" }
 ktor-client-websockets = { module = "io.ktor:ktor-client-websockets", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 
@@ -96,7 +95,7 @@ navigation-compose = { module = "androidx.navigation:navigation-compose", versio
 
 # Coil
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
-coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
+coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 
 # Haze — backdrop blur for the phone app's floating tab bar (real blur on
 # API 31+, tinted scrim fallback below).
@@ -115,7 +114,6 @@ media3-common = { module = "androidx.media3:media3-common", version.ref = "media
 media3-common-ktx = { module = "androidx.media3:media3-common-ktx", version.ref = "media3" }
 media3-extractor = { module = "androidx.media3:media3-extractor", version.ref = "media3" }
 media3-container = { module = "androidx.media3:media3-container", version.ref = "media3" }
-media3-ui-compose = { module = "androidx.media3:media3-ui-compose", version.ref = "media3" }
 media3-test-utils = { module = "androidx.media3:media3-test-utils", version.ref = "media3" }
 media3-test-utils-robolectric = { module = "androidx.media3:media3-test-utils-robolectric", version.ref = "media3" }
 ass-media = { module = "io.github.peerless2012:ass-media", version.ref = "ass-media" }

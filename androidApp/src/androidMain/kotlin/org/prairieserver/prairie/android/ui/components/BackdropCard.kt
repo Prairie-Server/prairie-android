@@ -41,22 +41,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
+import org.prairieserver.prairie.common.overlays.CardOverlayVariant
+import org.prairieserver.prairie.common.overlays.CardOverlays
+import org.prairieserver.prairie.common.overlays.LocalCardOverlayUiState
 import org.prairieserver.prairie.model.catalog.MediaItemUserState
+import org.prairieserver.prairie.overlays.OverlayData
 
 /**
  * Reserved height for the text block under a backdrop card: title (bodySmall)
- * plus up to two label lines (episode subtitle + "Xm left"). Computed from the
- * ACTUAL line heights at the current density & font scale — a fixed dp constant
- * doesn't grow with fontScale, so accessibility text sizes (>=~1.25) sheared the
- * last line. Every card in a row resolves the identical value (theme-driven, not
+ * plus up to two label lines (episode subtitle + "Xm left") when the caption
+ * preference shows metadata. Computed from the ACTUAL line heights at the
+ * current density & font scale — a fixed dp constant doesn't grow with
+ * fontScale, so accessibility text sizes (>=~1.25) sheared the last line.
+ * Every card in a row resolves the identical value (theme-driven, not
  * content-driven), so mixed rows still align. Reserves the tallest stack (an
  * episode card with a remaining-time line) so shorter movie cards fit too.
  */
-private val backdropInfoBlockHeight: Dp
-    @Composable get() = with(LocalDensity.current) {
+@Composable
+private fun backdropInfoBlockHeight(showsMetadata: Boolean): Dp =
+    with(LocalDensity.current) {
         val typography = MaterialTheme.typography
         typography.bodySmall.lineHeight.toDp() +
-            typography.labelSmall.lineHeight.toDp() * 2
+            if (showsMetadata) typography.labelSmall.lineHeight.toDp() * 2 else 0.dp
     }
 
 /**
@@ -76,8 +83,9 @@ fun BackdropCard(
     remainingMinutes: Int? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    width: Dp = 280.dp,
+    width: Dp = 280.dp * LocalCardPresentation.current.posterSize.posterScale,
     userState: MediaItemUserState? = null,
+    overlay: OverlayData? = null,
     actions: MediaCardActions = MediaCardActions(),
     // Center overlay glyph — play for watch/listen, a book for reading.
     overlayIcon: ImageVector = Icons.Default.PlayArrow,
@@ -86,6 +94,7 @@ fun BackdropCard(
      *  null keeps it decorative and the whole card opens the item page. */
     onOverlayClick: (() -> Unit)? = null,
 ) {
+    val overlayState = LocalCardOverlayUiState.current
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
@@ -127,6 +136,18 @@ fun BackdropCard(
                     ),
             )
 
+            // Continue Watching / Next Up use the same server-configured
+            // badges as Apple, tvOS, and Android TV. The wide preset leaves
+            // the lower corners clear of the resume progress treatment.
+            if (overlayState.enabled && overlay != null) {
+                CardOverlays(
+                    data = overlay,
+                    prefs = overlayState.prefs,
+                    variant = CardOverlayVariant.Wide,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
             // Play button circle
             Box(
                 modifier = Modifier
@@ -165,13 +186,15 @@ fun BackdropCard(
             }
         }
 
+        val cardCaption = LocalCardPresentation.current.caption
+        if (cardCaption.showsTitle) {
         Spacer(modifier = Modifier.height(6.dp))
 
         // Fixed-height info block: episode cards draw up to three text lines,
         // movie cards as few as one. In a mixed row (Continue Watching) the
         // LazyRow's height would otherwise change with whichever items are
         // visible, bouncing every row below it during horizontal scrolls.
-        Column(modifier = Modifier.height(backdropInfoBlockHeight)) {
+        Column(modifier = Modifier.height(backdropInfoBlockHeight(cardCaption.showsMetadata))) {
         if (seriesTitle != null) {
             // Episode card: show series title, then episode tag + episode title
             Text(
@@ -183,16 +206,18 @@ fun BackdropCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-            val episodeTag = formatEpisodeTag(seasonNumber, episodeNumber)
-            val subtitle = if (episodeTag != null) "$episodeTag \u2022 $title" else title
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (cardCaption.showsMetadata) {
+                val episodeTag = formatEpisodeTag(seasonNumber, episodeNumber)
+                val subtitle = if (episodeTag != null) "$episodeTag \u2022 $title" else title
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         } else {
             // Movie card: just show the title
             Text(
@@ -206,7 +231,7 @@ fun BackdropCard(
         }
 
         // Remaining time
-        if (remainingMinutes != null && remainingMinutes > 0) {
+        if (cardCaption.showsMetadata && remainingMinutes != null && remainingMinutes > 0) {
             Text(
                 text = "${remainingMinutes}m left",
                 style = MaterialTheme.typography.labelSmall,
@@ -214,6 +239,7 @@ fun BackdropCard(
             )
         }
 
+        }
         }
 
         MediaCardContextMenu(

@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
 import org.prairieserver.prairie.android.ui.components.MainAppHeaderBodyHeight
 import org.prairieserver.prairie.android.ui.components.MainAppTopBar
 import org.prairieserver.prairie.android.ui.components.TabTopBarActions
@@ -47,9 +48,11 @@ import org.prairieserver.prairie.android.ui.navigation.tabForRoute
 import org.prairieserver.prairie.android.ui.navigation.tabSwitchNavOptions
 import org.prairieserver.prairie.android.ui.navigation.bottomMostTabRoute
 import org.prairieserver.prairie.android.ui.navigation.fallbackMobileTab
+import org.prairieserver.prairie.android.ui.navigation.libraryCollectionDetailRoute
 import org.prairieserver.prairie.android.ui.navigation.scopedLocalDownloadBytes
 import org.prairieserver.prairie.android.ui.navigation.shouldShowDownloadsTab
 import org.prairieserver.prairie.android.ui.navigation.visibleMobileTabs
+import org.prairieserver.prairie.android.ui.navigation.continueWatchingDetailRoute
 import org.prairieserver.prairie.android.ui.screens.calendar.CalendarScreen
 import org.prairieserver.prairie.android.ui.screens.home.HomeScreen
 import org.prairieserver.prairie.android.cast.PrairieCastController
@@ -60,6 +63,7 @@ import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesSelectorS
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.android.ui.screens.recommendations.ForYouList
 import org.prairieserver.prairie.android.ui.screens.recommendations.RecommendationsScreen
+import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.android.ui.screens.recommendations.headerTitle
 import org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherMenuEntrySheet
 import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
@@ -71,6 +75,9 @@ import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.network.ServerReachabilityStatus
+import org.prairieserver.prairie.common.settings.CardPresentationStore
+import org.prairieserver.prairie.common.settings.OverlayPrefsStore
+import org.prairieserver.prairie.android.ui.theme.prairiePageBackdrop
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.repository.AuthRepository
@@ -129,9 +136,13 @@ fun MainScreen(
         null
     }
     var showLibrarySelector by rememberSaveable(currentTab) { mutableStateOf(false) }
-    // Bumped when the Home tab is re-tapped while already on Home; HomeScreen
-    // reacts by scrolling back to the top.
-    var homeScrollToTopTick by remember { mutableStateOf(0) }
+    var homeBottomNavMinimized by rememberSaveable { mutableStateOf(false) }
+
+    // Entering (or re-entering) any tab starts with the complete tab capsule.
+    // Home alone can minimize it after the user begins scrolling downward.
+    LaunchedEffect(currentTab) {
+        homeBottomNavMinimized = false
+    }
 
     // Downloads tab visibility: show whenever EITHER the server says there
     // are records OR we have bytes on disk. The on-disk check is what makes
@@ -146,10 +157,20 @@ fun MainScreen(
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
     val metadataAiFeatureStore: MetadataAiFeatureStore = koinInject()
+    val overlayPrefsStore: OverlayPrefsStore = koinInject()
+    val activeProfileStore: ActiveProfileStore = koinInject()
+    val cardPresentationStore: CardPresentationStore = koinInject()
+    val seekIntervalStore: org.prairieserver.prairie.common.settings.SeekIntervalStore = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
     val reachabilityScope = rememberCoroutineScope()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
+    // Drives the initial load and every re-load. Keyed on the active server
+    // and its profile, so switching either re-fetches the avatar rather than
+    // leaving the previous profile's (or none) in the header.
+    LaunchedEffect(activeEntry?.id, activeEntry?.profileId) {
+        headerViewModel.refresh()
+    }
     val mediaCapabilities by produceState(
         initialValue = MediaModeCapabilities(
             listOf(
@@ -262,11 +283,34 @@ fun MainScreen(
             authRepository.logout()
             requestsFeatureStore.reset()
             metadataAiFeatureStore.reset()
+            // Per-profile card caches, same teardown the Settings sign-out
+            // does — otherwise the next user's shell renders (and can write
+            // back) the previous profile's overlays and card presentation.
+            overlayPrefsStore.clear()
+            activeProfileStore.reset()
+            cardPresentationStore.clear()
+            seekIntervalStore.clear()
             navController.navigate(Route.Login.route) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
         }
+    }
+
+    /**
+     * Profile-menu "Switch Profile". Overlays and card presentation are cached
+     * per profile and the app never backgrounds during an in-app switch, so
+     * drop them here or the next profile keeps rendering — and writing back —
+     * the previous one's values. Navigate first: clearing while the shell is
+     * still composed repaints it with default cards behind the picker (the
+     * TV shell's switch-profile path takes the same order).
+     */
+    fun switchProfileFromMenu() {
+        navController.navigate(Route.ProfileSelection.route)
+        overlayPrefsStore.clear()
+        activeProfileStore.reset()
+        cardPresentationStore.clear()
+        seekIntervalStore.clear()
     }
     val requestsMenuAction: (() -> Unit)? = if (requestsEnabled) {
         { navController.navigate(Route.Requests.route) }
@@ -289,6 +333,9 @@ fun MainScreen(
     // What For You is actually showing (the empty-feed fallback shows the
     // Watchlist without making it an explicit selection); drives the title.
     var forYouDisplayed by remember { mutableStateOf<ForYouList?>(null) }
+    // Instantiate with the shell, not when the lazy tab is first opened, so
+    // Discover and taste-profile requests run alongside profile/header setup.
+    val recommendationsViewModel = koinViewModel<RecommendationsViewModel>()
     Scaffold(
         bottomBar = {
             // The cast bar rests above the nav menu (iOS tabViewBottomAccessory
@@ -302,11 +349,13 @@ fun MainScreen(
                 )
                 PrairieBottomNavBar(
                     currentTab = currentTab,
+                    minimizedToCurrentTab = currentTab == Tab.Home && homeBottomNavMinimized,
                     onTabSelected = { tab ->
                         if (tab == Tab.Home && currentTab == Tab.Home) {
-                            // Re-tapping Home while on Home scrolls it back to the
-                            // top (standard Android bottom-nav convention).
-                            homeScrollToTopTick += 1
+                            // The minimized Home control remains tappable. A
+                            // repeat tap expands the full capsule without
+                            // disturbing the user's feed position.
+                            homeBottomNavMinimized = false
                         } else {
                             navController.navigate(tab.route) {
                                 // Pop to the tab stack's live anchor, not a
@@ -321,7 +370,6 @@ fun MainScreen(
                         }
                     },
                     tabs = visibleTabs,
-                    hazeState = hazeState,
                 )
             }
         },
@@ -348,15 +396,20 @@ fun MainScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .hazeSource(hazeState)
-                    .background(MaterialTheme.colorScheme.background),
+                    .prairiePageBackdrop(),
             ) {
                 when (currentTab) {
                     Tab.Home -> {
                         val homeViewModel = koinViewModel<HomeViewModel>()
                         HomeScreen(
-                            scrollToTopTick = homeScrollToTopTick,
+                            onBottomNavMinimizedChange = { minimized ->
+                                homeBottomNavMinimized = minimized
+                            },
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
+                            },
+                            onContinueWatchingItemClick = { item ->
+                                navController.navigate(continueWatchingDetailRoute(item))
                             },
                             onPlayClick = { contentId, resumePositionSeconds ->
                                 playVideo(contentId, resumePositionSeconds = resumePositionSeconds)
@@ -377,9 +430,7 @@ fun MainScreen(
                             onRequestsClick = requestsMenuAction,
                             onWatchTogetherClick = watchTogetherMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
-                            onSwitchProfileClick = {
-                                navController.navigate(Route.ProfileSelection.route)
-                            },
+                            onSwitchProfileClick = ::switchProfileFromMenu,
                             onSwitchServerClick = {
                                 navController.navigate(Route.ServerList.route)
                             },
@@ -388,11 +439,13 @@ fun MainScreen(
                     }
                     Tab.Libraries -> {
                         LibrariesScreen(
-                            onItemClick = { contentId ->
-                                navController.navigate(Route.ItemDetail(contentId).route)
+                            onItemClick = { contentId, libraryId ->
+                                navController.navigate(Route.ItemDetail(contentId, libraryId = libraryId).route)
                             },
-                            onCollectionClick = { collectionId, libraryId ->
-                                navController.navigate(Route.CollectionDetail(collectionId, libraryId).route)
+                            onCollectionClick = { collection, libraryId ->
+                                navController.navigate(
+                                    libraryCollectionDetailRoute(collection, libraryId),
+                                )
                             },
                             viewModel = requireNotNull(librariesViewModel),
                             activeProfile = headerState.activeProfile,
@@ -401,9 +454,7 @@ fun MainScreen(
                             onRequestsClick = requestsMenuAction,
                             onWatchTogetherClick = watchTogetherMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
-                            onSwitchProfileClick = {
-                                navController.navigate(Route.ProfileSelection.route)
-                            },
+                            onSwitchProfileClick = ::switchProfileFromMenu,
                             onSwitchServerClick = {
                                 navController.navigate(Route.ServerList.route)
                             },
@@ -419,6 +470,7 @@ fun MainScreen(
                             onSavedListSelectionChange = { forYouList = it },
                             onDisplayedListChange = { forYouDisplayed = it },
                             contentTopPadding = headerContentTop,
+                            viewModel = recommendationsViewModel,
                         )
                     }
                     Tab.Calendar -> {
@@ -435,9 +487,7 @@ fun MainScreen(
                                     onRequestsClick = requestsMenuAction,
                                     onWatchTogetherClick = watchTogetherMenuAction,
                                     onSettingsClick = { navController.navigate(Route.Settings.route) },
-                                    onSwitchProfileClick = {
-                                        navController.navigate(Route.ProfileSelection.route)
-                                    },
+                                    onSwitchProfileClick = ::switchProfileFromMenu,
                                     onSwitchServerClick = {
                                         navController.navigate(Route.ServerList.route)
                                     },
@@ -496,9 +546,7 @@ fun MainScreen(
                     onRequestsClick = requestsMenuAction,
                     onWatchTogetherClick = watchTogetherMenuAction,
                     onSettingsClick = { navController.navigate(Route.Settings.route) },
-                    onSwitchProfileClick = {
-                        navController.navigate(Route.ProfileSelection.route)
-                    },
+                    onSwitchProfileClick = ::switchProfileFromMenu,
                     onSwitchServerClick = {
                         navController.navigate(Route.ServerList.route)
                     },

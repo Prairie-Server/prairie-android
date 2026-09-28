@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.auth
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -76,8 +78,7 @@ class TvServerSetupPersistenceTest {
                     }
                     install(ContentNegotiation) { json(PrairieJson) }
                     install(PrairieAuthPlugin) { this.tokenManager = tokenManager }
-                },
-            ),
+                }, ApiV2Gate.Unrestricted),
             tokenManager = tokenManager,
         )
         val viewModel = track(TvServerSetupViewModel(repository, FakeCleartextConsentStore()))
@@ -227,8 +228,7 @@ class TvServerSetupPersistenceTest {
             HttpClient(MockEngine { throw IOException("Unexpected network request") }) {
                 install(ContentNegotiation) { json(PrairieJson) }
                 install(PrairieAuthPlugin) { this.tokenManager = tokenManager }
-            },
-        ),
+            }, ApiV2Gate.Unrestricted),
         tokenManager = tokenManager,
     )
 

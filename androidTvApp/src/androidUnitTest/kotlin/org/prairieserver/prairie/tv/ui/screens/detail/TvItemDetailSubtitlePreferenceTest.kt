@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.detail
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import androidx.lifecycle.viewModelScope
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -35,7 +37,6 @@ import org.prairieserver.prairie.network.api.DefaultMetadataAiApi
 import org.prairieserver.prairie.network.api.PersonalDataApi
 import org.prairieserver.prairie.network.api.ProfileApi
 import org.prairieserver.prairie.network.api.SettingsApi
-import org.prairieserver.prairie.network.api.SettingsCapabilitiesResult
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.MetadataAiRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
@@ -110,7 +111,7 @@ class TvItemDetailSubtitlePreferenceTest {
         runDetailTest {
             val viewModel = createViewModel(
                 settingsApi = FakeSettingsApi(
-                    capabilities = SettingsCapabilitiesResult.ServerUpgradeRequired,
+                    capabilities = ApiResult.Error(404, "not_found", "404 page not found"),
                 ),
                 profileSubtitleLanguage = "de",
                 profileSubtitleMode = "always",
@@ -154,9 +155,9 @@ class TvItemDetailSubtitlePreferenceTest {
             catalogRepository = CatalogRepository(CatalogApi(client)),
             personalDataRepository = PersonalDataRepository(PersonalDataApi(client)),
             playerSettingsStore = FakePlayerSettingsStore(),
-            profileRepository = ProfileRepository(ProfileApi(client), tokenManager),
+            profileRepository = ProfileRepository(ProfileApi(client, ApiV2Gate.Unrestricted), tokenManager),
             profileSettings = ProfileSettingsController(SettingsRepository(settingsApi)),
-            metadataAiRepository = MetadataAiRepository(DefaultMetadataAiApi(client)),
+            metadataAiRepository = MetadataAiRepository(DefaultMetadataAiApi(client, gate = ApiV2Gate.Unrestricted)),
             contentId = CONTENT_ID,
             tokenManager = tokenManager,
             identityTransitions = org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier(),
@@ -188,16 +189,17 @@ class TvItemDetailSubtitlePreferenceTest {
         )
 
     private class FakeSettingsApi(
-        private val capabilities: SettingsCapabilitiesResult =
-            SettingsCapabilitiesResult.Available(SettingsContractCapabilities(revision = 1)),
+        private val capabilities: ApiResult<SettingsContractCapabilities> =
+            ApiResult.Success(SettingsContractCapabilities(manifestRevision = 1)),
         private val effective: EffectiveSettingValuesResponse = EffectiveSettingValuesResponse(),
-    ) : SettingsApi(HttpClient()) {
-        override suspend fun getContractCapabilities(): SettingsCapabilitiesResult = capabilities
+    ) : SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted)) {
+        override suspend fun getContractCapabilities(): ApiResult<SettingsContractCapabilities> = capabilities
 
         override suspend fun getEffectiveValues(
             keys: List<String>,
             libraryIds: List<Int>,
             seriesIds: List<String>,
+            authority: org.prairieserver.prairie.network.AuthScopeSnapshot?,
         ): ApiResult<EffectiveSettingValuesResponse> = ApiResult.Success(effective)
     }
 
@@ -226,9 +228,9 @@ class TvItemDetailSubtitlePreferenceTest {
     ): HttpClient = HttpClient(
         MockEngine { request ->
             when (request.url.encodedPath) {
-                "/api/v1/profiles" -> respond(
+                "/api/v2/profiles" -> respond(
                     content = buildString {
-                        append("""{"profiles":[{"id":"$PROFILE_ID","name":"Profile"""")
+                        append("""{"items":[{"id":"$PROFILE_ID","name":"Profile","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"""")
                         subtitleLanguage?.let { append(""","subtitle_language":"$it"""") }
                         subtitleMode?.let { append(""","subtitle_mode":"$it"""") }
                         showForced?.let { append(""","show_forced_subtitles":$it""") }
@@ -237,7 +239,7 @@ class TvItemDetailSubtitlePreferenceTest {
                     status = HttpStatusCode.OK,
                     headers = JSON_HEADERS,
                 )
-                "/api/v1/catalog/items/$CONTENT_ID" -> respond(
+                "/api/v2/catalog/items/$CONTENT_ID" -> respond(
                     content = """
                         {"content_id":"$CONTENT_ID","type":"movie","title":"Detail"}
                     """.trimIndent(),

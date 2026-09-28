@@ -58,7 +58,7 @@ import org.prairieserver.prairie.model.catalog.CastMember
 import org.prairieserver.prairie.tv.ui.theme.TvRailScrollBehavior
 import org.prairieserver.prairie.tv.ui.theme.tvRailPinOnFocus
 import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
-import org.prairieserver.prairie.tv.ui.theme.siloCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 
 internal fun restoredRailIndex(lastFocusedIndex: Int, itemCount: Int): Int? =
     if (itemCount <= 0) null else lastFocusedIndex.coerceIn(0, itemCount - 1)
@@ -203,7 +203,7 @@ fun TvCastCrewSection(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvCastCard(
+internal fun TvCastCard(
     member: CastMember,
     photoSize: Dp,
     focusRequester: FocusRequester?,
@@ -211,7 +211,7 @@ private fun TvCastCard(
     onClick: () -> Unit = {},
 ) {
     val shape = CircleShape
-    val cardFocus = siloCardDefaults(shape = shape, focusedScale = 1.05f)
+    val cardFocus = prairieCardDefaults(shape = shape, focusedScale = 1.05f)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 

@@ -6,16 +6,9 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
-import org.prairieserver.prairie.model.notifications.PushDeviceRegisterResponse
-import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.repository.PushRegistrationRepository
 
 interface AndroidPushTokenProvider {
     suspend fun token(): String?
-}
-
-class DisabledAndroidPushTokenProvider : AndroidPushTokenProvider {
-    override suspend fun token(): String? = null
 }
 
 class FirebaseAndroidPushTokenProvider(
@@ -30,27 +23,6 @@ class FirebaseAndroidPushTokenProvider(
             FirebaseMessaging.getInstance().token.awaitOrNull()
         }.getOrNull()?.takeIf { it.isNotBlank() }
     }
-}
-
-class AndroidPushRegistrar(
-    private val tokenProvider: AndroidPushTokenProvider,
-    private val repository: PushRegistrationRepository,
-    private val deviceIdProvider: () -> String,
-) {
-    suspend fun registerIfAvailable(): ApiResult<PushDeviceRegisterResponse>? {
-        val token = tokenProvider.token()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        return registerToken(token)
-    }
-
-    suspend fun registerToken(token: String): ApiResult<PushDeviceRegisterResponse> {
-        return repository.registerAndroidDevice(
-            token = token,
-            deviceId = deviceIdProvider(),
-        )
-    }
-
-    suspend fun unregisterDevice(): ApiResult<Unit> =
-        repository.unregisterDevice(deviceIdProvider())
 }
 
 private suspend fun <T> Task<T>.awaitOrNull(): T? =

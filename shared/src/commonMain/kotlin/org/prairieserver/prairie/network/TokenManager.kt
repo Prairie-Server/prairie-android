@@ -39,7 +39,27 @@ data class ProfileIdentity(val profileId: String?, val profileToken: String?)
  * Manages JWT access and refresh tokens.
  * Implementation provided by Agent 2 in TokenManagerImpl.kt.
  */
+data class AccountSessionExpectation(
+    val generation: Long,
+    val serverId: String?,
+    val serverUrl: String,
+    /** Non-suspending route/attempt fence, evaluated inside the account replacement lock. */
+    val installationAllowed: () -> Boolean = { true },
+) {
+    /**
+     * Whether [current] still names the same account session. Use this rather than `==`:
+     * [installationAllowed] compares by instance, and D8 builds a new default lambda for
+     * every expectation, so two captures of an unchanged session are never equal on device.
+     */
+    fun isSameSession(current: AccountSessionExpectation?): Boolean =
+        current != null && current.generation == generation &&
+            current.serverId == serverId && current.serverUrl == serverUrl
+}
+class AccountSessionChangedException : IllegalStateException("The initiating account or server changed")
+
 interface TokenManager {
+    suspend fun captureAccountSessionExpectation(): AccountSessionExpectation? = null
+
     suspend fun getAccessToken(): String?
     suspend fun getRefreshToken(): String?
     suspend fun saveTokens(accessToken: String, refreshToken: String, expiresIn: Long)
@@ -61,7 +81,9 @@ interface TokenManager {
         expiresIn: Long,
         profileId: String? = null,
         profileToken: String? = null,
+        expectedIdentity: AccountSessionExpectation? = null,
     ) {
+        check(expectedIdentity == null) { "Atomic account replacement is unsupported" }
         if (serverUrl != null) setServerUrl(serverUrl)
         if (serverId != null) switchActiveServer(serverId)
         setProfileIdentity(profileId, profileToken)

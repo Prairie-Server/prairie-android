@@ -39,7 +39,6 @@ import androidx.media3.extractor.text.SubtitleExtractor
 import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
-import org.prairieserver.prairie.common.BuildConfig
 import org.prairieserver.prairie.common.player.audio.DelayAudioProcessor
 import org.prairieserver.prairie.common.player.audio.PassthroughSuppressingAudioSink
 import org.prairieserver.prairie.common.player.subtitle.OffsetSubtitleParserFactory
@@ -83,6 +82,7 @@ class PrairiePlayerFactory(
     private val delayProcessor: DelayAudioProcessor,
     private val subtitleOffsetHolder: SubtitleOffsetHolder,
     private val libassBridge: LibassBridge,
+    private val playbackAnalytics: PlaybackAnalyticsListener,
 ) {
     val isTv: Boolean = TvModeDetector.isTv(context)
 
@@ -95,6 +95,14 @@ class PrairiePlayerFactory(
     @Volatile private var requestHeaderScope: RequestHeaderScope? = null
     @Volatile private var resumableDirectPlayUri: android.net.Uri? = null
     private val runtimeCorrectionState = PlaybackRuntimeCorrectionState()
+
+    /**
+     * Name of the decoder the renderer opened for a plan that promised the
+     * Profile 8 base-layer route but which cannot produce it (a native Dolby
+     * Vision decoder, or a non-HEVC decoder). Null while the promise holds.
+     * Observed by the player screens, which turn it into a typed replan.
+     */
+    val baseLayerDecoderMismatch = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     private val dataSourceFactory = AuthenticatedDataSourceFactory(
         context = context,
@@ -168,12 +176,13 @@ class PrairiePlayerFactory(
     ).setSubtitleParserFactory(embeddedSubtitleParserFactory)
 
     fun createPlayer(
-        preferFfmpegAudio: Boolean = BuildConfig.FFMPEG_AUDIO_ENABLED,
+        preferFfmpegAudio: Boolean = FfmpegAudioSupport.isAvailable(),
     ): ExoPlayer {
-        // When the flag is on (default), extension renderers (FFmpeg audio)
-        // follow the platform renderers and fill only codec gaps. This keeps
-        // native passthrough/MediaCodec paths preferred while retaining a
-        // last-resort local decoder for forced-original and recovery cases.
+        // When the build flag is on and the current ABI's JNI library loads,
+        // extension renderers (FFmpeg audio) follow the platform renderers and
+        // fill only codec gaps. This keeps native passthrough/MediaCodec paths
+        // preferred while retaining a last-resort local decoder for
+        // forced-original and recovery cases.
         //
         // When the flag is off (compile-time bisect), we set _MODE_OFF
         // rather than _MODE_ON so extension renderers are *not even
@@ -238,6 +247,14 @@ class PrairiePlayerFactory(
                     eventHandler = eventHandler,
                     eventListener = eventListener,
                     runtimeCorrectionEnabled = runtimeCorrectionState::isEnabled,
+                    onVideoOutputFormatChanged = { format, decoderMimeType ->
+                        eventHandler.post {
+                            playbackAnalytics.onVideoOutputFormatChanged(format, decoderMimeType)
+                        }
+                    },
+                    onBaseLayerDecoderMismatch = { decoderName ->
+                        baseLayerDecoderMismatch.value = decoderName
+                    },
                 )
             }
         }.apply {
@@ -287,6 +304,7 @@ class PrairiePlayerFactory(
             mode: DolbyVisionTransformMode,
             expectedDynamicRange: String? = null,
             expectedColorRange: String? = null,
+            dolbyVisionBaseLayerRoute: Boolean = false,
         ) =
             DefaultMediaSourceFactory(
                 context,
@@ -295,6 +313,7 @@ class PrairiePlayerFactory(
                     mode,
                     expectedDynamicRange = expectedDynamicRange,
                     expectedColorRange = expectedColorRange,
+                    dolbyVisionBaseLayerRoute = dolbyVisionBaseLayerRoute,
                 ),
             )
             .setDataSourceFactory(dataSourceFactory)
@@ -446,6 +465,7 @@ class PrairiePlayerFactory(
      */
     fun buildMediaItem(
         contentId: String? = null,
+        mountToken: Long? = null,
         streamUrl: String,
         playMethod: PlayMethod,
         delivery: PlaybackDelivery? = null,
@@ -462,9 +482,13 @@ class PrairiePlayerFactory(
         expectedColorRange: String? = null,
         transformations: List<String> = emptyList(),
         runtimeCorrections: List<String> = emptyList(),
+        activeClaims: List<String> = emptyList(),
     ): MediaItem {
         this.serverUrl = serverUrl
-        runtimeCorrectionState.activate(runtimeCorrections)
+        // Runtime corrections and plan-scoped claims share one activation
+        // set: both are per-mount switches the renderer consults by name.
+        runtimeCorrectionState.activate(runtimeCorrections + activeClaims)
+        baseLayerDecoderMismatch.value = null
         subtitleOffsetHolder.setTimelineOffsetSeconds(timelineOffsetSeconds)
         val absoluteUrl = buildAbsoluteUrl(serverUrl, streamUrl)
         resumableDirectPlayUri = if (delivery == PlaybackDelivery.ORIGINAL_HTTP) {
@@ -491,8 +515,11 @@ class PrairiePlayerFactory(
                             DolbyVisionTransformMode.PROFILE7_TO_HDR10
                         else -> DolbyVisionTransformMode.DISABLED
                     },
+                    mountToken = mountToken,
                     expectedDynamicRange = expectedDynamicRange,
                     expectedColorRange = expectedColorRange,
+                    dolbyVisionBaseLayerRoute =
+                        org.prairieserver.prairie.model.playback.CLIENT_DV8_BASE_LAYER_FALLBACK_V1_CLAIM in activeClaims,
                 ),
             )
 
@@ -527,6 +554,8 @@ class PrairiePlayerFactory(
      */
     private fun requestHeadersFor(uri: android.net.Uri): Map<String, String> {
         val scope = requestHeaderScope ?: return emptyMap()
+        val captured = scope.headers as? org.prairieserver.prairie.network.apiv2.ProxyAuxiliaryRequestHeaders
+        if (captured != null) return scopedProxyRequestHeaders(uri.toString(), captured)
         val issued = scope.streamUri
         if (!uri.scheme.equals(issued.scheme, ignoreCase = true) ||
             !uri.host.equals(issued.host, ignoreCase = true) ||
@@ -555,6 +584,7 @@ class PrairiePlayerFactory(
             DolbyVisionTransformMode,
             String?,
             String?,
+            Boolean,
         ) -> MediaSource.Factory,
         private val hlsFactory: MediaSource.Factory,
         private val dataSourceFactory: DataSource.Factory,
@@ -620,6 +650,7 @@ class PrairiePlayerFactory(
                 tag?.dolbyVisionMode ?: DolbyVisionTransformMode.DISABLED,
                 tag?.expectedDynamicRange,
                 tag?.expectedColorRange,
+                tag?.dolbyVisionBaseLayerRoute ?: false,
             ).also { factory ->
                 drmSessionManagerProvider?.let(factory::setDrmSessionManagerProvider)
                 factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -712,8 +743,8 @@ class PrairiePlayerFactory(
  *
  * Already-absolute URLs (`http`/`https`) and local offline URIs
  * (`file`/`content`) are returned unchanged. API-relative URLs are only
- * prefixed with the server base URL; stream-relative paths are prefixed with
- * the server base URL and the `/api/v1` mount.
+ * prefixed with the server base URL. Other relative paths are rejected: the
+ * v2 decision owns the delivery mount, so the client must not infer one.
  *
  * Shared by [PrairiePlayerFactory] (video) and the audiobook player so both
  * resolve identically. Players that hand a relative URI straight to Media3 hit
@@ -727,8 +758,11 @@ fun resolvePlaybackStreamUrl(serverUrl: String, streamUrl: String): String {
             streamUrl.startsWith("https://") ||
             streamUrl.startsWith("file://") ||
             streamUrl.startsWith("content://") -> streamUrl // Already absolute / local offline: nothing to prefix.
-        streamUrl.startsWith("/api/") -> "$base$streamUrl"
-        else -> "$base/api/v1$streamUrl"
+        // v2 already mounts relative delivery paths under /api/v2; any other
+        // server-relative path is resolved against the origin so an unexpected
+        // shape surfaces as a handled playback error, not a crash in preparation.
+        streamUrl.startsWith("/") -> "$base$streamUrl"
+        else -> "$base/$streamUrl"
     }
 }
 

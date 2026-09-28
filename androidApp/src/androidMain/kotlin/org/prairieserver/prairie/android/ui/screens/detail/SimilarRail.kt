@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.components.MediaCard
-import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
+import org.prairieserver.prairie.model.catalog.BrowseItem
 
 /**
  * "More Like This" section — header plus a horizontal poster rail —
@@ -25,7 +27,7 @@ import org.prairieserver.prairie.model.catalog.ItemDetail
  */
 @Composable
 fun SimilarRail(
-    items: List<ItemDetail>,
+    items: List<BrowseItem>,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -42,11 +44,14 @@ fun SimilarRail(
 
 @Composable
 private fun SimilarRailContent(
-    items: List<ItemDetail>,
+    items: List<BrowseItem>,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val rowState = rememberLazyListState()
+    DeferImagePresentationWhileScrolling(rowState) {
     LazyRow(
+        state = rowState,
         contentPadding = PaddingValues(horizontal = SafePadding),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier.fillMaxWidth(),
@@ -60,14 +65,17 @@ private fun SimilarRailContent(
                 title = item.title,
                 posterUrl = item.posterUrl,
                 posterThumbhash = item.posterThumbhash,
-                year = item.year.takeIf { it > 0 },
+                detailBackdropUrl = item.backdropUrl,
+                detailBackdropThumbhash = item.backdropThumbhash,
+                year = item.year?.takeIf { it > 0 },
                 type = item.type,
                 userState = null,
                 progress = null,
                 onClick = { onSelect(item.contentId) },
-                overlay = org.prairieserver.prairie.overlays.OverlayDataExtractor.fromItemDetail(item),
+                overlay = org.prairieserver.prairie.overlays.OverlayDataExtractor.fromBrowseItem(item),
                 sharedContentId = item.contentId,
             )
         }
+    }
     }
 }

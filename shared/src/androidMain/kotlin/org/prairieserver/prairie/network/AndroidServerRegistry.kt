@@ -2,6 +2,8 @@ package org.prairieserver.prairie.network
 
 import android.content.SharedPreferences
 import android.util.Base64
+import java.net.URI
+import org.prairieserver.prairie.model.server.ServerContract
 import org.prairieserver.prairie.model.server.ServerEntry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,6 +98,15 @@ class AndroidServerRegistry(
                 if (entry.id == serverId) {
                     entry.copy(userOverrideName = userOverrideName?.trim()?.takeIf { it.isNotBlank() })
                 } else entry
+            }
+            persistAndApplyLocked(updated, _activeServerId.value)
+        }
+    }
+
+    override suspend fun setContract(serverId: String, contract: ServerContract) {
+        mutex.withLock {
+            val updated = _entries.value.map { entry ->
+                if (entry.id == serverId) entry.copy(contract = contract) else entry
             }
             persistAndApplyLocked(updated, _activeServerId.value)
         }
@@ -211,6 +222,7 @@ class AndroidServerRegistry(
             val state = RegistryState(entries = updated, activeServerId = serverId)
             val editor = prefs.edit()
                 .putString(KEY_REGISTRY_STATE, json.encodeToString(state))
+                .putString(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_LOGIN_ID), java.util.UUID.randomUUID().toString())
                 .putString(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN), accessToken)
                 .putString(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN), refreshToken)
                 .putLong(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_TOKEN_EXPIRY), expiryEpochMs)
@@ -233,6 +245,7 @@ class AndroidServerRegistry(
             val state = RegistryState(entries = updated, activeServerId = _activeServerId.value)
             val editor = prefs.edit()
                 .putString(KEY_REGISTRY_STATE, json.encodeToString(state))
+                .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_LOGIN_ID))
                 .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_ACCESS_TOKEN))
                 .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_REFRESH_TOKEN))
                 .remove(serverScopedKey(serverId, EncryptedTokenManagerImpl.KEY_TOKEN_EXPIRY))
@@ -401,6 +414,125 @@ class AndroidServerRegistry(
             val flags = Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
             return Base64.encodeToString(normalizedUrl.toByteArray(Charsets.UTF_8), flags)
         }
+
+        /**
+         * Reverses a URL-derived registry id only when it is an exact id for a
+         * normalized HTTP(S) URL. The round-trip check keeps unknown future id
+         * formats from being interpreted as URLs accidentally.
+         */
+        fun urlForServerId(serverId: String): String? {
+            if (serverId.isEmpty()) return null
+            val flags = Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+            val decoded = runCatching {
+                Base64.decode(serverId, flags).toString(Charsets.UTF_8)
+            }.getOrNull() ?: return null
+            val normalized = normalizeWireUrl(decoded)
+            if (canonicalComparisonUrl(normalized) == null || idFor(normalized) != serverId) {
+                return null
+            }
+            return normalized
+        }
+
+        /**
+         * Compares URL-derived server ids without changing either persisted
+         * registry key. Exact ids (including unknown future formats) match
+         * first. Otherwise only scheme/host case and explicit default ports
+         * are canonicalized; credentials and the remaining URL components are
+         * retained exactly.
+         */
+        fun serverIdsMatch(lhs: String?, rhs: String?): Boolean {
+            if (lhs.isNullOrEmpty() || rhs.isNullOrEmpty()) return false
+            if (lhs == rhs) return true
+            val lhsUrl = urlForServerId(lhs) ?: return false
+            val rhsUrl = urlForServerId(rhs) ?: return false
+            return canonicalComparisonUrl(lhsUrl) == canonicalComparisonUrl(rhsUrl)
+        }
+
+        private fun canonicalComparisonUrl(url: String): String? {
+            val normalized = normalizeWireUrl(url)
+            val uri = runCatching { URI(normalized) }.getOrNull() ?: return null
+            if (uri.isOpaque) return null
+            val scheme = uri.scheme?.lowercase()
+                ?.takeIf { it == "http" || it == "https" }
+                ?: return null
+            val authority = uri.rawAuthority ?: return null
+            val canonicalAuthority = canonicalAuthority(
+                rawAuthority = authority,
+                scheme = scheme,
+            ) ?: return null
+            return buildString {
+                append(scheme)
+                append("://")
+                append(canonicalAuthority)
+                append(uri.rawPath.orEmpty())
+                uri.rawQuery?.let {
+                    append('?')
+                    append(it)
+                }
+                uri.rawFragment?.let {
+                    append('#')
+                    append(it)
+                }
+            }
+        }
+
+        private fun canonicalAuthority(
+            rawAuthority: String,
+            scheme: String,
+        ): String? {
+            val userInfoSeparator = rawAuthority.indexOf('@')
+            if (userInfoSeparator >= 0 && rawAuthority.indexOf('@', userInfoSeparator + 1) >= 0) {
+                return null
+            }
+            val userInfoPrefix = if (userInfoSeparator < 0) {
+                ""
+            } else {
+                rawAuthority.substring(0, userInfoSeparator + 1)
+            }
+            val hostAndPort = rawAuthority.substring(userInfoPrefix.length)
+            if (hostAndPort.isEmpty()) return null
+
+            val (host, rawPort) = if (hostAndPort.startsWith('[')) {
+                val bracket = hostAndPort.indexOf(']')
+                if (bracket <= 1) return null
+                val bracketedHost = hostAndPort.substring(0, bracket + 1)
+                val remainder = hostAndPort.substring(bracket + 1)
+                if (remainder.isEmpty()) {
+                    bracketedHost to null
+                } else {
+                    if (!remainder.startsWith(':')) return null
+                    bracketedHost to remainder.substring(1)
+                }
+            } else {
+                if (hostAndPort.contains('[') || hostAndPort.contains(']')) return null
+                val colon = hostAndPort.lastIndexOf(':')
+                if (colon < 0) {
+                    hostAndPort to null
+                } else {
+                    val unbracketedHost = hostAndPort.substring(0, colon)
+                    if (unbracketedHost.contains(':')) return null
+                    unbracketedHost to hostAndPort.substring(colon + 1)
+                }
+            }
+            if (host.isBlank() || host.any(Char::isWhitespace)) return null
+
+            val port = rawPort?.let { value ->
+                if (value.isEmpty() || value.any { !it.isDigit() }) return null
+                value.toIntOrNull()?.takeIf { it in 0..65535 } ?: return null
+            }
+            val isDefaultPort = (scheme == "http" && port == 80) ||
+                (scheme == "https" && port == 443)
+            return buildString {
+                append(userInfoPrefix)
+                append(host.lowercase())
+                if (rawPort != null && !isDefaultPort) {
+                    append(':')
+                    append(rawPort)
+                }
+            }
+        }
+
+        private fun normalizeWireUrl(raw: String): String = raw.trim().trimEnd('/')
 
         fun normalizeUrl(raw: String): String {
             val trimmed = raw.trim().trimEnd('/')

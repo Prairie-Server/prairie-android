@@ -47,7 +47,7 @@ import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
-import org.prairieserver.prairie.tv.cast.TvSiloCastReceiver
+import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
 import org.prairieserver.prairie.tv.ui.navigation.TvAppNavigation
 import org.prairieserver.prairie.tv.ui.navigation.TvRoute
 import org.prairieserver.prairie.tv.ui.screens.player.TvPlayerRemoteKeyBridge
@@ -205,7 +205,7 @@ class MainTvActivity : ComponentActivity() {
             if (isAuthenticatedForCast() &&
                 lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
             ) {
-                val receiver = get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java)
+                val receiver = get<TvPrairieCastReceiver>(TvPrairieCastReceiver::class.java)
                 receiver.start()
                 // The lifecycle check above is a TOCTOU: the activity can stop
                 // between the check and start(), so onStop()'s stop() lands
@@ -233,8 +233,28 @@ class MainTvActivity : ComponentActivity() {
 
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (TvPlayerRemoteKeyBridge.dispatch(event)) return true
-        return super.dispatchKeyEvent(event)
+        // Desktop TV emulators deliver the host keyboard's Escape key as
+        // KEYCODE_ESCAPE, not always as Android's KEYCODE_BACK. Translate it
+        // before normal window dispatch so a focused popup/menu gets first
+        // refusal, exactly as it does for a physical remote's Back button.
+        val translatedEvent = if (event.keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            KeyEvent(
+                event.downTime,
+                event.eventTime,
+                event.action,
+                KeyEvent.KEYCODE_BACK,
+                event.repeatCount,
+                event.metaState,
+                event.deviceId,
+                event.scanCode,
+                event.flags,
+                event.source,
+            )
+        } else {
+            event
+        }
+        if (TvPlayerRemoteKeyBridge.dispatch(translatedEvent)) return true
+        return super.dispatchKeyEvent(translatedEvent)
     }
 
     /**
@@ -264,7 +284,7 @@ class MainTvActivity : ComponentActivity() {
         super.onStop()
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.stopForeground()
-        get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java).stop()
+        get<TvPrairieCastReceiver>(TvPrairieCastReceiver::class.java).stop()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
         lifecycleScope.launch { store.flushPendingDeviceSettings() }
     }
@@ -282,6 +302,22 @@ class MainTvActivity : ComponentActivity() {
 
         val activeEntry = registry.activeEntry.value
             ?: return TvRoute.ServerSetup.route
+
+        // Restored servers were probed by whichever build saved them (or never,
+        // before the v2 pilot); re-establish the contract verdict once per launch.
+        // A stored UPDATE_REQUIRED may be stale (server upgraded since), and a
+        // stored UNKNOWN (first launch after upgrading the app) passes the gate,
+        // so authenticated startup consumers would race the probe and could
+        // receive raw v2 404s from a v1-only server. Both wait (bounded) for
+        // the probe before routing; only a settled V2 skips the wait. A null
+        // result (V2, timeout, or failure) makes the name refresh re-probe.
+        val authRepository = get<AuthRepository>(AuthRepository::class.java)
+        val knownContract = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            authRepository.awaitContractRefreshIfUnsettled()
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            authRepository.refreshActiveServerName(knownContract = knownContract)
+        }
 
         val cleartextConsent = get<org.prairieserver.prairie.network.CleartextOriginConsent>(
             org.prairieserver.prairie.network.CleartextOriginConsent::class.java,
@@ -320,7 +356,7 @@ class MainTvActivity : ComponentActivity() {
             // onStop()'s stop() already ran, leaving NSD advertising + the cast
             // socket up while backgrounded. Mirrors the onStart() guard.
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
-                val receiver = get<TvSiloCastReceiver>(TvSiloCastReceiver::class.java)
+                val receiver = get<TvPrairieCastReceiver>(TvPrairieCastReceiver::class.java)
                 receiver.start()
                 // Same TOCTOU compensation as onStart(): if the activity
                 // stopped between the check and start(), undo the start —

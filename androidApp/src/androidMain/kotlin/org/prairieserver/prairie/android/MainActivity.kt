@@ -1,11 +1,13 @@
 package org.prairieserver.prairie.android
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,6 +33,7 @@ import androidx.lifecycle.lifecycleScope
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
 import org.prairieserver.prairie.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import org.prairieserver.prairie.android.downloads.hasLegacyPublicDownloadPermission
+import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.push.PushNotificationPresenter
 import org.prairieserver.prairie.android.ui.navigation.AppNavigation
 import org.prairieserver.prairie.android.ui.navigation.ExternalRouteRequest
@@ -213,6 +216,30 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * While the full Remote Control owns volume, consume both halves of each
+     * hardware-key event so Android neither changes local volume nor shows its
+     * volume HUD. Repeated ACTION_DOWN events intentionally remain individual
+     * remote steps when the user holds a button.
+     */
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val step = when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> 1
+            KeyEvent.KEYCODE_VOLUME_DOWN -> -1
+            else -> return super.dispatchKeyEvent(event)
+        }
+        val controller = get<PrairieCastController>(PrairieCastController::class.java)
+        return when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                controller.stepVolumeOptimistic(step) || super.dispatchKeyEvent(event)
+            }
+            else -> {
+                controller.shouldInterceptHardwareVolumeKeys() || super.dispatchKeyEvent(event)
             }
         }
     }
@@ -409,6 +436,22 @@ class MainActivity : ComponentActivity() {
 
         val activeEntry = registry.activeEntry.value
             ?: return Route.ServerSetup.route
+
+        // Restored servers were probed by whichever build saved them (or never,
+        // before the v2 pilot); re-establish the contract verdict once per launch.
+        // A stored UPDATE_REQUIRED may be stale (server upgraded since), and a
+        // stored UNKNOWN (first launch after upgrading the app) passes the gate,
+        // so authenticated startup consumers would race the probe and could
+        // receive raw v2 404s from a v1-only server. Both wait (bounded) for
+        // the probe before routing; only a settled V2 skips the wait. A null
+        // result (V2, timeout, or failure) makes the name refresh re-probe.
+        val authRepository = get<AuthRepository>(AuthRepository::class.java)
+        val knownContract = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            authRepository.awaitContractRefreshIfUnsettled()
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            authRepository.refreshActiveServerName(knownContract = knownContract)
+        }
 
         val cleartextConsent = get<org.prairieserver.prairie.network.CleartextOriginConsent>(
             org.prairieserver.prairie.network.CleartextOriginConsent::class.java,

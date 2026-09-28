@@ -4,8 +4,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,7 +22,6 @@ import org.prairieserver.prairie.android.ui.screens.browse.FilterSheet
 import org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.viewmodel.PersonalListQuery
-import org.prairieserver.prairie.viewmodel.PersonalListViewModel
 
 /** `/catalog?source=` values the saved lists fetch through. */
 object PersonalListSource {
@@ -59,18 +56,11 @@ fun rememberPersonalListControls(source: String): PersonalListControlsViewModel 
     }
 }
 
-/** Pushes the controls' derived query into the list ViewModel whenever it changes. */
-@Composable
-fun ApplyPersonalListQuery(controls: PersonalListControlsViewModel, listViewModel: PersonalListViewModel) {
-    val state by controls.uiState.collectAsState()
-    LaunchedEffect(state.query) { listViewModel.applyQuery(state.query) }
-}
-
 /** The controls' current query, for callers that hand it to a grid. */
 @Composable
-fun PersonalListControlsViewModel.queryState(): State<PersonalListQuery> {
+fun PersonalListControlsViewModel.currentQuery(): PersonalListQuery {
     val state by uiState.collectAsState()
-    return remember(state.query) { mutableStateOf(state.query) }
+    return state.query
 }
 
 /**
@@ -82,7 +72,7 @@ fun PersonalListControlsViewModel.queryState(): State<PersonalListQuery> {
 @Composable
 fun PersonalListControlsRow(
     controls: PersonalListControlsViewModel,
-    total: Int,
+    total: Int?,
     modifier: Modifier = Modifier,
 ) {
     val state by controls.uiState.collectAsState()
@@ -108,7 +98,7 @@ fun PersonalListControlsRow(
         showReset = state.isCustomised,
         onReset = controls::resetAll,
         trailing = {
-            if (total > 0) {
+            if (total != null && total > 0) {
                 Text(
                     text = if (total == 1) "1 title" else "$total titles",
                     fontSize = 12.sp,

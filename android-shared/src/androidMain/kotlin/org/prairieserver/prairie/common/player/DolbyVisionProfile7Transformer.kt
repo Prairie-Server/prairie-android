@@ -23,8 +23,15 @@ internal enum class DolbyVisionTransformMode {
 
 internal data class PrairieMediaTransformTag(
     val dolbyVisionMode: DolbyVisionTransformMode,
+    val mountToken: Long? = null,
     val expectedDynamicRange: String? = null,
     val expectedColorRange: String? = null,
+    /**
+     * The plan authorised the Profile 8 base-layer fallback: the extractor
+     * repairs colour info from the base layer's compatibility id rather than
+     * assuming PQ, and [expectedDynamicRange] names the promised base range.
+     */
+    val dolbyVisionBaseLayerRoute: Boolean = false,
 )
 
 internal class DolbyVisionTransformException(
@@ -240,6 +247,14 @@ internal class DolbyVisionTransformingTrackOutput(
                     filteredInitializationData + buildDolbyVisionProfile81Config(dolbyVisionLevel(format.codecs)),
                 )
                 .build()
+            // The base layer is ordinary HEVC Main 10 under PQ signalling. The
+            // codec string is deliberately left null rather than derived from
+            // the SPS: Media3 reads it only for profile/level capability
+            // matching, and the player's HEVC selector already hands these
+            // streams to the hardware decoder regardless of what its
+            // capability table claims (odd-resolution Main 10 titles are
+            // rejected by the table and decode fine). A null string means
+            // "assume supported", which is the same intent.
             DolbyVisionTransformMode.PROFILE7_TO_HDR10 -> format.buildUpon()
                 .setSampleMimeType(MimeTypes.VIDEO_H265)
                 .setCodecs(null)

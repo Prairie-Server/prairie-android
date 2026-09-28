@@ -6,8 +6,6 @@ import androidx.work.WorkManager
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
-import coil3.disk.DiskCache
-import coil3.request.crossfade
 import org.prairieserver.prairie.common.di.playerInfraModule
 import org.prairieserver.prairie.common.di.playerModule
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsCoordinator
@@ -18,9 +16,9 @@ import org.prairieserver.prairie.tv.di.androidTvModule
 import org.prairieserver.prairie.tv.watchnext.TvWorkerFactory
 import org.prairieserver.prairie.util.ImageFormats
 import kotlinx.coroutines.launch
-import okio.Path.Companion.toOkioPath
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import org.prairieserver.prairie.common.images.buildPrairieImageLoader
 
 /**
  * Implements `Configuration.Provider` rather than installing Koin's
@@ -42,6 +40,9 @@ class PrairieTvApplication : Application(), Configuration.Provider, SingletonIma
             modules(sharedModules() + playerModule + playerInfraModule + androidTvModule + diagnosticsModule)
         }
         DiagnosticsStartup.startCoordinator { koinApp.koin.get<DiagnosticsCoordinator>() }
+        koinApp.koin.get<org.prairieserver.prairie.repository.ImageCapabilitiesSession>().start(
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+        )
         // Live-home socket (Apple realtime-updates spec). Guarded — a dead
         // socket just means Home refreshes on open only.
         runCatching {
@@ -111,18 +112,7 @@ class PrairieTvApplication : Application(), Configuration.Provider, SingletonIma
                 .build()
         }
 
-    /**
-     * Tunes the shared Coil image loader with a generous on-disk artwork cache
-     * so posters/backdrops survive between sessions. Mirrors the phone app.
-     */
+    /** Coil setup is shared with the phone app — see [buildPrairieImageLoader]. */
     override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context)
-            .crossfade(true)
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache").toOkioPath())
-                    .maxSizeBytes(512L * 1024 * 1024)
-                    .build()
-            }
-            .build()
+        buildPrairieImageLoader(context, cacheDir)
 }

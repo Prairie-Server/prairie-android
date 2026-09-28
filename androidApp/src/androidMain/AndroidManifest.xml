@@ -43,6 +43,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Prairie"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true">
 
         <!-- Google Cast (Chromecast) options provider — phone app only. The Cast
@@ -51,6 +52,11 @@
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="org.prairieserver.prairie.android.cast.PrairieCastOptionsProvider" />
+        <!-- Google Cast notification/lock-screen rewind and forward, seeking by the
+             profile's intervals (see PrairieCastOptionsProvider). -->
+        <receiver
+            android:name=".cast.PrairieCastMediaIntentReceiver"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

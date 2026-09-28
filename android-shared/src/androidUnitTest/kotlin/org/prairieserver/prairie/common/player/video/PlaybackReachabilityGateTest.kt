@@ -2,9 +2,7 @@ package org.prairieserver.prairie.common.player.video
 
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.network.api.HealthApi
 import org.prairieserver.prairie.network.api.HealthStatus
-import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runCurrent
@@ -93,7 +91,12 @@ class PlaybackReachabilityGateTest {
         probe: Boolean = true,
     ): ServerReachabilityMonitor {
         val monitor = ServerReachabilityMonitor(
-            healthApi = FakeHealthApi(probeResult),
+            probe = {
+                if (probeResult == null || probeResult is ApiResult.Success)
+                    org.prairieserver.prairie.network.apiv2.ApiV2ProbeResult.V2(org.prairieserver.prairie.network.apiv2.SystemInfo("test", 2, "digest", org.prairieserver.prairie.network.apiv2.SystemInfoLinks("/openapi", "/capabilities")))
+                else org.prairieserver.prairie.network.apiv2.ApiV2ProbeResult.Failure(org.prairieserver.prairie.network.apiv2.ApiV2ProbeResult.Kind.CONNECTION)
+            },
+            captureTarget = { org.prairieserver.prairie.common.network.ReachabilityTarget("s", "https://example.invalid", 1) },
             scope = scope,
         )
         if (probe) {
@@ -102,11 +105,4 @@ class PlaybackReachabilityGateTest {
         }
         return monitor
     }
-}
-
-private class FakeHealthApi(
-    private val result: ApiResult<HealthStatus>?,
-) : HealthApi(client = HttpClient()) {
-    override suspend fun checkHealth(): ApiResult<HealthStatus> =
-        result ?: ApiResult.Success(HealthStatus(status = "ok"))
 }

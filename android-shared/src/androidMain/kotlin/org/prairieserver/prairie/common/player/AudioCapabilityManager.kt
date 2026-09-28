@@ -39,6 +39,31 @@ data class AudioPlaybackRouteSnapshot(
 )
 
 /**
+ * Identity used to decide whether playback must be replanned for a new output.
+ *
+ * Spatializer enablement is deliberately excluded. Android can toggle it while
+ * Media3 tears down and recreates an audio sink, so including it makes a player
+ * remount look like a physical route change and feeds the remount back into
+ * another server replan. The server does not route on this flag; it remains in
+ * the published diagnostics/capability snapshot.
+ */
+internal data class AudioPlanningRouteIdentity(
+    val sinkType: String,
+    val routeHashes: List<String>,
+    val capabilities: AudioPassthroughCapabilities,
+)
+
+internal fun audioPlanningRouteIdentity(
+    sinkType: String,
+    routeHashes: List<String>,
+    capabilities: AudioPassthroughCapabilities,
+): AudioPlanningRouteIdentity = AudioPlanningRouteIdentity(
+    sinkType = sinkType,
+    routeHashes = routeHashes.distinct().sorted(),
+    capabilities = capabilities.copy(spatializerEnabled = false),
+)
+
+/**
  * Tracks the current [AudioCapabilities] of the active audio sink (built-in
  * speaker, HDMI receiver, Bluetooth, USB DAC) and exposes them as an
  * [AudioPassthroughCapabilities] suitable for the server's playback resolver.
@@ -77,20 +102,30 @@ class AudioCapabilityManager(
         capabilities = AudioPassthroughCapabilities(),
     )
     private var routeSnapshotInitialized = false
+    private var planningRouteIdentity: AudioPlanningRouteIdentity? = null
 
     private fun publishCapabilities(next: AudioPassthroughCapabilities) {
-        val changed = _capabilities.value != next
-        if (!changed && routeSnapshotInitialized) return
-        val generation = if (changed) {
+        val capabilitiesChanged = _capabilities.value != next
+        val devices = runCatching(::currentOutputDevices).getOrDefault(emptyList())
+        val sinkType = sinkType(devices)
+        val nextRouteIdentity = audioPlanningRouteIdentity(
+            sinkType = sinkType,
+            routeHashes = devices.map(::routeHash),
+            capabilities = next,
+        )
+        val routeChanged = planningRouteIdentity != nextRouteIdentity
+        if (!capabilitiesChanged && !routeChanged && routeSnapshotInitialized) return
+        val generation = if (routeChanged) {
             generationCounter.incrementAndGet()
         } else {
             _outputRouteGeneration.value
         }
         playbackRouteSnapshot = AudioPlaybackRouteSnapshot(
-            sinkType = currentSinkType(),
+            sinkType = sinkType,
             routeGeneration = generation,
             capabilities = next.immutableCopy(),
         )
+        planningRouteIdentity = nextRouteIdentity
         routeSnapshotInitialized = true
         _capabilities.value = next
         _outputRouteGeneration.value = generation
@@ -113,10 +148,29 @@ class AudioCapabilityManager(
         _outputRouteGeneration.value = generation
     }
 
-    private var lastDisplayHdr = DisplayHdrProbe.probe(appContext)
+    // Compared as the detailed result so an evidence-tier change (a probe
+    // that went from unknown to a confirmed SDR panel, or a display hot-plug
+    // that swapped the owning display) also rotates the output context id
+    // and triggers the bounded output_change replan.
+    private var lastDisplayHdr = DisplayHdrProbe.probeDetailed(appContext)
+
+    /**
+     * The display that owns the playback surface, mirrored from
+     * [PlaybackCapabilityDetector.playbackDisplayId]. The change detector
+     * below must watch the same panel the capability probe describes, or a
+     * mode change on a secondary display never rotates the output context.
+     * Setting it re-probes immediately so a switch of owning display is itself
+     * an output change.
+     */
+    @Volatile
+    var playbackDisplayId: Int? = null
+        set(value) {
+            field = value
+            publishDisplayCapabilitiesIfChanged()
+        }
 
     private fun publishDisplayCapabilitiesIfChanged() {
-        val next = DisplayHdrProbe.probe(appContext)
+        val next = DisplayHdrProbe.probeDetailed(appContext, playbackDisplayId)
         if (next == lastDisplayHdr) return
         lastDisplayHdr = next
         bumpOutputRouteGeneration()
@@ -445,4 +499,3 @@ internal val PASSTHROUGH_LAYOUT_PROBES: List<AudioCapabilityManager.AudioLayoutP
         listOf("7.1"),
     ),
 )
-

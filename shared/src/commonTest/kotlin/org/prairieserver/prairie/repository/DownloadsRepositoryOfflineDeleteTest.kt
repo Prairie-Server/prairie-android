@@ -39,19 +39,58 @@ private class FakeDeletionPort : DownloadDeletionPort {
     }
 }
 
+private object OfflineDeleteNoDevices : org.prairieserver.prairie.network.DeviceMetadataProvider {
+    override suspend fun current(): org.prairieserver.prairie.network.PrairieDeviceMetadata? = null
+}
+
 private class FakeApi(
     var serverList: List<DownloadRecord> = emptyList(),
     var deleteResult: (String) -> ApiResult<Unit> = { ApiResult.Success(Unit) },
-) : org.prairieserver.prairie.network.api.DownloadsApi(client = HttpClient()) {
+) : org.prairieserver.prairie.network.api.DownloadsApi(
+    registry = org.prairieserver.prairie.network.apiv2.DownloadRegistryV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), OfflineDeleteNoDevices, org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted),
+    tokens = org.prairieserver.prairie.network.TokenManagerImpl(),
+    creation = org.prairieserver.prairie.network.apiv2.DownloadCreationV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), OfflineDeleteNoDevices,
+        org.prairieserver.prairie.network.apiv2.DownloadRegistryV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), OfflineDeleteNoDevices, org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted), org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted),
+) {
     val deleteCalls = mutableListOf<String>()
-    override suspend fun list(): ApiResult<DownloadsListResponse> = ApiResult.Success(DownloadsListResponse(serverList))
-    override suspend fun delete(id: String): ApiResult<Unit> {
+    override suspend fun list(scope: org.prairieserver.prairie.network.AuthScopeSnapshot?): ApiResult<DownloadsListResponse> = ApiResult.Success(DownloadsListResponse(serverList))
+    override suspend fun delete(id: String, scope: org.prairieserver.prairie.network.AuthScopeSnapshot?): ApiResult<Unit> {
         deleteCalls += id
         return deleteResult(id)
     }
 }
 
 class DownloadsRepositoryOfflineDeleteTest {
+    @Test fun onlyCurrentLoginTombstonesReplayOrClear() = runTest {
+        val scope = org.prairieserver.prairie.network.AuthScopeSnapshot("s", "p", "https://example.invalid", null, identityGeneration = 0)
+        val authority = org.prairieserver.prairie.network.DurableLoginAuthority("login", scope)
+        val owners = object : org.prairieserver.prairie.network.DurableLoginAuthorityProvider {
+            override suspend fun snapshotDurableLoginAuthority() = authority
+        }
+        val devices = object : org.prairieserver.prairie.network.DeviceMetadataProvider {
+            override suspend fun current() = org.prairieserver.prairie.network.PrairieDeviceMetadata("device", "test", "android")
+        }
+        val rows = mutableListOf(
+            PendingDownloadDeletion("s", "p", "owned", 1, "login", scope.serverUrl, "device"),
+            PendingDownloadDeletion("s", "p", "foreign", 2, "prior-login", scope.serverUrl, "device"),
+            PendingDownloadDeletion("s", "p", "legacy", 3),
+        )
+        val port = object : DownloadDeletionPort {
+            override suspend fun enqueue(serverId: String, profileId: String, recordId: String, mediaFileId: Int?) = Unit
+            override suspend fun allPendingRecordIds() = rows.map { it.recordId }.toSet()
+            override suspend fun pendingForScope(serverId: String, profileId: String) = rows.toList()
+            override suspend fun remove(serverId: String, profileId: String, recordId: String) { rows.removeAll { it.recordId == recordId } }
+        }
+        val api = FakeApi(serverList = rows.mapIndexed { i, row -> rec(row.recordId, i + 1) })
+        val repo = DownloadsRepository(api, port, owners, devices, org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier())
+        repo.refresh(serverId = "s", profileId = "p")
+        assertEquals(listOf("owned", "owned"), api.deleteCalls)
+        assertEquals(listOf("owned"), repo.pendingDeletionsForScope("s", "p").map { it.recordId })
+        api.serverList = emptyList()
+        repo.refresh(serverId = "s", profileId = "p")
+        assertEquals(listOf("foreign", "legacy"), rows.map { it.recordId })
+    }
+
 
     @Test
     fun `enqueueDurableDelete drops the record and persists a tombstone`() = runTest {

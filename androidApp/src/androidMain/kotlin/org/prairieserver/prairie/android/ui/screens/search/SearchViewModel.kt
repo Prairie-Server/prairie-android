@@ -3,12 +3,17 @@ package org.prairieserver.prairie.android.ui.screens.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.catalog.BrowseItem
+import org.prairieserver.prairie.model.catalog.Person
 import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.mobileMediaModeForLibraryType
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
 import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.repository.CatalogRepository
+import org.prairieserver.prairie.repository.searchPeopleForQuery
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,6 +59,19 @@ internal fun MobileSearchMediaType.filterResults(items: List<BrowseItem>): List<
         else -> items
     }
 
+/**
+ * People-search scopes for each filter. Audio people are audiobook authors and
+ * narrators; Reading covers both ebooks and manga, which the server scopes
+ * separately.
+ */
+internal val MobileSearchMediaType.peopleMediaScopes: List<String?>
+    get() = when (this) {
+        MobileSearchMediaType.All -> listOf(null)
+        MobileSearchMediaType.Video -> listOf("video")
+        MobileSearchMediaType.Audio -> listOf("audiobook")
+        MobileSearchMediaType.Reading -> listOf("ebook", "manga")
+    }
+
 private val MobileSearchMediaType.isClientFiltered: Boolean
     get() = this != MobileSearchMediaType.All
 
@@ -87,8 +105,14 @@ data class SearchUiState(
     val availableMediaTypes: List<MobileSearchMediaType> = MobileSearchMediaType.entries.toList(),
     val isSearching: Boolean = false,
     val results: List<BrowseItem> = emptyList(),
+    /** Cast and crew matching the query, shown above the title results. */
+    val people: List<Person> = emptyList(),
+    /** True until the current query's people lookup answers. */
+    val isLoadingPeople: Boolean = false,
     val hasMore: Boolean = false,
     val total: Int = 0,
+    val totalExact: Boolean = false,
+    val searchDiagnostics: org.prairieserver.prairie.network.apiv2.CatalogSearchDiagnosticsV2? = null,
     val error: String? = null,
     val hasSearched: Boolean = false,
     val nextOffset: Int = 0,
@@ -110,6 +134,8 @@ class SearchViewModel(
 
     private val _queryFlow = MutableStateFlow("")
 
+    private var continuation: CatalogContinuationV2? = null
+    private var peopleJob: Job? = null
     private val pageSize = 60
 
     /**
@@ -131,10 +157,13 @@ class SearchViewModel(
                         return@collectLatest
                     }
                     if (query.isBlank()) {
+                        peopleJob?.cancel()
                         _uiState.update {
                             it.copy(
                                 query = query,
                                 results = emptyList(),
+                                people = emptyList(),
+                                isLoadingPeople = false,
                                 hasMore = false,
                                 total = 0,
                                 isSearching = false,
@@ -189,11 +218,14 @@ class SearchViewModel(
      */
     fun clearSearch() {
         pendingVoiceQuery = null
+        peopleJob?.cancel()
         _uiState.update {
             it.copy(
                 query = "",
                 isSearching = false,
                 results = emptyList(),
+                people = emptyList(),
+                isLoadingPeople = false,
                 hasMore = false,
                 total = 0,
                 error = null,
@@ -246,9 +278,28 @@ class SearchViewModel(
      */
     fun loadMore() {
         val current = _uiState.value
-        if (current.isSearching || !current.hasMore || current.query.isBlank()) return
+        if (current.error != null || current.isSearching || !current.hasMore || current.query.isBlank()) return
         viewModelScope.launch {
             performSearch(current.query, reset = false)
+        }
+    }
+
+    /**
+     * Looks up people alongside the title search. It runs on its own so a slow
+     * or failed people lookup never holds back or fails the title results.
+     * The previous query's people are cleared first so they never sit beside
+     * the new query's titles.
+     */
+    private fun searchPeople(query: String, mediaType: MobileSearchMediaType) {
+        peopleJob?.cancel()
+        _uiState.update { it.copy(people = emptyList(), isLoadingPeople = true) }
+        peopleJob = viewModelScope.launch {
+            val people = catalogRepository.searchPeopleForQuery(query, mediaType.peopleMediaScopes)
+            // Cancellation surfaces as an empty answer, not an exception.
+            if (!isActive) return@launch
+            val latest = _uiState.value
+            if (latest.query != query || latest.mediaType != mediaType) return@launch
+            _uiState.update { it.copy(people = people, isLoadingPeople = false) }
         }
     }
 
@@ -256,19 +307,21 @@ class SearchViewModel(
         val currentState = _uiState.value
         val requestedMediaType = currentState.mediaType
         var offset = if (reset) 0 else currentState.nextOffset
+        var cursor = if (reset) null else continuation
         var pagesFetched = 0
         val visibleItems = mutableListOf<BrowseItem>()
         var hasMore = false
         var total = 0
 
         _uiState.update { it.copy(isSearching = true, error = null) }
+        if (reset) searchPeople(query, requestedMediaType)
 
         while (true) {
             val result = catalogRepository.browse(
                 source = "query",
                 query = query,
                 mediaType = requestedMediaType.wire,
-                offset = offset,
+                continuation = cursor,
                 limit = pageSize,
             )
             val latest = _uiState.value
@@ -277,6 +330,7 @@ class SearchViewModel(
             when (result) {
                 is ApiResult.Success -> {
                     val response = result.data
+                    cursor = response.continuation
                     val rawCount = response.items.size
                     val pageVisibleItems = requestedMediaType.filterResults(response.items)
 
@@ -294,6 +348,7 @@ class SearchViewModel(
                     )
                     if (shouldAdvanceFilteredPage) continue
 
+                    continuation = cursor
                     _uiState.update {
                         val nextResults = if (reset) visibleItems else it.results + visibleItems
                         it.copy(
@@ -301,6 +356,8 @@ class SearchViewModel(
                             results = nextResults,
                             hasMore = hasMore,
                             total = if (requestedMediaType.isClientFiltered) nextResults.size else total,
+                            totalExact = if (requestedMediaType.isClientFiltered) !hasMore else response.totalExact == true,
+                            searchDiagnostics = response.searchDiagnostics,
                             error = null,
                             hasSearched = true,
                             nextOffset = offset,

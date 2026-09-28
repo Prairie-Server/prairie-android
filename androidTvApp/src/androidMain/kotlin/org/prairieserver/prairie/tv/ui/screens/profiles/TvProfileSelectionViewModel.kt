@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.profile.authorizedProfileToken
+import org.prairieserver.prairie.model.server.ServerContract
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileCommitResult
 import org.prairieserver.prairie.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +18,7 @@ import kotlinx.coroutines.launch
 
 data class TvProfileSelectionUiState(
     val profiles: List<Profile> = emptyList(),
+    val canManageProfiles: Boolean = false,
     val isLoading: Boolean = true,
     val error: String? = null,
     val selectedProfileId: String? = null,
@@ -37,6 +40,7 @@ data class TvProfileSelectionUiState(
  */
 class TvProfileSelectionViewModel(
     private val profileRepository: ProfileRepository,
+    private val authRepository: AuthRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvProfileSelectionUiState())
@@ -50,6 +54,29 @@ class TvProfileSelectionViewModel(
 
     init {
         loadProfiles()
+        reloadWhenUpdateRequiredLifts()
+    }
+
+    /**
+     * The admin lookup in [loadProfiles] is a gated v2 call. On launch the
+     * stored verdict can be a stale UPDATE_REQUIRED (server upgraded since),
+     * which the gate rejects without a request; when the launch probe outlasts
+     * its bound, routing proceeds on the stale verdict and the background
+     * refresh records V2 later. The grid must then be reloaded so the manage
+     * affordances match the real answer instead of staying hidden for the
+     * ViewModel's lifetime.
+     */
+    private fun reloadWhenUpdateRequiredLifts() {
+        val contracts = authRepository?.activeServerContractFlow ?: return
+        viewModelScope.launch {
+            var previous: ServerContract? = null
+            contracts.collect { contract ->
+                if (previous == ServerContract.UPDATE_REQUIRED && contract == ServerContract.V2) {
+                    loadProfiles()
+                }
+                previous = contract
+            }
+        }
     }
 
     /**
@@ -68,6 +95,7 @@ class TvProfileSelectionViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             val scope = profileRepository.captureIdentityScope()
+            val isAdmin = (authRepository?.getCurrentUser() as? ApiResult.Success)?.data?.role?.equals("admin", ignoreCase = true) == true
             val listed = profileRepository.listProfiles()
             // Two separate reasons to drop this response: a newer load
             // superseded it, or the identity it was fetched under is gone.
@@ -75,7 +103,15 @@ class TvProfileSelectionViewModel(
             if (!profileRepository.identityScopeUnchanged(scope)) {
                 // The displayed grid is gone, so its scope must go with it.
                 gridScope = null
-                _uiState.update { it.copy(isLoading = false, profiles = emptyList()) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        profiles = emptyList(),
+                        canManageProfiles = false,
+                        isManageMode = false,
+                        deleteCandidate = null,
+                    )
+                }
                 return@launch
             }
             when (val result = listed) {
@@ -86,7 +122,13 @@ class TvProfileSelectionViewModel(
                     // qualified by the NEW scope.
                     gridScope = scope
                     _uiState.update {
-                        it.copy(isLoading = false, profiles = result.data)
+                        it.copy(
+                            isLoading = false,
+                            profiles = result.data,
+                            canManageProfiles = isAdmin,
+                            isManageMode = if (isAdmin) it.isManageMode else false,
+                            deleteCandidate = if (isAdmin) it.deleteCandidate else null,
+                        )
                     }
                 }
                 is ApiResult.Error -> {
@@ -107,6 +149,7 @@ class TvProfileSelectionViewModel(
     }
 
     fun toggleManageMode() {
+        if (!_uiState.value.canManageProfiles) return
         _uiState.update {
             it.copy(
                 isManageMode = !it.isManageMode,
@@ -237,6 +280,7 @@ class TvProfileSelectionViewModel(
 
     /** Opens the delete confirmation for [profile] (manage mode). */
     fun requestDelete(profile: Profile) {
+        if (!_uiState.value.canManageProfiles) return
         _uiState.update { it.copy(deleteCandidate = profile) }
     }
 

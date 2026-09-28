@@ -11,7 +11,6 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.api.HealthApi
 import org.prairieserver.prairie.network.api.HealthStatus
 import org.prairieserver.prairie.network.api.PersonalDataApi
-import org.prairieserver.prairie.network.api.PlaybackApi
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.PlaybackRepository
 import io.ktor.client.HttpClient
@@ -54,6 +53,71 @@ import kotlin.test.fail
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackSessionLifecycleTest {
+    @Test fun `sequenced final flush stays part-local and pending stop retains old ownership for terminal retry`() = runTest {
+        val manager = object : FakeSessionManager() { override fun isSequenced(sessionId: String) = true }
+        manager.stopResult = ApiResult.Error(0, "stop_pending", "pending")
+        val lifecycle = newLifecycle(manager)
+        lifecycle.adoptActiveSession(defaultStartParams(), makeSession("part"))
+        lifecycle.reportPosition(30.0, 400.0, true, "part", 630.0, 1000.0)
+        assertFalse(lifecycle.stop("part"))
+        assertEquals(30.0, manager.lastProgressPosition)
+        manager.stopResult = ApiResult.Success(Unit)
+        assertTrue(lifecycle.stop("part"))
+        assertEquals(2, manager.stopCallCount)
+        assertEquals(30.0, manager.lastProgressPosition)
+        assertTrue(lifecycle.state.value is SessionState.Idle)
+    }
+
+    @Test fun `sequenced authority outage keeps session and stop pending without legacy progress`() = runTest {
+        val manager = object : FakeSessionManager() {
+            override fun isSequenced(sessionId: String) = true
+        }.apply {
+            progressDefault = ApiResult.Error(503, "authority_unavailable", "pending")
+            stopResult = ApiResult.Error(0, "stop_pending", "pending")
+        }
+        val personal = RecordingPersonalDataRepository()
+        val health = FakeHealthApi()
+        val lifecycle = newLifecycle(manager, healthApi = health, personalRepo = personal)
+        lifecycle.adoptActiveSession(defaultStartParams(), makeSession("negotiated"))
+        lifecycle.reportOwnedPosition(90.0, 100.0, false)
+        advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
+        assertTrue(lifecycle.state.value is SessionState.Active)
+        assertEquals(0, health.callCount)
+        lifecycle.stop(expectedSessionId = "negotiated")
+        assertTrue(lifecycle.state.value is SessionState.Failed)
+        assertTrue(personal.syncCalls.isEmpty())
+        assertEquals(1, manager.stopCallCount)
+        assertEquals(2, manager.progressCallCount)
+    }
+
+    @Test fun `sequenced progress warns only after consecutive failures and clears on success`() = runTest {
+        val failure = ApiResult.Error(401, "invalid_token", "expired")
+        val manager = object : FakeSessionManager() {
+            override fun isSequenced(sessionId: String) = true
+        }.apply {
+            progressResults = ArrayDeque(listOf(failure, ApiResult.Success(Unit), failure, failure, failure))
+            progressDefault = ApiResult.Success(Unit)
+        }
+        val lifecycle = newLifecycle(manager)
+        lifecycle.adoptActiveSession(defaultStartParams(), makeSession("sequenced"))
+        lifecycle.reportOwnedPosition(10.0, 100.0, false)
+        val tick = PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS
+
+        // One failure, then a success: the streak resets and nothing shows.
+        advanceTimeBy(tick * 2 + 100)
+        assertNull(lifecycle.notice.value)
+        // Two more failures stay quiet; the third consecutive one warns.
+        advanceTimeBy(tick * 2)
+        assertNull(lifecycle.notice.value)
+        advanceTimeBy(tick)
+        assertNotNull(lifecycle.notice.value)
+        // The next accepted sample clears it.
+        advanceTimeBy(tick)
+        assertNull(lifecycle.notice.value)
+        assertEquals(6, manager.progressCallCount)
+        assertTrue(lifecycle.state.value is SessionState.Active)
+    }
+
 
     @Test
     fun `adoptActiveSession reports progress without starting duplicate session`() = runTest {
@@ -926,7 +990,7 @@ class PlaybackSessionLifecycleTest {
 // ----------------------------------------------------------------------------
 
 private open class FakeSessionManager : PlaybackSessionManager(
-    playbackRepository = PlaybackRepository(playbackApi = NoOpPlaybackApi),
+    playbackRepository = PlaybackRepository(testSequencedPlayback(NoOpHttpClient, NoOpTokenManager)),
     tokenManager = NoOpTokenManager,
 ) {
 
@@ -989,7 +1053,6 @@ private class RecordingPersonalDataRepository : PersonalDataRepository(
 // ---- No-op underlying dependencies (overrides bypass them entirely) --------
 
 private val NoOpHttpClient: HttpClient = HttpClient()
-private val NoOpPlaybackApi: PlaybackApi = PlaybackApi(NoOpHttpClient)
 private val NoOpPersonalDataApi: PersonalDataApi = PersonalDataApi(NoOpHttpClient)
 
 private val NoOpTokenManager: TokenManager = object : TokenManager {

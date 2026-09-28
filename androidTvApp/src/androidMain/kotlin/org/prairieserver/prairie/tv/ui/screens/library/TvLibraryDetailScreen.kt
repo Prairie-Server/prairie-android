@@ -62,6 +62,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.AudiobookGroup
 import org.prairieserver.prairie.model.section.LibraryCollection
@@ -76,7 +77,8 @@ import org.prairieserver.prairie.tv.ui.shell.TvTopMenuLayout
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.SubtleSurface
 import org.prairieserver.prairie.tv.ui.theme.rememberTvGridBringIntoViewSpec
-import org.prairieserver.prairie.tv.ui.theme.siloCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.tvPresetGridColumns
 import org.prairieserver.prairie.tv.ui.components.TvSectionHeader
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -358,7 +360,7 @@ private fun LibraryTab(
         onRestored = onInitialContentFocus,
     )
 
-    if (state.browseError != null && state.browseItems.isEmpty()) {
+    if (state.browseError != null) {
         TvErrorScreen(
             message = state.browseError,
             onRetry = onRetry,
@@ -504,7 +506,7 @@ private fun LibraryGrid(
     ) {
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(LibraryBrowseGridColumns),
+            columns = GridCells.Fixed(tvPresetGridColumns(LibraryBrowseGridColumns)),
             modifier = Modifier
                 .fillMaxSize()
                 // Entry lands on the return-target card while its requester is
@@ -712,7 +714,7 @@ private fun AudiobookGroupsTab(
     ) {
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(LibraryGridColumns),
+            columns = GridCells.Fixed(tvPresetGridColumns(LibraryGridColumns)),
             modifier = Modifier
                 .fillMaxSize()
                 .onFocusChanged { groupGridHasFocus = it.hasFocus },
@@ -731,7 +733,7 @@ private fun AudiobookGroupsTab(
                         InlineLoadingState()
                     }
                 }
-                state.audiobookGroupsError != null && state.audiobookGroups.isEmpty() -> {
+                state.audiobookGroupsError != null -> {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "error") {
                         TvErrorScreen(message = state.audiobookGroupsError, onRetry = onRetry)
                     }
@@ -811,6 +813,8 @@ private fun TvAudiobookGroupCard(
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
+    val caption = LocalCardPresentation.current.caption
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
             onClick = onClick,
@@ -845,25 +849,29 @@ private fun TvAudiobookGroupCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        if (caption.showsTitle) {
+            Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = group.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = Color.White.copy(alpha = 0.92f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        audiobookGroupSubtitle(group)?.let { subtitle ->
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.68f),
+                text = group.name,
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White.copy(alpha = 0.92f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (caption.showsMetadata) {
+                audiobookGroupSubtitle(group)?.let { subtitle ->
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.68f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
         }
     }
 }
@@ -989,7 +997,7 @@ private fun CollectionsTab(
     ) {
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(LibraryGridColumns),
+            columns = GridCells.Fixed(tvPresetGridColumns(LibraryGridColumns)),
             modifier = Modifier
                 .fillMaxSize()
                 .onFocusChanged { collectionGridHasFocus = it.hasFocus }
@@ -1105,7 +1113,8 @@ private fun TvCollectionCard(
     // without reading as a different card family.
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val cardFocus = siloCardDefaults(shape = TvCollectionCardShape)
+    val cardFocus = prairieCardDefaults(shape = TvCollectionCardShape)
+    val caption = LocalCardPresentation.current.caption
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
@@ -1144,22 +1153,25 @@ private fun TvCollectionCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(11.dp))
-
         // Title-only caption, start-aligned like every other poster caption in
         // the app. The item count was dropped: it doubled the caption height
-        // and made the rows read differently from Browse.
-        Text(
-            text = collection.name,
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontSize = 15.5.sp,
-                lineHeight = 18.5.sp,
-            ),
-            color = if (isFocused) Color.White else Color.White.copy(alpha = 0.78f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        // and made the rows read differently from Browse. Gated like
+        // `TvMediaCard` so both card families agree in the same Library tab.
+        if (caption.showsTitle) {
+            Spacer(modifier = Modifier.height(11.dp))
+
+            Text(
+                text = collection.name,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 15.5.sp,
+                    lineHeight = 18.5.sp,
+                ),
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.78f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

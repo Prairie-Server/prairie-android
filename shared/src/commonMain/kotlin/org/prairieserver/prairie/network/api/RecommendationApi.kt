@@ -1,29 +1,31 @@
 package org.prairieserver.prairie.network.api
 
+import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.recommendation.DiscoverResponse
-import org.prairieserver.prairie.model.recommendation.ScoredItemsResponse
 import org.prairieserver.prairie.model.recommendation.TasteProfile
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.TokenManagerImpl
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+import org.prairieserver.prairie.network.apiv2.DiscoverV2Api
+import org.prairieserver.prairie.network.apiv2.SimilarCardsV2Api
+import org.prairieserver.prairie.network.apiv2.TasteProfileV2Api
 import io.ktor.client.HttpClient
-import io.ktor.client.request.get
-import io.ktor.client.request.parameter
 
-class RecommendationApi(private val client: HttpClient) {
+/** Viewer-scoped v2 recommendation reads; DI supplies the real token manager. */
+class RecommendationApi(client: HttpClient,
+    private val similar: SimilarCardsV2Api = SimilarCardsV2Api(client, TokenManagerImpl(), ApiV2Gate.Unrestricted),
+    private val taste: TasteProfileV2Api = TasteProfileV2Api(client, TokenManagerImpl(), ApiV2Gate.Unrestricted),
+    private val discover: DiscoverV2Api = DiscoverV2Api(client, TokenManagerImpl(), ApiV2Gate.Unrestricted)) {
 
-    suspend fun getDiscover(): ApiResult<DiscoverResponse> = safeApiCall {
-        client.get("/api/v1/recommendations/discover")
-    }
+    suspend fun captureDiscoverAuthority() = discover.capture()
+    suspend fun isDiscoverAuthorityCurrent(owner: AuthScopeSnapshot) = discover.current(owner)
+    suspend fun getDiscover(owner: AuthScopeSnapshot): ApiResult<DiscoverResponse> = discover.read(owner)
 
-    suspend fun getTasteProfile(): ApiResult<TasteProfile> = safeApiCall {
-        client.get("/api/v1/recommendations/taste-profile")
-    }
+    suspend fun getTasteProfile(owner: AuthScopeSnapshot): ApiResult<TasteProfile> = taste.read(owner)
 
-    suspend fun getSimilar(
-        contentId: String,
-        limit: Int = 12,
-    ): ApiResult<ScoredItemsResponse> = safeApiCall {
-        client.get("/api/v1/recommendations/similar/$contentId") {
-            parameter("limit", limit)
-        }
-    }
+    suspend fun captureSimilarAuthority() = similar.capture()
+    suspend fun isSimilarAuthorityCurrent(owner: AuthScopeSnapshot) = similar.current(owner)
+    suspend fun getSimilar(contentId: String, limit: Int = 12, owner: AuthScopeSnapshot): ApiResult<List<BrowseItem>> =
+        similar.list(contentId, limit, owner)
 }

@@ -84,7 +84,6 @@ import org.prairieserver.prairie.viewmodel.LiveTvPlayerViewModel
 import org.prairieserver.prairie.viewmodel.WatchlistViewModel
 import org.prairieserver.prairie.android.ui.screens.player.MobileVideoPlaybackStarter
 import org.prairieserver.prairie.android.ui.screens.player.PlayerViewModel
-import org.prairieserver.prairie.android.ui.screens.reading.ReadingHubViewModel
 import org.prairieserver.prairie.android.ui.screens.search.SearchViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
@@ -121,7 +120,15 @@ val androidModule = module {
     // commonMain in-memory TokenManager. Koin 3.1+ replaces same-key bindings
     // when the redefining module is loaded after the original — sharedModules()
     // is registered first in PrairieApplication, so this wins.
-    single<TokenManager> { EncryptedTokenManagerImpl(get(), get(), get()) }
+    single { EncryptedTokenManagerImpl(get(), get(), get()) }
+    single<TokenManager> { get<EncryptedTokenManagerImpl>() }
+    single<org.prairieserver.prairie.network.DurableLoginAuthorityProvider> { get<EncryptedTokenManagerImpl>() }
+    single<org.prairieserver.prairie.repository.port.MembershipPort> {
+        org.prairieserver.prairie.common.data.sync.RoomMembershipPort(
+            get<org.prairieserver.prairie.common.data.db.PrairieDatabase>(),
+            get(), get(), get(), get(), get(),
+        )
+    }
     single { org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourLocalCache(androidContext()) }
 
     // Offline-first Room store (Track B). Bound after sharedModules() so the
@@ -137,7 +144,7 @@ val androidModule = module {
     single<org.prairieserver.prairie.repository.port.UserItemStatePort> {
         val tokenManager: TokenManager = get()
         org.prairieserver.prairie.common.data.repository.RoomUserItemStateRepository(
-            db = get(),
+            db = get(), ebookAuthorities = get(), identityTransitions = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
             // Drain is requested only when a write is left pending (resolve RETRIABLE).
             syncScheduler = get(),
@@ -160,7 +167,7 @@ val androidModule = module {
         )
     }
     single<org.prairieserver.prairie.repository.port.DownloadDeletionPort> {
-        org.prairieserver.prairie.common.data.repository.RoomDownloadDeletionStore(db = get())
+        org.prairieserver.prairie.common.data.repository.RoomDownloadDeletionStore(db = get(), authorities = get(), devices = get(), identityTransitions = get())
     }
     single<org.prairieserver.prairie.repository.DownloadSubscriptionRepository> {
         org.prairieserver.prairie.common.data.repository.RoomDownloadSubscriptionRepository(db = get())
@@ -170,7 +177,8 @@ val androidModule = module {
         org.prairieserver.prairie.common.data.sync.SyncEngine(
             db = get(),
             personalDataApi = get(),
-            ebookReaderApi = get(),
+            memberships = get(),
+            ebookReaderApi = get(), ebookAuthorities = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
         )
     }
@@ -218,6 +226,8 @@ val androidModule = module {
             tokenProvider = get(),
             repository = get(),
             deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
+            authorities = get(),
+            store = org.prairieserver.prairie.android.push.FilePushInstallationStore(androidContext()),
         )
     }
     single {
@@ -257,6 +267,7 @@ val androidModule = module {
             delayProcessor = get(),
             subtitleOffsetHolder = get(),
             libassBridge = get(),
+            playbackAnalytics = get(),
         )
     }
     single { PlaybackSessionManager(get(), get(), get()) }
@@ -306,7 +317,7 @@ val androidModule = module {
     // One-time import of the legacy .record.json sidecar tree into Room.
     single { org.prairieserver.prairie.common.downloads.LegacyDownloadImporter(androidContext().filesDir, get()) }
     single { OfflineMediaResolver(get(), get(), get()) }
-    single { DownloadEnqueuer(androidContext(), get(), get(), get(), get(), get(), get(), get()) }
+    single { DownloadEnqueuer(androidContext(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     single { DownloadSubscriptionEvaluatorFactory(get(), get(), get()) }
     // CoroutineWorker constructed by Koin's WorkerFactory — see
     // PrairieApplication.onCreate `workManagerFactory()` call.
@@ -318,6 +329,10 @@ val androidModule = module {
             storage = get(),
             metadataStore = get(),
             httpClient = get(),
+            authorities = get(),
+            devices = get(),
+            transitions = get(),
+            gate = get(),
         )
     }
     worker {
@@ -364,9 +379,10 @@ val androidModule = module {
             sectionRepository = get(),
             castPlaybackPreparer = get(),
             qualityLadderClient = get(),
+            seekIntervalStore = get(),
         )
     }
-    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get()) }
     viewModel { MainHeaderViewModel(get()) }
     viewModel {
         LibrariesViewModel(
@@ -376,11 +392,16 @@ val androidModule = module {
             get<org.prairieserver.prairie.android.ui.screens.browse.BrowsePrefsStore>(),
         )
     }
-    viewModel { ReadingHubViewModel(get(), get(), get()) }
     viewModel { RecommendationsViewModel(get()) }
     viewModel { SearchViewModel(get()) }
     single {
         org.prairieserver.prairie.android.ui.screens.browse.BrowsePrefsStore(
+            context = get(),
+            serverRegistry = get(),
+        )
+    }
+    single {
+        org.prairieserver.prairie.android.ui.screens.home.HomeSectionPreferencesStore(
             context = get(),
             serverRegistry = get(),
         )
@@ -399,7 +420,7 @@ val androidModule = module {
             getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>() ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
         )
     }
-    viewModel { params -> PersonDetailViewModel(get(), params.get()) }
+    viewModel { params -> PersonDetailViewModel(get(), params.get(), get()) }
     viewModel { params -> LibraryCollectionsViewModel(get(), params.get()) }
     viewModel { FavoritesViewModel(get(), get()) }
     viewModel { WatchlistViewModel(get(), get()) }
@@ -411,7 +432,7 @@ val androidModule = module {
             catalogRepository = get(),
         )
     }
-    viewModel { HistoryViewModel(get()) }
+    viewModel { HistoryViewModel(get(), get()) }
     viewModel { CollectionsViewModel(get()) }
     viewModel { params -> CollectionDetailViewModel(get(), get(), params.get()) }
     viewModel { RequestsViewModel(get()) }
@@ -435,7 +456,7 @@ val androidModule = module {
             tmdbId = args.second,
         )
     }
-    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
@@ -445,10 +466,10 @@ val androidModule = module {
     viewModel { SignupViewModel(get()) }
     viewModel { InviteClaimViewModel(get(), get()) }
     viewModel { OnboardingTourViewModel(get(), get(), get(), get(), get()) }
-    viewModel { ProfileSelectionViewModel(get()) }
+    viewModel { ProfileSelectionViewModel(get(), get()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }
-    viewModel { ServerListViewModel(get(), get()) }
+    viewModel { ServerListViewModel(get(), get(), get()) }
     viewModel { params ->
         val args = params.get<Pair<String?, String?>>()
         DevicePairingViewModel(
@@ -486,13 +507,15 @@ val androidModule = module {
             profileRepository = get(),
             offlineMediaResolver = get(),
             audiobookSettings = get(),
+            seekIntervalStore = get(),
+            audiobookSeekRouter = get(),
             savedStateHandle = get(),
         )
     }
     viewModel {
         org.prairieserver.prairie.android.ui.screens.reader.ReaderViewModel(
             catalogRepository = get(),
-            ebookReaderRepository = get(),
+            ebookReaderRepository = get(), ebookAuthorities = get(), ebookV2 = get(), identityTransitions = get(),
             offlineMediaResolver = get(),
             localStateStore = get(),
             userItemStatePort = get(),

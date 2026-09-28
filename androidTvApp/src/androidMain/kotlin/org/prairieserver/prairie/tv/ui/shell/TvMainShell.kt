@@ -56,7 +56,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
@@ -163,6 +162,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
 import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.viewmodel.HomeViewModel
 
 /**
  * Frames the shell will wait for content to actually take focus after it
@@ -191,6 +191,12 @@ fun TvMainShell(
     onManageServers: () -> Unit,
     onOpenDiagnosticsReport: (reportId: String) -> Unit,
     onOpenItemDetail: (contentId: String) -> Unit,
+    onOpenLibraryItemDetail: (String, Int?) -> Unit,
+    onOpenItemDetailSelection: (
+        contentId: String,
+        seasonNumber: Int?,
+        episodeContentId: String?,
+    ) -> Unit,
     onOpenLibraryCollectionDetail: (
         libraryId: Int,
         collectionId: String,
@@ -221,6 +227,10 @@ fun TvMainShell(
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
     val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
+    // One shell-scoped Home owner feeds both the Home screen and General's
+    // Home Sections editor. A Settings-scoped second instance could be empty
+    // while the already-visible Home instance held the populated rows.
+    val homeViewModel: HomeViewModel = koinViewModel(key = "tv-main-home")
     val serverUrl = rememberProfileServerUrl()
     val watchTogetherViewModel = koinViewModel<TvWatchTogetherViewModel>()
     val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
@@ -450,6 +460,12 @@ fun TvMainShell(
         suppressHomeRefreshAfterDetail = true
         onOpenItemDetail(contentId)
     }
+    val openHomeItemDetailSelection: (String, Int?, String?) -> Unit = { contentId, seasonNumber, episodeContentId ->
+        restoreContentAfterDetail = true
+        detailReturnRoot = TvMainRoute.Home.route
+        suppressHomeRefreshAfterDetail = true
+        onOpenItemDetailSelection(contentId, seasonNumber, episodeContentId)
+    }
     val openForYouItemDetail: (String) -> Unit = { contentId ->
         restoreContentAfterDetail = true
         detailReturnRoot = TvMainRoute.ForYou.route
@@ -466,6 +482,11 @@ fun TvMainShell(
         // from an earlier return so the restorer does not reuse Home's.
         detailReturnRoot = null
         onOpenItemDetail(contentId)
+    }
+    val openLibraryItemDetail: (String, Int?) -> Unit = { contentId, libraryId ->
+        restoreContentAfterDetail = true
+        detailReturnRoot = null
+        onOpenLibraryItemDetail(contentId, libraryId)
     }
     // Collections open outer routes too, so they need the same hand-back:
     // without it the return resume left focus to Compose's default search
@@ -1114,7 +1135,9 @@ fun TvMainShell(
             ) {
                 shellComposable(TvMainRoute.Video.route) {
                     TvHomeScreen(
+                        viewModel = homeViewModel,
                         onItemClick = openHomeItemDetail,
+                        onItemDetailSelection = openHomeItemDetailSelection,
                         onPlayItem = onPlayItem,
                         onSeeAll = {
                             navigateToSecondary(TvMainRoute.Browse.route)
@@ -1122,6 +1145,10 @@ fun TvMainShell(
                         },
                         onOpenForYou = {
                             openForYou(null)
+                        },
+                        onOpenSettings = {
+                            navigateToRoute(TvMainRoute.Settings.route)
+                            moveFocusToContent(TvMainRoute.Settings.route)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -1135,7 +1162,9 @@ fun TvMainShell(
                 }
                 shellComposable(TvMainRoute.Home.route) {
                     TvHomeScreen(
+                        viewModel = homeViewModel,
                         onItemClick = openHomeItemDetail,
+                        onItemDetailSelection = openHomeItemDetailSelection,
                         onPlayItem = onPlayItem,
                         onSeeAll = {
                             navigateToSecondary(TvMainRoute.Browse.route)
@@ -1143,6 +1172,10 @@ fun TvMainShell(
                         },
                         onOpenForYou = {
                             openForYou(null)
+                        },
+                        onOpenSettings = {
+                            navigateToRoute(TvMainRoute.Settings.route)
+                            moveFocusToContent(TvMainRoute.Settings.route)
                         },
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
                         focusRequest = contentFocusRequest,
@@ -1167,6 +1200,7 @@ fun TvMainShell(
                             navigateToSecondary(TvMainRoute.RequestDetail(mediaType, tmdbId).route)
                         },
                         onOpenLibraryItem = onOpenItemDetail,
+                        onOpenPersonDetail = onOpenPersonDetail,
                         searchFieldFocusRequester = searchInputFocusRequester,
                         backToSearchFieldRequest = searchBackToInputRequest,
                         onSearchFieldFocusChanged = {
@@ -1178,7 +1212,7 @@ fun TvMainShell(
                 }
                 shellComposable(TvMainRoute.Audio.route) {
                     TvLibrariesScreen(
-                        onItemClick = openContentItemDetail,
+                        onItemClick = openLibraryItemDetail,
                         onLibraryCollectionClick = openLibraryCollectionDetail,
                         onUserCollectionClick = openCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
@@ -1186,7 +1220,7 @@ fun TvMainShell(
                 }
                 shellComposable(TvMainRoute.Libraries.route) {
                     TvLibrariesScreen(
-                        onItemClick = openContentItemDetail,
+                        onItemClick = openLibraryItemDetail,
                         onLibraryCollectionClick = openLibraryCollectionDetail,
                         onUserCollectionClick = openCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
@@ -1204,7 +1238,9 @@ fun TvMainShell(
                         emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Movies.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Movies] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Movies] ?: 0,
-                        onItemClick = openContentItemDetail,
+                        onItemClick = { contentId ->
+                            openLibraryItemDetail(contentId, activeLibrary(TvLibraryTabType.Movies)?.id)
+                        },
                         onLibraryCollectionClick = openLibraryCollectionDetail,
                         onUserCollectionClick = openCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
@@ -1218,7 +1254,9 @@ fun TvMainShell(
                         emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Series.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Series] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Series] ?: 0,
-                        onItemClick = openContentItemDetail,
+                        onItemClick = { contentId ->
+                            openLibraryItemDetail(contentId, activeLibrary(TvLibraryTabType.Series)?.id)
+                        },
                         onLibraryCollectionClick = openLibraryCollectionDetail,
                         onUserCollectionClick = openCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
@@ -1232,7 +1270,9 @@ fun TvMainShell(
                         emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Music.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Music] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Music] ?: 0,
-                        onItemClick = openContentItemDetail,
+                        onItemClick = { contentId ->
+                            openLibraryItemDetail(contentId, activeLibrary(TvLibraryTabType.Music)?.id)
+                        },
                         onLibraryCollectionClick = openLibraryCollectionDetail,
                         onUserCollectionClick = openCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
@@ -1246,7 +1286,9 @@ fun TvMainShell(
                         emptyConfirmed = librariesLoaded && libraries.none { TvLibraryTabType.Audiobooks.matches(it) },
                         selectedPill = pillSelections[TvLibraryTabType.Audiobooks] ?: TvLibraryPill.Recommended,
                         sectionRequestNonce = sectionRequestNonces[TvLibraryTabType.Audiobooks] ?: 0,
-                        onItemClick = openContentItemDetail,
+                        onItemClick = { contentId ->
+                            openLibraryItemDetail(contentId, activeLibrary(TvLibraryTabType.Audiobooks)?.id)
+                        },
                         onLibraryCollectionClick = openLibraryCollectionDetail,
                         onUserCollectionClick = openCollectionDetail,
                         onInitialContentFocus = { focusState.closeProfileMenuForContent() },
@@ -1325,6 +1367,7 @@ fun TvMainShell(
                 }
                 shellComposable(TvMainRoute.Settings.route) {
                     TvSettingsScreen(
+                        homeSectionsViewModel = homeViewModel,
                         onManageServers = onManageServers,
                         onOpenDiagnosticsReport = onOpenDiagnosticsReport,
                         initialManageServersFocus = returnToManageServers,
@@ -1339,7 +1382,7 @@ fun TvMainShell(
                 }
                 shellComposable(TvMainRoute.Calendar.route) {
                     TvCalendarScreen(
-                        onOpenItemDetail = onOpenItemDetail,
+                        onOpenItemDetailSelection = onOpenItemDetailSelection,
                         onInitialContentFocus = {
                             focusState.closeProfileMenuForContent()
                             calendarFocusHandoffPending = false
@@ -1391,31 +1434,7 @@ fun TvMainShell(
             }
         }
 
-        // The scrim TvTopMenuBar documents but the shell had stopped drawing.
-        // The bar deliberately has no background band of its own ("the SHELL
-        // draws a fixed top scrim behind the bar", QA 2026-07-08); without it
-        // the labels sit directly on whatever scrolled underneath. The gradient
-        // keeps the hero visible behind the bar on every route.
-        if (currentRoute != TvMainRoute.Settings.route) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(TvTopMenuLayout.contentTopInset)
-                    .align(Alignment.TopCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
-                                MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
-                                MaterialTheme.colorScheme.background.copy(alpha = 0f),
-                            ),
-                        ),
-                    ),
-            )
-        }
-
-        // Menu overlay — content remains visible behind the transparent bar,
-        // matching tvOS without a heavy top-edge shadow.
+        // Menu overlay — content remains visible behind the transparent bar.
         TvTopMenuBar(
             selectedRoot = selectedRoot,
             destinations = visibleRoots,

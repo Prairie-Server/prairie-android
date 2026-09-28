@@ -12,9 +12,11 @@ import android.os.SystemClock
  */
 class ServerDrivenConfigRefresher(
     private val overlayPrefsStore: OverlayPrefsStore,
+    private val cardPresentationStore: CardPresentationStore,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
     private val playerSettingsStore: PlayerSettingsStore,
     private val hasAuthenticatedProfile: suspend () -> Boolean,
+    private val seekIntervalStore: SeekIntervalStore? = null,
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
     @Volatile
@@ -34,8 +36,10 @@ class ServerDrivenConfigRefresher(
         if (!force && last != null && now - last < minIntervalMs) return false
 
         overlayPrefsStore.refresh()
+        cardPresentationStore.refresh()
         libraryPlaybackPrefsStore.refresh()
         playerSettingsStore.refreshFromServer()
+        seekIntervalStore?.refresh()
         lastRefreshAtMs = now
         return true
     }

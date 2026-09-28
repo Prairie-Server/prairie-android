@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.player
 
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+
 import android.app.Application
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
@@ -44,6 +46,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
@@ -61,6 +64,7 @@ import org.prairieserver.prairie.common.downloads.OfflineMediaResolver
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.player.AudioCapabilityManager
 import org.prairieserver.prairie.common.player.FinalPlaybackPositionWriter
+import org.prairieserver.prairie.common.player.Playability
 import org.prairieserver.prairie.common.player.PlaybackAnalyticsListener
 import org.prairieserver.prairie.common.network.PrairieClientBuildIdentity
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
@@ -77,6 +81,7 @@ import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.domain.player.IntroAutoSkipController
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.libass.LibassBridge
+import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
 import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
@@ -100,7 +105,6 @@ import org.prairieserver.prairie.network.api.CatalogApi
 import org.prairieserver.prairie.network.api.DefaultSubtitlesApi
 import org.prairieserver.prairie.network.api.HealthApi
 import org.prairieserver.prairie.network.api.PersonalDataApi
-import org.prairieserver.prairie.network.api.PlaybackApi
 import org.prairieserver.prairie.network.api.ProfileApi
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
@@ -143,6 +147,46 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
     fun tearDown() {
         db.close()
         Dispatchers.resetMain()
+    }
+
+    @Test
+    fun recreatedScreenObservesAppliedSubtitleMountWithoutRemountingRetainedPlayback() = runTest(dispatcher) {
+        val starter = DeferredNonCooperativeStarter()
+        val fixture = playerViewModel(starter, backgroundScope)
+        val store = ViewModelStore().also { it.put("player", fixture.viewModel) }
+        try {
+            val viewModel = fixture.viewModel
+            viewModel.loadContent(contentId = "movie", preferredFileId = 1)
+            starter.awaitRequestCount(1)
+            starter.complete(0, ready(starter.request(0), "session"))
+            viewModel.awaitState { it.sessionId == "session" && !it.isLoading }
+            val state = viewModel.uiState.value
+            val mount = MobileSubtitleMount(state.mediaMountGeneration, state.subtitleRefreshNonce)
+            viewModel.onSubtitleMediaMountApplied(mount)
+            viewModel.onMediaMountApplied(mount.generation)
+            assertTrue(viewModel.isCurrentSubtitleMount(mount))
+
+            // A replacement composition subscribes after the original collector is gone.
+            val reattachedMount = viewModel.mountedSubtitleMount.first()
+            assertEquals(mount, reattachedMount)
+            assertFalse(viewModel.shouldApplyMediaMount(mount.generation))
+            assertTrue(viewModel.isCurrentSubtitleMount(reattachedMount))
+
+            viewModel.onSubtitleMediaMountChanging()
+            assertNull(viewModel.mountedSubtitleMount.first())
+            assertFalse(viewModel.isCurrentSubtitleMount(reattachedMount))
+            viewModel.onSubtitleMediaMountApplied(mount)
+            assertTrue(viewModel.isCurrentSubtitleMount(viewModel.mountedSubtitleMount.first()))
+
+            viewModel.loadContent(contentId = "next", preferredFileId = 2)
+            assertNull(viewModel.mountedSubtitleMount.value)
+            assertFalse(viewModel.isCurrentSubtitleMount(mount))
+            starter.awaitRequestCount(2)
+            starter.complete(1, ready(starter.request(1), "next-session"))
+            viewModel.awaitState { it.sessionId == "next-session" && !it.isLoading }
+        } finally {
+            store.clear()
+        }
     }
 
     @Test
@@ -288,6 +332,199 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
         assertFalse(state.isPlaying)
     }
 
+    @Test
+    fun nextUpKeepsTheOutgoingCardUntilTheSuccessorFrame() = runTest(dispatcher) {
+        val starter = DeferredNonCooperativeStarter()
+        val fixture = playerViewModel(starter, backgroundScope)
+        val store = ViewModelStore().also { it.put("player", fixture.viewModel) }
+        try {
+            val viewModel = fixture.viewModel
+            viewModel.loadContent("episode-a", preferredFileId = 1)
+            starter.awaitRequestCount(1)
+            starter.complete(0, ready(starter.request(0), "session-a"))
+            viewModel.awaitState { it.sessionId == "session-a" && !it.isLoading }
+            val outgoingMount = viewModel.uiState.value.mediaMountGeneration
+            viewModel.offerNextEpisode()
+
+            viewModel.playUpNextNow()
+            starter.awaitRequestCount(2)
+            viewModel.playUpNextNow()
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isNextUpTransitioning)
+            assertTrue(viewModel.uiState.value.showUpNext)
+            assertEquals("episode-b", starter.request(1).contentId)
+            starter.complete(1, ready(starter.request(1), "session-b"))
+            viewModel.awaitState { it.sessionId == "session-b" && !it.isLoading }
+
+            viewModel.onFirstVideoFrameRendered(outgoingMount)
+            assertTrue(viewModel.uiState.value.isNextUpTransitioning)
+            viewModel.dismissUpNext()
+            assertTrue(viewModel.uiState.value.showUpNext)
+            viewModel.onFirstVideoFrameRendered(viewModel.uiState.value.mediaMountGeneration)
+            assertFalse(viewModel.uiState.value.isNextUpTransitioning)
+            assertFalse(viewModel.uiState.value.showUpNext)
+            assertNull(viewModel.uiState.value.nextEpisode)
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
+    fun keepWatchingSuppressesCreditsPromptButReopensNextUpAtPlaybackEnd() = runTest(dispatcher) {
+        val starter = DeferredNonCooperativeStarter()
+        val fixture = playerViewModel(starter, backgroundScope)
+        val store = ViewModelStore().also { it.put("player", fixture.viewModel) }
+        try {
+            val viewModel = fixture.viewModel
+            viewModel.loadContent("episode-a", preferredFileId = 1)
+            starter.awaitRequestCount(1)
+            starter.complete(0, ready(starter.request(0), "session-a"))
+            viewModel.awaitState { it.sessionId == "session-a" && !it.isLoading }
+            viewModel.offerNextEpisode()
+            viewModel.onApproachingEnd()
+            assertTrue(viewModel.uiState.value.showUpNext)
+
+            viewModel.dismissUpNext()
+            viewModel.onApproachingEnd()
+            assertFalse(viewModel.uiState.value.showUpNext)
+            viewModel.onApproachingEnd(videoEnded = true)
+            assertTrue(viewModel.uiState.value.showUpNext)
+            assertTrue(viewModel.uiState.value.upNextVideoEnded)
+            assertNull(viewModel.uiState.value.upNextCountdownSeconds)
+            testScheduler.advanceTimeBy(30_000)
+            runCurrent()
+            assertEquals(1, starter.startedRequestCount)
+
+            viewModel.playUpNextNow()
+            starter.awaitRequestCount(2)
+            assertEquals("episode-b", starter.request(1).contentId)
+            starter.complete(1, ready(starter.request(1), "session-b"))
+            viewModel.awaitState { it.sessionId == "session-b" && !it.isLoading }
+            viewModel.onFirstVideoFrameRendered(viewModel.uiState.value.mediaMountGeneration)
+            assertFalse(viewModel.uiState.value.showUpNext)
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
+    fun successorRemountBeforeItsFirstFrameStillCompletesNextUp() = runTest(dispatcher) {
+        val starter = DeferredNonCooperativeStarter()
+        val fixture = playerViewModel(starter, backgroundScope)
+        val store = ViewModelStore().also { it.put("player", fixture.viewModel) }
+        try {
+            val viewModel = fixture.viewModel
+            viewModel.loadContent("episode-a", preferredFileId = 1)
+            starter.awaitRequestCount(1)
+            starter.complete(0, ready(starter.request(0), "session-a"))
+            viewModel.awaitState { it.sessionId == "session-a" && !it.isLoading }
+            viewModel.offerNextEpisode()
+            viewModel.playUpNextNow()
+            starter.awaitRequestCount(2)
+            starter.complete(1, ready(starter.request(1), "session-b"))
+            viewModel.awaitState { it.sessionId == "session-b" && !it.isLoading }
+            val initialMount = viewModel.uiState.value.mediaMountGeneration
+
+            // An intro skip or subtitle replan can replace the successor's
+            // stream before it renders. Exercise the common remount boundary.
+            val replacementMount = PlayerViewModel::class.java.getDeclaredMethod("expectNextMediaMount").let {
+                it.isAccessible = true
+                it.invoke(viewModel) as Long
+            }
+            viewModel.mutableUiState().update { it.copy(mediaMountGeneration = replacementMount) }
+            viewModel.onFirstVideoFrameRendered(initialMount)
+            assertTrue(viewModel.uiState.value.showUpNext)
+            viewModel.onFirstVideoFrameRendered(replacementMount)
+            assertFalse(viewModel.uiState.value.showUpNext)
+            assertFalse(viewModel.uiState.value.isNextUpTransitioning)
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
+    fun pendingSessionStopCancelsNextUpWithoutStartingTheSuccessor() = runTest(dispatcher) {
+        val starter = DeferredNonCooperativeStarter()
+        val fixture = playerViewModel(starter, backgroundScope)
+        val store = ViewModelStore().also { it.put("player", fixture.viewModel) }
+        try {
+            val viewModel = fixture.viewModel
+            viewModel.loadContent("episode-a", preferredFileId = 1)
+            starter.awaitRequestCount(1)
+            starter.complete(0, ready(starter.request(0), "session-a"))
+            viewModel.awaitState { it.sessionId == "session-a" && !it.isLoading }
+            fixture.lifecycle.adoptActiveSession(
+                params = StartParams(
+                    contentId = "episode-a", fileId = 1, capabilities = ClientCodecCapabilities(),
+                    clientPlaybackContext = ClientPlaybackContext(formFactor = "mobile", appVersion = "test"),
+                ),
+                session = allocatedReady("session-a").session,
+                manageProgress = false,
+            )
+            fixture.manager.sequenced = true
+            fixture.manager.stopResult = ApiResult.Error(503, "stop_pending", "Stop is pending")
+            viewModel.offerNextEpisode()
+            viewModel.playUpNextNow()
+            fixture.manager.awaitStopped("session-a")
+            viewModel.awaitState { !it.isNextUpTransitioning }
+            assertEquals("episode-a", viewModel.uiState.value.contentId)
+            assertFalse(viewModel.uiState.value.showUpNext)
+            assertEquals(1, starter.startedRequestCount)
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
+    fun successorStartupFailureIsHandledWhilePredecessorFailureIsIgnored() = runTest(dispatcher) {
+        val starter = DeferredNonCooperativeStarter()
+        val fixture = playerViewModel(starter, backgroundScope)
+        val store = ViewModelStore().also { it.put("player", fixture.viewModel) }
+        try {
+            val viewModel = fixture.viewModel
+            viewModel.loadContent("episode-a", preferredFileId = 1)
+            starter.awaitRequestCount(1)
+            starter.complete(0, ready(starter.request(0), "session-a"))
+            viewModel.awaitState { it.sessionId == "session-a" && !it.isLoading }
+            val outgoingMount = viewModel.uiState.value.mediaMountGeneration
+            viewModel.offerNextEpisode()
+            viewModel.playUpNextNow()
+            starter.awaitRequestCount(2)
+            starter.complete(1, ready(starter.request(1), "session-b").copy(
+                fileId = 2, mediaFileId = 2, versions = listOf(FileVersion(fileId = 2)),
+            ))
+            viewModel.awaitState { it.sessionId == "session-b" && !it.isLoading }
+            val failure = Playability.StartupStalled(0, 15_000, "decoder_no_output")
+            viewModel.onUnsupportedPlayback(failure, outgoingMount)
+            runCurrent()
+            assertNull(viewModel.uiState.value.error)
+            assertTrue(viewModel.uiState.value.isNextUpTransitioning)
+
+            // This fixture has no allocated manager session, so a real recovery
+            // request fails and must expose error UI instead of leaving the card stuck.
+            viewModel.onUnsupportedPlayback(failure, viewModel.uiState.value.mediaMountGeneration)
+            viewModel.awaitState { it.error != null }
+            assertFalse(viewModel.uiState.value.isNextUpTransitioning)
+            assertFalse(viewModel.uiState.value.showUpNext)
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun PlayerViewModel.mutableUiState(): MutableStateFlow<PlayerViewModel.PlayerUiState> =
+        PlayerViewModel::class.java.getDeclaredField("_uiState").let {
+            it.isAccessible = true
+            it.get(this) as MutableStateFlow<PlayerViewModel.PlayerUiState>
+        }
+
+    private fun PlayerViewModel.offerNextEpisode() {
+        mutableUiState().update { it.copy(nextEpisode = PlayerViewModel.NextEpisodeInfo(
+            contentId = "episode-b", seasonNumber = 1, episodeNumber = 2,
+            title = "Next", stillUrl = null, stillThumbhash = null, runtimeMinutes = 20,
+        )) }
+    }
+
     private fun playerViewModel(
         starter: DeferredNonCooperativeStarter,
         scope: CoroutineScope,
@@ -305,6 +542,7 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
             LibassBridge(false),
             PrairieClientBuildIdentity(buildNumber = "5", channel = "release"),
         )
+        val lifecycle = PlaybackSessionLifecycle(manager, healthApi, personalDataRepository, scope)
         return PlayerFixture(
             viewModel = PlayerViewModel(
                 videoPlaybackCoordinator = VideoPlaybackSessionCoordinator(starter),
@@ -320,17 +558,19 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
                     LegacyDownloadImporter(tmp.newFolder(), db),
                 ),
                 serverRegistry = FakeServerRegistry(),
-                serverReachabilityMonitor = ServerReachabilityMonitor(healthApi, scope),
+                serverReachabilityMonitor = ServerReachabilityMonitor(org.prairieserver.prairie.network.apiv2.ApiV2Probe(client)::probeFresh, scope, { null }),
                 playerSettingsStore = FakePlayerSettingsStore(),
                 introAutoSkipController = IntroAutoSkipController(scope),
-                sessionLifecycle = PlaybackSessionLifecycle(
-                    manager,
-                    healthApi,
-                    personalDataRepository,
-                    scope,
-                ),
+                sessionLifecycle = lifecycle,
                 sleepTimer = SleepTimerController(scope),
-                subtitlesRepository = SubtitlesRepository(DefaultSubtitlesApi(client)),
+                subtitlesRepository = SubtitlesRepository(
+                    DefaultSubtitlesApi(
+                        org.prairieserver.prairie.network.apiv2.SubtitleReadsV2Api(client, tokenManager, ApiV2Gate.Unrestricted),
+                        org.prairieserver.prairie.network.apiv2.SubtitleDownloadV2Api(client, tokenManager, ApiV2Gate.Unrestricted),
+                        org.prairieserver.prairie.network.apiv2.SubtitleAiReadsV2Api(client, tokenManager, ApiV2Gate.Unrestricted),
+                        org.prairieserver.prairie.network.apiv2.SubtitleAiCreateV2Api(client, tokenManager, ApiV2Gate.Unrestricted),
+                    ),
+                ),
                 userItemStatePort = NoOpUserItemStatePort,
                 finalPlaybackPositionWriter = FinalPlaybackPositionWriter(
                     scope = scope,
@@ -339,6 +579,7 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
                 ),
             ),
             manager = manager,
+            lifecycle = lifecycle,
         )
     }
 
@@ -361,6 +602,7 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
     private data class PlayerFixture(
         val viewModel: PlayerViewModel,
         val manager: RecordingPlaybackSessionManager,
+        val lifecycle: PlaybackSessionLifecycle,
     )
 }
 
@@ -391,7 +633,7 @@ class MobileVideoPlaybackStarterCancellationTest {
             val adoptionEntered = kotlinx.coroutines.CompletableDeferred<Unit>()
             var allocated = false
             val starter = MobileVideoPlaybackStarter(
-                catalogRepository = CatalogRepository(CatalogApi(client)),
+                catalogRepository = CatalogRepository(CatalogApi(client, watchDetail = org.prairieserver.prairie.network.apiv2.WatchDetailV2Api(client, tokenManager, ApiV2Gate.Unrestricted))),
                 playbackSessionManager = manager,
                 profileRepository = profileRepository,
                 capabilityDetector = PlaybackCapabilityDetector(
@@ -407,7 +649,7 @@ class MobileVideoPlaybackStarterCancellationTest {
                     PersonalDataRepository(PersonalDataApi(client)),
                     backgroundScope,
                 ),
-                reachabilityMonitor = ServerReachabilityMonitor(HealthApi(client), backgroundScope),
+                reachabilityMonitor = ServerReachabilityMonitor(org.prairieserver.prairie.network.apiv2.ApiV2Probe(client)::probeFresh, backgroundScope, { null }),
                 sessionAllocator = MobileVideoSessionAllocator {
                     allocated = true
                     ApiResult.Success(allocatedReady("allocated-session"))
@@ -450,7 +692,7 @@ class MobileVideoPlaybackStarterCancellationTest {
     private fun starterCatalogClient(): HttpClient =
         HttpClient(
             MockEngine { request ->
-                if (request.url.encodedPath == "/api/v1/watch/starter") {
+                if (request.url.encodedPath == "/api/v2/watch/starter") {
                     respond(
                         content = """
                             {
@@ -459,9 +701,9 @@ class MobileVideoPlaybackStarterCancellationTest {
                               "title": "Starter",
                               "versions": [
                                 {
-                                  "file_id": 41,
+                                  "file_id": "41",
                                   "container": "mkv",
-                                  "duration": 120.0
+                                  "duration_seconds": 120.0
                                 }
                               ]
                             }
@@ -587,11 +829,71 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
                 ]
             """.trimIndent(),
             userItemStatePort = localState,
+            audioLanguage = "eng",
             onAllocation = { allocation = it },
         )
 
         assertEquals(1, allocation?.audioTrackIndex)
         assertEquals(1, allocation?.subtitleTrackIndex)
+    }
+
+    @Test
+    fun audioLanguageSettingIsResolvedBeforeTheInitialV3Allocation() = runTest(dispatcher) {
+        var allocation: MobileVideoSessionAllocation? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            versionFields = """
+                "audio_tracks": [
+                  {"codec":"aac","language":"eng","title":"English"},
+                  {"codec":"truehd","language":"ja-JP","title":"Japanese","default":true}
+                ]
+            """.trimIndent(),
+            audioLanguage = "jpn",
+            onAllocation = { allocation = it },
+        )
+
+        assertEquals(1, allocation?.audioTrackIndex)
+    }
+
+    @Test
+    fun automaticAudioFallsBackFromUnsupportedDefaultToSupportedTrack() {
+        val selection = resolveMobileInitialTrackSelection(
+            explicitAudioTrackIndex = null,
+            explicitSubtitleTrackIndex = null,
+            audioTracks = listOf(
+                AudioTrack(codec = "truehd", language = "eng", isDefault = true),
+                AudioTrack(codec = "aac", language = "eng"),
+            ),
+            subtitleTracks = emptyList(),
+            persisted = null,
+            preferredAudioLanguage = "eng",
+            capabilities = ClientCodecCapabilities(codecsAudio = listOf("aac")),
+        )
+
+        assertEquals(1, selection.audioTrackIndex)
+    }
+
+    @Test
+    fun explicitAudioSelectionWinsOverTheLanguageSetting() = runTest(dispatcher) {
+        var allocation: MobileVideoSessionAllocation? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            versionFields = """
+                "audio_tracks": [
+                  {"codec":"aac","language":"eng","title":"English"},
+                  {"codec":"truehd","language":"jpn","title":"Japanese"}
+                ]
+            """.trimIndent(),
+            explicitAudioTrackIndex = 0,
+            audioLanguage = "jpn",
+            onAllocation = { allocation = it },
+        )
+
+        assertEquals(0, allocation?.audioTrackIndex)
     }
 
     @Test
@@ -642,7 +944,9 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
         effective: String,
         profile: Profile,
         versionFields: String = "",
+        explicitAudioTrackIndex: Int? = null,
         explicitSubtitleTrackIndex: Int? = null,
+        audioLanguage: String = "",
         userItemStatePort: UserItemStatePort = NoOpUserItemStatePort,
         onAllocation: (MobileVideoSessionAllocation) -> Unit = {},
         readyStart: VideoSessionStartV3.Ready = allocatedReady("subtitle-session"),
@@ -654,7 +958,7 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
         val manager = RecordingPlaybackSessionManager(client, tokenManager)
         val context = ApplicationProvider.getApplicationContext<Application>()
         val starter = MobileVideoPlaybackStarter(
-            catalogRepository = CatalogRepository(CatalogApi(client)),
+            catalogRepository = CatalogRepository(CatalogApi(client, watchDetail = org.prairieserver.prairie.network.apiv2.WatchDetailV2Api(client, tokenManager, ApiV2Gate.Unrestricted))),
             playbackSessionManager = manager,
             profileRepository = profileRepository,
             capabilityDetector = PlaybackCapabilityDetector(
@@ -663,16 +967,17 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
                 LibassBridge(false),
                 PrairieClientBuildIdentity(buildNumber = "5", channel = "release"),
             ),
-            playerSettingsStore = FakePlayerSettingsStore(),
+            playerSettingsStore = FakePlayerSettingsStore(audioLanguage),
             sessionLifecycle = PlaybackSessionLifecycle(
                 manager,
                 HealthApi(client),
                 PersonalDataRepository(PersonalDataApi(client)),
                 backgroundScope,
             ),
-            reachabilityMonitor = ServerReachabilityMonitor(HealthApi(client), backgroundScope),
+            reachabilityMonitor = ServerReachabilityMonitor(org.prairieserver.prairie.network.apiv2.ApiV2Probe(client)::probeFresh, backgroundScope, { null }),
             userItemStatePort = userItemStatePort,
             sessionAllocator = {
+                assertEquals(tokenManager.metadataOwner, it.expectedMetadataOwner)
                 onAllocation(it)
                 ApiResult.Success(readyStart)
             },
@@ -685,6 +990,7 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
                 preferredFileId = 41,
                 roomId = null,
                 resumePositionOverride = null,
+                audioTrackIndex = explicitAudioTrackIndex,
                 subtitleTrackIndex = explicitSubtitleTrackIndex,
             ),
         )
@@ -700,7 +1006,7 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
             .orEmpty()
         return HttpClient(
             MockEngine { request ->
-                if (request.url.encodedPath == "/api/v1/watch/starter") {
+                if (request.url.encodedPath == "/api/v2/watch/starter") {
                     respond(
                         content = """
                             {
@@ -710,9 +1016,9 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
                               $effective
                               "versions": [
                                 {
-                                  "file_id": 41,
+                                  "file_id": "41",
                                   "container": "mkv",
-                                  "duration": 120.0
+                                  "duration_seconds": 120.0
                                   $extraVersionFields
                                 }
                               ]
@@ -746,6 +1052,7 @@ private class DeferredNonCooperativeStarter : VideoPlaybackStarter {
 
     /** Replayable so a request that lands before the wait begins is still seen. */
     private val requestCount = MutableStateFlow(0)
+    val startedRequestCount: Int get() = requestCount.value
 
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult =
         suspendCoroutine { continuation ->
@@ -777,9 +1084,13 @@ private class RecordingPlaybackSessionManager(
     client: HttpClient,
     tokenManager: TokenManager,
 ) : PlaybackSessionManager(
-    PlaybackRepository(PlaybackApi(client)),
+    PlaybackRepository(testSequencedPlayback(client, tokenManager)),
     tokenManager,
 ) {
+    var sequenced = false
+    var stopResult: ApiResult<Unit> = ApiResult.Success(Unit)
+    override fun isSequenced(sessionId: String): Boolean = sequenced
+
     private val stopped = mutableListOf<String>()
     private val stopActiveContexts = mutableListOf<Boolean>()
     private val stoppedSignal = MutableStateFlow<Set<String>>(emptySet())
@@ -797,7 +1108,7 @@ private class RecordingPlaybackSessionManager(
             stopActiveContexts += contextActive
         }
         stoppedSignal.update { it + sessionId }
-        return ApiResult.Success(Unit)
+        return stopResult
     }
 
     suspend fun awaitStopped(sessionId: String) {
@@ -809,13 +1120,19 @@ private class FakeProfileRepository(
     client: HttpClient,
     tokenManager: TokenManager,
     private val profile: Profile = Profile(id = PROFILE_ID, name = "Profile"),
-) : ProfileRepository(ProfileApi(client), tokenManager) {
+) : ProfileRepository(ProfileApi(client, ApiV2Gate.Unrestricted), tokenManager) {
     override suspend fun getActiveProfileId(): String = PROFILE_ID
 
     override suspend fun listProfiles(): ApiResult<List<Profile>> = ApiResult.Success(listOf(profile))
 }
 
 private class FakeTokenManager : TokenManager {
+    var metadataOwner: org.prairieserver.prairie.network.AuthScopeSnapshot? = org.prairieserver.prairie.network.AuthScopeSnapshot(SERVER_ID, PROFILE_ID, "https://silo.test", null, identityGeneration = 1, isIdentityGenerationStamped = true, credentialEpoch = 1)
+    var beforeSnapshot: suspend () -> Unit = {}
+    override suspend fun snapshotCurrentScope(): org.prairieserver.prairie.network.AuthScopeSnapshot? {
+        beforeSnapshot()
+        return metadataOwner
+    }
     override val sessionExpired = MutableSharedFlow<Unit>()
     override suspend fun getAccessToken(): String = "access-token"
     override suspend fun getRefreshToken(): String? = null
@@ -847,7 +1164,9 @@ private class FakeServerRegistry : ServerRegistry {
     override suspend fun touchActive() = Unit
 }
 
-private class FakePlayerSettingsStore : PlayerSettingsStore {
+private class FakePlayerSettingsStore(
+    private val audioLanguage: String = "",
+) : PlayerSettingsStore {
     override val introSkipModeFlow: Flow<IntroSkipMode> = flowOf(IntroSkipMode.ASK)
     override val autoSkipCreditsFlow: Flow<Boolean> = flowOf(false)
     override val autoPlayNextFlow: Flow<Boolean> = flowOf(true)
@@ -856,6 +1175,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val dolbyVisionEnabledFlow: Flow<Boolean> = flowOf(true)
     override val matchContentFrameRateFlow: Flow<Boolean> = flowOf(false)
     override val pictureInPictureEnabledFlow: Flow<Boolean> = flowOf(true)
+    override val forceHdrPassthroughFlow: Flow<Boolean> = flowOf(false)
     override val downloadsWifiOnlyFlow: Flow<Boolean> = flowOf(true)
     override val keepWatchedDownloadsFlow: Flow<Boolean> = flowOf(false)
     override val defaultDownloadQualityFlow: Flow<String> = flowOf("original")
@@ -868,7 +1188,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val passOutThresholdFlow: Flow<Int> = flowOf(3)
     override val preferredQualityFlow: Flow<String> = flowOf("auto")
     override val maxBitrateKbpsFlow: Flow<Int?> = flowOf(null)
-    override val audioLanguageFlow: Flow<String> = flowOf("")
+    override val audioLanguageFlow: Flow<String> = flowOf(audioLanguage)
     override val videoGravityFlow: Flow<String> = flowOf("fit")
     override val orientationModeFlow: Flow<String> = flowOf("auto")
     override val subtitleAppearanceFlow: Flow<SubtitleAppearance> = flowOf(SubtitleAppearance.DEFAULT)
@@ -888,6 +1208,7 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     override suspend fun setDolbyVisionEnabled(value: Boolean) = Unit
     override suspend fun setMatchContentFrameRate(value: Boolean) = Unit
     override suspend fun setPictureInPictureEnabled(value: Boolean) = Unit
+    override suspend fun setForceHdrPassthrough(value: Boolean) = Unit
     override suspend fun setDownloadsWifiOnly(value: Boolean) = Unit
     override suspend fun setKeepWatchedDownloads(value: Boolean) = Unit
     override suspend fun setDefaultDownloadQuality(value: String) = Unit
@@ -1001,3 +1322,155 @@ private suspend fun <T> awaitRealTime(block: suspend () -> T): T =
 private const val SERVER_ID = "server"
 private const val PROFILE_ID = "profile"
 private val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json")
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
+class MobileStartupMetadataOwnerTest {
+    @Test fun missingAndLateMetadataAuthorityCannotAllocate() = runTest {
+        for (stage in listOf("missing", "metadata")) runScenario(stage)
+    }
+    @Test fun injectedAllocatorRetainsOwnerAndLateAdoptionCannotPublish() = runTest {
+        for (stage in listOf("allocation", "adoption")) runScenario(stage)
+    }
+    private suspend fun TestScope.runScenario(stage: String) {
+        val tokens = FakeTokenManager()
+        val original = tokens.metadataOwner
+        if (stage == "missing") tokens.metadataOwner = null
+        var reads = 0
+        var allocations = 0
+        var adoptions = 0
+        val client = HttpClient(MockEngine { req ->
+            assertEquals("/api/v2/watch/starter", req.url.encodedPath)
+            reads++
+            if (stage == "metadata") tokens.metadataOwner = original!!.copy(profileToken = "replacement")
+            respond("""{"content_id":"starter","type":"movie","title":"Starter","versions":[{"file_id":"41","duration_seconds":120}]}""", HttpStatusCode.OK, JSON_HEADERS)
+        }) { install(ContentNegotiation) { json(PrairieJson) } }
+        try {
+            val manager = RecordingPlaybackSessionManager(client, tokens)
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val starter = MobileVideoPlaybackStarter(
+                CatalogRepository(CatalogApi(client, watchDetail = org.prairieserver.prairie.network.apiv2.WatchDetailV2Api(client, tokens, ApiV2Gate.Unrestricted))),
+                manager, FakeProfileRepository(client, tokens),
+                PlaybackCapabilityDetector(context, AudioCapabilityManager(context), LibassBridge(false), PrairieClientBuildIdentity(buildNumber = "5", channel = "release")),
+                FakePlayerSettingsStore(),
+                PlaybackSessionLifecycle(manager, HealthApi(client), PersonalDataRepository(PersonalDataApi(client)), backgroundScope),
+                ServerReachabilityMonitor(org.prairieserver.prairie.network.apiv2.ApiV2Probe(client)::probeFresh, backgroundScope, { null }),
+                sessionAllocator = {
+                    allocations++
+                    assertEquals(original, it.expectedMetadataOwner)
+                    if (stage == "allocation") tokens.metadataOwner = original!!.copy(identityGeneration = 3)
+                    ApiResult.Success(allocatedReady("owner-session"))
+                },
+                sessionAdopter = { _, _ ->
+                    adoptions++
+                    if (stage == "adoption") tokens.metadataOwner = original!!.copy(credentialEpoch = 2)
+                },
+            )
+            assertTrue(starter.start(VideoPlaybackStartRequest(contentId = "starter", preferredFileId = 41, roomId = null, resumePositionOverride = null)) is VideoPlaybackStartResult.Error)
+            assertEquals(if (stage == "missing") 0 else 1, reads)
+            assertEquals(if (stage in listOf("missing", "metadata")) 0 else 1, allocations)
+            assertEquals(if (stage == "adoption") 1 else 0, adoptions)
+            assertEquals(if (allocations == 0) emptyList() else listOf("owner-session"), manager.stoppedSessions)
+        } finally { client.close() }
+    }
+}
+
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
+class MobileStartupAdoptedOwnerCleanupTest {
+    @Test fun finalOwnerRejectionRetiresActualLifecycle() = runTest { scenario(false, false) }
+    @Test fun finalSnapshotCancellationRetiresActualLifecycle() = runTest { scenario(true, false) }
+    @Test fun finalOwnerRejectionProtectsNewerLifecycle() = runTest { scenario(false, true) }
+    @Test fun finalSnapshotCancellationProtectsNewerLifecycle() = runTest { scenario(true, true) }
+
+    private suspend fun TestScope.scenario(cancel: Boolean, replace: Boolean) {
+        val tokens = FakeTokenManager()
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val client = HttpClient(MockEngine { req ->
+            // No fabricated final progress, recovery probe or extra cleanup transport.
+            assertEquals("/api/v2/watch/starter", req.url.encodedPath)
+            respond("""{"content_id":"starter","type":"movie","title":"Starter","versions":[{"file_id":"41","duration_seconds":120}]}""", HttpStatusCode.OK, JSON_HEADERS)
+        }) { install(ContentNegotiation) { json(PrairieJson) } }
+        try {
+            val manager = RecordingPlaybackSessionManager(client, tokens)
+            val lifecycle = PlaybackSessionLifecycle(manager, HealthApi(client), PersonalDataRepository(PersonalDataApi(client)), backgroundScope)
+            fun field(name: String): Any? = PlaybackSessionLifecycle::class.java.getDeclaredField(name).let {
+                it.isAccessible = true
+                it.get(lifecycle)
+            }
+            var held = false
+            tokens.beforeSnapshot = {
+                if (!held && field("lastAdoptedSessionId") == "rejected") {
+                    held = true
+                    entered.complete(Unit)
+                    release.await()
+                }
+            }
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val starter = MobileVideoPlaybackStarter(
+                CatalogRepository(CatalogApi(client, watchDetail = org.prairieserver.prairie.network.apiv2.WatchDetailV2Api(client, tokens, ApiV2Gate.Unrestricted))),
+                manager, FakeProfileRepository(client, tokens),
+                PlaybackCapabilityDetector(context, AudioCapabilityManager(context), LibassBridge(false), PrairieClientBuildIdentity(buildNumber = "5", channel = "release")),
+                FakePlayerSettingsStore(), lifecycle,
+                ServerReachabilityMonitor(org.prairieserver.prairie.network.apiv2.ApiV2Probe(client)::probeFresh, backgroundScope, { null }),
+                sessionAllocator = { ApiResult.Success(allocatedReady("rejected")) },
+                // Deliberately use production lifecycle adoption, not sessionAdopter.
+            )
+            val start = async {
+                starter.start(VideoPlaybackStartRequest(contentId = "starter", preferredFileId = 41, roomId = null, resumePositionOverride = null))
+            }
+            entered.await()
+            assertTrue(lifecycle.state.value is org.prairieserver.prairie.common.player.SessionState.Active)
+            val oldReporter = field("reporterJob") as kotlinx.coroutines.Job
+            assertTrue(oldReporter.isActive)
+            if (replace) {
+                lifecycle.adoptActiveSession(
+                    field("lastStartParams") as org.prairieserver.prairie.common.player.StartParams,
+                    allocatedReady("newer").session,
+                )
+            }
+            val newerReporter = if (replace) field("reporterJob") else null
+            tokens.metadataOwner = tokens.metadataOwner!!.copy(profileToken = "replacement")
+            if (cancel) {
+                start.cancel()
+                start.join()
+                assertTrue(start.isCancelled)
+            } else {
+                release.complete(Unit)
+                assertTrue(start.await() is VideoPlaybackStartResult.Error)
+            }
+            assertEquals(listOf("rejected"), manager.stoppedSessions)
+            assertTrue(manager.stopContextsActive.all { it })
+            assertFalse(oldReporter.isActive)
+            if (replace) {
+                assertEquals("newer", field("lastAdoptedSessionId"))
+                assertTrue(lifecycle.state.value is org.prairieserver.prairie.common.player.SessionState.Active)
+                assertTrue(field("reporterJob") === newerReporter)
+                assertTrue((newerReporter as kotlinx.coroutines.Job).isActive)
+                assertTrue(field("lastStartParams") != null)
+            } else {
+                assertEquals(org.prairieserver.prairie.common.player.SessionState.Idle, lifecycle.state.value)
+                for (name in listOf("lastAdoptedSessionId", "lastStartParams", "reporterJob", "recoveryJob", "recoveringFromMissingSession", "pendingActiveSessionPublication")) {
+                    assertNull(field(name), name)
+                }
+            }
+        } finally { client.close() }
+    }
+}
+
+private fun testSequencedPlayback(client: HttpClient, tokens: TokenManager): org.prairieserver.prairie.repository.SequencedPlayback {
+    val journal = object : org.prairieserver.prairie.repository.PlaybackJournalStore {
+        var entries = emptyList<org.prairieserver.prairie.repository.PlaybackJournalEntry>()
+        override suspend fun read() = entries
+        override suspend fun write(entries: List<org.prairieserver.prairie.repository.PlaybackJournalEntry>) { this.entries = entries }
+    }
+    val authorities = object : org.prairieserver.prairie.network.DurableLoginAuthorityProvider {
+        override suspend fun snapshotDurableLoginAuthority(): org.prairieserver.prairie.network.DurableLoginAuthority? = null
+    }
+    return org.prairieserver.prairie.repository.SequencedPlayback(
+        org.prairieserver.prairie.network.apiv2.PlaybackV2Api(client, ApiV2Gate.Unrestricted), tokens, authorities, journal) { "stop" }
+}

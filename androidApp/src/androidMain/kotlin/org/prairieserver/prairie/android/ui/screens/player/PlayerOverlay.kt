@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.player
 
+import org.prairieserver.prairie.model.catalog.editionLabel
+import android.graphics.Rect
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -69,6 +71,7 @@ fun PlayerOverlay(
     alwaysShowControls: Boolean = false,
     tabletopMode: Boolean = false,
     tabletopPaneHeight: Dp? = null,
+    onNextUpVideoBoundsChanged: (Rect) -> Unit,
     brightnessFraction: Float,
     onSetBrightness: (Float) -> Unit,
     showBufferingIndicator: Boolean = true,
@@ -117,20 +120,25 @@ fun PlayerOverlay(
         if (inRoom && isRoomHost) showCloseConfirm = true else onBack()
     }
     val gatedSeek: (Double) -> Unit = { pos -> if (seekEnabled) onSeek(pos) }
+    // Resolved profile-wide video intervals; read at press time so a change
+    // made in settings applies to the next skip without restarting playback.
+    val seekIntervals by viewModel.seekIntervals.collectAsState()
     val gatedSkipForward: () -> Unit = {
         if (seekEnabled) {
+            val step = viewModel.seekIntervals.value.forwardSeconds.toDouble()
             if (inRoom) {
-                val forward = state.position + 10.0
+                val forward = state.position + step
                 gatedSeek(if (state.duration > 0.0) forward.coerceAtMost(state.duration) else forward)
             } else {
-                viewModel.onSkipBy(10.0)
+                viewModel.onSkipBy(step)
             }
         }
     }
     val gatedSkipBackward: () -> Unit = {
         if (seekEnabled) {
-            if (inRoom) gatedSeek((state.position - 10.0).coerceAtLeast(0.0))
-            else viewModel.onSkipBy(-10.0)
+            val step = viewModel.seekIntervals.value.backSeconds.toDouble()
+            if (inRoom) gatedSeek((state.position - step).coerceAtLeast(0.0))
+            else viewModel.onSkipBy(-step)
         }
     }
     val gatedPlayPause: () -> Unit = { if (playPauseEnabled) onPlayPause() }
@@ -200,6 +208,8 @@ fun PlayerOverlay(
                 onSkipForward = gatedSkipForward,
                 onSkipBackward = gatedSkipBackward,
                 seekEnabled = seekEnabled,
+                skipBackSeconds = seekIntervals.backSeconds,
+                skipForwardSeconds = seekIntervals.forwardSeconds,
                 onFastForwardHold = gatedFastForwardHold,
                 onPinchVideoGravity = stepVideoGravity,
                 onDismiss = handleBack,
@@ -369,6 +379,8 @@ fun PlayerOverlay(
                 onBack = handleBack,
                 onPlayPause = gatedPlayPause,
                 onSeek = gatedSeek,
+                skipBackSeconds = seekIntervals.backSeconds,
+                skipForwardSeconds = seekIntervals.forwardSeconds,
                 onSkipForward = gatedSkipForward,
                 onSkipBackward = gatedSkipBackward,
                 onToggleOrientationLock = {
@@ -441,7 +453,8 @@ fun PlayerOverlay(
             modifier = Modifier.zIndex(3f),
         ) {
             PlayerNextUpScreen(
-                nextEpisode = retainedUpNextInfo,
+                nextEpisode = state.nextEpisode ?: retainedUpNextInfo,
+                onVideoBoundsChanged = onNextUpVideoBoundsChanged,
                 onDeckItems = state.onDeckItems,
                 videoEnded = state.upNextVideoEnded,
                 countdownSeconds = state.upNextCountdownSeconds,
@@ -608,6 +621,17 @@ fun PlayerOverlay(
         onSetHdrEnabled = viewModel::onSetHdrEnabled,
         dolbyVisionEnabled = viewModel.dolbyVisionEnabled.collectAsState().value,
         onSetDolbyVisionEnabled = viewModel::onSetDolbyVisionEnabled,
+        qualityLabel = playerQualityLabel(state.versions, state.selectedVersionIndex),
+        onOpenQuality = {
+            settingsSheetVisible = false
+            showQualitySelector = true
+        },
+        audioLabel = playerAudioLabel(state.audioTracks, state.selectedAudioIndex),
+        subtitleLabel = playerSubtitleLabel(state.subtitleTracks, state.selectedSubtitleIndex),
+        onOpenTracks = {
+            settingsSheetVisible = false
+            tracksSheetVisible = true
+        },
         onOpenSubtitleStyle = {
             settingsSheetVisible = false
             subtitleStyleVisible = true
@@ -741,4 +765,55 @@ internal fun mobileVideoGravityLabel(value: String): String = when (value) {
     "fill" -> "Fill"
     "stretch" -> "Stretch"
     else -> "Fit"
+}
+
+/**
+ * Root-list values for the gear menu. These mirror what the quality and
+ * tracks sheets show when opened, so the menu can state the current pick
+ * without the user having to open anything.
+ */
+internal fun playerQualityLabel(
+    versions: List<org.prairieserver.prairie.model.catalog.FileVersion>,
+    selectedIndex: Int,
+): String {
+    val version = versions.getOrNull(selectedIndex) ?: return "Auto"
+    return buildString {
+        version.editionLabel?.let { append(it).append(" · ") }
+        append(version.resolution ?: "Unknown")
+        if (version.hdr) append(" HDR")
+    }
+}
+
+internal fun playerAudioLabel(
+    tracks: List<org.prairieserver.prairie.model.catalog.AudioTrack>,
+    selectedIndex: Int,
+): String {
+    val track = tracks.getOrNull(selectedIndex) ?: return "Default"
+    // Language first, not title: a container's audio title is often the full
+    // codec string ("ATSC A/52B (AC-3, E-AC-3)") and swamps the row.
+    val name = track.language?.takeIf { it.isNotBlank() }?.uppercase()
+        ?: track.title?.takeIf { it.isNotBlank() }
+        ?: "Audio ${selectedIndex + 1}"
+    val detail = listOfNotNull(
+        track.codec?.takeIf { it.isNotBlank() }?.uppercase(),
+        track.channels?.let(::audioChannelLabel),
+    ).joinToString(" ")
+    return if (detail.isBlank()) name else "$name · $detail"
+}
+
+private fun audioChannelLabel(channels: Int): String = when (channels) {
+    1 -> "Mono"
+    2 -> "Stereo"
+    6 -> "5.1"
+    8 -> "7.1"
+    else -> "${channels}ch"
+}
+
+internal fun playerSubtitleLabel(
+    tracks: List<org.prairieserver.prairie.model.playback.PlayerSubtitleInfo>,
+    selectedIndex: Int,
+): String {
+    if (selectedIndex < 0) return "Off"
+    val track = tracks.getOrNull(selectedIndex) ?: return "Off"
+    return subtitleTrackLabel(track, selectedIndex)
 }

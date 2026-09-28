@@ -14,6 +14,7 @@ fun mountVideoMedia(
 ) {
     val mediaItem = playerFactory.buildMediaItem(
         contentId = spec.contentId,
+        mountToken = spec.mountToken,
         streamUrl = spec.streamUrl,
         playMethod = spec.playMethod,
         delivery = spec.delivery,
@@ -30,6 +31,7 @@ fun mountVideoMedia(
         expectedColorRange = spec.expectedColorRange,
         transformations = spec.transformations,
         runtimeCorrections = spec.runtimeCorrections,
+        activeClaims = spec.activeClaims,
     )
     player.setMediaItem(mediaItem, startPositionMs.coerceAtLeast(0L))
     player.prepare()
@@ -46,6 +48,7 @@ fun refreshMountedVideoMedia(
     val wasPlaying = player.playWhenReady
     val mediaItem = playerFactory.buildMediaItem(
         contentId = spec.contentId,
+        mountToken = spec.mountToken,
         streamUrl = spec.streamUrl,
         playMethod = spec.playMethod,
         delivery = spec.delivery,
@@ -62,6 +65,7 @@ fun refreshMountedVideoMedia(
         expectedColorRange = spec.expectedColorRange,
         transformations = spec.transformations,
         runtimeCorrections = spec.runtimeCorrections,
+        activeClaims = spec.activeClaims,
     )
     player.setMediaItem(mediaItem, resumePositionMs)
     player.prepare()

@@ -2,14 +2,25 @@ package org.prairieserver.prairie.android.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
+import org.prairieserver.prairie.common.settings.CardPresentationSource
+import org.prairieserver.prairie.common.settings.CardPresentationStore
+import org.prairieserver.prairie.common.settings.CardPresentationUiState
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.common.settings.SeekIntervalSettingsModel
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.common.player.AudiobookSettingsStore
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.auth.User
 import org.prairieserver.prairie.model.download.DownloadQuality
 import org.prairieserver.prairie.model.notifications.NotificationPreferencesUpdate
+import org.prairieserver.prairie.model.settings.CardCaption
+import org.prairieserver.prairie.model.settings.CardPosterSize
+import org.prairieserver.prairie.model.settings.CardPresentation
+import org.prairieserver.prairie.model.settings.CardPresentationPreset
 import org.prairieserver.prairie.model.settings.QualityPresets
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.AuthRepository
@@ -45,10 +56,8 @@ data class SettingsUiState(
     val isLoadingUser: Boolean = false,
     val loggedOut: Boolean = false,
 
-    // Whether this server serves the canonical settings API. When it reports
-    // SERVER_UPGRADE_REQUIRED the screen explains that instead of rendering
-    // rows whose edits would silently go nowhere; playback keeps working from
-    // the local defaults either way.
+    // Whether the canonical settings probe succeeded. Playback keeps working
+    // from the local defaults either way.
     val settingsAvailability: ProfileSettingsController.Availability =
         ProfileSettingsController.Availability.UNKNOWN,
 
@@ -97,6 +106,10 @@ data class SettingsUiState(
     val subtitleMode: SubtitleMode = SubtitleMode.AUTO,
     val showForcedSubtitles: Boolean = true,
 
+    // Media cards: the effective `ui.card_presentation` value plus where it
+    // resolved from and whether the server supports the key at all.
+    val cardPresentation: CardPresentationUiState = CardPresentationUiState(),
+
     // Notifications (in-app). Section is hidden entirely unless the server
     // reports in-app notifications are enabled AND preferences load.
     val notificationsAvailable: Boolean = false,
@@ -112,18 +125,28 @@ class SettingsViewModel(
     private val playerSettingsStore: PlayerSettingsStore,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
     private val overlayPrefsStore: OverlayPrefsStore,
+    private val activeProfileStore: ActiveProfileStore,
     private val notificationsRepository: NotificationsRepository,
     private val profileSettings: ProfileSettingsController,
+    private val cardPresentationStore: CardPresentationStore,
+    private val seekIntervalStore: SeekIntervalStore,
+    audiobookSettingsStore: AudiobookSettingsStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    /** Profile-wide video and audiobook skip intervals (settings revision 9). */
+    val seekIntervals = SeekIntervalSettingsModel(seekIntervalStore, audiobookSettingsStore, viewModelScope)
 
     init {
         loadUserInfo()
         observePlayerSettings()
         observePlaybackBehaviorSettings()
         observeNotifications()
+        observeCardPresentation()
+        // Opening Settings is a refresh edge for the seek-interval support probe.
+        seekIntervals.refresh()
     }
 
     private fun loadUserInfo() {
@@ -152,12 +175,9 @@ class SettingsViewModel(
 
     /**
      * Resolves the profile-scoped preferences through the canonical settings
-     * API, and records whether this server speaks it at all.
-     *
-     * On [Availability.SERVER_UPGRADE_REQUIRED] the values are left as they
-     * are and the screen explains the situation — rendering the rows anyway
-     * would offer edits that go nowhere. Playback is unaffected: it runs from
-     * the device-scoped store, which has its own defaults.
+     * API. When the probe fails the values are left as they are. Playback is
+     * unaffected: it runs from the device-scoped store, which has its own
+     * defaults.
      */
     fun loadProfileSettings() {
         viewModelScope.launch {
@@ -320,6 +340,65 @@ class SettingsViewModel(
         viewModelScope.launch { notificationsRepository.loadPreferences() }
     }
 
+    // -- Media cards --
+
+    private fun observeCardPresentation() {
+        cardPresentationStore.state.onEach { state ->
+            _uiState.update { it.copy(cardPresentation = state) }
+        }.launchIn(viewModelScope)
+        // The provider above the nav graph hydrates too, but this screen can
+        // be reached before any card rendered — make hydration unconditional.
+        viewModelScope.launch { cardPresentationStore.hydrateIfNeeded() }
+    }
+
+    fun setCardPreset(preset: CardPresentationPreset) {
+        setCardPresentation(preset.presentation)
+    }
+
+    fun setCardPosterSize(size: CardPosterSize) {
+        setCardPresentation(
+            _uiState.value.cardPresentation.presentation.copy(posterSize = size),
+        )
+    }
+
+    fun setCardCaption(caption: CardCaption) {
+        setCardPresentation(
+            _uiState.value.cardPresentation.presentation.copy(caption = caption),
+        )
+    }
+
+    /**
+     * Optimistic write through the store — at `profile_device` while the
+     * device override is active, else at `profile_client` so the choice roams
+     * among this profile's like devices (Apple/web parity).
+     */
+    private fun setCardPresentation(presentation: CardPresentation) {
+        val deviceOnly =
+            _uiState.value.cardPresentation.source == CardPresentationSource.DeviceOverride
+        cardPresentationStore.set(presentation, deviceOnly = deviceOnly)
+    }
+
+    /**
+     * "Only this device": ON pins the current presentation at
+     * `profile_device`; OFF deletes that row so resolution falls back to the
+     * client-family value.
+     */
+    fun setCardDeviceOnly(enabled: Boolean) {
+        if (enabled) {
+            cardPresentationStore.set(
+                _uiState.value.cardPresentation.presentation,
+                deviceOnly = true,
+            )
+        } else {
+            viewModelScope.launch { cardPresentationStore.clearDeviceOverride() }
+        }
+    }
+
+    /** Deletes the `profile_client` row so the profile-wide value applies. */
+    fun useCardProfileDefault() {
+        viewModelScope.launch { cardPresentationStore.useProfileDefault() }
+    }
+
     fun setNotificationsEnabled(value: Boolean) {
         updateNotificationPreferences(NotificationPreferencesUpdate(enabled = value))
     }
@@ -357,6 +436,9 @@ class SettingsViewModel(
             // stale rows flash before the fresh fetch lands.
             libraryPlaybackPrefsStore.clear()
             overlayPrefsStore.clear()
+            activeProfileStore.reset()
+            cardPresentationStore.clear()
+            seekIntervalStore.clear()
             _uiState.update { it.copy(loggedOut = true) }
         }
     }

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.common.downloads
 
+import androidx.room.withTransaction
 import org.prairieserver.prairie.common.data.db.PrairieDatabase
 import org.prairieserver.prairie.model.download.DownloadSidecar
 
@@ -11,7 +12,7 @@ import org.prairieserver.prairie.model.download.DownloadSidecar
  *
  * Method names mirror the old sidecar API so callers changed only sync→suspend.
  */
-class DownloadMetadataStore(db: PrairieDatabase) {
+class DownloadMetadataStore(private val db: PrairieDatabase) {
 
     private val downloadDao = db.downloadDao()
 
@@ -24,6 +25,23 @@ class DownloadMetadataStore(db: PrairieDatabase) {
 
     suspend fun deleteSidecar(serverId: String, profileId: String, fileId: Int) {
         downloadDao.delete(serverId, profileId, fileId)
+    }
+
+    /** A file slot may now contain a replacement download; an old tombstone cannot own it. */
+    suspend fun completePendingDeletion(
+        serverId: String,
+        profileId: String,
+        fileId: Int,
+        recordId: String,
+        deleteBytes: suspend () -> Boolean,
+    ): Boolean = db.withTransaction {
+        val row = downloadDao.get(serverId, profileId, fileId) ?: return@withTransaction false
+        if (row.recordId != recordId) return@withTransaction false
+        // Keep the identity check and cleanup together: a replacement metadata
+        // write must not race between the check and removal of the file slot.
+        if (!deleteBytes()) return@withTransaction false
+        downloadDao.delete(serverId, profileId, fileId)
+        true
     }
 
     suspend fun listSidecars(serverId: String, profileId: String): List<DownloadSidecar> =

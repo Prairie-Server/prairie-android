@@ -3,12 +3,12 @@ package org.prairieserver.prairie.tv.ui.shell
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,7 +38,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -46,8 +46,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.onGloballyPositioned
 import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,9 +60,9 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
+import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 import org.prairieserver.prairie.common.ui.components.profileAvatarDisplayText
 import org.prairieserver.prairie.common.ui.components.rememberProfileAvatarImage
@@ -135,8 +135,7 @@ private sealed class TvTopMenuFocus {
  * The custom top menu bar — the Skyline grammar from tvOS `TVTopMenuBar.swift`.
  *
  * Layout (three zones):
- * - Leading: the Silo brand lockup (`R.drawable.prairie_wordmark`, see
- *   [TvSiloWordmark]).
+ * - Leading: the Silo brand lockup image (see [TvSiloWordmark]).
  * - Center: Search icon · `Home` · one inverted-capsule tab per visible
  *   library-type · `Calendar`, derived from [destinations] (the shell's
  *   `visibleRoots`), with an invisible search-size twin trailing the tabs so
@@ -676,44 +675,22 @@ data class TvAccountState(
     val serverName: String = "",
 )
 
-/**
- * The Silo brand lockup at the bar's leading edge (§5.1).
- *
- * This is the shipped trademark artwork, not type: silo-branding's
- * `silo-wordmark-white.svg` as its `derive.py` renders it for Android
- * (`R.drawable.prairie_wordmark`, 764x400). Branding's own rules pick both the
- * variant and the treatment:
- * - *"Pick the variant that contrasts with its background: dark art on light,
- *   white on dark."* The menu bar is dark chrome, so the **white** lockup is the
- *   correct cut — and it is the only wordmark `derive.py` emits for Android.
- * - *"Don't recolour the mark, or add shadows, outlines or effects."* So, unlike
- *   the `Text` this replaced, no `PrairieOnSurface` tint is applied. The lockup's
- *   type is already `#FFFFFF` and its three bars carry the signal palette; a
- *   `ColorFilter` would flatten them and breach the trademark guidance.
- * - *"Typeset 'Silo' in place of the supplied wordmark"* is on branding's
- *   **Don't** list — which is precisely what the old `Text("SILO")` did.
- *
- * The PNG is used rather than a hand-built `VectorDrawable` because `derive.py`
- * is branding's declared source of truth for downstream Android assets and emits
- * exactly this file at exactly this path; a transcribed vector would fork the
- * mark out of that pipeline and go stale the next time the artwork changes. It
- * costs nothing in sharpness: the source is 764px wide against a ~46dp render
- * (92px at the 320dpi TV reference, 184px even on a 4x surface).
- *
- * Height comes from [TvSkyline.wordmarkHeight]; the width follows the drawable's
- * intrinsic 764:400 ratio (~45.8.dp) with [ContentScale.Fit], so the artwork is
- * never stretched or cropped — also forbidden. Decorative: an `Image` adds no
- * focusable node, so the bar's D-pad order is unchanged.
- */
+/** The Silo brand lockup image, sized to the bar. */
 @Composable
 private fun TvSiloWordmark() {
     Image(
         painter = painterResource(id = R.drawable.prairie_wordmark),
         contentDescription = "Prairie",
         contentScale = ContentScale.Fit,
-        modifier = Modifier.height(TvSkyline.wordmarkHeight),
+        modifier = Modifier
+            .height(TvPrairieWordmarkHeight)
+            .width(TvPrairieWordmarkHeight * TvPrairieWordmarkAspect),
     )
 }
+
+/** Brand lockup height inside the 32dp bar; the PNG is 764×400. */
+private val TvPrairieWordmarkHeight = 26.dp
+private const val TvPrairieWordmarkAspect = 764f / 400f
 
 /**
  * A center-cluster type tab with inverted-capsule chrome (§5.1):

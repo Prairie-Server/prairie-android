@@ -47,7 +47,7 @@ class RemotePlaybackIdentityManager(
 
     fun matches(offer: PrairieCastHandoffOffer, controllerDeviceId: String): Boolean {
         val active = activeIdentity ?: return false
-        return active.serverId == offer.serverId &&
+        return AndroidServerRegistry.serverIdsMatch(active.serverId, offer.serverId) &&
             active.profileId == offer.profileId &&
             active.controllerDeviceId == controllerDeviceId
     }
@@ -151,9 +151,9 @@ class RemotePlaybackIdentityManager(
                 }
                 is ApiResult.Error -> {
                     if (result.code == 404) error("Remote playback handoff expired.")
-                    delay(started.interval.coerceAtLeast(1) * 1_000L)
+                    error("Pairing status could not be confirmed. Start pairing again.")
                 }
-                is ApiResult.NetworkError -> delay(started.interval.coerceAtLeast(1) * 1_000L)
+                is ApiResult.NetworkError -> error("Pairing status could not be confirmed. Start pairing again.")
             }
         }
         error("Remote playback handoff expired.")
@@ -188,6 +188,9 @@ class RemotePlaybackIdentityManager(
         require(normalized.isNotBlank() && offer.profileId.isNotBlank()) {
             "The phone sent an invalid server or profile."
         }
+        // This binding is deliberately exact: canonical matching is suitable
+        // for recognizing a server, but must not let an offer claim a URL that
+        // does not encode to the id sent alongside it.
         require(AndroidServerRegistry.idFor(normalized) == offer.serverId) {
             "The phone's server identity does not match its URL."
         }

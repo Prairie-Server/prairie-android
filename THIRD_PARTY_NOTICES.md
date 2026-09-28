@@ -4,7 +4,7 @@ Prairie Android is licensed under `AGPL-3.0-or-later`. Third-party dependencies 
 
 ## Media3 FFmpeg Decoder AAR
 
-This repository includes `android-shared/libs/media3-decoder-ffmpeg-1.10.1.aar`, built from AndroidX Media3 1.10.1 and FFmpeg n6.0 using `scripts/build-ffmpeg-aar.sh`.
+This repository includes `android-shared/libs/media3-decoder-ffmpeg-1.11.0.aar`, built from AndroidX Media3 1.11.0 and FFmpeg n6.0 using `scripts/build-ffmpeg-aar.sh`.
 
 The local build script is intended to build FFmpeg in LGPL-only mode. Do not enable GPL or nonfree FFmpeg options without updating the release process and downstream distribution obligations.
 
@@ -12,7 +12,7 @@ Rebuild and source instructions are in [scripts/README-ffmpeg-aar.md](scripts/RE
 
 ## libass Subtitles
 
-Prairie uses [`ass-media` 0.4.0](https://github.com/peerless2012/libass-android) under the MIT license to integrate authored ASS/SSA subtitle rendering with AndroidX Media3. Its native package includes [`libass`](https://github.com/libass/libass), distributed under the ISC license, plus libass's font and text-shaping dependencies under their respective upstream licenses.
+Prairie uses [`ass-media` 0.5.1](https://github.com/peerless2012/libass-android) under the MIT license to integrate authored ASS/SSA subtitle rendering with AndroidX Media3. Its native package includes [`libass`](https://github.com/libass/libass), distributed under the ISC license, plus libass's font and text-shaping dependencies under their respective upstream licenses.
 
 ## libdovi
 

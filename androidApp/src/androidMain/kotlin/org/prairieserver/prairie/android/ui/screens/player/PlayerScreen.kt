@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,8 +60,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
 import org.prairieserver.prairie.common.player.PlayWhenReadyReconciliationGate
+import org.prairieserver.prairie.android.ui.components.rememberVideoSeekIntervals
+import org.prairieserver.prairie.android.cast.GOOGLE_CAST_LEGACY_SEEK_INTERVALS
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -70,34 +75,36 @@ import org.prairieserver.prairie.common.player.ActivePlayerHolder
 import org.prairieserver.prairie.common.player.AudioCapabilityManager
 import org.prairieserver.prairie.common.player.PrairiePlaybackService
 import org.prairieserver.prairie.common.player.DisplayHdrProbe
+import org.prairieserver.prairie.common.player.playbackDisplayId
+import org.prairieserver.prairie.common.player.plannedVideoRouteFor
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackPreflightListener
 import org.prairieserver.prairie.common.player.RefreshRateMatcher
 import org.prairieserver.prairie.common.player.SessionState
 import org.prairieserver.prairie.common.player.SubtitleManager
+import org.prairieserver.prairie.common.player.videoPlayerViewport
 import org.prairieserver.prairie.common.player.VideoPlayerMediaSpec
 import org.prairieserver.prairie.common.player.subtitlesForVideoMediaMount
+import org.prairieserver.prairie.common.player.videoMountToken
 import org.prairieserver.prairie.common.player.validatedColorRangeFallback
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
 import org.prairieserver.prairie.common.pip.PrairiePictureInPicturePlaybackState
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureSurface
 import org.prairieserver.prairie.common.settings.LetterboxExpansion
 import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendFactory
-import org.prairieserver.prairie.common.player.backend.VideoPlaybackBackendRequest
 import org.prairieserver.prairie.common.player.video.mountedAudioTracks
 import org.prairieserver.prairie.common.player.video.selectedMountedAudioOrdinal
 import org.prairieserver.prairie.common.player.video.PlaybackStartupStallDetector
 import org.prairieserver.prairie.common.player.video.PlaybackRuntimeCorrectionMetrics
 import org.prairieserver.prairie.common.player.video.PostResumeVideoStallDetector
+import org.prairieserver.prairie.common.player.isSubtitleSelected
 import org.prairieserver.prairie.common.player.video.VideoPlayerTrackEntry
-import org.prairieserver.prairie.model.playback.PlayMethod
-import org.prairieserver.prairie.model.playback.PlaybackSourceMetadata
 import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.playback.SubtitleIdentity
 import org.prairieserver.prairie.model.playback.executableMedia3ClientTransformations
+import org.prairieserver.prairie.model.playback.activeOriginalHttpClaims
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
-import org.prairieserver.prairie.player.DolbyVisionDetection
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -189,6 +196,7 @@ private fun SubtitleIdentity.requiresMountedMobileSelection(): Boolean =
 @Composable
 fun PlayerScreen(
     contentId: String,
+    libraryId: Int? = null,
     initialFileId: Int? = null,
     initialQuality: String? = null,
     initialAudioTrackIndex: Int? = null,
@@ -217,7 +225,27 @@ fun PlayerScreen(
     val audioCapabilityManager: AudioCapabilityManager = koinInject()
     val capabilityDetector: PlaybackCapabilityDetector = koinInject()
     val subtitleManager: SubtitleManager = koinInject()
-    val displayHdr = remember { DisplayHdrProbe.probe(context) }
+    // Bind the playback display before anything plans: the ViewModel's
+    // initializer starts loading as soon as it exists, so the binding has to
+    // happen during composition, not in a later effect.
+    // The binding is owned: during a player-to-player transition the incoming
+    // screen binds while the outgoing one is still composed, and the outgoing
+    // screen's release only clears its own claim.
+    // Keyed on the display id itself so an Activity that moves to another
+    // display rebinds and the next plan describes the new panel. The
+    // binding is a RememberObserver: Compose releases it when this player
+    // leaves, when the key changes, and when a composition is abandoned
+    // before it commits, and the owned release never clears a newer claim.
+    val currentPlaybackDisplayId = context.playbackDisplayId()
+    remember(currentPlaybackDisplayId, capabilityDetector) {
+        capabilityDetector.bindPlaybackDisplay(currentPlaybackDisplayId)
+    }
+    // Re-probe whenever the output route generation moves, so track
+    // selection sees the same display facts as capability detection.
+    val outputRouteGeneration by audioCapabilityManager.outputRouteGeneration.collectAsState()
+    val displayHdr = remember(outputRouteGeneration) {
+        DisplayHdrProbe.probe(context, capabilityDetector.playbackDisplayId)
+    }
     val refreshRateMatcher = remember { RefreshRateMatcher() }
     val audioCaps by audioCapabilityManager.capabilities.collectAsState()
     var exitRequested by remember { mutableStateOf(false) }
@@ -232,6 +260,7 @@ fun PlayerScreen(
     // against the real frame rather than the 16:9 placeholder above.
     var codedVideoAspect by remember { mutableFloatStateOf(0f) }
     var pictureInPictureSourceRect by remember { mutableStateOf<Rect?>(null) }
+    var nextUpVideoBounds by remember { mutableStateOf<Rect?>(null) }
     var playerRootBounds by remember { mutableStateOf<Rect?>(null) }
     var fastForwardHoldActive by remember { mutableStateOf(false) }
     val originalWindowBrightness = remember(activity) {
@@ -397,14 +426,13 @@ fun PlayerScreen(
         backendPlayer?.let { player ->
             backendFactory.create(
                 player = player,
-                request = VideoPlaybackBackendRequest(),
             )
         }
     }
     // A neutral-v3 replan publishes replacement route state before the
     // corresponding Compose mount effect runs. Subtitle restoration must wait
     // for that exact media generation rather than racing a newly mounted route.
-    var mountedMediaGeneration by remember(videoBackend) { mutableStateOf<Long?>(null) }
+    val mountedSubtitleMount by viewModel.mountedSubtitleMount.collectAsState()
     // False until presets have been applied once for the current backend, so
     // only later capability changes wait for the route to settle.
     var trackPresetsApplied by remember(videoBackend) { mutableStateOf(false) }
@@ -571,6 +599,7 @@ fun PlayerScreen(
     LaunchedEffect(contentId, initialFileId, initialQuality, initialAudioTrackIndex, initialSubtitleTrackIndex, resumePositionOverride) {
         if (!viewModel.claimInitialRouteLoad()) return@LaunchedEffect
         viewModel.loadContent(
+            libraryId = libraryId,
             contentId = contentId,
             preferredFileId = initialFileId,
             preferredQuality = initialQuality,
@@ -700,6 +729,7 @@ fun PlayerScreen(
 
         val mediaSpec = VideoPlayerMediaSpec(
             contentId = uiState.contentId,
+            mountToken = uiState.mediaMountGeneration,
             streamUrl = effectiveStreamUrl,
             // Local files play as progressive (DIRECT), regardless of how
             // the server originally provisioned the session.
@@ -725,6 +755,7 @@ fun PlayerScreen(
             expectedColorRange = plan.validatedColorRangeFallback(),
             transformations = plan?.executableMedia3ClientTransformations().orEmpty(),
             runtimeCorrections = plan?.runtimeCorrections.orEmpty(),
+            activeClaims = plan?.activeOriginalHttpClaims().orEmpty(),
         )
         if (!isLocalMedia && uiState.sessionId != null) {
             PlaybackRuntimeCorrectionMetrics.reset()
@@ -742,8 +773,9 @@ fun PlayerScreen(
                     "${plan?.decisionTrace?.size ?: 0}:${uiState.mediaMountGeneration}",
             )
         }
+        viewModel.onSubtitleMediaMountChanging()
         backend.mount(mediaSpec, playWhenReady = !viewModel.uiState.value.isPaused)
-        mountedMediaGeneration = uiState.mediaMountGeneration
+        viewModel.onSubtitleMediaMountApplied(MobileSubtitleMount(uiState.mediaMountGeneration, uiState.subtitleRefreshNonce))
         viewModel.onMediaMountApplied(uiState.mediaMountGeneration)
     }
 
@@ -779,6 +811,7 @@ fun PlayerScreen(
 
         val mediaSpec = VideoPlayerMediaSpec(
             contentId = uiState.contentId,
+            mountToken = uiState.mediaMountGeneration,
             streamUrl = effectiveStreamUrl,
             playMethod = playMethod,
             delivery = delivery,
@@ -806,8 +839,11 @@ fun PlayerScreen(
             expectedColorRange = plan.validatedColorRangeFallback(),
             transformations = plan?.executableMedia3ClientTransformations().orEmpty(),
             runtimeCorrections = plan?.runtimeCorrections.orEmpty(),
+            activeClaims = plan?.activeOriginalHttpClaims().orEmpty(),
         )
+        viewModel.onSubtitleMediaMountChanging()
         backend.refresh(mediaSpec)
+        viewModel.onSubtitleMediaMountApplied(MobileSubtitleMount(uiState.mediaMountGeneration, uiState.subtitleRefreshNonce))
     }
 
     // Sync play/pause from ViewModel to player without reclassifying this
@@ -825,6 +861,9 @@ fun PlayerScreen(
     // Preflight listener: evaluates the resolved Tracks and triggers the
     // transcode fallback when the selected track combo can't actually be
     // played on this device.
+    // The preflight listener is keyed on the controller and outlives engine
+    // swaps; read the service player at error time, not at registration.
+    val latestServicePlayerForErrors = rememberUpdatedState(sessionPlayer)
     DisposableEffect(mediaController) {
         val controller = mediaController
         if (controller == null) {
@@ -832,15 +871,59 @@ fun PlayerScreen(
         } else {
             val preflight = PlaybackPreflightListener(
                 detector = capabilityDetector,
-                onUnsupported = { verdict -> viewModel.onUnsupportedPlayback(verdict) },
+                onUnsupported = { verdict ->
+                    viewModel.mountedSubtitleMount.value?.generation?.let { generation ->
+                        viewModel.onUnsupportedPlayback(verdict, generation)
+                    }
+                },
                 // Runtime errors (decoder init, source, mid-stream IO) walk the
                 // same recovery ladder as preflight failures — previously the
                 // mobile player dropped these on the floor and the screen sat
                 // on a stale frame.
-                onError = { error -> viewModel.onPlayerError(error) },
+                onError = { error ->
+                    viewModel.onPlayerError(
+                        error,
+                        servicePlayer = latestServicePlayerForErrors.value,
+                        mediaMountGeneration = viewModel.mountedSubtitleMount.value?.generation,
+                    )
+                },
+                plannedRoute = {
+                    val plan = viewModel.uiState.value.playbackPlan
+                    plannedVideoRouteFor(
+                        decisionReason = plan?.decisionTrace?.firstOrNull(),
+                        effectiveDynamicRange = plan?.source?.hdrFormat,
+                        clientTransformations = plan?.executableMedia3ClientTransformations().orEmpty(),
+                    )
+                },
             )
             controller.addListener(preflight)
             onDispose { controller.removeListener(preflight) }
+        }
+    }
+
+    // MediaController's first-frame callback has no media identity. Read the
+    // immutable mount token from the ExoPlayer analytics event instead so a
+    // queued predecessor callback cannot complete the successor transition.
+    DisposableEffect(sessionPlayer) {
+        val player = sessionPlayer as? ExoPlayer
+        if (player == null) {
+            onDispose { }
+        } else {
+            val listener = object : AnalyticsListener {
+                override fun onRenderedFirstFrame(
+                    eventTime: AnalyticsListener.EventTime,
+                    output: Any,
+                    renderTimeMs: Long,
+                ) {
+                    val mountToken = eventTime.videoMountToken() ?: return
+                    if (mountToken != viewModel.uiState.value.mediaMountGeneration) return
+                    startupStallDetector.onFirstFrameRendered()
+                    postResumeStallDetector.onFirstFrameRendered()
+                    viewModel.onFirstVideoFrameRendered(mountToken)
+                }
+            }
+            player.addAnalyticsListener(listener)
+            onDispose { player.removeAnalyticsListener(listener) }
         }
     }
 
@@ -888,12 +971,6 @@ fun PlayerScreen(
                             renderedOutputBufferCount = rendered,
                         )
                     }
-                }
-
-                override fun onRenderedFirstFrame() {
-                    startupStallDetector.onFirstFrameRendered()
-                    postResumeStallDetector.onFirstFrameRendered()
-                    viewModel.onFirstVideoFrameRendered()
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -958,18 +1035,22 @@ fun PlayerScreen(
                     // already fired (against the OLD tracks), so without this the
                     // auto-selected downloaded/AI track never engages. Reads the
                     // live VM state — `uiState` here can be a stale closure capture.
+                    val mount = viewModel.mountedSubtitleMount.value
+                    val backend = videoBackend ?: return
+                    if (!viewModel.isCurrentSubtitleMount(mount)) return
+                    val currentTracks = backend.player.currentTracks
                     val liveState = viewModel.uiState.value
                     val pendingIdentity = liveState.localSubtitleMountIdentity
                     val targetIdentity = pendingIdentity ?: liveState.committedSubtitleIdentity
-                    val selected = videoBackend?.selectMountedSubtitle(
-                        identity = targetIdentity,
-                    ) == true
+                    val accepted = backend.selectMountedSubtitle(identity = targetIdentity)
+                    val selected = isSubtitleSelected(currentTracks, targetIdentity)
                     if (pendingIdentity != null) {
                         viewModel.onPendingSubtitleMountResult(
+                            mount = mount,
                             identity = pendingIdentity,
                             selected = selected,
-                            snapshotKey = media3TextTrackSnapshotKey(tracks),
-                            settled = videoBackend?.player?.playbackState == Player.STATE_READY,
+                            snapshotKey = media3TextTrackSnapshotKey(currentTracks),
+                            settled = backend.player.playbackState == Player.STATE_READY && (selected || !accepted),
                         )
                     }
                 }
@@ -1031,7 +1112,7 @@ fun PlayerScreen(
                 )
                 if (reason != null) {
                     Log.i(TAG, "Startup stall fallback: $reason")
-                    viewModel.onUnsupportedPlayback(reason)
+                    viewModel.onUnsupportedPlayback(reason, uiState.mediaMountGeneration)
                     return@repeatOnLifecycle
                 }
                 val sanitizedSamples = PlaybackRuntimeCorrectionMetrics.consumeDolbyVisionHdr10PlusSamples()
@@ -1095,6 +1176,26 @@ fun PlayerScreen(
         }
     }
 
+    // A plan that promised the Dolby Vision Profile 8 base-layer route is
+    // only valid while an ordinary HEVC decoder is reading the stream. The
+    // renderer reports the decoder it actually opened; anything else becomes
+    // a typed replan rather than an unverified presentation.
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        backend.baseLayerDecoderMismatch.collect { decoderName ->
+            if (decoderName == null) return@collect
+            val generation = viewModel.mountedSubtitleMount.value?.generation ?: return@collect
+            val plan = viewModel.uiState.value.playbackPlan
+            viewModel.onUnsupportedPlayback(
+                org.prairieserver.prairie.common.player.Playability.DvBaseLayerDecoderUnavailable(
+                    decoderName = decoderName,
+                    baseRange = plan?.source?.hdrFormat.orEmpty(),
+                ),
+                generation,
+            )
+        }
+    }
+
     // User/app seeks are explicit commands from the ViewModel. Progress
     // samples update uiState.position for display only and must never feed
     // back into MediaController.seekTo.
@@ -1122,10 +1223,11 @@ fun PlayerScreen(
         uiState.committedSubtitleIdentity,
         uiState.localSubtitleMountIdentity,
         uiState.mediaMountGeneration,
-        mountedMediaGeneration,
+        mountedSubtitleMount,
     ) {
         val backend = videoBackend ?: return@LaunchedEffect
-        if (mountedMediaGeneration != uiState.mediaMountGeneration) return@LaunchedEffect
+        val mount = mountedSubtitleMount
+        if (!viewModel.isCurrentSubtitleMount(mount)) return@LaunchedEffect
         val pendingIdentity = uiState.localSubtitleMountIdentity
         val targetIdentity = pendingIdentity ?: uiState.committedSubtitleIdentity
         val selectedIndex = resolveMobileSubtitleOrdinal(targetIdentity, uiState.subtitleTracks)
@@ -1136,11 +1238,12 @@ fun PlayerScreen(
             // an empty sidecar entry or refresh the mounted MediaItem.
             backend.selectMountedSubtitle(identity = SubtitleIdentity.Off)
         } else if (targetIdentity.requiresMountedMobileSelection()) {
-            val selected = backend.selectMountedSubtitle(identity = targetIdentity)
+            backend.selectMountedSubtitle(identity = targetIdentity)
             if (pendingIdentity != null) {
                 viewModel.onPendingSubtitleMountResult(
+                    mount = mount,
                     identity = pendingIdentity,
-                    selected = selected,
+                    selected = isSubtitleSelected(backend.player.currentTracks, targetIdentity),
                     snapshotKey = media3TextTrackSnapshotKey(backend.player.currentTracks),
                     // This composition-side attempt can race Media3's first
                     // text-track publication. Only onTracksChanged callbacks
@@ -1172,7 +1275,7 @@ fun PlayerScreen(
             surface = PrairiePictureInPictureSurface.Mobile,
             state = PrairiePictureInPicturePlaybackState(
                 enabled = pictureInPictureEnabled,
-                videoActive = uiState.streamUrl != null && !uiState.isLoading && uiState.error == null,
+                videoActive = uiState.streamUrl != null && uiState.error == null,
                 isPlaying = uiState.isPlaying && !uiState.isPaused,
                 videoWidth = pictureInPictureVideoWidth,
                 videoHeight = pictureInPictureVideoHeight,
@@ -1203,7 +1306,7 @@ fun PlayerScreen(
                 if (playerRootBounds != next) playerRootBounds = next
             },
     ) {
-        if (uiState.isLoading) {
+        if (uiState.isLoading && uiState.streamUrl == null) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -1307,6 +1410,7 @@ fun PlayerScreen(
             val letterboxExpanding = codedVideoAspect > 0f &&
                 letterboxContentAspect > codedVideoAspect
             val resizeMode = when {
+                uiState.showUpNext -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                 videoGravity == "fill" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 videoGravity == "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                 letterboxExpanding -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -1328,6 +1432,8 @@ fun PlayerScreen(
             }
             val cutoutInsetDp = with(density) { cutoutSideInsetPx.toDp() }
             val videoSurfaceModifier = when {
+                uiState.showUpNext && activeTabletopPaneLayout == null && !isInPictureInPictureMode ->
+                    Modifier.fillMaxSize().videoPlayerViewport(nextUpVideoBounds, playerRootBounds)
                 activeTabletopPaneLayout != null ->
                     Modifier
                         .align(Alignment.TopCenter)
@@ -1355,6 +1461,10 @@ fun PlayerScreen(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
                             useController = false
+                            // The same SurfaceView spans Next Up mounts. Keep
+                            // the outgoing frame visible while Media3 resets
+                            // its item and decodes the successor's first frame.
+                            setKeepContentOnPlayerReset(true)
                             this.resizeMode = resizeMode
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1413,12 +1523,16 @@ fun PlayerScreen(
             // keeps running via the Cast SDK media notification) and play/pause
             // + stop controls.
             if (castState.isConnected) {
+                // Profile-wide video intervals; the overlay's 30s/30s on older servers.
+                val castSeekIntervals = rememberVideoSeekIntervals(GOOGLE_CAST_LEGACY_SEEK_INTERVALS)
                 PrairieCastOverlay(
                     castState = castState,
                     posterUrl = uiState.artworkUrl,
                     onPlayPause = { castManager.togglePlayback() },
-                    onSkipBack = { castManager.skipBy(-30.0) },
-                    onSkipForward = { castManager.skipBy(30.0) },
+                    onSkipBack = { castManager.skipBy(-castSeekIntervals.backSeconds.toDouble()) },
+                    onSkipForward = { castManager.skipBy(castSeekIntervals.forwardSeconds.toDouble()) },
+                    skipBackSeconds = castSeekIntervals.backSeconds,
+                    skipForwardSeconds = castSeekIntervals.forwardSeconds,
                     onSelectSubtitle = { castManager.selectSubtitleTrack(it) },
                     onStopCasting = { castManager.disconnect() },
                     onSeek = { castManager.seekTo(it) },
@@ -1449,6 +1563,7 @@ fun PlayerScreen(
                             orientationLockSupported && activeTabletopPaneLayout == null,
                         alwaysShowControls = activeTabletopPaneLayout != null,
                         tabletopMode = activeTabletopPaneLayout != null,
+                        onNextUpVideoBoundsChanged = { nextUpVideoBounds = it },
                         tabletopPaneHeight = activeTabletopPaneLayout?.let { layout ->
                             with(density) { layout.controlsHeightPx.toDp() }
                         },
@@ -1560,7 +1675,6 @@ private fun produceRoomClosedState(
     val soloClosedReason = remember { MutableStateFlow<String?>(null) }
     return (controller?.closedReason ?: soloClosedReason).collectAsState()
 }
-
 
 private fun PlaybackExecutionPlan?.validatedPassthroughCodecs(): List<String> {
     val plan = this ?: return emptyList()

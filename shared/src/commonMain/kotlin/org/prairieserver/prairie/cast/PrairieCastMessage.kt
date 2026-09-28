@@ -138,6 +138,7 @@ data class PrairieCastPlaybackRequest(
     val subtitleTrackIndex: Int? = null,
     val startFromBeginning: Boolean,
     val resumePosition: Double? = null,
+    val libraryId: Int? = null,
 )
 
 @Serializable

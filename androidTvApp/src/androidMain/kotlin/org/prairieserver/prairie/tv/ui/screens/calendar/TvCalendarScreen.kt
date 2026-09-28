@@ -65,6 +65,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,7 +81,6 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.transformLatest
@@ -88,6 +88,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.common.calendar.localDisplayAirTime
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.calendar.CalendarBadge
 import org.prairieserver.prairie.model.calendar.CalendarFilter
@@ -115,6 +116,7 @@ import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
 import org.prairieserver.prairie.tv.ui.theme.FocusedContent
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
+import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.viewmodel.CalendarViewModel
 
 /**
@@ -139,10 +141,34 @@ import org.prairieserver.prairie.viewmodel.CalendarViewModel
  * Mirrors [org.prairieserver.prairie.tv.ui.screens.recommendations.TvRecommendationsScreen]
  * for the koinViewModel + initial-focus-once pattern.
  */
+internal data class TvCalendarDetailTarget(
+    val contentId: String,
+    val seasonNumber: Int? = null,
+    val episodeContentId: String? = null,
+)
+
+/** Carries an aired episode into the exact mode of the combined Series page. */
+internal fun tvCalendarDetailTarget(item: CalendarItem): TvCalendarDetailTarget {
+    val seriesContentId = item.seriesId?.trim()?.takeIf { it.isNotEmpty() }
+    if (item.isEpisode && seriesContentId != null && item.seasonNumber != null) {
+        return TvCalendarDetailTarget(
+            contentId = seriesContentId,
+            seasonNumber = item.seasonNumber,
+            episodeContentId = item.contentId,
+        )
+    }
+
+    return TvCalendarDetailTarget(contentId = item.contentId)
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun TvCalendarScreen(
-    onOpenItemDetail: (contentId: String) -> Unit,
+    onOpenItemDetailSelection: (
+        contentId: String,
+        seasonNumber: Int?,
+        episodeContentId: String?,
+    ) -> Unit,
     onInitialContentFocus: () -> Unit = {},
     onMoveUpToMenu: () -> Unit = {},
     focusRequest: Int = 0,
@@ -486,7 +512,7 @@ fun TvCalendarScreen(
                 onItemClicked = { date, item, index ->
                     recordReturnTarget(date, item, index)
                 },
-                onOpenItemDetail = onOpenItemDetail,
+                onOpenItemDetailSelection = onOpenItemDetailSelection,
             )
         }
     }
@@ -683,6 +709,11 @@ private fun WeekStrip(
     onNextWeek: () -> Unit,
     onToday: () -> Unit,
 ) {
+    val locale = LocalConfiguration.current.locales[0]
+    val monthYearFormatter = remember(locale) {
+        DateTimeFormatter.ofPattern("MMMM yyyy", locale)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -724,7 +755,7 @@ private fun WeekStrip(
         }
         Spacer(modifier = Modifier.weight(1f))
         Text(
-            text = monthYearLabel(weekDates),
+            text = monthYearLabel(weekDates, monthYearFormatter),
             style = MaterialTheme.typography.titleMedium.copy(
                 fontSize = 15.5.sp,
                 lineHeight = 18.5.sp,
@@ -819,6 +850,10 @@ private fun DayCell(
     onClick: () -> Unit,
 ) {
     val localDate = remember(date) { LocalDate.parse(date) }
+    val locale = LocalConfiguration.current.locales[0]
+    val weekdayFormatter = remember(locale) {
+        DateTimeFormatter.ofPattern("EEE", locale)
+    }
     // tvOS CalendarDayButton is 84x96 pt with 18/26 pt type and an 8 pt
     // event dot. Type is floored at 14/16sp for 10-ft legibility, and the
     // cell grows past half scale (52x60) to hold it — audit 2026-07-20.
@@ -861,7 +896,7 @@ private fun DayCell(
             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
         ) {
             Text(
-                text = localDate.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())),
+                text = localDate.format(weekdayFormatter),
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontSize = 14.sp,
                     lineHeight = 18.sp,
@@ -901,10 +936,13 @@ private fun DayCell(
 }
 
 /** "June 2026" — anchored on the Thursday so a cross-month week shows the dominant month. */
-private fun monthYearLabel(weekDates: List<String>): String {
+private fun monthYearLabel(
+    weekDates: List<String>,
+    formatter: DateTimeFormatter,
+): String {
     if (weekDates.isEmpty()) return ""
     val anchor = LocalDate.parse(weekDates.getOrElse(3) { weekDates.first() })
-    return anchor.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
+    return anchor.format(formatter)
 }
 
 internal fun shouldReturnCalendarFocusToControls(
@@ -979,7 +1017,11 @@ private fun CalendarList(
     onShelfFocusConsumed: () -> Unit,
     onItemFocused: (date: String, item: CalendarItem, index: Int, focused: Boolean) -> Unit,
     onItemClicked: (date: String, item: CalendarItem, index: Int) -> Unit,
-    onOpenItemDetail: (contentId: String) -> Unit,
+    onOpenItemDetailSelection: (
+        contentId: String,
+        seasonNumber: Int?,
+        episodeContentId: String?,
+    ) -> Unit,
 ) {
     val snapScope = rememberCoroutineScope()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -1173,7 +1215,7 @@ private fun CalendarList(
                         focusedShelfIndex = null
                     }
                 },
-                onOpenItemDetail = onOpenItemDetail,
+                onOpenItemDetailSelection = onOpenItemDetailSelection,
             )
         }
             }
@@ -1200,7 +1242,11 @@ private fun DayShelf(
     onItemClicked: (item: CalendarItem, index: Int) -> Unit = { _, _ -> },
     onShelfFocused: () -> Unit = {},
     onShelfFocusChanged: (Boolean) -> Unit = {},
-    onOpenItemDetail: (contentId: String) -> Unit,
+    onOpenItemDetailSelection: (
+        contentId: String,
+        seasonNumber: Int?,
+        episodeContentId: String?,
+    ) -> Unit,
 ) {
     val targetCardFocusRequester = remember { FocusRequester() }
     val rowState = rememberLazyListState()
@@ -1275,11 +1321,15 @@ private fun DayShelf(
                         onFocusChanged = { focused -> onItemFocusChanged(item, index, focused) },
                         onClick = {
                             onItemClicked(item, index)
-                            // detailContentId is where the card GOES; contentId
-                            // is what the card IS. Several episodes of one show
-                            // share a destination, so identity has to come from
-                            // the item, not from the route.
-                            onOpenItemDetail(item.detailContentId)
+                            // Identity still comes from the event contentId,
+                            // while the target carries its parent Series plus
+                            // the exact season/episode mode to restore.
+                            val target = tvCalendarDetailTarget(item)
+                            onOpenItemDetailSelection(
+                                target.contentId,
+                                target.seasonNumber,
+                                target.episodeContentId,
+                            )
                         },
                     )
                 }
@@ -1292,11 +1342,15 @@ private fun DayShelf(
 @Composable
 private fun DayHeader(date: String, isToday: Boolean, muted: Boolean) {
     val localDate = remember(date) { LocalDate.parse(date) }
+    val locale = LocalConfiguration.current.locales[0]
+    val fullDateFormatter = remember(locale) {
+        DateTimeFormatter.ofPattern("EEEE, MMMM d", locale)
+    }
     Text(
         text = if (isToday) {
             "Today"
         } else {
-            localDate.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
+            localDate.format(fullDateFormatter)
         },
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight.Bold,
@@ -1338,8 +1392,8 @@ private val NoVerticalBringIntoViewSpec: BringIntoViewSpec = object : BringIntoV
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
-private val posterWidth = 124.dp
-private val posterHeight = 186.dp
+private val CalendarPosterWidth = 124.dp
+private val CalendarPosterHeight = 186.dp
 private val CalendarCardSpacing = 18.dp
 private val posterShape = RoundedCornerShape(10.dp)
 
@@ -1353,6 +1407,9 @@ private fun CalendarEventCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    val posterWidth = CalendarPosterWidth.cardScaled()
+    val posterHeight = CalendarPosterHeight.cardScaled()
+    val caption = LocalCardPresentation.current.caption
 
     // Both edges. Gain alone made the screen's record of "what has focus"
     // sticky, so a card focus passed over on the way somewhere else still
@@ -1451,31 +1508,37 @@ private fun CalendarEventCard(
 
         // Caption below the poster: titles may wrap to two lines, but a
         // one-line title does not reserve an empty second line before detail.
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontSize = 17.5.sp,
-                    lineHeight = 20.5.sp,
-                ),
-                fontWeight = FontWeight.SemiBold,
-                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            cardSubtitle(item)?.let { subtitle ->
+        // Artwork-only drops the whole block; the outer spacedBy only applies
+        // between children, so the poster keeps no trailing gap.
+        if (caption.showsTitle) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 14.sp,
-                        lineHeight = 18.sp,
+                    text = item.title,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontSize = 17.5.sp,
+                        lineHeight = 20.5.sp,
                     ),
-                    color = Color.White.copy(alpha = 0.75f),
-                    maxLines = 1,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (caption.showsMetadata) {
+                    cardSubtitle(item)?.let { subtitle ->
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 14.sp,
+                                lineHeight = 18.sp,
+                            ),
+                            color = Color.White.copy(alpha = 0.75f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             }
         }
     }

@@ -15,6 +15,48 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CastPlaybackPreparerTest {
+    @org.junit.Test
+    fun proxyRoutesCannotBecomeTokenizedCastUrls() {
+        for (url in listOf("https://proxy.example/stream/v3/session-1", "https://proxy.example/stream/v3/session-1/subtitles/0.vtt?file_id=42")) {
+            kotlin.test.assertFailsWith<IllegalArgumentException> { requireCastUrlCredentialCompatibility(url) }
+        }
+        requireCastUrlCredentialCompatibility("https://proxy.example/stream/subtitles/signed/0.vtt")
+        requireCastUrlCredentialCompatibility("https://api.example/api/v2/stream/session/subtitles/0.vtt?st=opaque")
+    }
+
+    @Test
+    fun shiftedSubtitleAuthenticationPrecedesFragment() {
+        val shifted = castSubtitleUrlForTimeline("https://server/subtitles/2.vtt?file_id=42#cue", 90.5)
+        assertEquals(
+            "https://server/subtitles/2.vtt?file_id=42&timestamp_offset=-90.5&st=signed%2Btoken#cue",
+            appendCastStreamToken(shifted, "signed%2Btoken"),
+        )
+        assertEquals(
+            "https://server/subtitles/2.vtt?st=signed%2Btoken#cue&st=fragment-only",
+            appendCastStreamToken("https://server/subtitles/2.vtt#cue&st=fragment-only", "signed%2Btoken"),
+        )
+        val alreadySigned = "https://server/subtitles/2.vtt?st=existing%2Btoken#cue"
+        assertEquals(alreadySigned, appendCastStreamToken(alreadySigned, "replacement"))
+    }
+
+    @Test
+    fun resumedCastSubtitlesShiftIntoTransportClockWithoutChangingIdentityPins() {
+        val url = "https://server/subtitles/2.vtt?file_id=42&provider_id=a%2Fb&st=signed%2Btoken"
+        assertEquals("$url&timestamp_offset=-90.5", castSubtitleUrlForTimeline(url, 90.5))
+        assertEquals(url, castSubtitleUrlForTimeline(url, 0.0))
+        assertEquals(url, castSubtitleUrlForTimeline(url, -0.0))
+        assertEquals("$url&timestamp_offset=12.0", castSubtitleUrlForTimeline(url, -12.0))
+    }
+
+    @Test
+    fun castSubtitleShiftReplacesOldOffsetAndPreservesFragment() {
+        assertEquals(
+            "/subtitles/2.vtt?file_id=42&timestamp_offset=-120.0#cue",
+            castSubtitleUrlForTimeline("/subtitles/2.vtt?timestamp_offset=-60&file_id=42#cue", 120.0),
+        )
+        assertEquals("/subtitles/2.vtt?timestamp_offset=-15.0", castSubtitleUrlForTimeline("/subtitles/2.vtt", 15.0))
+    }
+
     @Test
     fun castContextDoesNotAdvertiseThePreNeutralSidecarFeature() {
         assertFalse(

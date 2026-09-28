@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.settings
 
+import org.prairieserver.prairie.model.settings.SeekMedia
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
 import org.prairieserver.prairie.android.ui.screens.downloads.DownloadsViewModel
+import org.prairieserver.prairie.android.ui.screens.home.HomeSectionsEditor
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.shouldShowDiagnosticsEntry
 import org.prairieserver.prairie.android.ui.theme.SettingsDimens
@@ -101,6 +103,7 @@ fun SettingsScreen(
     downloadsViewModel: DownloadsViewModel = koinViewModel(),
     diagnosticsViewModel: DiagnosticsViewModel = koinViewModel(),
 ) {
+    val recovery = org.prairieserver.prairie.common.player.rememberPlaybackRecoverySettings(org.koin.compose.koinInject())
     val state by viewModel.uiState.collectAsState()
     var subtitleStyleVisible by remember { mutableStateOf(false) }
     org.prairieserver.prairie.android.ui.screens.player.SubtitleStyleSheet(
@@ -112,6 +115,7 @@ fun SettingsScreen(
     val downloadsState by downloadsViewModel.uiState.collectAsState()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     var showRemoveAllDownloadsConfirm by remember { mutableStateOf(false) }
+    var showHomeSectionsEditor by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.loggedOut) {
         if (state.loggedOut) {
@@ -164,6 +168,18 @@ fun SettingsScreen(
                 )
             }
 
+            if (recovery.visible) {
+                item {
+                    SettingsSectionCard {
+                        SettingsNavigationRow(
+                            label = if (recovery.busy) "Recovering playback…" else "Retry pending playback stops",
+                            description = recovery.message,
+                            onClick = recovery.retry,
+                            enabled = !recovery.busy,
+                        )
+                    }
+                }
+            }
             if (shouldShowDiagnosticsEntry(diagnosticsState)) {
                 item {
                     SettingsSectionCard {
@@ -181,12 +197,6 @@ fun SettingsScreen(
                         )
                     }
                 }
-            }
-
-            if (state.settingsAvailability ==
-                org.prairieserver.prairie.domain.settings.ProfileSettingsController.Availability.SERVER_UPGRADE_REQUIRED
-            ) {
-                item { SettingsUpgradeRequiredNotice() }
             }
 
             item {
@@ -216,6 +226,28 @@ fun SettingsScreen(
                     onResumeRewindSecondsChanged = viewModel::setResumeRewindSeconds,
                     onPassOutThresholdChanged = viewModel::setPassOutThreshold,
                     onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
+                )
+            }
+
+            item {
+                val seekIntervals by viewModel.seekIntervals.state.collectAsState()
+                SeekIntervalSettings(
+                    media = SeekMedia.Video,
+                    state = seekIntervals,
+                    onIntervalSelected = viewModel.seekIntervals::select,
+                    onImportLegacyAudiobook = viewModel.seekIntervals::importLegacyAudiobook,
+                    onRetry = viewModel.seekIntervals::refresh,
+                )
+            }
+
+            item {
+                val seekIntervals by viewModel.seekIntervals.state.collectAsState()
+                SeekIntervalSettings(
+                    media = SeekMedia.Audiobook,
+                    state = seekIntervals,
+                    onIntervalSelected = viewModel.seekIntervals::select,
+                    onImportLegacyAudiobook = viewModel.seekIntervals::importLegacyAudiobook,
+                    onRetry = viewModel.seekIntervals::refresh,
                 )
             }
 
@@ -270,6 +302,27 @@ fun SettingsScreen(
                         onCheckedChange = viewModel::setShowAudiobooks,
                     )
                 }
+            }
+
+            item {
+                SettingsSection(title = "Interface") {
+                    SettingsNavigationRow(
+                        label = "Home Sections",
+                        description = "Choose which Home rows are visible and the order they appear in.",
+                        onClick = { showHomeSectionsEditor = true },
+                    )
+                }
+            }
+
+            item {
+                MediaCardsSettings(
+                    state = state.cardPresentation,
+                    onPresetSelected = viewModel::setCardPreset,
+                    onPosterSizeSelected = viewModel::setCardPosterSize,
+                    onCaptionSelected = viewModel::setCardCaption,
+                    onDeviceOnlyChanged = viewModel::setCardDeviceOnly,
+                    onUseProfileDefault = viewModel::useCardProfileDefault,
+                )
             }
 
             if (state.notificationsAvailable) {
@@ -374,26 +427,9 @@ fun SettingsScreen(
             onDismiss = { showRemoveAllDownloadsConfirm = false },
         )
     }
-}
 
-/**
- * Shown when the connected server predates the canonical settings API.
- *
- * The failure mode this replaces was an empty (or silently non-saving)
- * settings screen: the profile preferences resolve to nothing, so the rows
- * render defaults and an edit goes nowhere with no explanation. Saying so is
- * the whole point — playback keeps working from the device's local defaults,
- * only the profile-wide preferences are unavailable.
- */
-@Composable
-fun SettingsUpgradeRequiredNotice(modifier: Modifier = Modifier) {
-    SettingsSection(title = "Server update needed", modifier = modifier) {
-        SettingsProse(
-            title = "This server is too old for profile settings",
-            body = "Subtitle and metadata preferences are stored by the server, and this one " +
-                "does not support them yet. Playback still works using this device's settings. " +
-                "Ask whoever runs the server to update it.",
-        )
+    if (showHomeSectionsEditor) {
+        HomeSectionsEditor(onDismiss = { showHomeSectionsEditor = false })
     }
 }
 

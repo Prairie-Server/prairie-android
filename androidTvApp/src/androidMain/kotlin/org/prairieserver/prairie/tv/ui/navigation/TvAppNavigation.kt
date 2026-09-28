@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.navigation
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import android.net.Uri
 import android.util.Log
 import androidx.compose.animation.core.tween
@@ -56,16 +57,19 @@ import org.prairieserver.prairie.tv.ui.screens.watchtogether.tvWatchTogetherDest
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.watchtogether.WatchTogetherEntryTarget
 import org.prairieserver.prairie.watchtogether.watchTogetherEntryTarget
+import org.prairieserver.prairie.common.cards.ProvideCardPresentation
 import org.prairieserver.prairie.common.overlays.ProvideCardOverlays
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
+import org.prairieserver.prairie.common.settings.CardPresentationStore
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
-import org.prairieserver.prairie.tv.cast.TvSiloCastReceiver
-import org.prairieserver.prairie.tv.ui.screens.cast.TvSiloCastStandbyView
+import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
+import org.prairieserver.prairie.tv.ui.screens.cast.TvPrairieCastStandbyView
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.common.player.playbackDisplayId
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.qualifier.named
 
@@ -112,10 +116,13 @@ internal fun tvIsAlreadyShowingItemDetail(
     currentSeasonNumber: Int?,
     contentId: String,
     seasonNumber: Int?,
+    currentEpisodeContentId: String? = null,
+    episodeContentId: String? = null,
 ): Boolean =
     currentRoute == TvRoute.ItemDetail.ROUTE &&
         currentContentId == contentId &&
-        currentSeasonNumber == seasonNumber
+        currentSeasonNumber == seasonNumber &&
+        currentEpisodeContentId == episodeContentId
 
 /** Destinations that own an active playback session. */
 private val tvPlayerRoutes = setOf(TvRoute.Player.ROUTE, TvRoute.AudiobookPlayer.ROUTE)
@@ -271,22 +278,28 @@ private fun NavHostController.navigateToTvWatchTogether(
 private fun NavHostController.navigateToTvItemDetail(
     contentId: String,
     seasonNumber: Int? = null,
+    episodeContentId: String? = null,
+    libraryId: Int? = null,
 ) {
     val top = currentBackStackEntry
     if (
+        top?.arguments?.getString("libraryId")?.toIntOrNull() == libraryId &&
         tvIsAlreadyShowingItemDetail(
             currentRoute = top?.destination?.route,
             currentContentId = top?.arguments?.getString(TvRoute.ItemDetail.ARG_CONTENT_ID),
             currentSeasonNumber = top?.arguments
                 ?.getString(TvRoute.ItemDetail.ARG_SEASON_NUMBER)
                 ?.toIntOrNull(),
+            currentEpisodeContentId = top?.arguments
+                ?.getString(TvRoute.ItemDetail.ARG_EPISODE_CONTENT_ID),
             contentId = contentId,
             seasonNumber = seasonNumber,
+            episodeContentId = episodeContentId,
         )
     ) {
         return
     }
-    navigate(TvRoute.ItemDetail(contentId, seasonNumber).route)
+    navigate(TvRoute.ItemDetail(contentId, seasonNumber, episodeContentId, libraryId).route)
 }
 
 /**
@@ -335,9 +348,11 @@ fun TvAppNavigation(
     val authRepository: AuthRepository = koinInject()
     val profileRepository: ProfileRepository = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
+    val cardPresentationStore: CardPresentationStore = koinInject()
+    val seekIntervalStore: org.prairieserver.prairie.common.settings.SeekIntervalStore = koinInject()
     val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
-    val siloCastReceiver: TvSiloCastReceiver = koinInject()
+    val siloCastReceiver: TvPrairieCastReceiver = koinInject()
     val diagnosticsViewModel = koinViewModel<TvDiagnosticsViewModel>()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     val pendingDeepLink: MutableStateFlow<Uri?> =
@@ -349,6 +364,7 @@ fun TvAppNavigation(
             val playback = request.playback
             val destination = TvRoute.Player(
                 contentId = playback.contentId,
+                libraryId = playback.libraryId,
                 fileId = playback.fileId,
                 resumePositionSeconds = if (playback.startFromBeginning) 0.0 else playback.resumePosition,
                 audioTrackIndex = playback.audioTrackIndex,
@@ -443,7 +459,7 @@ fun TvAppNavigation(
             } else {
                 null
             }
-            val arrived = when (uri.host) {
+            val arrived = entry.arguments?.getString("libraryId") == null && when (uri.host) {
                 "item" ->
                     route == TvRoute.ItemDetail.ROUTE &&
                         entry.arguments?.getString(TvRoute.ItemDetail.ARG_CONTENT_ID) == contentId
@@ -547,6 +563,7 @@ fun TvAppNavigation(
     }
 
     ProvideCardOverlays(store = overlayPrefsStore, sessionKey = overlaySessionKey) {
+    ProvideCardPresentation(store = cardPresentationStore, sessionKey = overlaySessionKey) {
     Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
@@ -634,6 +651,9 @@ fun TvAppNavigation(
                     if (destination == TvServerSwitchDestination.Home) {
                         libraryPlaybackPrefsStore.clear()
                         overlayPrefsStore.clear()
+                        cardPresentationStore.clear()
+                        // Not seekIntervalStore.clear(): its identity flow already reset
+                        // it for the new server and is hydrating; clearing would drop that.
                         watchNextSeeder.clear()
                         watchNextSeeder.seedNow()
                         watchNextSeeder.enqueuePeriodic()
@@ -694,6 +714,10 @@ fun TvAppNavigation(
                     // than whatever was last synced.
                     watchNextSeeder.seedNow()
                     watchNextSeeder.enqueuePeriodic()
+                    // The switch-profile paths cleared the seek intervals; the
+                    // identity flow only reloads when the profile id changes, so
+                    // re-selecting the same profile needs this.
+                    scope.launch { seekIntervalStore.hydrateIfNeeded() }
                 },
                 onAddProfile = {
                     navController.navigate(TvRoute.CreateProfile.route) { launchSingleTop = true }
@@ -757,8 +781,18 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
+                onOpenLibraryItemDetail = { contentId, libraryId ->
+                    navController.navigateToTvItemDetail(contentId, libraryId = libraryId)
+                },
                 onOpenItemDetail = { contentId ->
                     navController.navigateToTvItemDetail(contentId)
+                },
+                onOpenItemDetailSelection = { contentId, seasonNumber, episodeContentId ->
+                    navController.navigateToTvItemDetail(
+                        contentId = contentId,
+                        seasonNumber = seasonNumber,
+                        episodeContentId = episodeContentId,
+                    )
                 },
                 onOpenWatchTogether = { room ->
                     navController.navigateToTvWatchTogether(room, lastPlaybackNavigation)
@@ -793,6 +827,8 @@ fun TvAppNavigation(
                         tokenManager.clearTokens()
                         libraryPlaybackPrefsStore.clear()
                         overlayPrefsStore.clear()
+                        cardPresentationStore.clear()
+                        seekIntervalStore.clear()
                         // Drop our Watch Next rows + cancel the periodic refresh so
                         // the launcher doesn't keep showing the signed-out user's
                         // progress.
@@ -818,6 +854,8 @@ fun TvAppNavigation(
                         // switch-profile path.
                         libraryPlaybackPrefsStore.clear()
                         overlayPrefsStore.clear()
+                        cardPresentationStore.clear()
+                        seekIntervalStore.clear()
                         // Clear the previous profile's Watch Next rows before
                         // landing on the picker; the new profile will re-seed
                         // via [onProfileSelected].
@@ -890,23 +928,38 @@ fun TvAppNavigation(
         composable(
             route = TvRoute.ItemDetail.ROUTE,
             arguments = listOf(
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(TvRoute.ItemDetail.ARG_CONTENT_ID) { type = NavType.StringType },
                 navArgument(TvRoute.ItemDetail.ARG_SEASON_NUMBER) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(TvRoute.ItemDetail.ARG_EPISODE_CONTENT_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStack ->
+            val libraryId = backStack.arguments?.getString("libraryId")?.toIntOrNull()
             val contentId = backStack.arguments
                 ?.getString(TvRoute.ItemDetail.ARG_CONTENT_ID)
                 .orEmpty()
             val seasonNumber = backStack.arguments
                 ?.getString(TvRoute.ItemDetail.ARG_SEASON_NUMBER)
                 ?.toIntOrNull()
+            val episodeContentId = backStack.arguments
+                ?.getString(TvRoute.ItemDetail.ARG_EPISODE_CONTENT_ID)
             TvItemDetailScreen(
+                libraryId = libraryId,
                 contentId = contentId,
                 seasonNumber = seasonNumber,
+                initialEpisodeContentId = episodeContentId,
                 // The detail screen's playback selector row writes the chosen
                 // version's fileId into [TvItemDetailViewModel.selectedFileId];
                 // we forward it through the route so the player session
@@ -927,16 +980,16 @@ fun TvAppNavigation(
                             audioTrackIndex = audioTrackIndex,
                             audioPickedThisSession = audioPicked,
                             subtitleSelection = subtitleSelection,
+                            libraryId = libraryId,
                         ),
                         contentId = playContentId,
                         lastPlaybackNavigation = lastPlaybackNavigation,
                     )
                 },
                 onItemDetail = { itemContentId ->
-                    // The helper, not a bare navigate: a DIFFERENT related
-                    // item pushes — which is what makes the return
-                    // restoration reachable — while an exact repeat is
-                    // collapsed by argument, not by destination node.
+                    // Global recommendations can belong to another library, so
+                    // open them unscoped. The helper pushes different items and
+                    // collapses exact repeats, preserving Back restoration.
                     navController.navigateToTvItemDetail(itemContentId)
                 },
                 // Season switching replaces the current detail entry so paging
@@ -947,15 +1000,34 @@ fun TvAppNavigation(
                     // No launchSingleTop: popUpTo is evaluated first, so once
                     // the current page is popped there is nothing left for
                     // single-top to match.
-                    navController.navigate(TvRoute.ItemDetail(itemContentId).route) {
+                    navController.navigate(TvRoute.ItemDetail(itemContentId, libraryId = libraryId).route) {
+                        current?.let { popUpTo(it) { inclusive = true } }
+                    }
+                },
+                onSeriesDetailReplace = canonicalizeSeries@{ seriesContentId, selectedSeason, episodeContentId ->
+                    // Parent resolution is asynchronous. If the viewer backed
+                    // out (or another destination won) while it was running,
+                    // this exiting detail must not replace the new top entry.
+                    if (navController.currentBackStackEntry?.id != backStack.id) {
+                        return@canonicalizeSeries
+                    }
+                    val current = backStack.destination.route
+                    navController.navigate(
+                        TvRoute.ItemDetail(
+                            contentId = seriesContentId,
+                            seasonNumber = selectedSeason,
+                            libraryId = libraryId,
+                            episodeContentId = episodeContentId,
+                        ).route,
+                    ) {
                         current?.let { popUpTo(it) { inclusive = true } }
                     }
                 },
                 onSeriesClick = { seriesId ->
-                    navController.navigateToTvItemDetail(seriesId)
+                    navController.navigateToTvItemDetail(seriesId, libraryId = libraryId)
                 },
                 onSeasonClick = { seriesId, selectedSeason ->
-                    navController.navigateToTvItemDetail(seriesId, selectedSeason)
+                    navController.navigateToTvItemDetail(seriesId, selectedSeason, libraryId = libraryId)
                 },
                 onWatchTogether = { snapshot ->
                     navController.navigateToTvWatchTogether(snapshot, lastPlaybackNavigation)
@@ -1019,6 +1091,11 @@ fun TvAppNavigation(
         composable(
             route = TvRoute.Player.ROUTE,
             arguments = listOf(
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(TvRoute.Player.ARG_CONTENT_ID) { type = NavType.StringType },
                 navArgument(TvRoute.Player.ARG_FILE_ID) {
                     // Keep StringType because the query param is serialized as
@@ -1121,7 +1198,23 @@ fun TvAppNavigation(
                     targetContentId = contentId,
                 )
             }
+            // TvPlayerViewModel starts loading in its initializer, which runs
+            // while TvPlayerScreen's default parameters are evaluated. Bind
+            // the playback display first so the very first capability probe
+            // describes the panel that will show the video.
+            val playerContext = androidx.compose.ui.platform.LocalContext.current
+            val capabilityDetector = koinInject<org.prairieserver.prairie.common.player.PlaybackCapabilityDetector>()
+            // This early binding is superseded when TvPlayerScreen binds its
+            // own during composition. The binding is a RememberObserver, so
+            // Compose releases it on ordinary disposal and on an abandoned
+            // composition alike; the owned release is a no-op once the
+            // screen's binding has taken over.
+            val earlyPlaybackDisplayId = playerContext.playbackDisplayId()
+            remember(earlyPlaybackDisplayId, capabilityDetector) {
+                capabilityDetector.bindPlaybackDisplay(earlyPlaybackDisplayId)
+            }
             TvPlayerScreen(
+                libraryId = backStack.arguments?.getString("libraryId")?.toIntOrNull(),
                 contentId = contentId,
                 preferredFileId = preferredFileId,
                 preferredQuality = preferredQuality,
@@ -1133,23 +1226,6 @@ fun TvAppNavigation(
                 initialSubtitleAutoResolved = subtitleAutoResolved,
                 autoAdvanceCount = autoAdvanceCount,
                 episodeSelectionHandoff = episodeSelectionHandoff,
-                onPlayNext = { nextContentId, nextCount, handoff ->
-                    val handoffNonce = processTvEpisodeSelectionHandoffRegistry.register(
-                        targetContentId = nextContentId,
-                        handoff = handoff,
-                    )
-                    // Replace the current player in the back stack so an
-                    // auto-played chain doesn't pile up episodes behind Back.
-                    navController.navigate(
-                        TvRoute.Player(
-                            contentId = nextContentId,
-                            autoAdvanceCount = nextCount,
-                            episodeSelectionHandoffNonce = handoffNonce,
-                        ).route,
-                    ) {
-                        popUpTo(TvRoute.Player.ROUTE) { inclusive = true }
-                    }
-                },
                 onExit = { navController.popBackStack() },
             )
         }
@@ -1157,6 +1233,11 @@ fun TvAppNavigation(
         composable(
             route = TvRoute.AudiobookPlayer.ROUTE,
             arguments = listOf(
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(TvRoute.AudiobookPlayer.ARG_CONTENT_ID) { type = NavType.StringType },
                 navArgument(TvRoute.AudiobookPlayer.ARG_FILE_ID) {
                     // Query param serialized as a string and may be absent; the
@@ -1241,7 +1322,7 @@ fun TvAppNavigation(
                 title = title,
                 libraryType = libraryType,
                 onItemClick = { contentId ->
-                    navController.navigateToTvItemDetail(contentId)
+                    navController.navigateToTvItemDetail(contentId, libraryId = libraryId)
                 },
                 onBack = { navController.popBackStack() },
             )
@@ -1273,8 +1354,14 @@ fun TvAppNavigation(
             )
         }
     }
+    val membershipRepository: org.prairieserver.prairie.repository.PersonalDataRepository = koinInject()
+    org.prairieserver.prairie.common.ui.MembershipStatusBanner(
+        membershipRepository.memberships,
+        Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth(),
+    )
+
     siloCastStandby?.let { state ->
-        TvSiloCastStandbyView(
+        TvPrairieCastStandbyView(
             state = state,
             onDisconnect = siloCastReceiver::disconnectRemoteControl,
         )
@@ -1302,6 +1389,7 @@ fun TvAppNavigation(
             onDontSend = { diagnosticsViewModel.declinePrompt(prompt) },
             allowAlwaysSend = diagnosticsState.allowsAutomaticUpload,
         )
+    }
     }
     }
     }

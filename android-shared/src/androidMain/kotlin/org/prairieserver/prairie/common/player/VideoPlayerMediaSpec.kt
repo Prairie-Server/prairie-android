@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.common.player
 
+import androidx.media3.common.Timeline
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import org.prairieserver.prairie.model.playback.PlayMethod
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
 import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
@@ -13,29 +16,7 @@ import org.prairieserver.prairie.playback.isBitmapSubtitleCodecFamily
 import org.prairieserver.prairie.playback.isClientMountableBitmapCodecFamily
 import org.prairieserver.prairie.playback.subtitleLabelIndicatesHearingImpaired
 
-/**
- * Subtitle artifacts attached to one Media3 media mount.
- *
- * Neutral v3 keeps the complete server inventory in UI state so the picker can
- * display every choice. That inventory is not a preload list: attaching every
- * inventory URL to the MediaItem makes Media3 open every sidecar eagerly and a
- * slow duplicate request can block video preparation. The active plan owns the
- * server artifact, while [subtitleIdentity] owns any client-local artifact.
- * Exactly one external artifact may be attached: preloading every downloaded
- * row recreates the same fan-out under different indexes.
- *
- * A missing plan is the legacy/offline path, where the supplied list remains
- * the media-mount contract.
- *
- * [preferMuxedTracks]: protocol v3 types EVERY non-burn-in inventory row
- * `delivery = sidecar`, including a row that merely describes a track muxed
- * into the direct-play stream. Attaching the server-extracted artifact for such
- * a row makes Media3 fetch and parse a whole SUP/SRT the stream already carries
- * — the player stalls in BUFFERING while the sidecar loads and the cue backlog
- * paints past the resume point. A caller whose selection path can resolve a
- * server-row identity onto the muxed Media3 track (the TV mount latch does)
- * passes true so that row mounts nothing and the in-stream track is used.
- */
+/** Mounts only the selected artifact. Explicit embedded decisions mount none. */
 fun subtitlesForVideoMediaMount(
     subtitles: List<PlayerSubtitleInfo>,
     playbackPlan: PlaybackExecutionPlan?,
@@ -84,6 +65,8 @@ fun subtitlesForVideoMediaMount(
  */
 internal fun PlayerSubtitleInfo.isMuxedInDirectPlayStream(plan: PlaybackExecutionPlan): Boolean {
     if (plan.delivery != PlaybackDelivery.ORIGINAL_HTTP) return false
+    // Explicit server sidecars remain sidecars; only a selected embedded decision bypasses extraction.
+    if (serverDelivery != null) return nativeContainerTrackId != null
     val embedded = catalogSource?.trim()?.equals("embedded", ignoreCase = true) == true ||
         (catalogSource == null && source?.trim()?.equals("embedded", ignoreCase = true) == true)
     if (!embedded) return false
@@ -143,6 +126,8 @@ data class VideoPlayerMediaSpec(
      * media-session identity and playback diagnostics.
      */
     val contentId: String? = null,
+    /** Immutable identity used to correlate asynchronous Media3 callbacks with this mount. */
+    val mountToken: Long? = null,
     val streamUrl: String,
     val playMethod: PlayMethod,
     val delivery: PlaybackDelivery? = null,
@@ -161,6 +146,12 @@ data class VideoPlayerMediaSpec(
     val expectedColorRange: String? = null,
     val transformations: List<String> = emptyList(),
     val runtimeCorrections: List<String> = emptyList(),
+    /**
+     * Delivery-scoped validated claims the plan relies on
+     * (for example [org.prairieserver.prairie.model.playback.CLIENT_DV8_BASE_LAYER_FALLBACK_V1_CLAIM]),
+     * derived from the plan's decision reason. Drives renderer decoder routing.
+     */
+    val activeClaims: List<String> = emptyList(),
 ) {
     val startPositionMs: Long
         get() {
@@ -173,4 +164,12 @@ data class VideoPlayerMediaSpec(
             val seconds = durationSeconds.takeIf { it.isFinite() && it > 0.0 } ?: return null
             return (seconds * 1000.0).toLong().coerceAtLeast(1L)
         }
+}
+
+/** Returns the mount identity carried by the media item that produced this event. */
+@UnstableApi
+fun AnalyticsListener.EventTime.videoMountToken(): Long? {
+    if (windowIndex < 0 || windowIndex >= timeline.windowCount) return null
+    val mediaItem = timeline.getWindow(windowIndex, Timeline.Window()).mediaItem
+    return (mediaItem.localConfiguration?.tag as? PrairieMediaTransformTag)?.mountToken
 }

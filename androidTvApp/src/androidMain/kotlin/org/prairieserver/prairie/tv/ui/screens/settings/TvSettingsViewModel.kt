@@ -3,9 +3,16 @@ package org.prairieserver.prairie.tv.ui.screens.settings
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.common.settings.CardPresentationSource
+import org.prairieserver.prairie.common.settings.CardPresentationStore
+import org.prairieserver.prairie.common.settings.CardPresentationSupport
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.common.settings.SeekIntervalSettingsModel
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.common.player.AudiobookSettingsStore
+import org.prairieserver.prairie.model.settings.CardPresentation
 import org.prairieserver.prairie.model.auth.User
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
@@ -52,10 +59,25 @@ class TvSettingsViewModel(
     private val playerSettingsStore: PlayerSettingsStore,
     private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
     private val overlayPrefsStore: OverlayPrefsStore,
+    private val cardPresentationStore: CardPresentationStore,
     private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
     private val profileSettings: ProfileSettingsController,
     private val tvLibraryScopeStore: org.prairieserver.prairie.tv.data.preferences.TvLibraryScopeStore? = null,
+    private val seekIntervalStore: SeekIntervalStore? = null,
+    audiobookSettingsStore: AudiobookSettingsStore? = null,
 ) : ViewModel() {
+
+    /**
+     * Profile-wide video and audiobook skip intervals (settings revision 9).
+     * Null only in hand-built instances without the player stores.
+     */
+    val seekIntervals: SeekIntervalSettingsModel? =
+        if (seekIntervalStore != null && audiobookSettingsStore != null) {
+            SeekIntervalSettingsModel(seekIntervalStore, audiobookSettingsStore, viewModelScope)
+                .also { it.refresh() }
+        } else {
+            null
+        }
 
     enum class NavAction { SIGNED_OUT, SWITCH_PROFILE }
 
@@ -68,9 +90,8 @@ class TvSettingsViewModel(
         val profileAvatar: String? = null,
         val serverUrl: String = "",
         val serverName: String = "",
-        // Whether this server serves the canonical settings API at all. When
-        // it reports SERVER_UPGRADE_REQUIRED the pane explains that instead of
-        // showing rows whose edits go nowhere; playback is unaffected.
+        // Whether the canonical settings probe succeeded; playback is
+        // unaffected either way.
         val settingsAvailability: ProfileSettingsController.Availability =
             ProfileSettingsController.Availability.UNKNOWN,
         // Quality is two orthogonal values behind one picker:
@@ -101,6 +122,7 @@ class TvSettingsViewModel(
         val showAudiobooksTab: Boolean = false,
         val subtitleMatchesDevice: Boolean = false,
         val dvProfile7HDR10Fallback: Boolean = true,
+        val forceHdrPassthrough: Boolean = false,
         val autoSkipCredits: Boolean = false,
         // Seconds to skip back on resume (0 = off); consecutive auto-advances
         // before the "Still watching?" prompt (0 = off).
@@ -109,6 +131,12 @@ class TvSettingsViewModel(
         // Seconds before the end of an episode to surface the Up-Next prompt
         // (0 = at the very end). Mirrors tvOS `nextUpPromptSeconds`.
         val nextUpPromptSeconds: Int = 10,
+        // Cards & Posters (`ui.card_presentation`), mirrored from
+        // CardPresentationStore. Source drives the "Only This Device" toggle
+        // and the "Use Profile Default" action; support gates the whole group.
+        val cardPresentation: CardPresentation = CardPresentation.DEFAULT,
+        val cardPresentationSource: CardPresentationSource = CardPresentationSource.Unknown,
+        val cardPresentationSupport: CardPresentationSupport = CardPresentationSupport.Unknown,
         val navAction: NavAction? = null,
     )
 
@@ -119,6 +147,7 @@ class TvSettingsViewModel(
         loadUser()
         loadSettings()
         observePlayerSettings()
+        observeCardPresentation()
     }
 
     /**
@@ -204,18 +233,18 @@ class TvSettingsViewModel(
             // mirrors them into _uiState.
             playerSettingsStore.refreshFromServer()
 
+            // Idempotent — the nav-level ProvideCardPresentation usually got
+            // here first; this covers a cold open straight into Settings.
+            cardPresentationStore.hydrateIfNeeded()
+
             loadProfileSettings()
         }
     }
 
     /**
      * Resolves the profile-scoped preferences through the canonical settings
-     * API, and records whether this server speaks it at all.
-     *
-     * On [ProfileSettingsController.Availability.SERVER_UPGRADE_REQUIRED] the
-     * values are left alone and the Subtitles pane explains why — rendering
-     * rows whose edits silently go nowhere is the failure this replaces.
-     * Playback keeps running from the device-scoped store.
+     * API. When the probe fails the values are left alone. Playback keeps
+     * running from the device-scoped store.
      */
     fun loadProfileSettings() {
         viewModelScope.launch {
@@ -359,6 +388,11 @@ class TvSettingsViewModel(
             }
         }
         viewModelScope.launch {
+            playerSettingsStore.forceHdrPassthroughFlow.collect { value ->
+                _uiState.update { it.copy(forceHdrPassthrough = value) }
+            }
+        }
+        viewModelScope.launch {
             playerSettingsStore.subtitleMatchesDeviceFlow.collect { value ->
                 _uiState.update { it.copy(subtitleMatchesDevice = value) }
             }
@@ -375,6 +409,50 @@ class TvSettingsViewModel(
                 _uiState.update { it.copy(effectiveSubtitleAppearance = appearance) }
             }
         }
+    }
+
+    /** Mirror the card-presentation store into UI state (single source of truth). */
+    private fun observeCardPresentation() {
+        viewModelScope.launch {
+            cardPresentationStore.state.collect { cardState ->
+                _uiState.update {
+                    it.copy(
+                        cardPresentation = cardState.presentation,
+                        cardPresentationSource = cardState.source,
+                        cardPresentationSupport = cardState.support,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Apply a new card presentation. The store is optimistic (cards resize
+     * immediately through LocalCardPresentation) and rolls back on failure.
+     * While the "Only This Device" override is active the edit stays at
+     * `profile_device`; otherwise it roams at `profile_client`.
+     */
+    fun onCardPresentationSelected(presentation: CardPresentation) {
+        val deviceOnly =
+            _uiState.value.cardPresentationSource == CardPresentationSource.DeviceOverride
+        cardPresentationStore.set(presentation, deviceOnly = deviceOnly)
+    }
+
+    /**
+     * "Only This Device": ON copies the current value to `profile_device`;
+     * OFF deletes that row so resolution falls back to the family value.
+     */
+    fun onCardPresentationDeviceOnlyChanged(enabled: Boolean) {
+        if (enabled) {
+            cardPresentationStore.set(_uiState.value.cardPresentation, deviceOnly = true)
+        } else {
+            viewModelScope.launch { cardPresentationStore.clearDeviceOverride() }
+        }
+    }
+
+    /** Drop the `profile_client` value so this TV follows the profile default. */
+    fun onUseProfileCardDefault() {
+        viewModelScope.launch { cardPresentationStore.useProfileDefault() }
     }
 
     /**
@@ -568,6 +646,10 @@ class TvSettingsViewModel(
         viewModelScope.launch { playerSettingsStore.setDvProfile7HDR10Fallback(value) }
     }
 
+    fun onForceHdrPassthroughChanged(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setForceHdrPassthrough(value) }
+    }
+
     fun onIntroSkipModeChanged(value: IntroSkipMode) {
         viewModelScope.launch { playerSettingsStore.setIntroSkipMode(value) }
     }
@@ -612,6 +694,8 @@ class TvSettingsViewModel(
             // `PlaybackPrefsStore.clear()` in the sign-out path.
             libraryPlaybackPrefsStore.clear()
             overlayPrefsStore.clear()
+            cardPresentationStore.clear()
+            seekIntervalStore?.clear()
             _uiState.update { it.copy(navAction = NavAction.SIGNED_OUT) }
         }
     }

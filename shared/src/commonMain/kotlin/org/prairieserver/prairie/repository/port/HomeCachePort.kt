@@ -24,6 +24,12 @@ data class HomeCacheWriteLease(val identityGeneration: Long)
  * good cached home.
  */
 interface HomeCachePort {
+    /** Startup may fill an empty scoped cache, never replace a screen result. */
+    suspend fun cacheHomeV2IfAbsent(sections: List<ResolvedSection>, owner: org.prairieserver.prairie.network.AuthScopeSnapshot, stillCurrent: () -> Boolean = { true }) {}
+
+    suspend fun cacheHomeV2(sections: List<ResolvedSection>, owner: org.prairieserver.prairie.network.AuthScopeSnapshot, stillCurrent: () -> Boolean = { true }) {}
+    suspend fun getCachedHomeV2(owner: org.prairieserver.prairie.network.AuthScopeSnapshot): HomeCacheSnapshot? = null
+
     suspend fun cacheHome(sections: List<ResolvedSection>) {}
     suspend fun cacheHome(sections: List<ResolvedSection>, lease: HomeCacheWriteLease) {
         cacheHome(sections)

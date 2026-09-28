@@ -168,10 +168,7 @@ open class ProfileRepository(
      */
     suspend fun identityScopeUnchanged(expected: AuthScopeSnapshot?): Boolean {
         if (expected == null) return true
-        val current = tokenManager.snapshotCurrentScope() ?: return false
-        return current.serverId == expected.serverId &&
-            current.identityGeneration == expected.identityGeneration &&
-            current.credentialEpoch == expected.credentialEpoch
+        return expected.isSameIdentityAs(tokenManager.snapshotCurrentScope())
     }
 
     /**
@@ -238,27 +235,6 @@ open class ProfileRepository(
             else -> return null
         }
         return profiles.firstOrNull { it.id == activeId }
-    }
-
-    suspend fun getActiveProfileResult(): ApiResult<Profile> {
-        val activeId = getActiveProfileId()
-            ?: return ApiResult.Error(
-                code = 400,
-                error = "bad_request",
-                message = "No active profile selected",
-            )
-        return when (val result = listProfiles()) {
-            is ApiResult.Success -> {
-                result.data.firstOrNull { it.id == activeId }?.let { ApiResult.Success(it) }
-                    ?: ApiResult.Error(
-                        code = 404,
-                        error = "not_found",
-                        message = "Active profile not found",
-                    )
-            }
-            is ApiResult.Error -> result
-            is ApiResult.NetworkError -> result
-        }
     }
 
     /** Clears the active profile selection and its token. */

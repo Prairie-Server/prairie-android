@@ -1,11 +1,10 @@
 package org.prairieserver.prairie.di
 
-import org.prairieserver.prairie.domain.GetHomeDataUseCase
-import org.prairieserver.prairie.domain.ManagePlaybackUseCase
 import org.prairieserver.prairie.domain.MediaActionsCoordinator
 import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.repository.LiveTvRepository
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.OnboardingRepository
 import org.prairieserver.prairie.repository.CalendarRepository
@@ -27,6 +26,7 @@ import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.SettingsRepository
 import org.prairieserver.prairie.repository.WatchTogetherRepository
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.api.PlaybackApi
 import org.prairieserver.prairie.watchtogether.RoomSession
 import org.prairieserver.prairie.watchtogether.WatchTogetherEntryGateway
 import org.koin.dsl.module
@@ -56,6 +56,10 @@ val repositoryModule = module {
             serverRegistry = getOrNull(),
             healthApi = getOrNull(),
             brandingApi = getOrNull(),
+            apiV2Probe = getOrNull(),
+            // Owns the post-switch display-name refresh so a server-list
+            // spinner never waits on branding/health.
+            backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
         )
     }
     single { OnboardingRepository(get()) }
@@ -65,22 +69,22 @@ val repositoryModule = module {
             catalogApi = get(),
             catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
                 ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
-            identityTransitions = get(),
         )
     }
     single { CalendarRepository(get()) }
-    single { PlaybackRepository(get()) }
+    single { PlaybackRepository(get(), getOrNull<PlaybackApi>()) }
     // `getOrNull()` picks up the Room-backed ports when the Android platform
     // module binds them (Track B local-first writes + offline read cache); falls
     // back to the network-only no-op ports in commonMain tests / when unbound.
     single {
         PersonalDataRepository(
             personalDataApi = get(),
+            membershipPort = get(),
+            identityTransitions = get(),
             userItemStatePort = getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>()
                 ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
             catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
                 ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
-            identityTransitions = get(),
         )
     }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get(), get()) }
@@ -90,7 +94,6 @@ val repositoryModule = module {
             sectionApi = get(),
             catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
                 ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
-            identityTransitions = get(),
         )
     }
     single { RecommendationRepository(get()) }
@@ -98,6 +101,7 @@ val repositoryModule = module {
     single { RequestsFeatureStore(get()) }
     single { LiveTvRepository(get()) }
     single { LiveTvFeatureStore(get()) }
+    single { ActiveProfileStore(get()) }
     single { org.prairieserver.prairie.repository.MetadataAiRepository(get()) }
     single { org.prairieserver.prairie.model.feature.MetadataAiFeatureStore(get()) }
     single { org.prairieserver.prairie.repository.HomeRealtimeCoordinator(get(), get()) }
@@ -106,9 +110,9 @@ val repositoryModule = module {
     // one platform cannot grow a behavior the other lacks.
     single { org.prairieserver.prairie.domain.settings.ProfileSettingsController(get()) }
     single { LibraryPlaybackPrefsRepository(get()) }
-    single { DownloadsRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.DownloadDeletionPort>() ?: org.prairieserver.prairie.repository.port.NoOpDownloadDeletionPort) }
-    single { EbookReaderRepository(get()) }
-    single { SubtitlesRepository(get()) }
+    single { DownloadsRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.DownloadDeletionPort>() ?: org.prairieserver.prairie.repository.port.NoOpDownloadDeletionPort, get(), get(), get()) }
+    single { EbookReaderRepository(get(), get()) }
+    single { SubtitlesRepository(get(), get()) }
     single { PushRegistrationRepository(get()) }
 
     // REST-backed inbox state plus a realtime factory that builds the default
@@ -117,10 +121,10 @@ val repositoryModule = module {
     single {
         NotificationsRepository(
             api = get(),
+            tokens = get(), authorities = getOrNull(), checkpoints = getOrNull(), identityTransitions = get(),
             realtimeFactory = {
                 org.prairieserver.prairie.network.DefaultNotificationsRealtimeClient(
-                    client = get(),
-                    api = get(),
+                    socket = get(),
                 )
             },
         )
@@ -128,9 +132,9 @@ val repositoryModule = module {
 
     // One room's snapshot/suggestions state + WS lifecycle. The realtime factory
     // builds the per-room socket client from the shared HttpClient + TokenManager.
-    // Access auth is supplied by the same-origin Silo auth plugin; the room/profile
-    // query fields are a residual server contract. Lazy so a socket is only minted
-    // when connect() runs.
+    // Each connect mints a single-use v2 room ticket and upgrades with it in the
+    // subprotocol; no credential travels in the URL. Lazy so a socket is only
+    // minted when connect() runs.
     single {
         val tokenManager: TokenManager = get()
         WatchTogetherRepository(
@@ -157,7 +161,7 @@ val repositoryModule = module {
     }
 
     // Per-session playback control socket (admin remote control). Parallel to
-    // the watch-together realtime client — same HttpClient + query-param auth.
+    // the watch-together realtime client; v2 uses a single-use owner-bound ticket.
     // FACTORY, not single: the client holds one mutable socket session, so each
     // player-screen controller must get its own instance (mirrors how the WT
     // repository mints a fresh client per connect) — a shared singleton would
@@ -166,11 +170,11 @@ val repositoryModule = module {
         org.prairieserver.prairie.network.DefaultPlaybackRealtimeClient(
             client = get(),
             tokenManager = get(),
+            gate = get(),
+            ownerProvider = get<PlaybackRepository>()::controlOwner,
         )
     }
 
     // Domain use cases
-    single { GetHomeDataUseCase(get(), get()) }
-    single { ManagePlaybackUseCase(get(), get()) }
     single { MediaActionsCoordinator(get()) }
 }

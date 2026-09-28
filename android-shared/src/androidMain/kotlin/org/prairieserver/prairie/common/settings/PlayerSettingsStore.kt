@@ -62,6 +62,9 @@ interface PlayerSettingsStore {
     val matchContentFrameRateFlow: Flow<Boolean>
     val pictureInPictureEnabledFlow: Flow<Boolean>
 
+    /** See [org.prairieserver.prairie.model.settings.PlaybackSettingsKeys.ForceHdrPassthrough]. */
+    val forceHdrPassthroughFlow: Flow<Boolean>
+
     /**
      * How far to expand video whose black bars are encoded into the picture
      * (a 2.39:1 film inside a 16:9 frame) — see [LetterboxExpansion].
@@ -143,6 +146,7 @@ interface PlayerSettingsStore {
     suspend fun setDolbyVisionEnabled(value: Boolean)
     suspend fun setMatchContentFrameRate(value: Boolean)
     suspend fun setPictureInPictureEnabled(value: Boolean)
+    suspend fun setForceHdrPassthrough(value: Boolean)
     suspend fun setLetterboxExpansion(value: String) = Unit
     suspend fun setDownloadsWifiOnly(value: Boolean)
     suspend fun setKeepWatchedDownloads(value: Boolean)
@@ -188,7 +192,7 @@ interface PlayerSettingsStore {
     suspend fun flushProjectedSubtitleAppearance()
 
     /**
-     * Pull every device-scoped setting from `/api/v1/settings/effective`
+     * Pull every device-scoped setting from `/api/v2/settings/values/effective`
      * and write the resolved values into the local DataStore without
      * round-tripping them back to the server. Mirrors iOS
      * `PlayerSettings.refreshFromServer()`. Safe to call repeatedly
@@ -230,6 +234,12 @@ interface PlayerSettingsStore {
      * sure settings the user just toggled survive a backgrounding /
      * process death window.
      */
+    /** Import only under original authority; true means all writes were acknowledged. */
+    suspend fun importLegacyDeviceSettings(
+        authority: org.prairieserver.prairie.network.AuthScopeSnapshot,
+        values: Map<String, String>,
+    ): Boolean = false
+
     suspend fun flushPendingDeviceSettings()
 }
 

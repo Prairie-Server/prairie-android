@@ -2,9 +2,9 @@ package org.prairieserver.prairie.android.ui.screens.cast
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,17 +24,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.GraphicEq
@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +88,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.android.ui.components.SeekIntervalIcon
+import org.prairieserver.prairie.android.ui.components.rememberVideoSeekIntervals
+import org.prairieserver.prairie.model.settings.SeekIntervalPair
 import org.prairieserver.prairie.android.R
 import org.prairieserver.prairie.android.cast.RemoteControlBatteryOptimization
 import org.prairieserver.prairie.android.cast.PrairieCastController
@@ -157,9 +161,12 @@ fun PrairieCastRemoteScreen(
 
         Column(modifier = Modifier.fillMaxSize()) {
             RemoteTopBar(
+                playback = playback,
                 onMinimize = onBack,
                 onChooseTv = { showTargetPicker = true },
                 onStopPlayback = { controller.stopPlayback() },
+                onSetVideoGravity = controller::setVideoGravity,
+                onSetHdrEnabled = controller::setHdrEnabled,
                 onDisconnect = {
                     controller.disconnect()
                     onBack()
@@ -170,7 +177,10 @@ fun PrairieCastRemoteScreen(
                 },
             )
 
-            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
                 when {
                     state.isReconnecting -> RemoteStatus(title = "Reconnecting…", showSpinner = true)
                     playback == null -> RemoteConnecting(
@@ -265,14 +275,18 @@ private fun RemoteArtworkBackground(urlString: String?) {
 
 @Composable
 private fun RemoteTopBar(
+    playback: PrairieCastPlaybackState?,
     onMinimize: () -> Unit,
     onChooseTv: () -> Unit,
     onStopPlayback: () -> Unit,
+    onSetVideoGravity: (String) -> Unit,
+    onSetHdrEnabled: (Boolean) -> Unit,
     onDisconnect: () -> Unit,
     showBatterySettings: Boolean,
     onBatterySettings: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var aspectMenuExpanded by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -313,6 +327,38 @@ private fun RemoteTopBar(
                         onStopPlayback()
                     },
                 )
+                if (playback?.supportsVideoGravity == true) {
+                    DropdownMenuItem(
+                        text = { Text("Aspect Ratio") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.AspectRatio, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            aspectMenuExpanded = true
+                        },
+                    )
+                }
+                if (playback?.supportsHDRToggle == true) {
+                    DropdownMenuItem(
+                        text = { Text("HDR") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.AspectRatio, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            if (playback.hdrEnabled) {
+                                Icon(Icons.Filled.Check, contentDescription = "Enabled")
+                            }
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onSetHdrEnabled(!playback.hdrEnabled)
+                        },
+                    )
+                }
                 if (showBatterySettings) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.remote_battery_settings)) },
@@ -340,6 +386,40 @@ private fun RemoteTopBar(
                         onDisconnect()
                     },
                 )
+            }
+            DropdownMenu(
+                expanded = aspectMenuExpanded && playback?.supportsVideoGravity == true,
+                onDismissRequest = { aspectMenuExpanded = false },
+            ) {
+                Text(
+                    "Aspect Ratio",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+                listOf("fit" to "Fit", "fill" to "Fill", "stretch" to "Stretch")
+                    .forEach { (id, label) ->
+                        val selected = playback?.videoGravity == id ||
+                            (id == "fill" && playback?.videoGravity in listOf("zoom", "crop"))
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            leadingIcon = {
+                                if (selected) {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = "Selected",
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.size(18.dp))
+                                }
+                            },
+                            onClick = {
+                                aspectMenuExpanded = false
+                                onSetVideoGravity(id)
+                            },
+                        )
+                    }
             }
         }
     }
@@ -450,93 +530,116 @@ private fun RemoteNowPlaying(
         }
     }
 
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp)
-            .navigationBarsPadding()
-            .padding(bottom = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .navigationBarsPadding(),
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        // Portrait phones use Apple's flexible artwork region. Very short
+        // windows and enlarged text retain a vertical-scroll fallback instead
+        // of clipping transport or accessibility-sized labels.
+        val useScrollableLayout = maxHeight < 520.dp || LocalDensity.current.fontScale > 1.2f
+        val contentModifier = if (useScrollableLayout) {
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+        } else {
+            Modifier.fillMaxSize()
+        }
 
-        RemotePoster(posterUrl = posterUrl, posterThumbhash = posterThumbhash)
+        Column(
+            modifier = contentModifier
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = if (useScrollableLayout) {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(vertical = 12.dp)
+                },
+            ) {
+                RemotePoster(posterUrl = posterUrl, posterThumbhash = posterThumbhash)
+            }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            playback.title.ifEmpty { "Loading" },
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-            color = RemoteOnSurface,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        playback.subtitle?.takeIf { it.isNotEmpty() }?.let {
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = RemoteSecondary,
+                playback.title.ifEmpty { "Loading" },
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = RemoteOnSurface,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-
-        if (!targetName.isNullOrEmpty()) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(RemoteChipFill)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Icon(
-                    Icons.Outlined.SettingsRemote,
-                    contentDescription = null,
-                    tint = RemoteSecondary,
-                    modifier = Modifier.size(13.dp),
-                )
+            playback.subtitle?.takeIf { it.isNotEmpty() }?.let {
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "Playing on $targetName",
-                    style = MaterialTheme.typography.labelMedium,
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = RemoteSecondary,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (!targetName.isNullOrEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(RemoteChipFill)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.SettingsRemote,
+                        contentDescription = null,
+                        tint = RemoteSecondary,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Text(
+                        "Playing on $targetName",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = RemoteSecondary,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            RemoteScrubber(playback = playback, clockTick = clockTick, controller = controller)
+
+            Spacer(modifier = Modifier.height(20.dp))
+            RemoteTransport(playback = playback, clockTick = clockTick, controller = controller)
+
+            Spacer(modifier = Modifier.height(20.dp))
+            RemoteVolumeRow(playback = playback, controller = controller)
+
+            Spacer(modifier = Modifier.height(20.dp))
+            RemoteSecondaryControls(playback = playback, controller = controller)
+
+            if (!error.isNullOrEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RemoteOnSurface,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(RemoteError.copy(alpha = 0.9f))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(22.dp))
-        RemoteScrubber(playback = playback, clockTick = clockTick, controller = controller)
-
-        Spacer(modifier = Modifier.height(18.dp))
-        RemoteTransport(playback = playback, clockTick = clockTick, controller = controller)
-
-        Spacer(modifier = Modifier.height(18.dp))
-        RemoteVolumeRow(playback = playback, controller = controller)
-
-        Spacer(modifier = Modifier.height(20.dp))
-        RemoteSecondaryControls(playback = playback, controller = controller)
-
-        if (!error.isNullOrEmpty()) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                error,
-                style = MaterialTheme.typography.bodySmall,
-                color = RemoteOnSurface,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(RemoteError.copy(alpha = 0.9f))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -620,14 +723,30 @@ private fun RemoteTransport(
     controller: PrairieCastController,
 ) {
     @Suppress("UNUSED_EXPRESSION") clockTick
+    // Profile-wide video intervals; 10s back / 30s forward on older servers.
+    val intervals = rememberVideoSeekIntervals(SeekIntervalPair(10, 30))
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
+        horizontalArrangement = if (playback.hasNextEpisode) {
+            Arrangement.SpaceBetween
+        } else {
+            Arrangement.spacedBy(28.dp)
+        },
+        modifier = if (playback.hasNextEpisode) Modifier.fillMaxWidth() else Modifier,
     ) {
-        IconButton(onClick = { controller.seek((controller.displayTime() - 10.0).coerceAtLeast(0.0)) }) {
-            Icon(
-                Icons.Filled.Replay10,
-                contentDescription = "Back 10 seconds",
+        if (playback.hasNextEpisode) {
+            // Balance the trailing Next button so the core transport remains
+            // centered instead of shifting left whenever an episode follows.
+            Spacer(modifier = Modifier.size(48.dp))
+        }
+
+        IconButton(onClick = {
+            controller.seek((controller.displayTime() - intervals.backSeconds).coerceAtLeast(0.0))
+        }) {
+            SeekIntervalIcon(
+                forward = false,
+                seconds = intervals.backSeconds,
+                contentDescription = "Back ${intervals.backSeconds} seconds",
                 tint = RemoteOnSurface,
                 modifier = Modifier.size(34.dp),
             )
@@ -659,12 +778,14 @@ private fun RemoteTransport(
 
         IconButton(onClick = {
             val base = controller.displayTime()
-            val target = if (playback.duration > 0.0) (base + 30.0).coerceAtMost(playback.duration) else base + 30.0
+            val step = intervals.forwardSeconds.toDouble()
+            val target = if (playback.duration > 0.0) (base + step).coerceAtMost(playback.duration) else base + step
             controller.seek(target)
         }) {
-            Icon(
-                Icons.Filled.Forward30,
-                contentDescription = "Forward 30 seconds",
+            SeekIntervalIcon(
+                forward = true,
+                seconds = intervals.forwardSeconds,
+                contentDescription = "Forward ${intervals.forwardSeconds} seconds",
                 tint = RemoteOnSurface,
                 modifier = Modifier.size(34.dp),
             )
@@ -693,12 +814,18 @@ private fun RemoteVolumeRow(
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier
+            .widthIn(max = 280.dp)
+            .fillMaxWidth(),
     ) {
         IconButton(onClick = { controller.setMuted(!playback.isMuted) }) {
             Icon(
-                if (playback.isMuted || playback.volume <= 0.001) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                if (playback.isMuted || playback.volume <= 0.001) {
+                    Icons.AutoMirrored.Filled.VolumeOff
+                } else {
+                    Icons.AutoMirrored.Filled.VolumeDown
+                },
                 contentDescription = if (playback.isMuted) "Unmute" else "Mute",
                 tint = RemoteOnSurface,
             )
@@ -713,6 +840,17 @@ private fun RemoteVolumeRow(
             colors = remoteSliderColors(),
             modifier = Modifier.weight(1f),
         )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(width = 28.dp, height = 48.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.VolumeUp,
+                contentDescription = null,
+                tint = RemoteOnSurface.copy(alpha = 0.55f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -742,35 +880,8 @@ private fun RemoteSecondaryControls(
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Top,
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        if (playback.audioTracks.isNotEmpty()) {
-            RemoteChipMenu(
-                icon = Icons.Outlined.GraphicEq,
-                caption = "Audio",
-                entries = playback.audioTracks.map { track ->
-                    MenuEntry(
-                        label = track.title,
-                        selected = playback.selectedAudioTrackId == track.trackId,
-                        onClick = { controller.selectAudioTrack(track.trackId) },
-                    )
-                },
-            )
-        }
-
-        val hasSubtitleControls = playback.subtitleTracks.isNotEmpty() ||
-            playback.supportsSubtitleDelay == true ||
-            playback.supportsSubtitlePosition == true
-        if (hasSubtitleControls) {
-            RemoteChipMenu(
-                icon = Icons.Outlined.ClosedCaption,
-                caption = "Subtitles",
-                entries = subtitleMenuEntries(playback, controller),
-            )
-        }
-
         if (playback.qualityOptions.isNotEmpty()) {
             RemoteChipMenu(
                 icon = Icons.Outlined.Tune,
@@ -783,6 +894,34 @@ private fun RemoteSecondaryControls(
                         onClick = { controller.selectQuality(option.id) },
                     )
                 },
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        if (playback.audioTracks.isNotEmpty()) {
+            RemoteChipMenu(
+                icon = Icons.Outlined.GraphicEq,
+                caption = "Audio",
+                entries = playback.audioTracks.map { track ->
+                    MenuEntry(
+                        label = track.title,
+                        selected = playback.selectedAudioTrackId == track.trackId,
+                        onClick = { controller.selectAudioTrack(track.trackId) },
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        val hasSubtitleControls = playback.subtitleTracks.isNotEmpty() ||
+            playback.supportsSubtitleDelay == true ||
+            playback.supportsSubtitlePosition == true
+        if (hasSubtitleControls) {
+            RemoteChipMenu(
+                icon = Icons.Outlined.ClosedCaption,
+                caption = "Subtitles",
+                entries = subtitleMenuEntries(playback, controller),
+                modifier = Modifier.weight(1f),
             )
         }
 
@@ -796,15 +935,8 @@ private fun RemoteSecondaryControls(
                     onClick = { controller.setPlaybackSpeed(speed) },
                 )
             },
+            modifier = Modifier.weight(1f),
         )
-
-        if (playback.supportsVideoGravity || playback.supportsHDRToggle) {
-            RemoteChipMenu(
-                icon = Icons.Outlined.AspectRatio,
-                caption = if (playback.supportsVideoGravity) "Aspect" else "HDR",
-                entries = displayMenuEntries(playback, controller),
-            )
-        }
     }
 }
 
@@ -861,53 +993,24 @@ private fun subtitleMenuEntries(
     }
 }
 
-private fun displayMenuEntries(
-    playback: PrairieCastPlaybackState,
-    controller: PrairieCastController,
-): List<MenuEntry> = buildList {
-    if (playback.supportsVideoGravity) {
-        // Wire values follow Apple's VideoGravity enum; the Android TV
-        // receiver maps its legacy "zoom"/"crop" report onto Fill.
-        listOf("fit" to "Fit", "fill" to "Fill", "stretch" to "Stretch").forEach { (id, label) ->
-            val selected = playback.videoGravity == id ||
-                (id == "fill" && playback.videoGravity in listOf("zoom", "crop"))
-            add(
-                MenuEntry(
-                    label = label,
-                    selected = selected,
-                    onClick = { controller.setVideoGravity(id) },
-                ),
-            )
-        }
-    }
-    if (playback.supportsHDRToggle) {
-        add(
-            MenuEntry(
-                label = if (playback.hdrEnabled) "HDR On" else "HDR Off",
-                selected = playback.hdrEnabled,
-                onClick = { controller.setHdrEnabled(!playback.hdrEnabled) },
-            ),
-        )
-    }
-}
-
 @Composable
 private fun RemoteChipMenu(
     icon: ImageVector,
     caption: String,
     entries: List<MenuEntry>,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    Box(modifier = modifier) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(5.dp),
             modifier = Modifier
-                .widthIn(min = 76.dp)
+                .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .then(if (enabled) Modifier.clickable { expanded = true } else Modifier)
-                .padding(vertical = 8.dp, horizontal = 10.dp),
+                .padding(vertical = 8.dp, horizontal = 4.dp),
         ) {
             Icon(
                 icon,

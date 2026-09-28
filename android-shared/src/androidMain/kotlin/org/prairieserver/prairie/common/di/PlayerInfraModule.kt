@@ -3,21 +3,27 @@ package org.prairieserver.prairie.common.di
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
 import org.prairieserver.prairie.common.player.ActivePlayerHolder
+import org.prairieserver.prairie.common.player.LEGACY_PLAYER_SEEK_INTERVALS
 import org.prairieserver.prairie.common.player.AudiobookSettingsStore
 import org.prairieserver.prairie.common.player.FinalPlaybackPositionWriter
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsPlaybackSessionTracker
 import org.prairieserver.prairie.common.player.SleepTimerController
 import org.prairieserver.prairie.common.settings.AndroidPlayerSettingsStore
+import org.prairieserver.prairie.common.settings.CardPresentationStore
+import org.prairieserver.prairie.common.settings.DefaultCardPresentationStore
 import org.prairieserver.prairie.common.settings.DefaultLibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.DefaultOverlayPrefsStore
+import org.prairieserver.prairie.common.settings.DefaultSeekIntervalStore
 import org.prairieserver.prairie.common.settings.DefaultServerSettingsFlusher
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.ServerDrivenConfigRefresher
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
 import org.prairieserver.prairie.common.settings.ServerSettingsFlusher
 import org.prairieserver.prairie.domain.player.IntroAutoSkipController
+import org.prairieserver.prairie.domain.settings.SeekIntervalController
 import org.prairieserver.prairie.network.DeviceMetadataProvider
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
@@ -42,10 +48,28 @@ import org.koin.dsl.module
  * lifecycle here is wired but unused until Phase 1+ migrations.
  */
 val playerInfraModule = module {
+    single<org.prairieserver.prairie.repository.NotificationSyncStore> {
+        org.prairieserver.prairie.common.data.sync.AndroidNotificationSyncStore(androidContext())
+    }
+    single<org.prairieserver.prairie.repository.PlaybackJournalStore> {
+        org.prairieserver.prairie.common.player.AndroidPlaybackJournalStore(androidContext())
+    }
+    single { org.prairieserver.prairie.network.apiv2.PlaybackV2Api(get(), get()) }
+    single {
+        org.prairieserver.prairie.repository.SequencedPlayback(get(), get(), get(), get()) {
+            java.util.UUID.randomUUID().toString()
+        }
+    }
     // Shares the active session Player with the in-process UI so the video
     single { ActivePlayerHolder() }
+    single { org.prairieserver.prairie.common.player.AudiobookSeekRouter() }
 
-    single { PrairiePictureInPictureCoordinator() }
+    single {
+        val seekIntervalStore = get<SeekIntervalStore>()
+        PrairiePictureInPictureCoordinator(seekIntervals = {
+            seekIntervalStore.state.value.video(LEGACY_PLAYER_SEEK_INTERVALS)
+        })
+    }
 
     single {
         val userItemState = get<org.prairieserver.prairie.repository.port.UserItemStatePort>()
@@ -75,6 +99,7 @@ val playerInfraModule = module {
             // retained retry can tell whether the server it was authored
             // against is still the one requests would reach.
             getServerUrl = { get<TokenManager>().getServerUrl() },
+            getAuthScope = { get<TokenManager>().snapshotCurrentScope() },
         )
     }
 
@@ -98,8 +123,8 @@ val playerInfraModule = module {
             legacyCache = get(),
             getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
             getServerUrl = { get<TokenManager>().getServerUrl() },
+            getAuthScope = { get<TokenManager>().snapshotCurrentScope() },
             serverSettingsFlusher = get(),
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             profileChangeSignal = profileChangeSignal,
             serverChangeSignal = serverChangeSignal,
             settingsRepository = get<SettingsRepository>(),
@@ -126,11 +151,46 @@ val playerInfraModule = module {
         )
     }
 
+    // Card-presentation preference (poster size + captions). Same lifetime
+    // rationale as the overlay store; the extra lambdas feed the last-known
+    // SharedPreferences cache identity (server|profile|family|device).
+    single<CardPresentationStore> {
+        DefaultCardPresentationStore(
+            context = androidContext(),
+            repository = get<SettingsRepository>(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
+            getServerUrl = { get<TokenManager>().getServerUrl() },
+            getDeviceMetadata = { get<DeviceMetadataProvider>().current() },
+        )
+    }
+
+    // Profile-wide forward/rewind intervals (settings revision 9). Resets and
+    // re-resolves whenever the active server or profile changes; players read
+    // its state on every relative seek so edits apply mid-playback.
+    single<SeekIntervalStore> {
+        val registry = get<ServerRegistry>()
+        val identityChanges = registry.activeEntry
+            .map { it?.url to it?.profileId }
+            .distinctUntilChanged()
+            .map { Unit }
+        DefaultSeekIntervalStore(
+            context = androidContext(),
+            controller = SeekIntervalController(get<SettingsRepository>()),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
+            getServerUrl = { get<TokenManager>().getServerUrl() },
+            identityChanges = identityChanges,
+        )
+    }
+
     single {
         ServerDrivenConfigRefresher(
             overlayPrefsStore = get(),
+            cardPresentationStore = get(),
             libraryPlaybackPrefsStore = get(),
             playerSettingsStore = get(),
+            seekIntervalStore = get(),
             hasAuthenticatedProfile = {
                 !get<ProfileRepository>().getActiveProfileId().isNullOrBlank()
             },
@@ -138,8 +198,17 @@ val playerInfraModule = module {
     }
 
     single {
+        val registry = get<ServerRegistry>()
+        val transitions = get<org.prairieserver.prairie.network.IdentityTransitionBarrier>()
+        val discovery = get<org.prairieserver.prairie.network.apiv2.ApiV2Probe>()
         ServerReachabilityMonitor(
-            healthApi = get(),
+            probe = discovery::probeFresh,
+            captureTarget = {
+                registry.activeEntry.value?.let { entry ->
+                    org.prairieserver.prairie.common.network.ReachabilityTarget(entry.id, entry.url, transitions.generation.value)
+                }
+            },
+            targetChanges = kotlinx.coroutines.flow.combine(registry.activeEntry, transitions.generation) { entry, generation -> entry?.id to generation },
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             onServerReconnected = {
                 get<ServerDrivenConfigRefresher>().forceRefresh()

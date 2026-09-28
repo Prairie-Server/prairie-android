@@ -63,8 +63,14 @@ import kotlinx.coroutines.launch
 import org.prairieserver.prairie.android.ui.components.MediaCard
 import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
 import org.prairieserver.prairie.android.ui.components.rememberBrowseItemCardActions
+import org.prairieserver.prairie.common.cards.LocalCardPresentation
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsKeyAnomalyLogger
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsKeyCollection
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSnapshot
+import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.overlays.OverlayDataExtractor
+import org.prairieserver.prairie.android.ui.navigation.LocalHeroSourceHandoff
 
 /**
  * A vertical grid of media cards with infinite-scroll support.
@@ -97,10 +103,25 @@ fun CatalogGrid(
     header: (@Composable () -> Unit)? = null,
 ) {
     val gridState = rememberLazyGridState()
-    val cardWidth = viewDensity.minCardWidth
+    val heroHandoff = LocalHeroSourceHandoff.current
+    val uniqueItems = remember(items) { items.distinctBy { it.contentId } }
+    // The session density picks the base cell; the server-driven poster-size
+    // preference multiplies it, shifting the adaptive column count.
+    val cardWidth = viewDensity.minCardWidth * LocalCardPresentation.current.posterSize.posterScale
+    val diagnosticsKeySnapshot = remember(items) {
+        DiagnosticsListSnapshot.fromKeys(items.map { it.contentId })
+    }
+    LaunchedEffect(diagnosticsKeySnapshot) {
+        DiagnosticsKeyAnomalyLogger.snapshot(
+            DiagnosticsKeyCollection.PHONE_CATALOG_GRID,
+            diagnosticsKeySnapshot,
+        )
+    }
 
-    // Trigger load more when scrolled near bottom
-    val shouldLoadMore by remember {
+    // Trigger load more when scrolled near bottom. Keyed on the flags: a
+    // keyless remember would freeze their first-composition values inside the
+    // derived lambda (they are plain params, not snapshot state).
+    val shouldLoadMore by remember(hasMore, isLoadingMore) {
         derivedStateOf {
             val lastVisibleItem = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val totalItems = gridState.layoutInfo.totalItemsCount
@@ -115,6 +136,7 @@ fun CatalogGrid(
     }
 
     Box(modifier = modifier) {
+        DeferImagePresentationWhileScrolling(gridState) {
         LazyVerticalGrid(
             // iOS phone: adaptive poster grid, 110pt minimum card width, 12pt
             // column spacing, 16pt row spacing, 16pt horizontal page padding.
@@ -139,7 +161,7 @@ fun CatalogGrid(
             }
 
             items(
-                items = items,
+                items = uniqueItems,
                 key = { it.contentId },
                 contentType = { item -> item.type },
             ) { item ->
@@ -152,10 +174,15 @@ fun CatalogGrid(
                     subtitle = cardSubtitle?.invoke(item),
                     type = item.type,
                     userState = userState,
-                    onClick = { onItemClick(item.contentId) },
+                    onClick = {
+                        heroHandoff?.pendingArtworkUrl = item.backdropUrl ?: item.posterUrl
+                        heroHandoff?.pendingArtworkThumbhash = item.backdropThumbhash ?: item.posterThumbhash
+                        onItemClick(item.contentId)
+                    },
                     width = cardWidth,
                     overlay = OverlayDataExtractor.fromBrowseItem(item),
                     actions = actions,
+                    sharedContentId = item.contentId,
                 )
             }
 
@@ -172,6 +199,7 @@ fun CatalogGrid(
                     }
                 }
             }
+        }
         }
 
         onNamePrefixSelected?.let { onSelected ->

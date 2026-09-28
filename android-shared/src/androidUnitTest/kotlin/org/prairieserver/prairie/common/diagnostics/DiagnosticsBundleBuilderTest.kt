@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
+import org.prairieserver.prairie.common.player.seek.ServerReanchorReason
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsArchive
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsConsent
 import org.prairieserver.prairie.model.diagnostics.DiagnosticsConsentMode
@@ -172,10 +173,12 @@ class DiagnosticsBundleBuilderTest {
         val playbackLine = """{"ts":"2026-08-11T00:00:00Z","run":"run-1","lvl":"I","cat":"playback","tag":"Player","msg":"stats playback_session_id=private-playback-correlation","attrs":{"decoder":"c2.android.avc","buffered_ms":1200,"failure_code":"source-private"}}"""
         val lifecycleLine = """{"ts":"2026-08-11T00:00:01Z","run":"run-1","lvl":"I","cat":"lifecycle","tag":"Lifecycle","msg":"performance","attrs":{"state":"foreground","p95_frame_ms":22,"startup_first_frame_ms":400}}"""
         val focusLine = """{"ts":"2026-08-11T00:00:02Z","run":"run-1","lvl":"I","cat":"focus","tag":"Focus","msg":"moved","attrs":{"target":"send","action":"enter","route":"private-route"}}"""
+        val homeContentLine = """{"ts":"2026-08-11T00:00:03Z","run":"run-1","lvl":"I","cat":"lifecycle","tag":"HomeScreen","msg":"home content state changed","attrs":{"phase":"home_content","outcome":"ready"}}"""
+        val homeScrollLine = """{"ts":"2026-08-11T00:00:04Z","run":"run-1","lvl":"I","cat":"lifecycle","tag":"HomeScreen","msg":"home scroll state changed","attrs":{"phase":"home_scroll","outcome":"scrolling","reason":"content"}}"""
         val artifacts = mapOf(
             "device.json" to "{}".encodeToByteArray(),
             "logs.jsonl" to "$playbackLine\n$lifecycleLine\n".encodeToByteArray(),
-            "breadcrumbs.jsonl" to "$focusLine\n".encodeToByteArray(),
+            "breadcrumbs.jsonl" to "$focusLine\n$homeContentLine\n$homeScrollLine\n".encodeToByteArray(),
             "crash/tombstone.pb" to "opaque-private-native-trace".encodeToByteArray(),
         )
 
@@ -186,9 +189,8 @@ class DiagnosticsBundleBuilderTest {
         val hostedEntries = untar(gunzip(hosted.bytes)).associateBy(TarEntry::name)
         val hostedLogs = hostedEntries.getValue("logs.jsonl").bytes.decodeToString()
             .lineSequence().filter(String::isNotBlank).map { Json.parseToJsonElement(it).jsonObject }.toList()
-        val hostedBreadcrumb = Json.parseToJsonElement(
-            hostedEntries.getValue("breadcrumbs.jsonl").bytes.decodeToString().trim(),
-        ).jsonObject
+        val hostedBreadcrumbs = hostedEntries.getValue("breadcrumbs.jsonl").bytes.decodeToString()
+            .lineSequence().filter(String::isNotBlank).map { Json.parseToJsonElement(it).jsonObject }.toList()
 
         assertEquals(
             "android-c2-platform-decoder",
@@ -199,7 +201,15 @@ class DiagnosticsBundleBuilderTest {
         assertFalse(hostedLogs[0].getValue("msg").jsonPrimitive.content.contains("private-playback-correlation"))
         assertTrue(hostedLogs[0].getValue("msg").jsonPrimitive.content.contains("[redacted_private_id]"))
         assertEquals(setOf("state"), hostedLogs[1].getValue("attrs").jsonObject.keys)
-        assertEquals(setOf("target", "action"), hostedBreadcrumb.getValue("attrs").jsonObject.keys)
+        assertEquals(setOf("target", "action"), hostedBreadcrumbs[0].getValue("attrs").jsonObject.keys)
+        assertEquals(
+            mapOf("phase" to "home_content", "outcome" to "ready"),
+            hostedBreadcrumbs[1].getValue("attrs").jsonObject.mapValues { it.value.jsonPrimitive.content },
+        )
+        assertEquals(
+            mapOf("phase" to "home_scroll", "outcome" to "scrolling", "reason" to "content"),
+            hostedBreadcrumbs[2].getValue("attrs").jsonObject.mapValues { it.value.jsonPrimitive.content },
+        )
         assertFalse(hostedEntries.containsKey("crash/tombstone.pb"))
         assertFalse(hosted.manifest.archive.entries.contains("crash/tombstone.pb"))
 
@@ -301,6 +311,68 @@ class DiagnosticsBundleBuilderTest {
                 "self-hosted logs must still carry $retained: $selfHostedLogs",
             )
         }
+    }
+
+    @Test
+    fun hostedBundleKeepsPlaybackStateAndSeekMessages() {
+        // The collector strips the playback reason attribute, so play/pause and
+        // seek lines carry their fixed reason code in the message. Drive the real
+        // logger so the test covers both what it emits and what survives hosted
+        // text scrubbing.
+        val playWhenReadyReasons = listOf(
+            "user_request",
+            "audio_focus_loss",
+            "audio_becoming_noisy",
+            "remote",
+            "end_of_media_item",
+            "suppressed_too_long",
+            "other",
+        )
+        val errorCodes = listOf(
+            "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED",
+            "ERROR_CODE_IO_BAD_HTTP_STATUS",
+            "ERROR_CODE_DECODING_FAILED",
+        )
+        val lines = mutableListOf<String>()
+        PrairieLog.installSink { lines += it }
+        try {
+            DiagnosticsSeekEvent.entries.forEach { DiagnosticsPlaybackLogger.seek(it) }
+            DiagnosticsPlayerState.entries.forEach(DiagnosticsPlaybackLogger::playerState)
+            playWhenReadyReasons.forEach { reason ->
+                DiagnosticsPlaybackLogger.playWhenReadyChanged(playWhenReady = true, reason = reason)
+                DiagnosticsPlaybackLogger.playWhenReadyChanged(playWhenReady = false, reason = reason)
+            }
+            ServerReanchorReason.entries.forEach {
+                DiagnosticsPlaybackLogger.seek(DiagnosticsSeekEvent.CommittedServerReanchor, reason = it.name)
+            }
+            errorCodes.forEach {
+                DiagnosticsPlaybackLogger.seek(DiagnosticsSeekEvent.PlayerErrorReanchor, reason = it)
+            }
+        } finally {
+            PrairieLog.installSink(null)
+        }
+        val expected = DiagnosticsSeekEvent.entries.map { it.message } +
+            DiagnosticsPlayerState.entries.map { it.message } +
+            playWhenReadyReasons.flatMap { reason ->
+                listOf("play requested ($reason)", "pause requested ($reason)")
+            } +
+            ServerReanchorReason.entries.map { "seek committed reanchor (${it.name})" } +
+            errorCodes.map { "seek reanchor after player error ($it)" }
+        val artifacts = mapOf(
+            "device.json" to "{}".encodeToByteArray(),
+            "logs.jsonl" to lines.joinToString(separator = "\n", postfix = "\n").encodeToByteArray(),
+        )
+
+        val hostedLogs = untar(gunzip(builder.build(
+            report(artifacts, DiagnosticsDestinationKind.HOSTED),
+            redactionTokens = emptyList(),
+        ).bytes)).associateBy(TarEntry::name)
+            .getValue("logs.jsonl").bytes.decodeToString()
+        val hostedMessages = hostedLogs.lineSequence().filter(String::isNotBlank)
+            .map { Json.parseToJsonElement(it).jsonObject.getValue("msg").jsonPrimitive.content }
+            .toList()
+
+        assertEquals(expected, hostedMessages)
     }
 
     @Test

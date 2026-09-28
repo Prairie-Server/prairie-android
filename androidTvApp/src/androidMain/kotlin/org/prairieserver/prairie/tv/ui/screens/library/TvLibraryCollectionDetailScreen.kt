@@ -31,6 +31,7 @@ import org.prairieserver.prairie.tv.ui.components.TvCatalogEmptyState
 import org.prairieserver.prairie.tv.ui.components.TvCatalogGrid
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.prairieserver.prairie.tv.ui.theme.tvPresetGridColumns
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -98,13 +99,15 @@ fun TvLibraryCollectionDetailScreen(
         // reload, so a whole-surface error would take the Sort/Filter/Clear
         // pills away exactly when the viewer needs them to undo the query
         // that is failing — Retry only repeats it (Codex).
-        TvCatalogGrid(
+        if (state.error != null) {
+            TvErrorScreen(message = state.error!!, onRetry = viewModel::retry)
+        } else TvCatalogGrid(
             items = state.items,
             isLoading = state.isLoading || state.isLoadingMore,
             hasMore = state.hasMore,
             onItemClick = onItemClick,
             onLoadMore = viewModel::loadMore,
-            fixedColumnCount = 6,
+            fixedColumnCount = tvPresetGridColumns(6),
             contentPadding = PaddingValues(
                 start = Spacing.safeArea,
                 top = Spacing.xxl,

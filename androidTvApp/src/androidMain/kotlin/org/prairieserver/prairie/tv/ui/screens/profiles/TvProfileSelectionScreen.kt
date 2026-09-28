@@ -90,7 +90,7 @@ import org.prairieserver.prairie.tv.ui.components.TvPillVariant
 import org.prairieserver.prairie.tv.ui.components.TvPinEntryDialog
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.navRailLabel
-import org.prairieserver.prairie.tv.ui.theme.siloCardDefaults
+import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val ProfileGridColumns = 4
@@ -160,15 +160,17 @@ fun TvProfileSelectionScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TvHeroActionPill(
-                        label = if (state.isManageMode) "Done" else "Manage",
-                        icon = Icons.Filled.Edit,
-                        variant = TvPillVariant.Hollow,
-                        heightOverride = ProfileUtilityChipHeight,
-                        horizontalPaddingOverride = 10.dp,
-                        labelStyle = MaterialTheme.typography.labelMedium,
-                        onClick = viewModel::toggleManageMode,
-                    )
+                    if (state.canManageProfiles) {
+                        TvHeroActionPill(
+                            label = if (state.isManageMode) "Done" else "Manage",
+                            icon = Icons.Filled.Edit,
+                            variant = TvPillVariant.Hollow,
+                            heightOverride = ProfileUtilityChipHeight,
+                            horizontalPaddingOverride = 10.dp,
+                            labelStyle = MaterialTheme.typography.labelMedium,
+                            onClick = viewModel::toggleManageMode,
+                        )
+                    }
                     TvHeroActionPill(
                         label = "Change Server",
                         icon = Icons.Filled.Dns,
@@ -266,6 +268,7 @@ fun TvProfileSelectionScreen(
                     }
                     ProfileTileGrid(
                         profiles = state.profiles,
+                        canAddProfile = state.canManageProfiles,
                         focusRequesterFor = { id ->
                             tileFocusRequesters.getOrPut(id) { FocusRequester() }
                         },
@@ -329,6 +332,7 @@ fun TvProfileSelectionScreen(
 @Composable
 private fun ProfileTileGrid(
     profiles: List<Profile>,
+    canAddProfile: Boolean,
     focusRequesterFor: (String) -> FocusRequester,
     // Null means no profile tile owns focus — the Add tile has it, or focus
     // left the grid entirely. Restoration must not re-request a tile then.
@@ -339,7 +343,7 @@ private fun ProfileTileGrid(
     onDeleteProfile: (Profile) -> Unit,
     onAddProfile: () -> Unit,
 ) {
-    val itemCount = profiles.size + 1
+    val itemCount = profiles.size + (if (canAddProfile) 1 else 0)
     val rowCount = (itemCount + ProfileGridColumns - 1) / ProfileGridColumns
     Column(
         modifier = Modifier
@@ -382,7 +386,7 @@ private fun ProfileTileGrid(
                                         },
                                 )
                             }
-                            itemIndex == profiles.size -> TvAddProfileCard(
+                            itemIndex == profiles.size && canAddProfile -> TvAddProfileCard(
                                 onClick = onAddProfile,
                                 modifier = Modifier.onFocusChanged {
                                     if (it.isFocused) onProfileFocused(null)
@@ -412,7 +416,7 @@ private fun TvProfileCard(
     val avatarImage = rememberProfileAvatarImage(avatar)
 
     val shape = RoundedCornerShape(ProfileTileCornerRadius)
-    val cardFocus = siloCardDefaults(shape = shape)
+    val cardFocus = prairieCardDefaults(shape = shape)
     val tileTint = profile.tintColor()
     // Per-profile tinted focus halo ("this profile is alive"), mirroring tvOS
     // ProfileTile's colored glow.

@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,12 +56,12 @@ fun MainAppTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .topBarGlass(hazeState),
+            .background(Color(0xFF1C1C1E)),
     ) {
         Box(
             modifier = Modifier
                 .padding(
-                    top = statusBarPadding.calculateTopPadding() + 4.dp,
+                    top = statusBarPadding.calculateTopPadding() + TopBarRowTopInset,
                     start = 16.dp,
                     end = 16.dp,
                     bottom = 8.dp,

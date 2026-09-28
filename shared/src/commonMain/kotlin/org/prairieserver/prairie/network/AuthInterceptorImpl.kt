@@ -99,6 +99,13 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
     // refreshing dead credentials again on every subsequent 401.
     val deadCredentialGenerations = MutableStateFlow<Set<String>>(emptySet())
 
+    // Saved-account refresh tokens the server definitively rejected on the
+    // pinned path. That path must not invalidate the scope, so without this a
+    // pinned heartbeat (playback progress) would repeat the same doomed refresh
+    // every tick. A new sign-in or rotation installs a different token, which
+    // is never in this set.
+    val rejectedPinnedRefreshTokens = MutableStateFlow<Set<String>>(emptySet())
+
     /**
      * One refresh of [refreshScope], serialised on [refreshMutex].
      *
@@ -183,7 +190,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 return@withLock RefreshOutcome.NotAttempted
             }
 
-            val refreshResponse = client.post("$trustedServerUrl/api/v1/auth/refresh") {
+            val refreshResponse = client.post("$trustedServerUrl/api/v2/auth/refresh") {
                 contentType(ContentType.Application.Json)
                 setBody(RefreshRequest(refreshToken))
             }
@@ -212,7 +219,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 return@withLock RefreshOutcome.NotAttempted
             }
 
-            if (refreshResponse.status.isSuccess()) {
+            if (refreshResponse.status == HttpStatusCode.OK) {
                 diagnosticsObserver.safeAuthRefresh("succeeded")
                 val tokens = refreshResponse.body<RefreshResponse>()
                 tokenManager.saveTokensForScope(
@@ -290,9 +297,10 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
 
         // Shared calls are normally relative. Resolve those against the exact
         // server that owns the credential scope before deciding whether any
-        // Silo header may be attached.
+        // Silo header may be attached. The root liveness route is the one
+        // relative path outside `/api/`.
         if (
-            request.url.encodedPath.startsWith("/api/") &&
+            (request.url.encodedPath.startsWith("/api/") || request.url.encodedPath == "/health") &&
             (request.url.host.isBlank() || request.url.host == "localhost") &&
             trustedServerUrl.isNotBlank()
         ) {
@@ -452,6 +460,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             request.removePrairieCredentialHeaders()
             return@on proceed(request)
         }
+        if (request.attributes.getOrNull(SingleAttemptAttributeKey) == true) return@on proceed(request)
         if (pinnedScope != null) {
             val sentAuth = request.headers[HttpHeaders.Authorization]
             val originalCall = proceed(request)
@@ -477,16 +486,18 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                     return@withLock true
                 }
                 val refreshToken = tokenManager.getRefreshTokenForScope(pinnedScope)
-                if (refreshToken.isNullOrBlank() || pinnedScope.serverUrl.isBlank()) {
+                if (refreshToken.isNullOrBlank() || pinnedScope.serverUrl.isBlank() ||
+                    refreshToken in rejectedPinnedRefreshTokens.value
+                ) {
                     return@withLock false
                 }
                 try {
                     diagnosticsObserver.safeAuthRefresh("started")
-                    val refreshResponse = client.post("${pinnedScope.serverUrl}/api/v1/auth/refresh") {
+                    val refreshResponse = client.post("${pinnedScope.serverUrl}/api/v2/auth/refresh") {
                         contentType(ContentType.Application.Json)
                         setBody(RefreshRequest(refreshToken))
                     }
-                    if (refreshResponse.status.isSuccess()) {
+                    if (refreshResponse.status == HttpStatusCode.OK) {
                         diagnosticsObserver.safeAuthRefresh("succeeded")
                         val tokens = refreshResponse.body<RefreshResponse>()
                         tokenManager.saveTokensForScope(
@@ -504,10 +515,12 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                         after != null && after != sentAuth
                     } else {
                         diagnosticsObserver.safeAuthRefresh("failed")
-                        if (pinnedGeneration != null &&
-                            refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()
-                        ) {
-                            deadCredentialGenerations.update { it + pinnedGeneration }
+                        if (refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
+                            if (pinnedGeneration != null) {
+                                deadCredentialGenerations.update { it + pinnedGeneration }
+                            } else {
+                                rejectedPinnedRefreshTokens.update { it + refreshToken }
+                            }
                         }
                         // Don't invalidate the active session for a background scope.
                         // Re-check in case a concurrent path refreshed it in flight.
@@ -789,6 +802,7 @@ private suspend fun HttpRequestBuilder.attachSiloDeviceMetadataHeaders(
     device.clientVersion?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Version", it) }
     device.clientBuild?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Build", it) }
     device.clientChannel?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Channel", it) }
+    device.clientFamily?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Family", it) }
 }
 
 private fun URLBuilder.rebaseRelativeApiUrl(serverUrl: String) {

@@ -29,9 +29,13 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.overlays.OverlayData
 import org.prairieserver.prairie.overlays.OverlayDataExtractor
+import org.prairieserver.prairie.tv.ui.focus.TvFocusLog
 import org.prairieserver.prairie.tv.ui.theme.TvRailScrollBehavior
 import org.prairieserver.prairie.tv.ui.theme.tvRailPinOnFocus
 import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsKeyAnomalyLogger
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsKeyCollection
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSnapshot
 
 /** Visual style of cards inside a [TvMediaRow]. */
 enum class TvRowStyle { Poster, Backdrop }
@@ -117,7 +121,18 @@ fun TvMediaRow(
     /** Reports whether this row or any descendant card currently owns focus. */
     onRowFocusChanged: ((Boolean) -> Unit)? = null,
     cardActions: (SectionItem) -> TvMediaCardActions = { TvMediaCardActions() },
+    /** Optional direct long-press action. Null keeps the card's context menu. */
+    longClickAction: (SectionItem) -> (() -> Unit)? = { null },
 ) {
+    val diagnosticsKeySnapshot = remember(items) {
+        DiagnosticsListSnapshot.fromKeys(items.map { it.contentId })
+    }
+    LaunchedEffect(diagnosticsKeySnapshot) {
+        DiagnosticsKeyAnomalyLogger.snapshot(
+            DiagnosticsKeyCollection.TV_MEDIA_ROW,
+            diagnosticsKeySnapshot,
+        )
+    }
     if (items.isEmpty()) return
     val rowState = rememberLazyListState()
     val rowItems = remember(items, showProgress, style, cardLayout) {
@@ -160,12 +175,22 @@ fun TvMediaRow(
     }
 
     LaunchedEffect(restoreFocusRequest, resolvedRestoreFocusIndex, restoreFocusContentId) {
-        prepareTvMediaRowFocusRestore(
+        val scrolled = prepareTvMediaRowFocusRestore(
             requestId = restoreFocusRequest,
             restoreFocusIndex = resolvedRestoreFocusIndex,
             itemCount = rowItems.size,
             scrollToItem = rowState::scrollToItem,
         )
+        // A restore scroll that fires while no caller-driven ladder could be
+        // running is the signature of the rail snapping instead of gliding
+        // (the instant jump cancels the pin's animation) — surface it in the
+        // debug focus log rather than leaving it invisible on screen.
+        if (restoreFocusRequest > 0 || scrolled) {
+            TvFocusLog.d {
+                "rail restore scroll request=$restoreFocusRequest " +
+                    "index=$resolvedRestoreFocusIndex scrolled=$scrolled"
+            }
+        }
     }
 
     LaunchedEffect(firstItemFocusRequest) {
@@ -314,6 +339,7 @@ fun TvMediaRow(
                 // owners) after a refresh that reclassifies the section while
                 // leaving the item equal (Codex).
                 val itemActions = remember(item, cardActions) { cardActions(item) }
+                val itemLongClick = remember(item, longClickAction) { longClickAction(item) }
                 when (cardLayout) {
                     TvRowCardLayout.ReferenceShelf -> TvReferenceShelfCard(
                         title = rowItem.shelfTitle,
@@ -327,6 +353,7 @@ fun TvMediaRow(
                         cardModifier = appliedCardModifier,
                         userState = item.userState,
                         actions = itemActions,
+                        onLongClick = itemLongClick,
                     )
                     TvRowCardLayout.Default -> when (style) {
                         TvRowStyle.Backdrop -> TvEpisodeCard(
@@ -344,6 +371,7 @@ fun TvMediaRow(
                             userState = item.userState,
                             overlay = rowItem.overlay,
                             actions = itemActions,
+                            onLongClick = itemLongClick,
                         )
                         TvRowStyle.Poster -> TvMediaCard(
                             title = item.title,
@@ -353,12 +381,13 @@ fun TvMediaRow(
                             userState = item.userState,
                             progress = rowItem.progress,
                             mediaType = item.type,
-                            width = posterWidth ?: TvCardWidth,
+                            width = posterWidth ?: tvCardWidth(),
                             onClick = { onItemClick(item.contentId) },
                             focusRequester = itemFocusRequester,
                             cardModifier = appliedCardModifier,
                             overlay = rowItem.overlay,
                             actions = itemActions,
+                            onLongClick = itemLongClick,
                         )
                     }
                 }
@@ -414,7 +443,7 @@ private fun SectionItem.shelfTitle(showProgress: Boolean): String {
 
 private fun SectionItem.shelfSubtitle(showProgress: Boolean): String? {
     if (showProgress) {
-        val tag = formatShelfEpisodeTag(seasonNumber, episodeNumber)
+        val tag = tvEpisodeTag(seasonNumber, episodeNumber)
         return listOfNotNull(tag, title.takeIf { it.isNotBlank() }).joinToString(" • ").ifBlank { null }
     }
     return when {
@@ -425,9 +454,3 @@ private fun SectionItem.shelfSubtitle(showProgress: Boolean): String? {
     }
 }
 
-private fun formatShelfEpisodeTag(season: Int?, episode: Int?): String? {
-    if (season == null && episode == null) return null
-    val s = season?.let { "S${it}" } ?: ""
-    val e = episode?.let { "E${it}" } ?: ""
-    return "$s $e".trim().ifBlank { null }
-}

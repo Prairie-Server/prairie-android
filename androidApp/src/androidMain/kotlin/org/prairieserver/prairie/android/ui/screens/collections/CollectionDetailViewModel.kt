@@ -5,8 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.personal.Collection
-import org.prairieserver.prairie.model.personal.UpdateCollectionRequest
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
+import org.prairieserver.prairie.network.errorMessage
+import org.prairieserver.prairie.network.map
+import org.prairieserver.prairie.network.api.CollectionContinuation
+import org.prairieserver.prairie.network.api.CollectionEditor
 import org.prairieserver.prairie.repository.CollectionRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,9 +29,6 @@ data class CollectionDetailUiState(
     val error: String? = null,
     val hasMore: Boolean = true,
     val total: Int = 0,
-    val showRenameDialog: Boolean = false,
-    val renameText: String = "",
-    val isRenaming: Boolean = false,
     val showDeleteConfirm: Boolean = false,
     val isDeleting: Boolean = false,
     val deleted: Boolean = false,
@@ -43,8 +44,15 @@ class CollectionDetailViewModel(
     private val _uiState = MutableStateFlow(CollectionDetailUiState())
     val uiState: StateFlow<CollectionDetailUiState> = _uiState.asStateFlow()
 
+    private var pagingJob: kotlinx.coroutines.Job? = null
+    private var libraryContinuation: CatalogContinuationV2? = null
+    private var continuation: CollectionContinuation? = null
+    private var deleteEditor: CollectionEditor<Collection>? = null
     private var collectionId: String = ""
     private val libraryId: Int? = savedStateHandle.get<String>("libraryId")?.toIntOrNull()
+    private val collectionSource: String? = savedStateHandle.get<String>("source")
+    private val isLibraryUserCollection: Boolean
+        get() = libraryId != null && collectionSource == "user_collection"
     private val pageSize = 40
 
     fun initialize(id: String) {
@@ -59,8 +67,9 @@ class CollectionDetailViewModel(
             return
         }
 
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null, canManage = true) }
+        pagingJob?.cancel()
+        pagingJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, isLoadingMore = false, error = null, canManage = true) }
 
             // Load collection metadata from the list
             when (val collectionsResult = collectionRepository.listCollections()) {
@@ -79,7 +88,7 @@ class CollectionDetailViewModel(
             }
 
             // Load items
-            when (val result = collectionRepository.getItems(collectionId, offset = 0, limit = pageSize)) {
+            when (val result = collectionRepository.getItems(collectionId, limit = pageSize).map { continuation = it.continuation; it.catalog }) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(
@@ -105,7 +114,8 @@ class CollectionDetailViewModel(
     }
 
     private fun loadLibraryCollectionDetails(libraryId: Int) {
-        viewModelScope.launch {
+        pagingJob?.cancel()
+        pagingJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isLoading = true,
@@ -129,13 +139,25 @@ class CollectionDetailViewModel(
                 }
             }
 
-            when (
-                val result = sectionRepository.getLibraryCollectionItems(
+            val itemsResult = if (isLibraryUserCollection) {
+                collectionRepository.getItems(
                     collectionId,
-                    offset = 0,
                     limit = pageSize,
-                )
-            ) {
+                    libraryId = libraryId,
+                ).map {
+                    continuation = it.continuation
+                    it.catalog
+                }
+            } else {
+                sectionRepository.getLibraryCollectionItems(
+                    collectionId,
+                    limit = pageSize,
+                ).map {
+                    libraryContinuation = it.continuation
+                    it
+                }
+            }
+            when (val result = itemsResult) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(
@@ -169,24 +191,25 @@ class CollectionDetailViewModel(
 
     fun loadMore() {
         val current = _uiState.value
-        if (current.isLoadingMore || !current.hasMore) return
+        if (current.isLoading || current.isRefreshing || current.isLoadingMore || !current.hasMore || current.error != null) return
 
-        viewModelScope.launch {
+        pagingJob?.cancel()
+        pagingJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true) }
-            // Library collections page through the catalog resolver (like
-            // prairie-apple); user collections keep their own paged endpoint.
-            val result = if (libraryId != null) {
+            // Library paging is migrated separately; personal collections use opaque cursors.
+            val result = if (libraryId != null && !isLibraryUserCollection) {
                 sectionRepository.getLibraryCollectionItems(
                     collectionId,
-                    offset = current.items.size,
+                    continuation = libraryContinuation,
                     limit = pageSize,
-                )
+                ).map { libraryContinuation = it.continuation; it }
             } else {
                 collectionRepository.getItems(
                     collectionId,
-                    offset = current.items.size,
+                    continuation = continuation,
                     limit = pageSize,
-                )
+                    libraryId = libraryId,
+                ).map { continuation = it.continuation; it.catalog }
             }
             when (result) {
                 is ApiResult.Success -> {
@@ -200,7 +223,7 @@ class CollectionDetailViewModel(
                     }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update { it.copy(isLoadingMore = false) }
+                    _uiState.update { it.copy(isLoadingMore = false, error = result.errorMessage("Could not load more. Refresh to try again.")) }
                 }
             }
         }
@@ -211,9 +234,10 @@ class CollectionDetailViewModel(
             loadCollectionDetails()
             return
         }
-        viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshing = true) }
-            when (val result = collectionRepository.getItems(collectionId, offset = 0, limit = pageSize)) {
+        pagingJob?.cancel()
+        pagingJob = viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true, isLoadingMore = false) }
+            when (val result = collectionRepository.getItems(collectionId, limit = pageSize).map { continuation = it.continuation; it.catalog }) {
                 is ApiResult.Success -> {
                     _uiState.update {
                         it.copy(
@@ -226,7 +250,7 @@ class CollectionDetailViewModel(
                     }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update { it.copy(isRefreshing = false) }
+                    _uiState.update { it.copy(isRefreshing = false, error = result.errorMessage("Could not reload collection")) }
                 }
             }
         }
@@ -235,7 +259,11 @@ class CollectionDetailViewModel(
     fun removeItem(itemId: String) {
         if (libraryId != null) return
         viewModelScope.launch {
-            collectionRepository.removeItem(collectionId, itemId)
+            val result = collectionRepository.removeItem(collectionId, itemId)
+            if (result !is ApiResult.Success) {
+                _uiState.update { it.copy(error = result.errorMessage("Could not remove item")) }
+                return@launch
+            }
             _uiState.update { state ->
                 state.copy(
                     items = state.items.filter { it.contentId != itemId },
@@ -245,51 +273,17 @@ class CollectionDetailViewModel(
         }
     }
 
-    fun showRenameDialog() {
-        if (libraryId != null) return
-        _uiState.update {
-            it.copy(showRenameDialog = true, renameText = it.collection?.name ?: "")
-        }
-    }
-
-    fun hideRenameDialog() {
-        _uiState.update { it.copy(showRenameDialog = false) }
-    }
-
-    fun onRenameTextChanged(text: String) {
-        _uiState.update { it.copy(renameText = text) }
-    }
-
-    fun renameCollection() {
-        if (libraryId != null) return
-        val newName = _uiState.value.renameText.trim()
-        if (newName.isBlank()) return
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isRenaming = true) }
-            when (val result = collectionRepository.updateCollection(
-                id = collectionId,
-                request = UpdateCollectionRequest(name = newName),
-            )) {
-                is ApiResult.Success -> {
-                    _uiState.update {
-                        it.copy(
-                            collection = result.data,
-                            isRenaming = false,
-                            showRenameDialog = false,
-                        )
-                    }
-                }
-                is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update { it.copy(isRenaming = false) }
-                }
-            }
-        }
-    }
-
     fun showDeleteConfirm() {
         if (libraryId != null) return
-        _uiState.update { it.copy(showDeleteConfirm = true) }
+        viewModelScope.launch {
+            when (val result = collectionRepository.getCollection(collectionId)) {
+                is ApiResult.Success -> {
+                    deleteEditor = result.data
+                    _uiState.update { it.copy(showDeleteConfirm = true, error = null) }
+                }
+                else -> _uiState.update { it.copy(error = result.errorMessage("Could not load collection")) }
+            }
+        }
     }
 
     fun hideDeleteConfirm() {
@@ -298,14 +292,15 @@ class CollectionDetailViewModel(
 
     fun deleteCollection() {
         if (libraryId != null) return
+        val editor = deleteEditor ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isDeleting = true) }
-            when (collectionRepository.deleteCollection(collectionId)) {
+            when (val result = collectionRepository.deleteCollection(collectionId, editor)) {
                 is ApiResult.Success -> {
                     _uiState.update { it.copy(isDeleting = false, deleted = true, showDeleteConfirm = false) }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> {
-                    _uiState.update { it.copy(isDeleting = false, showDeleteConfirm = false) }
+                    _uiState.update { it.copy(isDeleting = false, error = result.errorMessage("Could not delete collection")) }
                 }
             }
         }

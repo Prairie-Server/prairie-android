@@ -55,6 +55,7 @@ sealed interface VideoPlaybackStartResult {
         val episodeNumber: Int? = null,
         /** TV's target-catalog resolution of [VideoPlaybackStartRequest.episodeSelectionHandoff]. */
         val resolvedEpisodeSelection: ResolvedEpisodeSelection? = null,
+        val seriesTitle: String? = null,
     ) : VideoPlaybackStartResult
 
     data class Error(
@@ -73,6 +74,15 @@ sealed interface VideoPlaybackStartResult {
         val contentId: String,
     ) : VideoPlaybackStartResult
 }
+
+/**
+ * The user-visible text for a server playback terminal. `terminal.message` is
+ * written by the server for end users and can stand alone; the terminal reason
+ * slug (e.g. "transcode_start_failed") belongs in diagnostics/telemetry only,
+ * never in the on-screen sentence.
+ */
+fun serverTerminalUserMessage(message: String): String =
+    message.trim().ifEmpty { "Playback is unavailable right now." }
 
 @JvmInline
 value class PlaybackDiagnosticsCode private constructor(val wireValue: String) {
@@ -104,6 +114,9 @@ value class PlaybackDiagnosticsCode private constructor(val wireValue: String) {
             "source_metadata_incomplete",
             "source_unavailable",
             "transcoding_disabled",
+            "transcode_start_failed",
+            "transcode_node_unavailable",
+            "transcode_node_capability_unavailable",
         )
     }
 }

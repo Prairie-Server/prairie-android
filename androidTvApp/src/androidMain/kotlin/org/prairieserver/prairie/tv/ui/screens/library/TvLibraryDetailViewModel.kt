@@ -10,6 +10,7 @@ import org.prairieserver.prairie.model.section.LibraryCollection
 import org.prairieserver.prairie.model.section.LibraryCollectionsResponse
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.tv.ui.util.tvCatalogMediaTypeFor
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 /**
  * Library content sections committed by the Skyline cascade. The extra browse
@@ -202,6 +204,8 @@ class TvLibraryDetailViewModel(
     private var loadedCollections = false
     private var loadedFilters = false
     private var browseGeneration = 0
+    private var browseContinuation: CatalogContinuationV2? = null
+    private var audiobookContinuation: CatalogContinuationV2? = null
     private var browseSnapshot: String? = null
 
     // Raw (pre-visibleOnTv-filter) loaded count = the server offset for the next
@@ -213,34 +217,12 @@ class TvLibraryDetailViewModel(
     private var loadedAudiobookGroupBy: String? = null
     private var audiobookGroupsGeneration = 0
 
-    // Last cascade-commit nonce whose section we applied. The screen's
-    // section-apply effect re-runs on every re-entry into composition —
-    // including returning from ItemDetail/Player — and this ViewModel survives
-    // that round-trip, so without gating on the nonce a bare re-entry would
-    // re-apply the initial section and throw away the user's in-screen tab /
-    // A-Z filter (issue #66: Back from a movie returned to the library's main
-    // view instead of the browse list). Only a genuine new commit bumps the
-    // nonce, so we apply then and no-op on re-entry.
-    private var lastAppliedSectionNonce: Int? = null
-
     init {
         // Only the default Recommended tab loads eagerly. Filters (the genre
         // rail) are fetched lazily when Browse is first opened — the
         // `/catalog/filters` call is slow and is wasted work for the (common)
         // case where the user never leaves Recommended.
         loadRecommended()
-    }
-
-    /**
-     * Applies a section committed from the Skyline cascade, but only once per
-     * distinct commit nonce (see [lastAppliedSectionNonce]) so a plain
-     * re-entry into composition — e.g. returning from a detail screen — does
-     * not clobber the user's current tab/filter.
-     */
-    fun applyCommittedSection(tab: TvLibraryTab, nonce: Int) {
-        if (nonce == lastAppliedSectionNonce) return
-        lastAppliedSectionNonce = nonce
-        onTabSelected(tab)
     }
 
     fun onTabSelected(tab: TvLibraryTab) {
@@ -335,28 +317,16 @@ class TvLibraryDetailViewModel(
         )
     }
 
-    fun onYearRangeChanged(yearMin: Int?, yearMax: Int?) {
-        updateBrowseFilter(
-            _uiState.value.browseFilter.copy(
-                yearMin = yearMin,
-                yearMax = yearMax,
-                // Match the existing pattern in onGenreChanged/onSortChanged:
-                // changing a high-level filter dimension resets the alphabet jump.
-                namePrefix = null,
-            ),
-        )
-    }
-
     fun loadMoreBrowse() {
         val state = _uiState.value
-        if (state.browseLoading || state.browseLoadingMore || !state.browseHasMore) return
+        if (state.browseError != null || state.browseLoading || state.browseLoadingMore || !state.browseHasMore) return
         loadBrowse(reset = false)
     }
 
     fun loadMoreAudiobookGroups() {
         val state = _uiState.value
         val groupBy = state.selectedTab.audiobookGroupBy ?: return
-        if (state.audiobookGroupsLoading || state.audiobookGroupsLoadingMore || !state.audiobookGroupsHasMore) return
+        if (state.audiobookGroupsError != null || state.audiobookGroupsLoading || state.audiobookGroupsLoadingMore || !state.audiobookGroupsHasMore) return
         loadAudiobookGroups(groupBy = groupBy, reset = false)
     }
 
@@ -429,12 +399,33 @@ class TvLibraryDetailViewModel(
         }
     }
 
+    private var recommendedGeneration = 0L
+
     private fun loadRecommended() {
+        val run = ++recommendedGeneration
         loadedRecommended = true
         viewModelScope.launch {
             _uiState.update { it.copy(recommendedLoading = true, recommendedError = null) }
 
-            val layout = when (val layoutResult = sectionRepository.getLibrarySections(libraryId)) {
+            val owner = sectionRepository.captureLibrarySectionAuthority()
+            if (run != recommendedGeneration || !kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
+            if (owner == null) {
+                loadedRecommended = false
+                _uiState.update { it.copy(sections = emptyList(), recommendedLoading = false, recommendedError = "Sign in to load library sections.") }
+                return@launch
+            }
+            suspend fun mayPublish(): Boolean {
+                val valid = sectionRepository.isLibrarySectionAuthorityCurrent(owner)
+                if (run != recommendedGeneration || !kotlinx.coroutines.currentCoroutineContext().isActive) return false
+                if (!valid) {
+                    loadedRecommended = false
+                    _uiState.update { it.copy(sections = emptyList(), recommendedLoading = false) }
+                }
+                return valid
+            }
+            val layoutResult = sectionRepository.getLibrarySections(libraryId, owner)
+            if (!mayPublish()) return@launch
+            val layout = when (layoutResult) {
                 is ApiResult.Success -> layoutResult.data
                 is ApiResult.Error -> {
                     loadedRecommended = false
@@ -477,8 +468,9 @@ class TvLibraryDetailViewModel(
             } else {
                 val resolvedById = unresolved.map { section ->
                     async {
+                        if (run != recommendedGeneration || !kotlinx.coroutines.currentCoroutineContext().isActive) return@async section.id to section
                         section.id to when (
-                            val result = sectionRepository.getLibrarySectionItems(libraryId, section.id)
+                            val result = sectionRepository.getLibrarySectionItems(libraryId, section.id, owner)
                         ) {
                             is ApiResult.Success -> result.data.section ?: section
                             else -> section
@@ -488,6 +480,7 @@ class TvLibraryDetailViewModel(
                 sections.map { section -> resolvedById[section.id] ?: section }
             }
 
+            if (!mayPublish()) return@launch
             _uiState.update {
                 it.copy(
                     sections = resolved.visibleOnTv(),
@@ -560,12 +553,11 @@ class TvLibraryDetailViewModel(
                 genre = filter.genre,
                 sort = filter.sort,
                 order = filter.order,
-                offset = offset,
+                continuation = if (reset) null else browseContinuation,
                 limit = pageSize,
                 namePrefix = filter.namePrefix,
                 yearMin = filter.yearMin,
                 yearMax = filter.yearMax,
-                snapshotAt = browseSnapshot,
                 queryGroups = filter.queryGroups + facetGroups,
                 match = if (facetGroups.isNotEmpty()) {
                     if (filter.facetSelection.matchAll) "all" else "any"
@@ -579,6 +571,7 @@ class TvLibraryDetailViewModel(
             when (result) {
                 is ApiResult.Success -> {
                     val response = result.data
+                    browseContinuation = response.continuation
                     if (browseSnapshot == null) {
                         browseSnapshot = response.snapshot
                     }
@@ -663,12 +656,13 @@ class TvLibraryDetailViewModel(
                     libraryId = libraryId,
                     groupBy = groupBy,
                     sort = "name",
-                    offset = offset,
+                    continuation = if (reset) null else audiobookContinuation,
                     limit = pageSize,
                 )
             ) {
                 is ApiResult.Success -> {
                     if (generation != audiobookGroupsGeneration) return@launch
+                    audiobookContinuation = result.data.continuation
                     val response = result.data
                     _uiState.update {
                         it.copy(

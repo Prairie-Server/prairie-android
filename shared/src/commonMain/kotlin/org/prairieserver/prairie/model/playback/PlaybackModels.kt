@@ -70,6 +70,8 @@ data class PlayerSubtitleInfo(
     @SerialName("server_track_id") val serverTrackId: String? = null,
     /** Protocol-v3 representation: `sidecar` or `burn_in_only`. */
     @SerialName("server_delivery") val serverDelivery: String? = null,
+    /** Exact original-container track ID selected by a v3 embedded decision. */
+    @SerialName("native_container_track_id") val nativeContainerTrackId: String? = null,
 )
 
 /**
@@ -100,6 +102,46 @@ data class HdrCapabilities(
     @SerialName("hdr10_plus") val hdr10Plus: Boolean = false,
     val hlg: Boolean = false,
     @SerialName("dolby_vision_profiles") val dolbyVisionProfiles: List<Int> = emptyList(),
+    /**
+     * Per-profile decoder bounds. Once any entry is present the server requires
+     * one for every profile in [dolbyVisionProfiles]; an advertised profile
+     * without bounds is then refused rather than assumed unbounded.
+     */
+    @SerialName("dolby_vision_profile_levels")
+    val dolbyVisionProfileLevels: List<DolbyVisionProfileCapability> = emptyList(),
+)
+
+/**
+ * Decoder bounds for one Dolby Vision profile. [maxLevel] is the Dolby Vision
+ * level (1..13). An empty [blCompatibilityIds] means every base-layer
+ * compatibility id is accepted for the profile.
+ */
+@Serializable
+data class DolbyVisionProfileCapability(
+    val profile: Int,
+    @SerialName("max_level") val maxLevel: Int,
+    @SerialName("bl_compatibility_ids") val blCompatibilityIds: List<Int> = emptyList(),
+)
+
+/** How the active display's HDR facts were obtained. */
+const val OUTPUT_HDR_EVIDENCE_EXACT = "exact"
+
+/** The display could not be probed; the server must not infer native output. */
+const val OUTPUT_HDR_EVIDENCE_UNKNOWN = "unknown"
+
+/**
+ * Raw facts about the display that currently owns the playback surface, kept
+ * separate from [PlaybackOutputContext.hdrDetails] (decoder ∩ display) so the
+ * server can distinguish "confirmed SDR" from "could not probe".
+ */
+@Serializable
+data class PlaybackOutputDisplay(
+    /** [OUTPUT_HDR_EVIDENCE_EXACT] or [OUTPUT_HDR_EVIDENCE_UNKNOWN]. */
+    @SerialName("hdr_evidence") val hdrEvidence: String,
+    /** Display-reported HDR types, independent of any decoder. */
+    @SerialName("hdr_types") val hdrTypes: HdrCapabilities = HdrCapabilities(),
+    /** Platform display identity (Android display id), for diagnostics. */
+    @SerialName("display_id") val displayId: String? = null,
 )
 
 /**
@@ -379,6 +421,11 @@ data class PlaybackOutputContext(
      * stringified, Apple a synthetic sink hash, web omits it.
      */
     @SerialName("output_context_id") val outputContextId: String? = null,
+    /**
+     * Raw active-display facts with an evidence marker. Additive: older servers
+     * ignore it and keep reading [hdrDetails].
+     */
+    val display: PlaybackOutputDisplay? = null,
 )
 
 /** What the client can do with one delivery class. */
@@ -404,7 +451,17 @@ data class DeliveryCapability(
 )
 
 @Serializable
+data class NativeEmbeddedSubtitleCapability(
+    val container: String,
+    val codecs: List<String>,
+    @SerialName("track_identity") val trackIdentity: String,
+    @SerialName("ass_styling") val assStyling: Boolean = false,
+    @SerialName("font_attachments") val fontAttachments: Boolean = false,
+)
+
+@Serializable
 data class DeliverySubtitleCapabilities(
+    @SerialName("native_embedded") val nativeEmbedded: List<NativeEmbeddedSubtitleCapability> = emptyList(),
     @SerialName("embedded_text") val embeddedText: Boolean = true,
     @SerialName("sidecar_text") val sidecarText: Boolean = true,
     @SerialName("ass_styling") val assStyling: Boolean = false,

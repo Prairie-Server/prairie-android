@@ -42,7 +42,30 @@ import org.prairieserver.prairie.model.profile.Profile
 /** iOS `topBarIconSpacing`. */
 val TopBarActionSpacing = 4.dp
 
-/** iOS `TopBarIconButton`: a plain 40pt hit target, optionally a filled disc when active. */
+/**
+ * Page edge margin for top controls. Home, the shared tab bar, Libraries'
+ * selector row, and the back buttons on item/person detail all use it, so the
+ * controls do not shift horizontally when moving between pages.
+ */
+val TopBarEdgeMargin = 16.dp
+
+/**
+ * Extra inset below the status bar for a page's top controls — deliberately
+ * zero. Every page's controls sit on the same line, directly under the status
+ * bar. Pages used to disagree by 0, 4, or 8dp, so the buttons jumped a few
+ * pixels on every navigation.
+ */
+val TopBarRowTopInset = 0.dp
+
+/**
+ * A plain 40dp hit target: the glyph only, no disc, no border, no shadow.
+ * The one exception is [isActive], where a filled disc is carrying state
+ * (the remote button while it is controlling a TV) rather than decoration.
+ *
+ * Header buttons used to draw a translucent white disc in imitation of iOS
+ * glass. Without a live blur behind it that is just a light wash sitting on
+ * the page, and it read as out of place on Android.
+ */
 @Composable
 fun TopBarIconButton(
     onClick: () -> Unit,
@@ -53,8 +76,8 @@ fun TopBarIconButton(
     Surface(
         onClick = onClick,
         modifier = modifier,
-        color = if (isActive) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-        contentColor = if (isActive) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface,
+        color = if (isActive) Color.White.copy(alpha = 0.18f) else Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = CircleShape,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
