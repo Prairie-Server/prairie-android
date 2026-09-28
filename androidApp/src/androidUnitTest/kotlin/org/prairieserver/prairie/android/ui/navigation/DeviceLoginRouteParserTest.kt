@@ -29,7 +29,7 @@ class DeviceLoginRouteParserTest {
         // The issuing origin rides along so the pairing screen can refuse a
         // code that belongs to a server the user is not currently on.
         assertEquals(
-            "pair_device?token=t1&serverOrigin=https%3A%2F%2Fsilo.example",
+            "pair_device?token=t1&serverOrigin=https%3A%2F%2Fprairie.example",
             deviceLoginPairRouteOrNull("https://prairie.example/device?token=t1"),
         )
     }
@@ -37,7 +37,7 @@ class DeviceLoginRouteParserTest {
     @Test
     fun serverHttpsAuthDeviceCodeUrlRoutesToPairDevice() {
         assertEquals(
-            "pair_device?code=ABCD&serverOrigin=https%3A%2F%2Fsilo.example",
+            "pair_device?code=ABCD&serverOrigin=https%3A%2F%2Fprairie.example",
             deviceLoginPairRouteOrNull("https://prairie.example/auth/device?code=ABCD"),
         )
     }
