@@ -42,6 +42,7 @@ import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhil
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.request.RequestMediaDetail
 import org.prairieserver.prairie.model.request.RequestMediaResult
+import org.prairieserver.prairie.model.request.reasonMessage
 import org.prairieserver.prairie.model.request.requestBackdropUrl
 import org.prairieserver.prairie.model.request.requestDisplayLabel
 import org.prairieserver.prairie.model.request.requestPosterUrl
@@ -344,9 +345,11 @@ private fun RequestActions(
 
 @Composable
 private fun RequestDetailStatus(detail: RequestMediaDetail) {
-    val status = detail.request.reason
-        .takeIf { it.isNotBlank() }
-        ?: detail.availability.requestDisplayLabel()
+    val status = if (detail.request.reason.isBlank()) {
+        detail.availability.requestDisplayLabel()
+    } else {
+        detail.request.reasonMessage()
+    } ?: return
     Text(
         text = status,
         style = MaterialTheme.typography.bodySmall,

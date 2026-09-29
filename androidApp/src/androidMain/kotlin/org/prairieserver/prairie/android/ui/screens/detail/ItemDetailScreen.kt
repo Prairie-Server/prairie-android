@@ -79,6 +79,7 @@ import org.prairieserver.prairie.model.ebook.chooseEbookVersion
 import org.prairieserver.prairie.model.ebook.isInAppReadableEbookVersion
 import org.prairieserver.prairie.model.ebook.isSupportedEbookVersion
 import org.prairieserver.prairie.model.download.DownloadQuality
+import org.prairieserver.prairie.model.download.labelFor
 import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.network.ServerRegistry
@@ -621,8 +622,18 @@ fun ItemDetailScreen(
                             it.contentId == state.selectedEpisodeContentId
                         }
                         val selectedEpisodeDetail = state.selectedEpisodeDetail
-                        val selectedEpisodeVersionIndex = state.selectedVersionIndex
-                            .coerceIn(0, (selectedEpisodeDetail?.versions?.lastIndex ?: 0).coerceAtLeast(0))
+                        // Auto resolves like the movie page and playback, so
+                        // the version shown is the one Play and Download use.
+                        val selectedEpisodeVersions = selectedEpisodeDetail?.versions.orEmpty()
+                        val selectedEpisodeVersionIndex = detailDisplayVersionIndex(
+                            versions = selectedEpisodeVersions,
+                            explicitIndex = state.selectedVersionIndex
+                                .coerceIn(0, selectedEpisodeVersions.lastIndex.coerceAtLeast(0))
+                                .takeIf { state.hasExplicitVersionSelection },
+                            lastFileId = selectedEpisodeDetail?.userData?.lastFileId,
+                            preferredQuality = preferredQuality,
+                            fallbackIndex = 0,
+                        )
                         val selectedEpisodeFileId = selectedEpisodeDetail?.versions
                             ?.getOrNull(selectedEpisodeVersionIndex)
                             ?.fileId
@@ -748,7 +759,7 @@ fun ItemDetailScreen(
                                                 viewModel.onDownloadTapped(
                                                     version, episode.title,
                                                     forceRedownloadMissingLocal = episodeDownloadState.needsLocalRecovery,
-                                                    downloadContentId = episode.contentId,
+                                                    episode = episode,
                                                 )
                                             },
                                             qualityAction = { quality ->
@@ -756,7 +767,7 @@ fun ItemDetailScreen(
                                                     version, episode.title,
                                                     forceRedownloadMissingLocal = episodeDownloadState.needsLocalRecovery,
                                                     downloadQuality = quality,
-                                                    downloadContentId = episode.contentId,
+                                                    episode = episode,
                                                 )
                                             },
                                             estimate = org.prairieserver.prairie.model.download.DownloadSizeEstimate
@@ -821,41 +832,18 @@ fun ItemDetailScreen(
                         // flow through to the DownloadButton.
                         val downloadRecords by viewModel.downloads.collectAsState()
                         // Auto preview must resolve through the SAME shared
-                        // selector as playback (lastFileId → preferred-quality
-                        // rank → bestAvailable), not just lastFileId-else-[0] —
+                        // selector as playback, not just lastFileId-else-[0] —
                         // otherwise the previewed version (and the audio/subtitle
                         // lists derived from it) can describe a file playback
-                        // won't use. An explicit user pick still wins. TV parity:
-                        // selectTvDetailDisplayVersion does the same.
-                        val videoDisplayVersionIndex = if (
-                            state.hasExplicitVersionSelection || detail.versions.isEmpty()
-                        ) {
-                            effectiveSelectedVersionIndex
-                        } else if (preferredQuality == null) {
-                            // The quality pref hasn't emitted from DataStore yet
-                            // (a frame or two): don't auto-resolve against a
-                            // missing pref — it would name a version the arriving
-                            // pref immediately contradicts (first-frame flash).
-                            // lastFileId is pref-independent and always wins in
-                            // selectPlaybackVersion, so it can be shown at once;
-                            // otherwise hold the bare "Auto" placeholder (-1 →
-                            // no resolved version) until the pref lands.
-                            detail.userData?.lastFileId
-                                ?.let { lastFileId ->
-                                    detail.versions.indexOfFirst { it.fileId == lastFileId }
-                                        .takeIf { it >= 0 }
-                                }
-                                ?: -1
-                        } else {
-                            val resolvedFileId = selectPlaybackVersion(
-                                detail.versions,
-                                detail.userData?.lastFileId,
-                                preferredQuality,
-                            ).fileId
-                            detail.versions.indexOfFirst { it.fileId == resolvedFileId }
-                                .takeIf { it >= 0 }
-                                ?: effectiveSelectedVersionIndex
-                        }
+                        // won't use. TV parity: selectTvDetailDisplayVersion
+                        // does the same.
+                        val videoDisplayVersionIndex = detailDisplayVersionIndex(
+                            versions = detail.versions,
+                            explicitIndex = effectiveSelectedVersionIndex.takeIf { state.hasExplicitVersionSelection },
+                            lastFileId = detail.userData?.lastFileId,
+                            preferredQuality = preferredQuality,
+                            fallbackIndex = effectiveSelectedVersionIndex,
+                        )
                         val selectedVersion = detail.versions.getOrNull(videoDisplayVersionIndex)
                         val selectedLocalDownload = selectedVersion?.let { version ->
                             localDownloadFor(version.fileId)
@@ -1002,6 +990,7 @@ fun ItemDetailScreen(
                 estimate = pendingDownloadEstimate,
                 availableBytes = remember { downloadStorage.usableSpaceBytes() },
                 allowedQualities = pendingDownloadAllowedQualities,
+                qualityLabel = { quality -> downloadCapability.labelFor(quality) },
             )
         }
 

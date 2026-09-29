@@ -68,6 +68,10 @@ data class DownloadSidecar(
      *  used to send `If-Range` when resuming an interrupted transfer so a changed
      *  source file restarts cleanly instead of corrupting. Null/absent = none. */
     val resumeValidator: String? = null,
+    /** Audio tracks of the downloaded file and the subtitle sidecars saved beside
+     *  it, captured from the offline manifest when the download completed. Null
+     *  for downloads completed before this existed (legacy offline playback). */
+    val offlineTracks: OfflineTrackInfo? = null,
     /** Wall-clock millis when the sidecar was last written. Diagnostic only;
      *  helps debug stale-file scenarios via `ls -la`. */
     val updatedAtMs: Long,

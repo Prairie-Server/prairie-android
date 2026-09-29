@@ -16,6 +16,9 @@ import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.auth.User
 import org.prairieserver.prairie.model.download.DownloadQuality
+import org.prairieserver.prairie.model.download.effectiveDefault
+import org.prairieserver.prairie.model.download.labelFor
+import org.prairieserver.prairie.repository.DownloadsRepository
 import org.prairieserver.prairie.model.notifications.NotificationPreferencesUpdate
 import org.prairieserver.prairie.model.settings.CardCaption
 import org.prairieserver.prairie.model.settings.CardPosterSize
@@ -94,6 +97,9 @@ data class SettingsUiState(
     val downloadsWifiOnly: Boolean = true,
     val keepWatchedDownloads: Boolean = false,
     val defaultDownloadQuality: String = DownloadQuality.Original.label,
+    // The presets this account may request, labelled with the server's
+    // resolution ceiling once the download capability has loaded.
+    val downloadQualityOptions: List<String> = DownloadQuality.entries.map { it.label },
 
     // Subtitles
     // BCP 47 tag, "" = off. The picker converts to and from labels.
@@ -131,10 +137,18 @@ class SettingsViewModel(
     private val cardPresentationStore: CardPresentationStore,
     private val seekIntervalStore: SeekIntervalStore,
     audiobookSettingsStore: AudiobookSettingsStore,
+    private val downloadsRepository: DownloadsRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    private var subtitleLanguageEditGeneration = 0L
+    private var subtitleModeEditGeneration = 0L
+    private var forcedSubtitlesEditGeneration = 0L
+    private var subtitleLanguageConfirmedGeneration = 0L
+    private var subtitleModeConfirmedGeneration = 0L
+    private var forcedSubtitlesConfirmedGeneration = 0L
 
     /** Profile-wide video and audiobook skip intervals (settings revision 9). */
     val seekIntervals = SeekIntervalSettingsModel(seekIntervalStore, audiobookSettingsStore, viewModelScope)
@@ -233,9 +247,20 @@ class SettingsViewModel(
         playerSettingsStore.keepWatchedDownloadsFlow.onEach { keepWatched ->
             _uiState.update { it.copy(keepWatchedDownloads = keepWatched) }
         }.launchIn(viewModelScope)
-        playerSettingsStore.defaultDownloadQualityFlow.onEach { quality ->
-            _uiState.update { it.copy(defaultDownloadQuality = downloadQualityLabel(quality)) }
+        val downloadCapability = downloadsRepository?.capability ?: MutableStateFlow(null)
+        combine(playerSettingsStore.defaultDownloadQualityFlow, downloadCapability) { quality, capability ->
+            val offered = capability?.allowedQualities() ?: DownloadQuality.entries
+            _uiState.update {
+                it.copy(
+                    // The preset new downloads will actually use.
+                    defaultDownloadQuality = capability.labelFor(capability.effectiveDefault(DownloadQuality.fromWire(quality))),
+                    downloadQualityOptions = offered.map { preset -> capability.labelFor(preset) },
+                )
+            }
         }.launchIn(viewModelScope)
+        // Opening Settings refreshes the capability, as the detail screen does,
+        // so the labels reflect the server's current download settings.
+        downloadsRepository?.let { repository -> viewModelScope.launch { repository.refreshCapability() } }
         playerSettingsStore.pictureInPictureEnabledFlow.onEach { enabled ->
             _uiState.update { it.copy(pictureInPictureEnabled = enabled) }
         }.launchIn(viewModelScope)
@@ -539,8 +564,14 @@ class SettingsViewModel(
         }
     }
 
+    // The subtitle setters below also store each write's confirmed value in
+    // the cached profile, which offline playback reads for its subtitle
+    // preferences. Only a newer successful write to the same field supersedes
+    // a confirmed value; pending or failed edits leave that value available.
+
     /** [language] is a BCP 47 tag, or "" for off. */
     fun setSubtitleLanguage(language: String) {
+        val editGeneration = ++subtitleLanguageEditGeneration
         val previous = _uiState.value.subtitleLanguage
         _uiState.update { it.copy(subtitleLanguage = language) }
         viewModelScope.launch {
@@ -550,12 +581,18 @@ class SettingsViewModel(
                     if (it.subtitleLanguage == language) it.copy(subtitleLanguage = previous) else it
                 }
             } else {
-                applyResolved(result.snapshot, edited = language) { it.subtitleLanguage }
+                if (editGeneration > subtitleLanguageConfirmedGeneration) {
+                    applyResolved(result.snapshot, edited = language) { it.subtitleLanguage }
+                    subtitleLanguageConfirmedGeneration = editGeneration
+                    val confirmed = result.snapshot?.subtitleLanguage ?: language
+                    activeProfileStore.update { it.copy(subtitleLanguage = confirmed) }
+                }
             }
         }
     }
 
     fun setSubtitleMode(mode: SubtitleMode) {
+        val editGeneration = ++subtitleModeEditGeneration
         val previous = _uiState.value.subtitleMode
         _uiState.update { it.copy(subtitleMode = mode) }
         viewModelScope.launch {
@@ -565,12 +602,18 @@ class SettingsViewModel(
                     if (it.subtitleMode == mode) it.copy(subtitleMode = previous) else it
                 }
             } else {
-                applyResolved(result.snapshot, edited = mode.wire) { it.subtitleMode }
+                if (editGeneration > subtitleModeConfirmedGeneration) {
+                    applyResolved(result.snapshot, edited = mode.wire) { it.subtitleMode }
+                    subtitleModeConfirmedGeneration = editGeneration
+                    val confirmed = result.snapshot?.subtitleMode ?: mode.wire
+                    activeProfileStore.update { it.copy(subtitleMode = confirmed) }
+                }
             }
         }
     }
 
     fun setShowForcedSubtitles(enabled: Boolean) {
+        val editGeneration = ++forcedSubtitlesEditGeneration
         val previous = _uiState.value.showForcedSubtitles
         _uiState.update { it.copy(showForcedSubtitles = enabled) }
         viewModelScope.launch {
@@ -580,8 +623,13 @@ class SettingsViewModel(
                     if (it.showForcedSubtitles == enabled) it.copy(showForcedSubtitles = previous) else it
                 }
             } else {
-                applyResolved(result.snapshot, edited = enabled.toString()) {
-                    it.showForcedSubtitles.toString()
+                if (editGeneration > forcedSubtitlesConfirmedGeneration) {
+                    applyResolved(result.snapshot, edited = enabled.toString()) {
+                        it.showForcedSubtitles.toString()
+                    }
+                    forcedSubtitlesConfirmedGeneration = editGeneration
+                    val confirmed = result.snapshot?.showForcedSubtitles ?: enabled
+                    activeProfileStore.update { it.copy(showForcedSubtitles = confirmed) }
                 }
             }
         }
@@ -627,9 +675,10 @@ class SettingsViewModel(
         }
     }
 
-    private fun downloadQualityLabel(value: String): String =
-        DownloadQuality.fromWire(value).label
-
+    // A shown label is the preset's bitrate label plus an optional
+    // " · up to …" suffix, so the bitrate part alone identifies the preset
+    // even if the capability refreshed after the list was drawn.
     private fun downloadQualityWireValue(value: String): String =
-        DownloadQuality.entries.firstOrNull { it.label == value }?.wire ?: DownloadQuality.Original.wire
+        DownloadQuality.entries.firstOrNull { it.label == value.substringBefore(" · ") }?.wire
+            ?: DownloadQuality.Original.wire
 }
