@@ -103,7 +103,7 @@ internal fun interface WatchTogetherSocketConnector {
     suspend fun open(request: WatchTogetherSocketRequest): WatchTogetherSocketConnection
 }
 
-internal const val ROOM_SOCKET_PROTOCOL = "silo.room.v2"
+internal const val ROOM_SOCKET_PROTOCOL = "prairie.room.v2"
 
 private fun roomPath(roomId: String) = "/api/v2/watch-together/rooms/${roomId.encodeURLPathPart()}"
 
@@ -145,7 +145,7 @@ internal fun HttpRequestBuilder.roomSocketUpgrade(scope: AuthScopeSnapshot, room
     authScope(scope); skipPrairieAuth(); singleAttempt()
     headers.remove(HttpHeaders.Authorization)
     headers.remove("X-Profile-Id"); headers.remove("X-Profile-Token")
-    header(HttpHeaders.SecWebSocketProtocol, "$ROOM_SOCKET_PROTOCOL, silo.ticket.${ticket.ticket}")
+    header(HttpHeaders.SecWebSocketProtocol, "$ROOM_SOCKET_PROTOCOL, prairie.ticket.${ticket.ticket}")
 }
 
 private class KtorWatchTogetherSocketConnection(

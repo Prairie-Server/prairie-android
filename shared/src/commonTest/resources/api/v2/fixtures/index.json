@@ -63,8 +63,8 @@
         "method": "GET",
         "path": "/api/v2/system/info",
         "headers": {
-          "X-Silo-Client": "Silo Fixture Client",
-          "X-Silo-Client-Version": "0.0.0"
+          "X-Prairie-Client": "Silo Fixture Client",
+          "X-Prairie-Client-Version": "0.0.0"
         }
       },
       "expected_status": 200,

@@ -267,7 +267,7 @@ class DefaultPlaybackRealtimeClient(
     )
 }
 
-internal const val PLAYBACK_CONTROL_PROTOCOL = "silo.playback-control.v2"
+internal const val PLAYBACK_CONTROL_PROTOCOL = "prairie.playback-control.v2"
 
 internal fun validPlaybackControlTicket(ticket: WsTicketResponse): Boolean =
     ticket.protocol == PLAYBACK_CONTROL_PROTOCOL && ticket.expiresIn in 1..30 &&
@@ -287,5 +287,5 @@ internal fun HttpRequestBuilder.playbackControlUpgrade(scope: AuthScopeSnapshot,
     authScope(scope); skipPrairieAuth(); singleAttempt()
     headers.remove(HttpHeaders.Authorization)
     headers.remove("X-Profile-Id"); headers.remove("X-Profile-Token")
-    header(HttpHeaders.SecWebSocketProtocol, "$PLAYBACK_CONTROL_PROTOCOL, silo.ticket.${ticket.ticket}")
+    header(HttpHeaders.SecWebSocketProtocol, "$PLAYBACK_CONTROL_PROTOCOL, prairie.ticket.${ticket.ticket}")
 }

@@ -112,7 +112,7 @@ class WatchTogetherRealtimeWebSocketTest {
             assertEquals("/api/v2/watch-together/rooms/room-a/ws", upgradeA.requestUrl?.encodedPath)
             assertNull(upgradeA.getHeader("Authorization"))
             assertNull(upgradeA.getHeader("X-Profile-Id"))
-            assertEquals("silo.room.v2, silo.ticket.opaque-proof", upgradeA.getHeader("Sec-WebSocket-Protocol"))
+            assertEquals("prairie.room.v2, prairie.ticket.opaque-proof", upgradeA.getHeader("Sec-WebSocket-Protocol"))
         } finally {
             collection?.cancelAndJoin()
             httpClient.close()
@@ -191,7 +191,7 @@ class WatchTogetherRealtimeWebSocketTest {
             assertNull(request.getHeader("X-Profile-Id"))
             assertNull(request.getHeader("X-Profile-Token"))
             assertNull(request.getHeader("X-Room-Token"))
-            assertEquals("silo.room.v2, silo.ticket.opaque-proof", request.getHeader("Sec-WebSocket-Protocol"))
+            assertEquals("prairie.room.v2, prairie.ticket.opaque-proof", request.getHeader("Sec-WebSocket-Protocol"))
 
             assertTrue(serverSocket.await().close(1000, "physical EOF"))
             val terminated = assertIs<RoomRealtimeEvent.TransportTerminated>(
@@ -298,10 +298,10 @@ class WatchTogetherRealtimeWebSocketTest {
         MockResponse()
             .setResponseCode(200)
             .addHeader("Content-Type", "application/json")
-            .setBody("""{"ticket":"opaque-proof","expires_in":20,"max_connection_seconds":300,"protocol":"silo.room.v2"}""")
+            .setBody("""{"ticket":"opaque-proof","expires_in":20,"max_connection_seconds":300,"protocol":"prairie.room.v2"}""")
 
     private fun roomUpgrade(listener: WebSocketListener): MockResponse =
-        MockResponse().withWebSocketUpgrade(listener).addHeader("Sec-WebSocket-Protocol", "silo.room.v2")
+        MockResponse().withWebSocketUpgrade(listener).addHeader("Sec-WebSocket-Protocol", "prairie.room.v2")
 
     private fun approvedConsent(server: MockWebServer): CleartextOriginConsent {
         val approvedOrigin = canonicalHttpOrigin(server.url("/").toString())

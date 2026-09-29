@@ -73,7 +73,7 @@ class EventsSocketV2Api(
 
 internal class EventsTicketFailure(val code: Int) : Exception("Realtime ticket unavailable")
 
-internal const val EVENTS_PROTOCOL = "silo.events.v2"
+internal const val EVENTS_PROTOCOL = "prairie.events.v2"
 
 internal fun validTicket(ticket: WsTicketResponse): Boolean =
     ticket.protocol == EVENTS_PROTOCOL && ticket.expiresIn in 1..30 && ticket.maxConnectionSeconds in 1..300 &&
@@ -94,5 +94,5 @@ internal fun HttpRequestBuilder.eventsUpgrade(scope: AuthScopeSnapshot, ticket: 
     authScope(scope); skipPrairieAuth(); singleAttempt()
     headers.remove(HttpHeaders.Authorization)
     headers.remove("X-Profile-Id"); headers.remove("X-Profile-Token")
-    header(HttpHeaders.SecWebSocketProtocol,"$EVENTS_PROTOCOL, silo.ticket.${ticket.ticket}")
+    header(HttpHeaders.SecWebSocketProtocol,"$EVENTS_PROTOCOL, prairie.ticket.${ticket.ticket}")
 }

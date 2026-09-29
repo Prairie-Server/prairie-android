@@ -14,7 +14,7 @@ import kotlin.test.*
 class EventsSocketV2Test {
     private var scope = AuthScopeSnapshot("server","profile","https://example.invalid", "pin-proof",identityGeneration=1)
     private val tokens = object : TokenManager by TokenManagerImpl() { override suspend fun snapshotCurrentScope() = scope }
-    private val wire = """{"ticket":"opaque-proof","expires_in":30,"max_connection_seconds":300,"protocol":"silo.events.v2"}"""
+    private val wire = """{"ticket":"opaque-proof","expires_in":30,"max_connection_seconds":300,"protocol":"prairie.events.v2"}"""
 
     @Test fun mintPinsOptionalProfileAndRejectsLatePinAuthority() = runTest {
         var replace = false
@@ -44,7 +44,7 @@ class EventsSocketV2Test {
             eventsUpgrade(scope,WsTicketResponse("opaque-proof",30,300,EVENTS_PROTOCOL),listOf("user_state","catalog"))
         }.build()
         assertEquals("wss://example.invalid/api/v2/events/ws?channels=user_state%2Ccatalog",request.url.toString())
-        assertEquals("silo.events.v2, silo.ticket.opaque-proof",request.headers[HttpHeaders.SecWebSocketProtocol])
+        assertEquals("prairie.events.v2, prairie.ticket.opaque-proof",request.headers[HttpHeaders.SecWebSocketProtocol])
         assertNull(request.headers[HttpHeaders.Authorization]); assertNull(request.headers["X-Profile-Token"])
         assertTrue(request.attributes[SkipPrairieAuthAttributeKey]); assertTrue(request.attributes[SingleAttemptAttributeKey])
         assertEquals(scope,request.attributes[AuthScopeAttributeKey])

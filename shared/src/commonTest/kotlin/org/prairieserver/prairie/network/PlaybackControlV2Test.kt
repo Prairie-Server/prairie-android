@@ -18,7 +18,7 @@ class PlaybackControlV2Test {
             playbackControlUpgrade(owner, "session-1", ticket)
         }.build()
         assertEquals("wss://example.invalid/api/v2/playback/sessions/session-1/control/ws", request.url.toString())
-        assertEquals("$PLAYBACK_CONTROL_PROTOCOL, silo.ticket.single-use-proof", request.headers[HttpHeaders.SecWebSocketProtocol])
+        assertEquals("$PLAYBACK_CONTROL_PROTOCOL, prairie.ticket.single-use-proof", request.headers[HttpHeaders.SecWebSocketProtocol])
         assertNull(request.headers[HttpHeaders.Authorization])
         assertNull(request.headers["X-Profile-Id"])
         assertNull(request.headers["X-Profile-Token"])
@@ -28,7 +28,7 @@ class PlaybackControlV2Test {
 
     @Test fun rejectsWrongProtocolExpiredTicketAndHeaderInjection() {
         assertTrue(validPlaybackControlTicket(ticket))
-        assertFalse(validPlaybackControlTicket(ticket.copy(protocol = "silo.events.v2")))
+        assertFalse(validPlaybackControlTicket(ticket.copy(protocol = "prairie.events.v2")))
         assertFalse(validPlaybackControlTicket(ticket.copy(expiresIn = 0)))
         assertFalse(validPlaybackControlTicket(ticket.copy(maxConnectionSeconds = 14401)))
         assertFalse(validPlaybackControlTicket(ticket.copy(ticket = "proof, injected")))
