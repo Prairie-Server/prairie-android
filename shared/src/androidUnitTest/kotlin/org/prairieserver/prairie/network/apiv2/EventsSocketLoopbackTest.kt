@@ -29,7 +29,7 @@ class EventsSocketLoopbackTest {
                         val input = socket.getInputStream().bufferedReader()
                         assertEquals("POST /api/v2/events/ws-ticket HTTP/1.1",input.readLine())
                         while (!input.readLine().isNullOrEmpty()) { }
-                        val body = """{"ticket":"proof-$attempt","expires_in":30,"max_connection_seconds":300,"protocol":"silo.events.v2"}"""
+                        val body = """{"ticket":"proof-$attempt","expires_in":30,"max_connection_seconds":300,"protocol":"prairie.events.v2"}"""
                         socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.toByteArray().size}\r\nConnection: close\r\n\r\n$body".toByteArray())
                         socket.getOutputStream().flush()
                     }
@@ -44,11 +44,11 @@ class EventsSocketLoopbackTest {
                             if (line.isEmpty()) break
                             headers[line.substringBefore(':').lowercase()] = line.substringAfter(':').trim()
                         }
-                        assertEquals("silo.events.v2, silo.ticket.proof-$attempt",headers["sec-websocket-protocol"])
+                        assertEquals("prairie.events.v2, prairie.ticket.proof-$attempt",headers["sec-websocket-protocol"])
                         assertNull(headers["authorization"]); assertNull(headers["x-profile-token"])
                         val accept = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1").digest((headers.getValue("sec-websocket-key")+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()))
                         val output = socket.getOutputStream()
-                        output.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $accept\r\nSec-WebSocket-Protocol: silo.events.v2\r\n\r\n".toByteArray())
+                        output.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $accept\r\nSec-WebSocket-Protocol: prairie.events.v2\r\n\r\n".toByteArray())
                         val text = """{"type":"subscribed","channels":["catalog"]}""".toByteArray()
                         output.write(byteArrayOf(0x81.toByte(),text.size.toByte())); output.write(text); output.flush()
                         // Read the client's subscribe bytes before ending the socket.
