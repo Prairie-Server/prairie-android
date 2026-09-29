@@ -1712,9 +1712,17 @@ fun isSubtitleSelected(tracks: Tracks, identity: SubtitleIdentity): Boolean {
         ?.isTrackSelected(selection.trackIndex) == true
 }
 
+/**
+ * Every text track in a snapshot that this device can render, in snapshot
+ * order, described the way subtitle resolution sees it.
+ */
+fun renderableMountedTextTracks(tracks: Tracks): List<MountedSubtitleTrack> =
+    textTrackCandidates(tracks).filter(TextTrackCandidate::supported).map(TextTrackCandidate::track)
+
 private data class TextTrackCandidate(
     val selection: SubtitleSelection,
     val track: MountedSubtitleTrack,
+    val supported: Boolean,
 )
 
 private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
@@ -1735,6 +1743,7 @@ private fun textTrackCandidates(tracks: Tracks): List<TextTrackCandidate> {
                     forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
                     hearingImpaired = format.isHearingImpairedSubtitle(),
                 ),
+                supported = group.isTrackSupported(trackIndex),
             )
             flatIndex++
         }

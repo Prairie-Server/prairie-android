@@ -2,6 +2,7 @@ package org.prairieserver.prairie.tv.ui.screens.requests
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +16,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -32,12 +43,18 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.request.RequestMediaDetail
+import org.prairieserver.prairie.model.request.RequestState
+import org.prairieserver.prairie.model.request.reasonMessage
 import org.prairieserver.prairie.model.request.requestBackdropUrl
+import org.prairieserver.prairie.model.request.requestDisplayLabel
 import org.prairieserver.prairie.model.request.requestPosterUrl
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
-import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
+import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
+import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.theme.RowDimens
+import org.prairieserver.prairie.tv.ui.theme.PrairieBlue
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.tv.ui.theme.sectionEyebrow
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
@@ -47,8 +64,8 @@ import org.koin.core.parameter.parametersOf
 /**
  * TV request detail — the 10-foot counterpart to the phone RequestDetailScreen.
  * Reuses the shared [RequestDetailViewModel] (load + submitRequest) keyed by
- * (mediaType, tmdbId). Shows title/metadata/genres/overview and a Request
- * action when the title is requestable, plus the current request status.
+ * (mediaType, tmdbId). Shows title/metadata/genres/overview and one primary
+ * action: Request when the title is requestable, otherwise the request status.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -56,19 +73,71 @@ fun TvRequestDetailScreen(
     mediaType: String,
     tmdbId: Int,
     onBack: () -> Unit,
+    /**
+     * False while the shell has an overlay (a cascade panel or the profile
+     * menu) that Back should close first. This handler registers after the
+     * shell's, so on Android 16 it would otherwise take that press and pop
+     * the page from under the open overlay.
+     */
+    backEnabled: Boolean = true,
+    onInitialContentFocus: () -> Unit = {},
     viewModel: RequestDetailViewModel = koinViewModel { parametersOf(mediaType, tmdbId) },
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val loadingFocusRequester = remember { FocusRequester() }
+    val primaryActionFocusRequester = remember { FocusRequester() }
+    var pageHasFocus by remember { mutableStateOf(false) }
+    var pageHadFocus by remember { mutableStateOf(false) }
+    val showsLoading = state.isLoading && state.detail == null
+    // The title, not the loaded detail: the refresh after a submit replaces the
+    // detail and must not re-run the claim below.
+    val detailKey = state.detail?.let { "${it.mediaType}:${it.tmdbId}" }
+    val detailArrived by rememberUpdatedState(detailKey != null)
 
-    BackHandler(enabled = true) { onBack() }
+    // Nothing here is focusable until the detail loads, and the row that opened
+    // the page is about to be disposed, so Compose would re-home focus onto the
+    // top bar's Search button. Hold it on the loading indicator instead: focus
+    // stays in the page, and a move to the bar while this loads is the viewer's.
+    LaunchedEffect(showsLoading) {
+        if (!showsLoading) return@LaunchedEffect
+        requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { withFrameNanos { } },
+            requestFocus = loadingFocusRequester::requestFocus,
+            isFocused = { pageHasFocus || detailArrived },
+        )
+    }
+
+    // Hand focus to the primary action when the detail arrives, but only if it
+    // is still in the page (or never got here). A viewer who went up to the bar
+    // or into the profile menu while this loaded keeps their place. Read in the
+    // composition that swaps the indicator for the content, so it is the focus
+    // from before the swap.
+    val claimOnArrival = remember(detailKey) { pageHasFocus || !pageHadFocus }
+    LaunchedEffect(detailKey) {
+        if (detailKey == null || !claimOnArrival) return@LaunchedEffect
+        val result = requestFocusUntilObserved(
+            maxAttempts = TvContentInitialFocusMaxAttempts,
+            awaitAttempt = { withFrameNanos { } },
+            requestFocus = primaryActionFocusRequester::requestFocus,
+            isFocused = { pageHasFocus },
+        )
+        if (result == TvObservedFocusResult.Focused) onInitialContentFocus()
+    }
+
+    BackHandler(enabled = backEnabled) { onBack() }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .onFocusChanged {
+                pageHasFocus = it.hasFocus
+                if (it.hasFocus) pageHadFocus = true
+            }
             .background(MaterialTheme.colorScheme.background),
     ) {
         when {
-            state.isLoading && state.detail == null -> TvLoadingScreen()
+            showsLoading -> RequestDetailLoading(focusRequester = loadingFocusRequester)
             state.error != null && state.detail == null -> TvErrorScreen(
                 message = state.error ?: "Failed to load this title.",
                 onRetry = viewModel::load,
@@ -79,8 +148,27 @@ fun TvRequestDetailScreen(
                 notice = state.notice,
                 error = state.error,
                 onRequest = viewModel::submitRequest,
+                primaryActionFocusRequester = primaryActionFocusRequester,
             )
         }
+    }
+}
+
+/**
+ * The loading indicator plus a spinner-sized focus target over it, so focus
+ * can wait inside the page. Kept small and centred: D-pad Up from it has to
+ * find the top bar by geometry, which a full-screen target would not.
+ */
+@Composable
+private fun RequestDetailLoading(focusRequester: FocusRequester) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        TvLoadingScreen()
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .focusRequester(focusRequester)
+                .focusable(),
+        )
     }
 }
 
@@ -111,6 +199,7 @@ private fun RequestDetailContent(
     notice: String?,
     error: String?,
     onRequest: () -> Unit,
+    primaryActionFocusRequester: FocusRequester,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Backdrop, scrimmed hard enough that body copy stays legible over the
@@ -229,34 +318,25 @@ private fun RequestDetailContent(
                     )
                 }
 
+                // One pill in every state, never swapped for another node. The
+                // status used to be plain text, which left the page with nothing
+                // to focus, and replacing Request with it after a submit dropped
+                // the focused node the same way. Only Request is enabled; the
+                // status or reason renders disabled so it reads as not
+                // actionable. A disabled TV Surface still takes focus (its
+                // clickable is focusable regardless of enabled), so the page
+                // keeps a focus target in every state, like tvOS
+                // RequestDetailView's single primary action.
                 val request = detail.request
-                when {
-                    request.requestable -> {
-                        TvRequestActionPill(
-                            label = if (isSubmitting) "Requesting…" else "Request",
-                            icon = Icons.Filled.Add,
-                            onClick = onRequest,
-                            enabled = !isSubmitting,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
-                    }
-                    !request.status.isNullOrBlank() -> {
-                        Text(
-                            text = "Request status: ${request.status}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
-                    }
-                    request.reason.isNotBlank() -> {
-                        Text(
-                            text = request.reason,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
-                    }
-                }
+                TvRequestActionPill(
+                    label = request.primaryActionLabel(isSubmitting),
+                    icon = Icons.Filled.Add.takeIf { request.requestable },
+                    onClick = onRequest,
+                    enabled = request.requestable && !isSubmitting,
+                    modifier = Modifier
+                        .padding(top = 12.dp)
+                        .focusRequester(primaryActionFocusRequester),
+                )
 
                 notice?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
@@ -266,5 +346,20 @@ private fun RequestDetailContent(
                 }
             }
         }
+    }
+}
+
+/**
+ * Label for the detail's primary action: Request while the title is
+ * requestable, otherwise the existing request's status, otherwise the reason
+ * it cannot be requested. Status tokens use [requestDisplayLabel]; reasons use
+ * the shared [reasonMessage] policy for readable sentences and unknown codes.
+ */
+private fun RequestState.primaryActionLabel(isSubmitting: Boolean): String {
+    if (requestable) return if (isSubmitting) "Requesting…" else "Request"
+    val status = status?.takeIf { it.isNotBlank() }
+    return when {
+        status != null -> "Request status: ${status.requestDisplayLabel()}"
+        else -> reasonMessage() ?: "Unavailable"
     }
 }

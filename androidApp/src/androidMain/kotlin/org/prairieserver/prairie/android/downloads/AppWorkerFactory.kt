@@ -10,6 +10,7 @@ import org.prairieserver.prairie.common.data.sync.SyncWorker
 import org.prairieserver.prairie.common.downloads.DownloadStorage
 import org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorFactory
 import org.prairieserver.prairie.common.downloads.DownloadSubscriptionWorker
+import org.prairieserver.prairie.common.downloads.DownloadStatusWorker
 import org.prairieserver.prairie.common.downloads.DownloadWorker
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsCoordinator
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsUploadWorker
@@ -63,6 +64,16 @@ class AppWorkerFactory : WorkerFactory() {
                         koin.get<org.prairieserver.prairie.network.ServerRegistry>().activeServerId.value to
                             koin.get<org.prairieserver.prairie.repository.ProfileRepository>().getActiveProfileId()
                     },
+                )
+            }
+            DownloadStatusWorker::class.java.name -> {
+                Log.i(TAG, "Building DownloadStatusWorker via Koin")
+                DownloadStatusWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    repository = koin.get<DownloadsRepository>(),
+                    authorities = koin.get(),
+                    devices = koin.get(),
                 )
             }
             DownloadSubscriptionWorker::class.java.name -> {

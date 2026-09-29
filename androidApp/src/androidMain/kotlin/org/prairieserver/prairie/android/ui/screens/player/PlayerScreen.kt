@@ -98,6 +98,7 @@ import org.prairieserver.prairie.common.player.video.PlaybackStartupStallDetecto
 import org.prairieserver.prairie.common.player.video.PlaybackRuntimeCorrectionMetrics
 import org.prairieserver.prairie.common.player.video.PostResumeVideoStallDetector
 import org.prairieserver.prairie.common.player.isSubtitleSelected
+import org.prairieserver.prairie.common.player.renderableMountedTextTracks
 import org.prairieserver.prairie.common.player.video.VideoPlayerTrackEntry
 import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
@@ -1039,6 +1040,14 @@ fun PlayerScreen(
                     val backend = videoBackend ?: return
                     if (!viewModel.isCurrentSubtitleMount(mount)) return
                     val currentTracks = backend.player.currentTracks
+                    // A downloaded file's own text tracks are only known now;
+                    // this completes its subtitle menu and runs auto-selection
+                    // before the selection below reads the live state.
+                    viewModel.onLocalMediaTracksChanged(
+                        mediaId = backend.player.currentMediaItem?.mediaId,
+                        textTracks = renderableMountedTextTracks(currentTracks),
+                        hasTracks = !currentTracks.isEmpty,
+                    )
                     val liveState = viewModel.uiState.value
                     val pendingIdentity = liveState.localSubtitleMountIdentity
                     val targetIdentity = pendingIdentity ?: liveState.committedSubtitleIdentity

@@ -79,4 +79,11 @@ data class DownloadEntity(
     /** Quality the server actually delivered after any compatibility fallback;
      *  may differ from [quality]. Same offline-fallback reason as above. */
     val effectiveQuality: String? = null,
+    /** Registry revision whose bytes this row describes. A local completion
+     *  only speaks for this revision; null on rows written before v12. */
+    val revision: Int? = null,
+    /** Serialized [org.prairieserver.prairie.model.download.OfflineTrackInfo]: the
+     *  downloaded file's audio tracks and the local subtitle sidecars. Null for
+     *  downloads completed before offline track data was captured. */
+    val offlineTracksJson: String? = null,
 )

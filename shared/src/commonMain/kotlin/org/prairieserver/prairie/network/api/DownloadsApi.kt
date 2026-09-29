@@ -3,6 +3,7 @@ package org.prairieserver.prairie.network.api
 import org.prairieserver.prairie.model.download.DownloadCapability
 import org.prairieserver.prairie.model.download.DownloadRecord
 import org.prairieserver.prairie.model.download.DownloadRequest
+import org.prairieserver.prairie.model.download.DownloadStatusEvent
 import org.prairieserver.prairie.model.download.DownloadsListResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
@@ -33,6 +34,9 @@ open class DownloadsApi(
 
     open suspend fun delete(id: String, scope: AuthScopeSnapshot?): ApiResult<Unit> =
         if (scope == null) changed() else registry.delete(id, scope)
+
+    open suspend fun reportStatus(id: String, event: DownloadStatusEvent, scope: AuthScopeSnapshot?): ApiResult<DownloadRecord> =
+        if (scope == null) changed() else registry.reportStatus(id, event, scope)
 
     /**
      * Feature detection (issue #20 §3). Call at detail load / profile switch;

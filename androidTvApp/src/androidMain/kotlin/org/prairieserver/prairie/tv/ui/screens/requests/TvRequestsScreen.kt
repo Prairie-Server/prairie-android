@@ -57,6 +57,7 @@ import org.prairieserver.prairie.model.request.RequestAvailability
 import org.prairieserver.prairie.model.request.RequestDiscoverySection
 import org.prairieserver.prairie.model.request.RequestMediaResult
 import org.prairieserver.prairie.model.request.RequestMediaType
+import org.prairieserver.prairie.model.request.reasonMessage
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvFilterChip
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
@@ -620,8 +621,7 @@ private fun RequestMediaResult.requestKey(): String = "$mediaType-$tmdbId"
 private fun RequestMediaResult.nonActionableMessage(): String = when {
     availability == RequestAvailability.Available -> "This title is already in your library."
     request.status?.isNotBlank() == true -> "$title is already ${request.status}."
-    request.reason.isNotBlank() -> request.reason
-    else -> "This title cannot be requested right now."
+    else -> request.reasonMessage() ?: "This title cannot be requested right now."
 }
 
 private fun searchEmptyMessage(
