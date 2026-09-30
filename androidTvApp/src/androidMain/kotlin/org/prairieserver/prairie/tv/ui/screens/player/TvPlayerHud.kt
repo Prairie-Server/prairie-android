@@ -85,6 +85,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
+import org.prairieserver.prairie.common.player.healthRows
+import org.prairieserver.prairie.playback.stats.displayLine
+import org.prairieserver.prairie.playback.stats.planRows
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.common.player.SleepTimerState
@@ -183,6 +186,8 @@ internal fun TvPlayerHud(
     playbackPlan: PlaybackExecutionPlan? = null,
     sessionId: String? = null,
     playMethodLabel: String? = null,
+    // Prairie stats for nerds: the URL actually mounted (shown path-only).
+    streamUrl: String? = null,
     desiredAudioOrdinal: Int? = null,
     desiredAudioConfirmed: Boolean = false,
     videoFillMode: VideoFillMode,
@@ -498,6 +503,12 @@ internal fun TvPlayerHud(
                             playMethod = playMethodLabel
                                 ?: playbackPlan?.stream?.playMethod?.name,
                             positionSec = positionSec,
+                            playbackContext = tvPlaybackStatsContext(
+                                plan = playbackPlan,
+                                audioTracks = audioTracks,
+                                streamUrl = streamUrl,
+                                videoQualities = videoQualities,
+                            ),
                         )
                     }
                     HudTab.Video -> HudVideoPane(
@@ -943,7 +954,10 @@ private fun HudStatsPane(
     sessionId: String? = null,
     playMethod: String? = null,
     positionSec: Double? = null,
+    playbackContext: org.prairieserver.prairie.playback.stats.PlaybackStatsContext =
+        org.prairieserver.prairie.playback.stats.PlaybackStatsContext(),
 ) {
+    val planRows = playbackContext.planRows()
     val rows = buildList {
         sessionId?.takeIf { it.isNotBlank() }?.let { add("Session" to it) }
         playMethod?.takeIf { it.isNotBlank() }?.let { add("Play method" to it) }
@@ -951,12 +965,16 @@ private fun HudStatsPane(
             add("Position" to formatHudClock(it))
         }
         addAll(stats.hudRows())
+        stats.healthRows().forEach { add(it.label to it.value) }
     }
 
-    if (rows.isEmpty()) {
+    if (rows.isEmpty() && planRows.isEmpty() && stats.events.isEmpty) {
         HudEmptyStatePane("Stats unavailable", modifier)
         return
     }
+
+    // Prairie: the long plan / stream / track lines wrap full-width above the grid.
+    planRows.forEach { row -> HudStatsBlockRow(label = row.label, value = row.value) }
 
     // Two columns, filled top-to-bottom then across, so nine rows read as a
     // 5+4 grid instead of a single column stretched over the full card width
@@ -975,6 +993,84 @@ private fun HudStatsPane(
             }
         }
     }
+
+    if (!stats.events.isEmpty) {
+        val offsetMs = remember(stats.events) {
+            java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong()
+        }
+        Text(
+            text = "Recent player events",
+            color = Color.White.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
+                fontWeight = FontWeight.Medium,
+            ),
+        )
+        stats.events.entries.forEach { event ->
+            Text(
+                text = event.displayLine(offsetMs),
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                ),
+            )
+        }
+    }
+}
+
+/** Label over a wrapping value — plan summaries and stream paths run long. */
+@Composable
+private fun HudStatsBlockRow(label: String, value: String) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
+                fontWeight = FontWeight.Medium,
+            ),
+        )
+        Text(
+            text = value,
+            color = Color.White.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = HudBodyTextSize,
+                lineHeight = HudBodyLineHeight,
+            ),
+        )
+    }
+}
+
+/**
+ * Builds the shared stats context from the HUD's inputs: the selected audio
+ * entry and the selected quality row are what the viewer actually has.
+ */
+internal fun tvPlaybackStatsContext(
+    plan: PlaybackExecutionPlan?,
+    audioTracks: List<PlayerTrackEntry>,
+    streamUrl: String?,
+    videoQualities: List<VideoQualityOption>,
+): org.prairieserver.prairie.playback.stats.PlaybackStatsContext {
+    val selectedAudio = audioTracks.firstOrNull { it.isSelected }
+    return org.prairieserver.prairie.playback.stats.PlaybackStatsContext(
+        plan = plan,
+        playMethod = plan?.stream?.playMethod,
+        audioTrack = selectedAudio?.let { track ->
+            org.prairieserver.prairie.playback.stats.describeAudioTrackForStats(
+                ordinal = audioTracks.indexOf(track),
+                language = track.language,
+                codec = track.codecOrMime,
+                channels = track.channelCount,
+                title = track.displayLabel,
+            )
+        },
+        streamUrl = streamUrl,
+        qualityPreference = videoQualities.firstOrNull { it.isSelected }?.let { quality ->
+            if (quality.id == VIDEO_QUALITY_AUTO_ID) "auto" else quality.label
+        },
+    )
 }
 
 private fun formatHudClock(seconds: Double): String {
@@ -2085,7 +2181,8 @@ private fun HudActionRow(
     }
 }
 
-private fun PlayerStatsSnapshot.hasHudRows(): Boolean = hudRows().isNotEmpty()
+private fun PlayerStatsSnapshot.hasHudRows(): Boolean =
+    hudRows().isNotEmpty() || healthRows().isNotEmpty() || !events.isEmpty
 
 private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildList {
     backendDisplayName?.let { add("Backend" to it) }

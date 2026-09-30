@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import org.prairieserver.prairie.playback.stats.PlayerEventLog
 
 /**
  * Snapshot of player statistics surfaced in playback diagnostics UI.
@@ -48,6 +49,14 @@ data class PlayerStatsSnapshot(
     val lastSeekDurationMs: Long? = null,
     val seekTotalMs: Long = 0,
     val seekMaxMs: Long = 0,
+    /** Declared media bitrate of the current video format (not network throughput). */
+    val videoBitrateBps: Long? = null,
+    val audioChannels: Int? = null,
+    /**
+     * Prairie stats-for-nerds: the last few player events, recorded by
+     * [recordPlayerEvent] (wall-clock stamped, so kept out of the pure reducer).
+     */
+    val events: PlayerEventLog = PlayerEventLog(),
 )
 
 /**
@@ -76,6 +85,7 @@ fun reducePlayerStats(
             current.resolution
         },
         frameRate = if (event.format.frameRate > 0f) event.format.frameRate else current.frameRate,
+        videoBitrateBps = event.format.declaredBitrate() ?: current.videoBitrateBps,
         hdrMode = null, // Wait for the decoder output, including after format changes.
         colorTransfer = describeColorTransfer(event.format) ?: current.colorTransfer,
         colorRange = describeColorRange(event.format) ?: current.colorRange,
@@ -84,7 +94,10 @@ fun reducePlayerStats(
         hdrMode = describeHdrMode(event.format, event.decoderMimeType),
     )
     is PlaybackAnalyticsListener.Event.AudioFormatChanged ->
-        current.copy(audioCodec = event.format.codecs ?: event.format.sampleMimeType)
+        current.copy(
+            audioCodec = event.format.codecs ?: event.format.sampleMimeType,
+            audioChannels = event.format.channelCount.takeIf { it > 0 } ?: current.audioChannels,
+        )
     is PlaybackAnalyticsListener.Event.DroppedFrames ->
         current.copy(droppedFrames = current.droppedFrames + event.count)
     is PlaybackAnalyticsListener.Event.AudioUnderrun ->
@@ -154,7 +167,9 @@ data class FinishedPlayerStats(
 
 fun finishPlayerStats(current: PlayerStatsSnapshot, detailedCapture: Boolean): FinishedPlayerStats =
     FinishedPlayerStats(
-        next = PlayerStatsSnapshot(),
+        // Keep the event log: the error that ended a session is what the
+        // stats panel of the retry needs to show.
+        next = PlayerStatsSnapshot(events = current.events),
         finalSnapshot = current.takeIf { detailedCapture && it.hasPerformanceEvidence() },
     )
 
@@ -169,6 +184,11 @@ fun PlayerStatsSnapshot.firstFrameDiagnostics(firstFrameMs: Long): Map<String, S
     colorTransfer?.let { put("color_transfer", it) }
     colorRange?.let { put("color_range", it) }
 }
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private fun Format.declaredBitrate(): Long? =
+    (averageBitrate.takeIf { it > 0 } ?: bitrate.takeIf { it > 0 } ?: peakBitrate.takeIf { it > 0 })
+        ?.toLong()
 
 private fun describeColorTransfer(format: Format): String? = when (format.colorInfo?.colorTransfer) {
     C.COLOR_TRANSFER_ST2084 -> "st2084"

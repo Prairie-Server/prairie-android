@@ -2281,6 +2281,7 @@ fun TvPlayerScreen(
                             playbackPlan = state.playbackPlan,
                             sessionId = state.sessionId,
                             playMethodLabel = state.playMethod?.name,
+                            streamUrl = state.streamUrl,
                             desiredAudioOrdinal = state.desiredAudioOrdinal,
                             desiredAudioConfirmed = state.desiredAudioConfirmed,
                             videoFillMode = state.videoFillMode,
