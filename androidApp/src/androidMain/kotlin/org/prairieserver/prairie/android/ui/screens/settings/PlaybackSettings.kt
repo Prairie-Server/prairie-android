@@ -79,7 +79,7 @@ fun PlaybackSettings(
         // silently showing the wrong entry.
         SettingsDropdownRow(
             label = "Preferred quality",
-            description = "The quality Silo requests when playback starts.",
+            description = "The quality Prairie requests when playback starts.",
             value = QualityPresets.describe(qualityResolution, maxBitrateKbps),
             options = QualityPresets.ALL.map { it.label },
             onOptionSelected = { label ->
@@ -90,7 +90,7 @@ fun PlaybackSettings(
 
         SettingsDropdownRow(
             label = "Audio language",
-            description = "Choose which spoken language Silo should prefer first.",
+            description = "Choose which spoken language Prairie should prefer first.",
             value = LanguageOptions.label(audioLanguage, SettingKeys.PLAYBACK_AUDIO_LANGUAGE),
             options = audioLanguageOptions.map { it.second },
             onOptionSelected = { label ->
@@ -172,7 +172,7 @@ fun PlaybackSettings(
 
         SettingsDropdownRow(
             label = "Still watching prompt",
-            description = "How many episodes auto-play before Silo asks whether you are still watching.",
+            description = "How many episodes auto-play before Prairie asks whether you are still watching.",
             value = passOutThresholdLabel(passOutThreshold),
             options = passOutThresholdOptions.map(::passOutThresholdLabel),
             onOptionSelected = { label ->

@@ -19,7 +19,7 @@
 
     <!-- Remote Control -->
     <string name="remote_battery_title">Keep Remote Control connected</string>
-    <string name="remote_battery_message">Allow Silo to run without battery restrictions so Remote Control can stay connected after you leave the app. In Battery optimization, choose Silo and set it to Not optimized.</string>
+    <string name="remote_battery_message">Allow Prairie to run without battery restrictions so Remote Control can stay connected after you leave the app. In Battery optimization, choose Prairie and set it to Not optimized.</string>
     <string name="remote_battery_settings">Battery settings</string>
     <string name="remote_battery_not_now">Not now</string>
 

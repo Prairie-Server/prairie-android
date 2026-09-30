@@ -50,7 +50,7 @@ fun TvDiagnosticsReportScreen(
                 TvReportLine("Processing state", sentState.replace('_', ' '))
                 Text(
                     "The report was removed from this device after the destination accepted a copy. " +
-                        "Share the reference ID with Silo Diagnostics or your server admin.",
+                        "Share the reference ID with Prairie Diagnostics or your server admin.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 TvDiagnosticsAction(label = "Done", onClick = onBack)
@@ -153,7 +153,7 @@ fun TvDiagnosticsReportScreen(
             title = "Delete this report?",
             message = if (report.destinationKind == DiagnosticsDestinationKind.HOSTED) {
                 "The local evidence will be removed from this device. If this report was already submitted, " +
-                    "its copy in Silo Diagnostics will also be permanently deleted."
+                    "its copy in Prairie Diagnostics will also be permanently deleted."
             } else {
                 "The local evidence will be permanently removed from this device."
             },

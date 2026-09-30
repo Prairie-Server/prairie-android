@@ -18,6 +18,7 @@ import org.prairieserver.prairie.network.AuthScopeSnapshot
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import org.prairieserver.prairie.viewmodel.hydrateHomeSections
+import org.prairieserver.prairie.util.ArtworkUrl
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
@@ -184,8 +185,12 @@ private suspend fun warmHomeArtwork(
 
     fun append(urlString: String?, widthPx: Int, heightPx: Int) {
         if (requests.size >= plan.maxUrls) return
-        val url = urlString?.trim().orEmpty()
-        if (url.isEmpty() || !seen.add(url)) return
+        val raw = urlString?.trim().orEmpty()
+        if (raw.isEmpty()) return
+        // Prairie: warm the device's preferred format sibling so
+        // ThumbhashImage's first request hits the Coil memory/disk cache.
+        val url = ArtworkUrl.preferred(raw)
+        if (!seen.add(url)) return
         requests.add(
             ImageRequest.Builder(context)
                 .data(url)

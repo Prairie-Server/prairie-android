@@ -121,7 +121,7 @@ fun TvSignupScreen(
                 color = Color.White,
             )
             Text(
-                text = "Join this Silo server with your invite.",
+                text = "Join this Prairie server with your invite.",
                 style = TvAuthFormTextStyles.Body,
                 color = Color.White.copy(alpha = 0.72f),
             )

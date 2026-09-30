@@ -202,7 +202,7 @@ fun DiagnosticsReportScreen(
                 Text(
                     if (report.destinationKind == DiagnosticsDestinationKind.HOSTED) {
                         "The local evidence will be removed from this device. If this report was already " +
-                            "submitted, its copy in Silo Diagnostics will also be permanently deleted."
+                            "submitted, its copy in Prairie Diagnostics will also be permanently deleted."
                     } else {
                         "The local evidence will be permanently removed from this device."
                     },
@@ -250,7 +250,7 @@ private fun DiagnosticsSentConfirmation(
                 Spacer(Modifier.height(12.dp))
                 Text(
                     "The report was removed from this device after the destination accepted a copy. " +
-                        "Share the reference ID with Silo Diagnostics or your server admin.",
+                        "Share the reference ID with Prairie Diagnostics or your server admin.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )

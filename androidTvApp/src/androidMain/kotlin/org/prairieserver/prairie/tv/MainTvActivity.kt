@@ -301,7 +301,9 @@ class MainTvActivity : ComponentActivity() {
         val tokenManager = get<TokenManager>(TokenManager::class.java)
 
         val activeEntry = registry.activeEntry.value
-            ?: return TvRoute.ServerSetup.route
+            // Prairie: first run lands on the server list (LAN discovery;
+            // manual URL entry is the secondary path from there).
+            ?: return TvRoute.ServerList.route
 
         // Restored servers were probed by whichever build saved them (or never,
         // before the v2 pilot); re-establish the contract verdict once per launch.

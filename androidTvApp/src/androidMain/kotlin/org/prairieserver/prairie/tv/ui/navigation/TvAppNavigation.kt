@@ -627,6 +627,7 @@ fun TvAppNavigation(
         }
 
         composable(TvRoute.ServerList.route) {
+            val canGoBack = navController.previousBackStackEntry != null
             TvServerListScreen(
                 onAddServer = {
                     navController.navigate(TvRoute.ServerSetup.route)
@@ -664,7 +665,14 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
-                onBack = { navController.popBackStack() },
+                // Prairie: as the start destination (empty registry) this is the
+                // first-run connect screen — no Back, and scan the LAN once.
+                onBack = if (canGoBack) {
+                    { navController.popBackStack() }
+                } else {
+                    null
+                },
+                autoScan = !canGoBack,
             )
         }
 

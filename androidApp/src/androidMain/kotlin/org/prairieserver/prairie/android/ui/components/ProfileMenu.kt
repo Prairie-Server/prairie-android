@@ -36,6 +36,8 @@ fun ProfileMenu(
     onSignOutClick: () -> Unit,
     onRequestsClick: (() -> Unit)? = null,
     onWatchTogetherClick: (() -> Unit)? = null,
+    // Prairie: Live TV, provided by MainScreen via LocalLiveTvMenuAction.
+    onLiveTvClick: (() -> Unit)? = LocalLiveTvMenuAction.current,
 ) {
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
 
@@ -48,7 +50,8 @@ fun ProfileMenu(
     // jobs and the feature/account split would stop reading as a split. The
     // old menu drew its divider unconditionally, so a server with requests
     // disabled opened onto a stray rule above its first item.
-    val hasFeatureGroup = onRequestsClick != null || onWatchTogetherClick != null
+    val hasFeatureGroup =
+        onRequestsClick != null || onLiveTvClick != null || onWatchTogetherClick != null
 
     PrairieDropdownMenu(
         expanded = expanded,
@@ -60,6 +63,15 @@ fun ProfileMenu(
                 onClick = {
                     onDismissRequest()
                     onRequestsClick()
+                },
+            )
+        }
+        if (onLiveTvClick != null) {
+            PrairieMenuItem(
+                label = "Live TV",
+                onClick = {
+                    onDismissRequest()
+                    onLiveTvClick()
                 },
             )
         }

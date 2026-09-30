@@ -34,6 +34,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import org.prairieserver.prairie.util.ArtworkUrl
 import kotlinx.coroutines.withContext
 
 private val DefaultPlaceholderColor = Color(0xFF1A1D27)
@@ -164,9 +165,27 @@ fun ThumbhashImage(
         return
     }
 
-    val model = remember(url, decodeSizePx, crossfadeMillis, cacheKey) {
+    // Prairie: walk the device's preferred format siblings of a canonical
+    // `.webp` (AVIF on API 31+, then WebP, then PNG — see ImageFormats) and
+    // fall through on a load error. A caller-supplied cacheKey marks a signed
+    // URL (profile avatars) whose signature covers the path, so a rewritten
+    // sibling would only 403; those load exactly as given.
+    val candidates = remember(url, cacheKey) {
+        if (cacheKey != null) listOf(url) else ArtworkUrl.candidates(url).ifEmpty { listOf(url) }
+    }
+    var failedCount by remember(url, cacheKey) { mutableStateOf(0) }
+    val current = candidates[failedCount.coerceIn(0, candidates.lastIndex)]
+    val onLoadError: () -> Unit = {
+        if (failedCount < candidates.lastIndex) {
+            failedCount += 1
+        } else {
+            onError?.invoke()
+        }
+    }
+
+    val model = remember(current, decodeSizePx, crossfadeMillis, cacheKey) {
         ImageRequest.Builder(context)
-            .data(url)
+            .data(current)
             .apply {
                 if (crossfadeMillis > 0) crossfade(crossfadeMillis) else crossfade(false)
             }
@@ -189,7 +208,7 @@ fun ThumbhashImage(
             placeholder = placeholder,
             colorFilter = colorFilter,
             onSuccess = { onSuccess?.invoke() },
-            onError = { onError?.invoke() },
+            onError = { onLoadError() },
             modifier = when {
                 transparent || placeholder != null -> modifier
                 else -> modifier.background(DefaultPlaceholderColor)
@@ -265,7 +284,7 @@ fun ThumbhashImage(
                     presentFullImage()
                 }
             },
-            onError = { onError?.invoke() },
+            onError = { onLoadError() },
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {

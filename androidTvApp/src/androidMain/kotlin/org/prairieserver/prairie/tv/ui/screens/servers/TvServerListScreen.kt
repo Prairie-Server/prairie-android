@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -46,6 +47,8 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.discovery.DiscoveryHit
+import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import org.prairieserver.prairie.tv.ui.components.TvDialogOption
@@ -62,20 +65,52 @@ import org.koin.compose.viewmodel.koinViewModel
  * with an "Add Server" tile at the top. Long-press / Menu opens an action
  * sheet with Remove (rename is intentionally omitted on TV: easier to
  * remove + re-add than to edit a string with the on-screen keyboard).
+ *
+ * Prairie (691fcfe1): this is also the first-run connect screen. With
+ * [autoScan] it probes the LAN once for Prairie servers (shared
+ * `LanDiscovery`, same algorithm as the phone and prairie-smarttv) and lists
+ * them under "Discovered"; manual URL entry stays behind [onAddServer]. An
+ * upstream sync dropped the discovery UI once; anchored in
+ * scripts/prairie-invariants.txt.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvServerListScreen(
     onAddServer: () -> Unit,
     onSwitched: (TvServerSwitchDestination) -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
+    autoScan: Boolean = false,
     viewModel: TvServerListViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val firstFocus = remember { FocusRequester() }
     var confirmRemove by remember { mutableStateOf<ServerEntry?>(null) }
+    // Start destination with nothing behind it: first-run connect.
+    val isFirstRun = onBack == null
 
-    BackHandler(enabled = true) { onBack() }
+    if (onBack != null) {
+        BackHandler(enabled = true) { onBack() }
+    }
+
+    LaunchedEffect(autoScan) {
+        if (autoScan) viewModel.maybeAutoScan()
+    }
+
+    LaunchedEffect(state.emptyRegistry) {
+        // Active server removed with none left — stay here and scan again.
+        if (state.emptyRegistry) {
+            viewModel.onEmptyRegistryConsumed()
+            viewModel.startScan(includeDeep = true)
+        }
+    }
+
+    val savedUrls = remember(state.servers) {
+        state.servers.map { normalizeDiscoveryUrl(it.url) }.toSet()
+    }
+    val freshHits = remember(state.discovered, savedUrls) {
+        state.discovered.filter { it.url !in savedUrls }
+    }
+    val busy = state.isScanning || state.isConnecting
 
     LaunchedEffect(state.switchedTo) {
         val destination = state.switchedTo
@@ -107,18 +142,22 @@ fun TvServerListScreen(
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 Text(
-                    text = "CONNECTION",
+                    text = if (isFirstRun) "CONNECT" else "CONNECTION",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.55f),
                 )
                 Text(
-                    text = "Manage Servers",
+                    text = if (isFirstRun) "Choose a server" else "Manage Servers",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
                 )
                 Text(
-                    text = "Choose, rename, add, or remove a Silo server.",
+                    text = if (isFirstRun) {
+                        "Pick a saved server or one found on your network. Sign-in comes next."
+                    } else {
+                        "Choose, add, or remove a Prairie server."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.62f),
                 )
@@ -139,6 +178,25 @@ fun TvServerListScreen(
                         if (state.servers.isEmpty()) firstFocus else FocusRequester.Default,
                     ),
                 )
+                ScanTile(
+                    isScanning = state.isScanning,
+                    enabled = !busy,
+                    onClick = { viewModel.startScan(includeDeep = true) },
+                )
+                state.scanStatus?.takeIf { it.isNotBlank() }?.let { status ->
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.62f),
+                    )
+                }
+                state.scanError?.takeIf { it.isNotBlank() }?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
@@ -156,6 +214,32 @@ fun TvServerListScreen(
                             onSelect = { viewModel.onSelect(entry.id) },
                             onRemove = { confirmRemove = entry },
                             modifier = rowModifier,
+                        )
+                    }
+                    if (freshHits.isNotEmpty() || state.isScanning) {
+                        item(key = "discovered-header") {
+                            Text(
+                                text = "Discovered",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.62f),
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
+                    if (freshHits.isEmpty() && state.isScanning) {
+                        item(key = "discovered-scanning") {
+                            Text(
+                                text = "Scanning your network for Prairie…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.62f),
+                            )
+                        }
+                    }
+                    items(freshHits, key = { "hit:" + it.url }) { hit ->
+                        DiscoveredRow(
+                            hit = hit,
+                            enabled = !busy,
+                            onSelect = { viewModel.selectDiscovered(hit.url, hit.serverName) },
                         )
                     }
                 }
@@ -198,6 +282,94 @@ fun TvServerListScreen(
         )
     }
 
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ScanTile(
+    isScanning: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val foreground = (if (isFocused) FocusedContent else Color.White)
+        .let { if (enabled) it else it.copy(alpha = 0.4f) }
+    Card(
+        onClick = { if (enabled) onClick() },
+        interactionSource = interactionSource,
+        colors = CardDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.055f),
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+        ),
+        shape = CardDefaults.shape(shape = ServerRowShape),
+        scale = CardDefaults.scale(focusedScale = 1f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                tint = foreground,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(Spacing.sm))
+            Text(
+                text = if (isScanning) "Scanning…" else "Scan network",
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = InterFamily,
+                color = foreground,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DiscoveredRow(
+    hit: DiscoveryHit,
+    enabled: Boolean,
+    onSelect: () -> Unit,
+) {
+    val interactionSource = remember(hit.url) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val foreground = if (isFocused) FocusedContent else Color.White
+    Card(
+        onClick = { if (enabled) onSelect() },
+        interactionSource = interactionSource,
+        colors = CardDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.055f),
+            focusedContainerColor = FocusedContainer,
+            focusedContentColor = FocusedContent,
+        ),
+        shape = CardDefaults.shape(shape = ServerRowShape),
+        scale = CardDefaults.scale(focusedScale = 1f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(
+                text = hit.serverName.trim().ifBlank { hit.url },
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = InterFamily,
+                color = foreground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Found · ${hit.url}",
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = InterFamily,
+                color = foreground.copy(alpha = if (isFocused) 0.68f else 0.62f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 private val ServerSettingsBackground = Color(0xFF17181A)

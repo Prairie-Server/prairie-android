@@ -434,8 +434,10 @@ class MainActivity : ComponentActivity() {
         // screen arrives on top of an authenticated stack — which also means
         // its Back/Done has somewhere real to return to.
 
+        // Prairie: first run lands on the server list (LAN discovery; manual
+        // URL entry is the secondary path from there).
         val activeEntry = registry.activeEntry.value
-            ?: return Route.ServerSetup.route
+            ?: return Route.ServerList.route
 
         // Restored servers were probed by whichever build saved them (or never,
         // before the v2 pilot); re-establish the contract verdict once per launch.

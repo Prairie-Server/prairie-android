@@ -415,8 +415,8 @@ private fun PhoneSetupBody(modifier: Modifier = Modifier) {
             color = Color.White,
         )
         Text(
-            text = "Open Silo on a phone connected to the same Wi-Fi. Accept the " +
-                "setup card and Silo will securely bring over the server and account.",
+            text = "Open Prairie on a phone connected to the same Wi-Fi. Accept the " +
+                "setup card and Prairie will securely bring over the server and account.",
             style = TvServerSetupTextStyles.PairingDetail,
             color = Color.White.copy(alpha = 0.72f),
             maxLines = 4,

@@ -93,6 +93,25 @@ jobs:
           path: android-shared/libs/media3-decoder-ffmpeg-1.11.0.aar
           if-no-files-found: error
 
+  prairie-invariants:
+    name: Prairie invariants
+    if: github.event_name != 'workflow_dispatch' || !inputs.build_ffmpeg_aar
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      # Build-free tripwire for Prairie-only code that upstream Silo syncs have
+      # silently deleted (Live TV navigation, LAN discovery, rebrand strings).
+      # If this fails after a sync, restore the code; do not edit the manifest
+      # to make it pass. See docs/upstream-sync.md.
+      - name: Check Prairie invariants
+        run: ./scripts/check-prairie-invariants.sh
+
   release-readiness:
     name: Release readiness
     if: github.event_name != 'workflow_dispatch' || !inputs.build_ffmpeg_aar

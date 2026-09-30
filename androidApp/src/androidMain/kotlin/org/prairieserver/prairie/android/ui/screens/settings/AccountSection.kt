@@ -127,7 +127,7 @@ fun AccountSection(
             }
 
             SettingsNavigationRow(
-                label = "Pair device",
+                label = "Quick Connect",
                 description = "Link a TV or another device to this account.",
                 onClick = onPairDevice,
             )

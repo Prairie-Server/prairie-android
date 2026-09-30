@@ -106,7 +106,7 @@ private val RemoteSurfaceElevated = Color(0xFF23252E)
 private val RemoteError = Color(0xFFB3261E)
 
 /**
- * Native "now-playing" remote for controlling Silo playback on a TV.
+ * Native "now-playing" remote for controlling Prairie playback on a TV.
  * Mirrors silo-apple's `PrairieControlRemoteView`: blurred-artwork backdrop,
  * poster, scrubber with optimistic clock, transport, volume, and
  * capability-gated secondary menus — with distinct connecting /

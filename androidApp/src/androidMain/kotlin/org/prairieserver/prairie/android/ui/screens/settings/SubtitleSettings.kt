@@ -45,7 +45,7 @@ fun SubtitleSettings(
     SettingsSection(title = "Subtitles", modifier = modifier) {
         SettingsDropdownRow(
             label = "Subtitle language",
-            description = "Choose which subtitle language Silo should prefer first.",
+            description = "Choose which subtitle language Prairie should prefer first.",
             value = LanguageOptions.label(subtitleLanguage, SettingKeys.PLAYBACK_SUBTITLE_LANGUAGE),
             options = subtitleLanguageOptions.map { it.second },
             onOptionSelected = { label ->
@@ -55,7 +55,7 @@ fun SubtitleSettings(
 
         SettingsDropdownRow(
             label = "Subtitle behavior",
-            description = "When Silo should turn subtitles on.",
+            description = "When Prairie should turn subtitles on.",
             value = subtitleMode.label,
             options = SubtitleMode.entries.map { it.label },
             onOptionSelected = { label ->
@@ -75,7 +75,7 @@ fun SubtitleSettings(
         // appearance editor (the same sheet the player uses).
         SettingsSwitchRow(
             label = "Match device caption settings",
-            description = "Use the operating system's caption style instead of Silo's.",
+            description = "Use the operating system's caption style instead of Prairie's.",
             checked = subtitleMatchesDevice,
             onCheckedChange = onSubtitleMatchesDeviceChanged,
         )
@@ -90,7 +90,7 @@ fun SubtitleSettings(
         if (metadataLanguageEnabled) {
             SettingsDropdownRow(
                 label = "Metadata language",
-                description = "Fallback language Silo prefers for titles, descriptions, and artwork.",
+                description = "Fallback language Prairie prefers for titles, descriptions, and artwork.",
                 value = LanguageOptions.label(metadataLanguage, SettingKeys.CATALOG_METADATA_LANGUAGE),
                 options = metadataLanguageOptions.map { it.second },
                 onOptionSelected = { label ->

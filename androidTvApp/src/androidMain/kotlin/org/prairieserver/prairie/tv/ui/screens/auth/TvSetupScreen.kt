@@ -117,7 +117,7 @@ fun TvSetupScreen(
             Spacer(modifier = Modifier.height(Spacing.xs))
 
             Text(
-                text = "Welcome to Silo",
+                text = "Welcome to Prairie",
                 style = TvAuthFormTextStyles.Title,
                 color = Color.White,
             )
