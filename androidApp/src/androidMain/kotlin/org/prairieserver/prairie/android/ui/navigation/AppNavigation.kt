@@ -82,6 +82,8 @@ import org.prairieserver.prairie.android.ui.screens.player.PlayerViewModel
 import org.prairieserver.prairie.android.ui.screens.profiles.CreateProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.EditProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionScreen
+import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvPlayerScreen
+import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvScreen
 import org.prairieserver.prairie.android.ui.screens.requests.MyRequestsScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDetailScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestsScreen
@@ -565,9 +567,16 @@ fun AppNavigation(
 
         // ---- Server list (multi-server management) ----
         composable(Route.ServerList.route) {
+            val canGoBack = navController.previousBackStackEntry != null
             ServerListScreen(
                 onAddServer = {
-                    navController.navigate(Route.ServerSetup.route)
+                    navController.navigate(Route.ServerSetup.route) {
+                        // Prairie: on first run this list is the graph root. Hand
+                        // the root to setup so the auth chain's
+                        // popUpTo(ServerSetup) clears it, and Back from Home
+                        // cannot land on the connect list.
+                        if (!canGoBack) popUpTo(Route.ServerList.route) { inclusive = true }
+                    }
                 },
                 onSwitched = { destination ->
                     // Route to whichever screen the new server's stored
@@ -599,7 +608,14 @@ fun AppNavigation(
                         launchSingleTop = true
                     }
                 },
-                onBack = { navController.popBackStack() },
+                // Prairie: as the start destination (empty registry) this is the
+                // first-run connect screen — no Back, and scan the LAN once.
+                onBack = if (canGoBack) {
+                    { navController.popBackStack() }
+                } else {
+                    null
+                },
+                autoScan = !canGoBack,
             )
         }
 
@@ -810,6 +826,40 @@ fun AppNavigation(
                 initialMediaType = MobileSearchMediaType.fromRouteValue(
                     backStackEntry.arguments?.getString("mediaType"),
                 ),
+            )
+        }
+
+        // ---- Live TV (Prairie-only; reached from the profile menu) ----
+        composable(Route.LiveTv.route) {
+            LiveTvScreen(
+                onBackClick = { navController.popBackStack() },
+                onChannelClick = { channel ->
+                    navController.navigate(
+                        Route.LiveTvPlayer(channel.id, channel.displayName).route,
+                    )
+                },
+                onPlayLibraryItem = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId).route)
+                },
+            )
+        }
+        composable(
+            route = Route.LiveTvPlayer.ROUTE,
+            arguments = listOf(
+                navArgument(Route.LiveTvPlayer.ARG_CHANNEL_ID) { type = NavType.StringType },
+                navArgument(Route.LiveTvPlayer.ARG_NAME) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+            ),
+        ) { backStackEntry ->
+            LiveTvPlayerScreen(
+                channelId = backStackEntry.arguments
+                    ?.getString(Route.LiveTvPlayer.ARG_CHANNEL_ID).orEmpty(),
+                channelName = backStackEntry.arguments
+                    ?.getString(Route.LiveTvPlayer.ARG_NAME).orEmpty(),
+                onBackClick = { navController.popBackStack() },
             )
         }
 

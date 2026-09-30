@@ -326,9 +326,9 @@ sealed class TvMainRoute(val route: String) {
         val channelName: String = "",
     ) : TvMainRoute(
         buildString {
-            append("main/livetv/player/${android.net.Uri.encode(channelId)}")
+            append("main/livetv/player/${channelId.routeEncode()}")
             if (channelName.isNotBlank()) {
-                append("?name=${android.net.Uri.encode(channelName)}")
+                append("?name=${channelName.routeEncode()}")
             }
         },
     ) {

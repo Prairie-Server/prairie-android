@@ -2,10 +2,12 @@ package org.prairieserver.prairie.android.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Plezy OLED Dark palette — mirrors iosApp/iosApp/Theme/Colors.swift exactly.
-// Pure-black backgrounds, EDEDED primary text, white-at-opacity for everything else.
+// Prairie Dusk palette — mirrors prairie-server / prairie-smarttv / the TV
+// app's Color.kt. Deep slate surfaces + amber wheat accent (#E0A84A).
+// Prairie-only (99f1014c); an upstream sync reverted these tokens to the
+// Silo OLED values once. Anchored in scripts/prairie-invariants.txt.
 
-val PrairieBackground = Color(0xFF000000)
+val PrairieBackground = Color(0xFF141820)
 
 /**
  * The signed-in page canvas. iOS paints `ContinuumPageBackdrop` (#111111) under
@@ -14,17 +16,18 @@ val PrairieBackground = Color(0xFF000000)
  * `continuumBackground`. Settings keeps `PrairieSettingsBackground`.
  */
 val PrairiePageBackground = Color(0xFF111111)
-val PrairieSurface = Color(0xFF0A0A0A)
-val PrairieSurfaceVariant = Color(0xFF0E0F12)
-val PrairieSurfaceElevated = Color(0xFF15171C)
-val PrairiePrimary = Color(0xFFEDEDED)
-val PrairieOnSurface = Color(0xFFEDEDED)
-val PrairieSecondaryText = Color(0xFFEDEDED).copy(alpha = 0.60f)
+val PrairieSurface = Color(0xFF1C222C)
+val PrairieSurfaceVariant = Color(0xFF0E1116)
+val PrairieSurfaceElevated = Color(0xFF222B38)
+/** Brand / Material primary — amber wheat */
+val PrairiePrimary = Color(0xFFE0A84A)
+val PrairieOnSurface = Color(0xFFF2EEE6)
+val PrairieSecondaryText = Color(0xFF9AA3B2)
 val PrairieDisabled = Color(0xFF4B5563)
 
-val PrairieOutline = Color.White.copy(alpha = 0.12f)
-val PrairieDivider = Color.White.copy(alpha = 0.12f)
-val PrairieOverlay = Color.Black.copy(alpha = 0.60f)
+val PrairieOutline = PrairieOnSurface.copy(alpha = 0.12f)
+val PrairieDivider = PrairieOnSurface.copy(alpha = 0.12f)
+val PrairieOverlay = PrairieBackground.copy(alpha = 0.72f)
 
 // Restrained Android substitute for iOS Liquid Glass. These shared washes keep
 // every migrated circle/capsule in one light material family without a live

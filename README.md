@@ -1,8 +1,8 @@
-# Silo Android
+# Prairie Android
 
-Android **phone** and **Android TV** clients for the [Silo](https://github.com/Silo-Server/silo-server) self-hosted media server — stream and download your movies, shows, music, audiobooks, and ebooks, with quality-aware playback and multi-server/multi-profile support.
+Android **phone** and **Android TV** clients for the [Prairie](https://github.com/Prairie-Server/prairie-server) self-hosted media server — stream and download your movies, shows, music, audiobooks, and ebooks, with quality-aware playback and multi-server/multi-profile support.
 
-Built as a Kotlin Multiplatform project: one shared business-logic core, two Jetpack Compose apps (touch + 10-foot TV). This branch uses the full Silo namespace cut: Kotlin packages live under `org.prairieserver.prairie`, and both apps share a single application ID `org.prairieserver.prairie` so they publish as one Google Play listing (Play routes each build by manifest feature filtering). Installs under legacy IDs do not upgrade in place; users should expect a fresh app install, sign-in, and offline media download.
+Built as a Kotlin Multiplatform project: one shared business-logic core, two Jetpack Compose apps (touch + 10-foot TV). This branch uses the full Prairie namespace cut: Kotlin packages live under `org.prairieserver.prairie`, and both apps share a single application ID `org.prairieserver.prairie` so they publish as one Google Play listing (Play routes each build by manifest feature filtering). Installs under legacy IDs do not upgrade in place; users should expect a fresh app install, sign-in, and offline media download.
 
 > **Status:** WIP (`v0.3.x`). Prairie Android is pre-1.0 and some areas remain under active development (see [Roadmap](#roadmap)).
 >
@@ -41,7 +41,7 @@ Built as a Kotlin Multiplatform project: one shared business-logic core, two Jet
 | **Images** | Coil 3 (Ktor-backed) |
 | **SDK** | Android 7.0+ / minSdk 24 · targetSdk 36 · compileSdk 36 · JDK 21 |
 
-The clients talk to a Silo server over its `/api/v1/*` REST + WebSocket API. The server owns the library, scanning, metadata, transcoding decisions, and auth; the clients render it and drive playback.
+The clients talk to a Prairie server over its `/api/v1/*` REST + WebSocket API. The server owns the library, scanning, metadata, transcoding decisions, and auth; the clients render it and drive playback.
 
 Android 7.0 and 7.1 (API 24/25) are supported on both phone and Android TV. Video and audiobook playback use the same Media3 service on every supported Android version.
 
@@ -53,8 +53,8 @@ Latest debug APKs are published on each tagged release.
 
 | App | Downloader code | Downloader link | Direct APK |
 |---|---:|---|---|
-| Android | `1051382` | <http://aftv.news/1051382> | <https://github.com/Silo-Server/prairie-android/releases/latest/download/prairie-android-latest-universal-debug.apk> |
-| Android TV | `1636227` | <http://aftv.news/1636227> | <https://github.com/Silo-Server/prairie-android/releases/latest/download/prairie-android-tv-latest-universal-debug.apk> |
+| Android | `1051382` | <http://aftv.news/1051382> | <https://github.com/Prairie-Server/prairie-android/releases/latest/download/prairie-android-latest-universal-debug.apk> |
+| Android TV | `1636227` | <http://aftv.news/1636227> | <https://github.com/Prairie-Server/prairie-android/releases/latest/download/prairie-android-tv-latest-universal-debug.apk> |
 
 Install **Downloader by AFTVnews** on Android TV / Google TV, enter the code for the app you want, then allow APK installs from Downloader when prompted.
 
@@ -91,18 +91,18 @@ WorkManager-backed downloads of video, audiobooks, and books to public device st
 - **Audiobook player (phone + TV)** — cover/metadata, chapters, resume, playback speed, sleep timer (incl. end-of-chapter), and bookmarks, sharing the same Media3 engine as video. TV has a dedicated ten-foot audiobook detail/player flow.
 
 ### PrairieControl (phone + TV)
-Android phone can discover PrairieCast receivers on the local network, launch movies/episodes on TV with the selected file/track/resume context, and act as a lightweight remote for play/pause, seek, quality, audio, and subtitle changes. TV advertises the local PrairieCast receiver only while authenticated and foregrounded. The channel is TLS-PSK and wire-compatible with the Apple clients' PrairieControl protocol (same `_silocast._tcp` service, hello/serverId authorization, heartbeat), so Android phones can cast to Apple TVs and iPhones to Android TVs.
+Android phone can discover PrairieCast receivers on the local network, launch movies/episodes on TV with the selected file/track/resume context, and act as a lightweight remote for play/pause, seek, quality, audio, and subtitle changes. TV advertises the local PrairieCast receiver only while authenticated and foregrounded. The channel is TLS-PSK and wire-compatible with the Apple clients' PrairieControl protocol (same `_prairiecast._tcp` service, hello/serverId authorization, heartbeat), so Android phones can cast to Apple TVs and iPhones to Android TVs.
 
 ### 🔔 Personalization & engagement (phone + TV)
-Multiple **household profiles** per account (PINs, child profiles, content-rating limits, per-profile language/subtitle prefs), favorites & watchlist, ratings, a release **calendar**, and an in-app **notifications inbox** with realtime updates. Android push uses Silo's content-free push relay when the server and app are configured for FCM. TV mirrors continue-watching into the system **Watch Next** row.
+Multiple **household profiles** per account (PINs, child profiles, content-rating limits, per-profile language/subtitle prefs), favorites & watchlist, ratings, a release **calendar**, and an in-app **notifications inbox** with realtime updates. Android push uses Prairie's content-free push relay when the server and app are configured for FCM. TV mirrors continue-watching into the system **Watch Next** row.
 
 ### 🌐 Multi-server & accounts (phone + TV)
-Add and switch between multiple Silo servers (encrypted per-server token slots), use username/password or device/QR sign-in, and manage household profiles. Admin screens are not currently exposed in the Android apps.
+Add and switch between multiple Prairie servers (encrypted per-server token slots), use username/password or device/QR sign-in, and manage household profiles. Admin screens are not currently exposed in the Android apps.
 
 ### Client diagnostics (phone + TV)
 Android-native diagnostics can retain a bounded, redacted local report for crashes, ANRs, playback, networking, focus, cast, downloads, and lifecycle events. A two-segment journal keeps only curated, already-redacted lifecycle breadcrumbs so next-launch ANR/native-crash reports retain pre-exit context; identity transitions rotate it, and Never/sign-out purges it. Adult profiles can review and delete account-scoped reports on-device, choose consent, or run a timed diagnostic capture. Child profiles cannot capture, review, or upload reports.
 
-The default destination is Silo's hosted collector at `diagnostics.prairieserver.org`; self-hosted Silo ingest remains an explicit compatibility choice. Hosted collection is manual/Ask-only, verifies the live collector identity before a new capture, and re-attests the authenticated source-server account before a first upload. Self-hosted collection supports Ask / Always / Never when the originating server advertises diagnostics support. Reports are never retargeted across destination, server, account, or profile boundaries. Profile transitions close the capture gate and rotate live evidence without discarding retained account reports; sign-out, server removal, and Never consent purge the applicable evidence. One-off manual reports remain available under Never without enabling persistent capture.
+The default destination is Prairie's hosted collector at `diagnostics.prairieserver.org`; self-hosted Prairie ingest remains an explicit compatibility choice. Hosted collection is manual/Ask-only, verifies the live collector identity before a new capture, and re-attests the authenticated source-server account before a first upload. Self-hosted collection supports Ask / Always / Never when the originating server advertises diagnostics support. Reports are never retargeted across destination, server, account, or profile boundaries. Profile transitions close the capture gate and rotate live evidence without discarding retained account reports; sign-out, server removal, and Never consent purge the applicable evidence. One-off manual reports remain available under Never without enabling persistent capture.
 
 This feature does not use Sentry, GlitchTip, Crashlytics, OpenTelemetry, ACRA, or another hosted observability SDK. Crash-time work is local and bounded; exact credential values receive a bounded replacement before the app-private marker is written, structural redaction runs during next-launch report assembly, and archive construction and upload occur after restart. Hosted reports preserve the exact application version, build number, and OS version; privacy filtering targets server network identity, account or personal identity, and credentials rather than release metadata.
 
@@ -149,7 +149,7 @@ Three library layers under two app shells. Dependencies only point downward.
 `sharedModules()` (network + repositories) is combined with the player and Android modules at app startup. The Android apps override the in-memory `TokenManager`/`ServerRegistry` with persistent implementations. ViewModels are resolved with `koinViewModel()`; nav arguments flow in through Koin parameters / `SavedStateHandle`.
 
 ### Navigation & boot
-Each app computes a start destination from registry/token/profile/offline state (`ServerSetup → Login → ProfileSelection → main`), then runs a Compose nav graph. The phone uses an Apple-aligned bottom shell (`Home`, `Libraries`, `For You`, `Calendar`, and conditional `Downloads`). The TV uses a tvOS-aligned top menu (`Home`, available media-type tabs, `For You`, `Calendar`, plus search/profile actions). Deep links handle device pairing through `silo://device?...` and supported HTTPS `/device` or `/auth/device` URLs.
+Each app computes a start destination from registry/token/profile/offline state (`ServerSetup → Login → ProfileSelection → main`), then runs a Compose nav graph. The phone uses an Apple-aligned bottom shell (`Home`, `Libraries`, `For You`, `Calendar`, and conditional `Downloads`). The TV uses a tvOS-aligned top menu (`Home`, available media-type tabs, `For You`, `Calendar`, plus search/profile actions). Deep links handle device pairing through `prairie://device?...` and supported HTTPS `/device` or `/auth/device` URLs.
 
 ### Playback pipeline
 The UI never owns the player directly — a `MediaController` drives the shared `PrairiePlaybackService` (a Media3 `MediaSessionService`), so there is exactly one player and system session. For video, `PlaybackSessionManager` sends protocol-v3 capabilities and executes the server's direct/remux/transcode plan; classified failures and track/output changes use the v3 replan endpoint. `PlaybackSessionLifecycle` owns progress and outage handling. Offline playback bypasses the server through a local `file://` URI. The normative contract is in [`docs/playback`](docs/playback/README.md).
@@ -184,7 +184,7 @@ Tests live in each module's test source set (`commonTest`, `androidUnitTest`) us
 ### Prerequisites
 - **JDK 21**
 - Android SDK with the configured compile SDK (36)
-- A running **Silo server** for auth, browsing, and playback validation — see [`Silo-Server/silo-server`](https://github.com/Silo-Server/silo-server)
+- A running **Prairie server** for auth, browsing, and playback validation — see [`Prairie-Server/prairie-server`](https://github.com/Prairie-Server/prairie-server)
 
 ### Build
 
@@ -200,7 +200,7 @@ Tests live in each module's test source set (`commonTest`, `androidUnitTest`) us
 ./gradlew :androidTvApp:installDebug
 ```
 
-On first launch, point the app at your Silo server URL, sign in, and pick a profile. (Android TV can't bootstrap first-time server setup — set the server up from the phone app or a web browser, then sign the TV in via username/password or QR/device pairing.)
+On first launch, point the app at your Prairie server URL, sign in, and pick a profile. (Android TV can't bootstrap first-time server setup — set the server up from the phone app or a web browser, then sign the TV in via username/password or QR/device pairing.)
 
 ---
 
@@ -222,7 +222,7 @@ On first launch, point the app at your Silo server URL, sign in, and pick a prof
 - **Shared first** — put platform-agnostic logic (models, networking, view-model logic, pure algorithms) in `shared`; keep Android-only concerns in `android-shared`; keep each app's module to its UI. New non-UI behavior that both apps need belongs in a shared module, not duplicated per app.
 - **Compose** screens are thin; logic lives in ViewModels (testable in `commonTest` where possible).
 - Design specs and implementation plans for larger efforts live under `docs/superpowers/{specs,plans}/`.
-- This is part of a multi-repo Silo workspace — client-visible API/auth/playback changes often need coordinated work in `silo-server` (and the sibling `silo-apple` clients).
+- This is part of a multi-repo Prairie workspace — client-visible API/auth/playback changes often need coordinated work in `prairie-server` (and the sibling `prairie-apple` / `prairie-smarttv` clients).
 
 ## Contributing
 
@@ -248,17 +248,16 @@ Known gaps the docs track: TV has no reader/ebooks and no downloads management b
 
 - The Android phone and TV apps share one application ID, `org.prairieserver.prairie`, and publish as a single Google Play listing; Play delivers the right build per device via manifest feature filtering (phone requires a touchscreen, TV requires leanback).
 - The Android modules target Java 21.
-- The server repo lives at [`Silo-Server/silo-server`](https://github.com/Silo-Server/silo-server).
+- The server repo lives at [`Prairie-Server/prairie-server`](https://github.com/Prairie-Server/prairie-server). Prairie is a fork of [Silo](https://github.com/Silo-Server/silo-server).
 
 ## License & Trademarks
 
-Silo Android is licensed under `AGPL-3.0-or-later`. See [LICENSE](LICENSE).
+Prairie Android is licensed under `AGPL-3.0-or-later`. See [LICENSE](LICENSE).
 
-The **Silo name, logo, and wordmark are trademarks of Prairie L.L.C.** and
-are **not** covered by the AGPL. You're free to fork and redistribute the code,
-but forks and redistributions must not use the Silo brand as their identity and
-must remove or replace the brand assets. Publishing a Silo-branded app to an app
-store requires written permission. See [TRADEMARK.md](TRADEMARK.md) for what's
-permitted — including referential use like "compatible with Silo."
+Prairie is a rebranded fork of Silo. The AGPL covers the code, but it does not
+license the Silo name, logo, wordmark, or other Silo Media L.L.C. marks. This
+repository replaces Silo product identity with Prairie identifiers and assets;
+factual references such as "fork of Silo" remain permitted when they are
+truthful and non-confusing. See [TRADEMARK.md](TRADEMARK.md).
 
 The checked-in Media3 FFmpeg decoder AAR and other third-party dependencies retain their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

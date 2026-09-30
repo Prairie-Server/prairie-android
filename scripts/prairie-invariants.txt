@@ -1,0 +1,112 @@
+# Prairie-only code that upstream Silo syncs have silently deleted before.
+#
+# One invariant per line, TAB-separated:
+#   <path>  <min matches | absent>  <extended regex>  <why / where it came from>
+#
+# scripts/check-prairie-invariants.sh fails CI ("Prairie invariants") when a
+# path is missing or a pattern matches fewer lines than required. A directory
+# path is searched recursively through *.kt and *.xml. When you restore
+# something a sync dropped, add its anchor here in the same PR. Keep patterns
+# on stable identifiers, not formatting. See docs/upstream-sync.md.
+
+# --- Live TV (fe4f1227, f4c2d25c, 99f1014c, c0de40cc, c33eeb8b). Phone and TV
+# nav/menu wiring was dropped by sync #27 while the screens kept compiling.
+shared/src/commonMain/kotlin/org/prairieserver/prairie/di/NetworkModule.kt	1	DefaultLiveTvApi\(	Live TV API binding
+shared/src/commonMain/kotlin/org/prairieserver/prairie/di/RepositoryModule.kt	1	LiveTvRepository\(	Live TV repository binding
+shared/src/commonMain/kotlin/org/prairieserver/prairie/di/RepositoryModule.kt	1	LiveTvFeatureStore\(	Live TV feature gate binding
+shared/src/commonMain/kotlin/org/prairieserver/prairie/viewmodel/LiveTvViewModels.kt	1	fun scheduleRecording	DVR schedule (99f1014c)
+shared/src/commonMain/kotlin/org/prairieserver/prairie/viewmodel/LiveTvViewModels.kt	1	Program already ended	refuse recording ended programmes (c33eeb8b)
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt	1	LiveTvViewModel\(	phone Live TV ViewModel DI
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt	1	LiveTvPlayerViewModel\(	phone Live TV player ViewModel DI
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/Routes.kt	1	data object LiveTv : Route\("livetv"\)	phone Live TV route
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/Routes.kt	1	data class LiveTvPlayer	phone Live TV player route
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt	1	composable\(Route\.LiveTv\.route\)	phone Live TV destination
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt	1	route = Route\.LiveTvPlayer\.ROUTE	phone Live TV player destination
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt	1	onPlayLibraryItem = 	Live TV recordings open the library item (f4c2d25c)
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/MainScreen.kt	1	liveTvFeatureStore\.refresh\(\)	phone Live TV gate refresh per server/profile
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/MainScreen.kt	1	navigate\(Route\.LiveTv\.route\)	phone profile-menu Live TV action
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/MainScreen.kt	1	LocalLiveTvMenuAction provides liveTvMenuAction	phone shell provides the Live TV menu action
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/components/ProfileMenu.kt	1	onLiveTvClick: \(\(\) -> Unit\)\? = LocalLiveTvMenuAction\.current	phone profile menu reads the Live TV action
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/components/ProfileMenu.kt	1	label = "Live TV"	phone profile-menu Live TV item
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/di/AndroidTvModule.kt	1	LiveTvViewModel\(	TV Live TV ViewModel DI
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvRoute.kt	1	data object LiveTv : TvMainRoute\("main/livetv"\)	TV Live TV route
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	shellComposable\(TvMainRoute\.LiveTv\.route\)	TV Live TV destination
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	route = TvMainRoute\.LiveTvPlayer\.ROUTE	TV Live TV player destination
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	liveTvFeatureStore\.refresh\(\)	TV Live TV gate refresh
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	showLiveTv = liveTvEnabled	TV profile dropdown gate
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	label = "Live TV"	TV profile dropdown item
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	currentRoute == TvMainRoute\.LiveTvPlayer\.ROUTE -> false	Live TV player keeps D-pad Up
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/livetv/TvLiveTvScreen.kt	1	requestFocusUntilObserved\(	TV Live TV initial focus (edb7e8cd)
+
+# --- Identity / rebrand (f8a795ff and follow-ups). Durable upgrade identity:
+# changing these without a migration logs every user out.
+shared/src/androidMain/kotlin/org/prairieserver/prairie/network/SecureSharedPrefs.kt	1	SECURE_PREFS_NAME = "prairie_secure_tokens"	encrypted prefs name
+androidApp/build.gradle.kts	1	applicationId = "org\.prairieserver\.prairie"	phone applicationId
+androidTvApp/build.gradle.kts	1	applicationId = "org\.prairieserver\.prairie"	TV applicationId
+androidApp/src/androidMain/AndroidManifest.xml	1	android:scheme="prairie"	prairie:// deep links
+shared/src/commonMain/kotlin/org/prairieserver/prairie/network/AuthInterceptorImpl.kt	1	X-Prairie-	X-Prairie-* client headers
+README.md	1	^# Prairie Android	README rebrand (reverted to Silo by a sync once)
+README.md	1	Silo Media L\.L\.C\.	README must attribute the Silo marks to Silo Media (TRADEMARK.md)
+# User-visible "Silo" in string literals. Upstream files bring these back on
+# every sync; say Prairie (factual "fork of Silo" references belong in docs).
+androidApp/src/androidMain	absent	"([^"]*[^A-Za-z"])?Silo([^A-Za-z]|$)	phone user-visible Silo string
+androidTvApp/src/androidMain	absent	"([^"]*[^A-Za-z"])?Silo([^A-Za-z]|$)	TV user-visible Silo string
+android-shared/src/androidMain/kotlin	absent	"([^"]*[^A-Za-z"])?Silo([^A-Za-z]|$)	shared UI user-visible Silo string
+androidApp/src/androidMain/res/values	absent	>[^<]*Silo	phone string resources
+
+# --- Realtime wire names (47100b06): prairie.* WebSocket subprotocols.
+shared/src/commonMain/kotlin/org/prairieserver/prairie/network/PlaybackRealtimeClient.kt	1	"prairie\.playback-control\.v2"	playback control subprotocol
+shared/src/commonMain/kotlin/org/prairieserver/prairie/network/WatchTogetherRealtimeClient.kt	1	"prairie\.room\.v2"	room subprotocol
+shared/src/commonMain/kotlin/org/prairieserver/prairie/network/apiv2/EventsSocketV2Api.kt	1	"prairie\.events\.v2"	events subprotocol
+shared/src/commonMain/kotlin/org/prairieserver/prairie/network/PlaybackRealtimeClient.kt	1	prairie\.ticket\.	ticket subprotocol prefix
+
+# --- Brand palette (99f1014c): Prairie Dusk, amber wheat #E0A84A.
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/theme/Color.kt	1	val PrairiePrimary = Color\(0xFFE0A84A\)	phone Dusk accent (reverted to OLED by a sync once)
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/theme/Color.kt	1	val PrairieBackground = Color\(0xFF141820\)	phone Dusk background
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/theme/Color.kt	1	val PrairiePrimary = Color\(0xFFE0A84A\)	TV Dusk accent
+androidApp/src/androidMain/res/values/colors.xml	1	#FFE0A84A	phone Dusk XML accent
+
+# --- Quick Connect naming (12925ada).
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/AccountSection.kt	1	"Quick Connect"	phone settings row
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/auth/DevicePairingScreen.kt	1	"Quick Connect"	phone approval screen title
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/auth/TvPairDeviceScreen.kt	1	"Quick Connect"	TV approval screen title
+
+# --- Artwork format negotiation (3eb78ac2, 74f216e4).
+shared/src/commonMain/kotlin/org/prairieserver/prairie/network/AuthInterceptorImpl.kt	1	X-Prairie-Image-Formats	advertise decodable image formats
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/PrairieApplication.kt	1	ImageFormats\.configureForApiLevel	phone format detection
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/PrairieTvApplication.kt	1	ImageFormats\.configureForApiLevel	TV format detection
+android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/ui/components/ThumbhashImage.kt	1	ArtworkUrl\.candidates\(	AVIF/WebP/PNG sibling cascade (dropped by a sync once)
+android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/startup/StartupWarmup.kt	1	ArtworkUrl\.preferred\(	warm the preferred format sibling
+
+# --- Server-list-first connect with LAN discovery (691fcfe1, 0eb652a5).
+shared/src/commonMain/kotlin/org/prairieserver/prairie/di/NetworkModule.kt	1	LanDiscovery\(	LAN discovery binding
+shared/src/commonMain/kotlin/org/prairieserver/prairie/discovery/LanCandidates.kt	1	prairie\.local	mDNS-style host candidates
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/MainActivity.kt	1	return Route\.ServerList\.route	phone first run lands on the server list
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/MainTvActivity.kt	1	return TvRoute\.ServerList\.route	TV first run lands on the server list
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt	1	autoScan = !canGoBack	phone first-run LAN scan
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvAppNavigation.kt	1	autoScan = !canGoBack	TV first-run LAN scan
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt	1	if \(!canGoBack\) popUpTo\(Route\.ServerList\.route\)	first-run list does not linger under Home
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvAppNavigation.kt	1	if \(!canGoBack\) popUpTo\(TvRoute\.ServerList\.route\)	first-run list does not linger under Main
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/servers/ServerListScreen.kt	1	viewModel\.maybeAutoScan\(\)	phone scan trigger
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/servers/TvServerListScreen.kt	1	viewModel\.maybeAutoScan\(\)	TV scan trigger (UI dropped by sync #28)
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/servers/TvServerListScreen.kt	1	DiscoveredRow\(	TV discovered-server rows
+
+# --- App update status (b3b04cbb).
+shared/src/commonMain/kotlin/org/prairieserver/prairie/di/NetworkModule.kt	1	AppUpdateChecker\(	update checker binding
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/ServerInfoSection.kt	1	AppUpdateStatusRow\(\)	phone settings update row (dropped by a sync once)
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/TvSettingsScreen.kt	1	TvAppUpdateStatusRows\(\)	TV settings update rows
+
+# --- Player: quality ladder, trickplay, stats for nerds (63055d17, 261d6f81).
+shared/src/commonMain/kotlin/org/prairieserver/prairie/playback/QualityLadder.kt	1	fun toV3QualityPreference	quality preference mapping
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerViewModel.kt	1	toV3QualityPreference\(	TV maps quality through V3 ladder ids (261d6f81)
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/di/AndroidModule.kt	1	qualityLadderClient = get\(\)	phone quality ladder DI
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/PlayerProgressBar.kt	1	TrickplayTileImage\(	phone trickplay scrub preview
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerScreen.kt	1	trickplay = state\.trickplay	TV trickplay scrub preview
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/PlayerSettingsSheet.kt	1	label = "Stats for nerds"	phone settings entry label
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/player/PlaybackStatsSheet.kt	1	"Stats for nerds"	phone stats sheet
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/player/TvPlayerHud.kt	1	Stats\("Stats for nerds"\)	TV stats panel
+
+# --- Security hardening (5c2734fc, f4375468).
+androidApp/src/androidMain/AndroidManifest.xml	1	networkSecurityConfig	phone network security config
+androidTvApp/src/androidMain/AndroidManifest.xml	1	networkSecurityConfig	TV network security config
+shared/src/androidMain/kotlin/org/prairieserver/prairie/network/AndroidServerRegistry.kt	2	clearLegacyUnprefixedKeys\(	drop orphan legacy tokens

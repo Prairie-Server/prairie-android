@@ -95,6 +95,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.network.clientVersionLabel
+import org.prairieserver.prairie.update.latestVersionLabel
+import org.prairieserver.prairie.update.releaseUrlOrNull
+import org.prairieserver.prairie.update.statusLabel
 import org.prairieserver.prairie.common.settings.CardPresentationSource
 import org.prairieserver.prairie.common.settings.CardPresentationSupport
 import org.prairieserver.prairie.model.settings.CardCaption
@@ -347,7 +350,7 @@ internal enum class TvSettingsCategory(
     Diagnostics(
         title = "Diagnostics",
         eyebrow = "SUPPORT",
-        blurb = "Review and send diagnostics to this Silo server.",
+        blurb = "Review and send diagnostics to this Prairie server.",
         icon = Icons.Filled.MonitorHeart,
     ),
     Server(
@@ -601,7 +604,7 @@ private fun SettingsRail(
             onFocused = { railActionHasFocus = true },
         )
         Text(
-            text = "Silo ${clientVersionLabel(BuildConfig.DISPLAY_VERSION, BuildConfig.BUILD_NUMBER)}",
+            text = "Prairie ${clientVersionLabel(BuildConfig.DISPLAY_VERSION, BuildConfig.BUILD_NUMBER)}",
             style = MaterialTheme.typography.bodySmall.copy(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 14.sp,
@@ -1887,7 +1890,37 @@ private fun TvServerSettingsPane(
                     label = "Version",
                     value = clientVersionLabel(BuildConfig.DISPLAY_VERSION, BuildConfig.BUILD_NUMBER),
                 )
+                TvAppUpdateStatusRows()
             }
+        }
+    }
+}
+
+/**
+ * Prairie-only (b3b04cbb): GitHub Releases update check for sideloaded TV
+ * builds. Self-contained (checker from Koin, no ViewModel plumbing) so an
+ * upstream rewrite of the settings ViewModel cannot silently drop it again.
+ */
+@Composable
+private fun TvAppUpdateStatusRows() {
+    val checker: org.prairieserver.prairie.update.AppUpdateChecker = org.koin.compose.koinInject()
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val status by androidx.compose.runtime.produceState<org.prairieserver.prairie.update.AppUpdateStatus>(
+        org.prairieserver.prairie.update.AppUpdateStatus.Checking,
+        checker,
+    ) {
+        value = checker.check(BuildConfig.VERSION_NAME)
+    }
+    SettingsInfoRow(label = "Updates", value = status.statusLabel())
+    if (status is org.prairieserver.prairie.update.AppUpdateStatus.UpdateAvailable) {
+        status.latestVersionLabel()?.let { latest ->
+            SettingsInfoRow(label = "Latest version", value = latest)
+        }
+        status.releaseUrlOrNull()?.let { url ->
+            SettingsActionRow(
+                label = "View update",
+                onClick = { runCatching { uriHandler.openUri(url) } },
+            )
         }
     }
 }

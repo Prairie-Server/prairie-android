@@ -627,9 +627,16 @@ fun TvAppNavigation(
         }
 
         composable(TvRoute.ServerList.route) {
+            val canGoBack = navController.previousBackStackEntry != null
             TvServerListScreen(
                 onAddServer = {
-                    navController.navigate(TvRoute.ServerSetup.route)
+                    navController.navigate(TvRoute.ServerSetup.route) {
+                        // Prairie: on first run this list is the graph root. Hand
+                        // the root to setup so the auth chain's
+                        // popUpTo(ServerSetup) clears it, and Back from Main
+                        // cannot land on the connect list.
+                        if (!canGoBack) popUpTo(TvRoute.ServerList.route) { inclusive = true }
+                    }
                 },
                 onSwitched = { destination ->
                     // Land on the deepest route the new server's stored
@@ -664,7 +671,14 @@ fun TvAppNavigation(
                         launchSingleTop = true
                     }
                 },
-                onBack = { navController.popBackStack() },
+                // Prairie: as the start destination (empty registry) this is the
+                // first-run connect screen — no Back, and scan the LAN once.
+                onBack = if (canGoBack) {
+                    { navController.popBackStack() }
+                } else {
+                    null
+                },
+                autoScan = !canGoBack,
             )
         }
 

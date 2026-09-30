@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
@@ -117,6 +118,7 @@ import org.prairieserver.prairie.common.ui.components.rememberProfileAvatarImage
 import org.prairieserver.prairie.common.ui.components.rememberProfileServerUrl
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
+import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.model.personal.UserLibrary
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
@@ -150,6 +152,8 @@ import org.prairieserver.prairie.tv.ui.screens.recommendations.TvForYouEntryRequ
 import org.prairieserver.prairie.tv.ui.screens.recommendations.TvForYouEntryRequestSaver
 import org.prairieserver.prairie.tv.ui.screens.requests.TvMyRequestsScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestDetailScreen
+import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvPlayerScreen
+import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsScreen
 import org.prairieserver.prairie.tv.ui.screens.search.TvSearchScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.TvSettingsScreen
@@ -221,10 +225,13 @@ fun TvMainShell(
     val profileRepository: ProfileRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    // Prairie: Live TV is gated on the server having channels.
+    val liveTvFeatureStore: LiveTvFeatureStore = koinInject()
     val metadataAiFeatureStore: org.prairieserver.prairie.model.feature.MetadataAiFeatureStore = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
+    val liveTvEnabled by liveTvFeatureStore.isEnabled.collectAsState()
     val activeServerEntry by serverRegistry.activeEntry.collectAsState()
     val tvLibraryScopeStore: TvLibraryScopeStore = koinInject()
     // One shell-scoped Home owner feeds both the Home screen and General's
@@ -348,6 +355,8 @@ fun TvMainShell(
     LaunchedEffect(activeServerEntry?.id, activeServerEntry?.profileId) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
+        liveTvFeatureStore.reset()
+        liveTvFeatureStore.refresh()
         metadataAiFeatureStore.reset()
         metadataAiFeatureStore.refresh()
     }
@@ -1083,6 +1092,9 @@ fun TvMainShell(
                 .focusGroup()
                 .onPreviewKeyEvent { ev ->
                     when {
+                        // Prairie: the Live TV player's PlayerView controls own
+                        // D-pad Up; the shell must not steal it for the menu bar.
+                        currentRoute == TvMainRoute.LiveTvPlayer.ROUTE -> false
                         ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp -> {
                             val isRepeat = ev.nativeKeyEvent.repeatCount > 0
                             val contentHandledUp = contentUpFallback?.invoke(isRepeat)
@@ -1315,6 +1327,36 @@ fun TvMainShell(
                         firstRowContainerFocusRequester = forYouFirstRowContainerFocusRequester,
                         onContentUpFallbackChanged = onContentUpFallback,
                         entryRequest = forYouEntryRequest,
+                    )
+                }
+                // ---- Live TV (Prairie-only; reached from the profile menu) ----
+                shellComposable(TvMainRoute.LiveTv.route) {
+                    TvLiveTvScreen(
+                        onChannelClick = { channel ->
+                            navigateToSecondary(
+                                TvMainRoute.LiveTvPlayer(channel.id, channel.displayName).route,
+                            )
+                        },
+                        onInitialContentFocus = { focusState.closeProfileMenuForContent() },
+                    )
+                }
+                shellComposable(
+                    route = TvMainRoute.LiveTvPlayer.ROUTE,
+                    arguments = listOf(
+                        navArgument(TvMainRoute.LiveTvPlayer.ARG_CHANNEL_ID) { type = NavType.StringType },
+                        navArgument(TvMainRoute.LiveTvPlayer.ARG_NAME) {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = ""
+                        },
+                    ),
+                ) { entry ->
+                    TvLiveTvPlayerScreen(
+                        channelId = entry.arguments
+                            ?.getString(TvMainRoute.LiveTvPlayer.ARG_CHANNEL_ID).orEmpty(),
+                        channelName = entry.arguments
+                            ?.getString(TvMainRoute.LiveTvPlayer.ARG_NAME).orEmpty(),
+                        onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
                     )
                 }
                 shellComposable(TvMainRoute.Requests.route) {
@@ -1632,6 +1674,11 @@ fun TvMainShell(
                     navigateToSecondary(TvMainRoute.Requests.route)
                     moveFocusToContent(TvMainRoute.Requests.route)
                 },
+                showLiveTv = liveTvEnabled,
+                onLiveTv = closeMenuAnd {
+                    navigateToSecondary(TvMainRoute.LiveTv.route)
+                    moveFocusToContent(TvMainRoute.LiveTv.route)
+                },
                 showWatchTogether = CLIENT_WATCH_TOGETHER_SURFACE_ENABLED,
                 onWatchTogether = {
                     focusState.closeProfileMenuForContent()
@@ -1889,6 +1936,8 @@ private fun TvProfileDropdown(
     onHistory: () -> Unit,
     showRequests: Boolean,
     onRequests: () -> Unit,
+    showLiveTv: Boolean,
+    onLiveTv: () -> Unit,
     showWatchTogether: Boolean,
     onWatchTogether: () -> Unit,
     onSettings: () -> Unit,
@@ -1941,6 +1990,13 @@ private fun TvProfileDropdown(
                 label = "Requests",
                 icon = Icons.Filled.AutoAwesome,
                 onClick = onRequests,
+            )
+        }
+        if (showLiveTv) {
+            ProfileDropdownRow(
+                label = "Live TV",
+                icon = Icons.Filled.LiveTv,
+                onClick = onLiveTv,
             )
         }
         if (showWatchTogether) {

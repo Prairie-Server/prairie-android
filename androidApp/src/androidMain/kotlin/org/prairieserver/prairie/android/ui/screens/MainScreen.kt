@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import org.prairieserver.prairie.model.profile.ActiveProfileStore
+import org.prairieserver.prairie.android.ui.components.LocalLiveTvMenuAction
 import org.prairieserver.prairie.android.ui.components.MainAppHeaderBodyHeight
 import org.prairieserver.prairie.android.ui.components.MainAppTopBar
 import org.prairieserver.prairie.android.ui.components.TabTopBarActions
@@ -72,6 +73,7 @@ import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.MediaModeCapabilities
 import org.prairieserver.prairie.model.navigation.mobileMediaModeCapabilities
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
+import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.network.ServerReachabilityStatus
@@ -156,6 +158,7 @@ fun MainScreen(
     val authRepository: AuthRepository = koinInject()
     val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
+    val liveTvFeatureStore: LiveTvFeatureStore = koinInject()
     val metadataAiFeatureStore: MetadataAiFeatureStore = koinInject()
     val overlayPrefsStore: OverlayPrefsStore = koinInject()
     val activeProfileStore: ActiveProfileStore = koinInject()
@@ -163,6 +166,7 @@ fun MainScreen(
     val seekIntervalStore: org.prairieserver.prairie.common.settings.SeekIntervalStore = koinInject()
     val reachabilityState by reachabilityMonitor.state.collectAsState()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
+    val liveTvEnabled by liveTvFeatureStore.isEnabled.collectAsState()
     val reachabilityScope = rememberCoroutineScope()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
     // Drives the initial load and every re-load. Keyed on the active server
@@ -274,6 +278,8 @@ fun MainScreen(
     LaunchedEffect(activeEntry?.id, activeEntry?.profileId, headerState.activeProfile?.id) {
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
+        liveTvFeatureStore.reset()
+        liveTvFeatureStore.refresh()
         metadataAiFeatureStore.reset()
         metadataAiFeatureStore.refresh()
     }
@@ -282,6 +288,7 @@ fun MainScreen(
         reachabilityScope.launch {
             authRepository.logout()
             requestsFeatureStore.reset()
+            liveTvFeatureStore.reset()
             metadataAiFeatureStore.reset()
             // Per-profile card caches, same teardown the Settings sign-out
             // does — otherwise the next user's shell renders (and can write
@@ -317,6 +324,11 @@ fun MainScreen(
     } else {
         null
     }
+    val liveTvMenuAction: (() -> Unit)? = if (liveTvEnabled) {
+        { navController.navigate(Route.LiveTv.route) }
+    } else {
+        null
+    }
     val watchTogetherMenuAction: (() -> Unit)? =
         if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
             { showWatchTogetherEntry = true }
@@ -336,6 +348,9 @@ fun MainScreen(
     // Instantiate with the shell, not when the lazy tab is first opened, so
     // Discover and taste-profile requests run alongside profile/header setup.
     val recommendationsViewModel = koinViewModel<RecommendationsViewModel>()
+    // Prairie: the profile menus read the Live TV entry from this local
+    // (see LocalLiveTvMenuAction) so it survives upstream menu refactors.
+    CompositionLocalProvider(LocalLiveTvMenuAction provides liveTvMenuAction) {
     Scaffold(
         bottomBar = {
             // The cast bar rests above the nav menu (iOS tabViewBottomAccessory
@@ -609,6 +624,7 @@ fun MainScreen(
                 )
             }
         }
+    }
     }
     }
 }

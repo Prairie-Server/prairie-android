@@ -121,6 +121,28 @@ sealed class Route(val route: String) {
         }
     }
 
+    // --- Live TV (Prairie-only; profile-menu entry, not a bottom-nav tab) ---
+    // Gated by LiveTvFeatureStore (the server has channels). An upstream sync
+    // dropped this wiring once; it is anchored in scripts/prairie-invariants.txt.
+    data object LiveTv : Route("livetv")
+    data class LiveTvPlayer(
+        val channelId: String,
+        val channelName: String = "",
+    ) : Route(
+        buildString {
+            append("livetv/player/${channelId.routeEncode()}")
+            if (channelName.isNotBlank()) {
+                append("?name=${channelName.routeEncode()}")
+            }
+        },
+    ) {
+        companion object {
+            const val ROUTE = "livetv/player/{channelId}?name={name}"
+            const val ARG_CHANNEL_ID = "channelId"
+            const val ARG_NAME = "name"
+        }
+    }
+
     // --- Detail screens (back navigation, no bottom nav) ---
     data class ItemDetail(
         val contentId: String,

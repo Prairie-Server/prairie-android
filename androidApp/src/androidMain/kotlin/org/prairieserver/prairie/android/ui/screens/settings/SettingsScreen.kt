@@ -330,7 +330,7 @@ fun SettingsScreen(
                     SettingsSection(title = "Notifications") {
                         SettingsSwitchRow(
                             label = "In-app notifications",
-                            description = "Show alerts inside Silo as new releases arrive.",
+                            description = "Show alerts inside Prairie as new releases arrive.",
                             checked = state.notificationsEnabled,
                             onCheckedChange = viewModel::setNotificationsEnabled,
                         )
