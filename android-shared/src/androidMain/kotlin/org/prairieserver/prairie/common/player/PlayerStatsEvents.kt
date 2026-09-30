@@ -54,6 +54,9 @@ internal fun describePlayerEvent(
     }
     is PlaybackAnalyticsListener.Event.FirstFrameRendered -> PlayerEventSeverity.INFO to "First frame"
     is PlaybackAnalyticsListener.Event.SeekStarted -> PlayerEventSeverity.INFO to "Seek"
+    // The format-changed line already names the codec; the decoder output
+    // format only settles HDR mode, which the Stats rows show.
+    is PlaybackAnalyticsListener.Event.VideoOutputFormatChanged,
     is PlaybackAnalyticsListener.Event.BandwidthEstimate,
     is PlaybackAnalyticsListener.Event.TrackSnapshot,
     -> null

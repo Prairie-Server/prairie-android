@@ -199,7 +199,7 @@ class StatsForNerdsTest {
     fun `planner reason prefers the trace, then warnings, then claims`() {
         assertEquals(
             "video_ok → audio_adaptation",
-            plan(trace = listOf("probe", "video_ok", "audio_adaptation", " ").statsReason(),
+            plan(trace = listOf("probe", "video_ok", "audio_adaptation", " ")).statsReason(),
         )
         assertEquals(
             "Audio downmixed; hdr_tonemap",
