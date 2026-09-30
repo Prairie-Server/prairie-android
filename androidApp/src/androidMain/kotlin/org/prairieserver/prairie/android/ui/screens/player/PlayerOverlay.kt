@@ -666,6 +666,24 @@ fun PlayerOverlay(
         playMethod = state.playMethod?.name,
         positionLabel = formatClockTime(state.position) + " / " + formatClockTime(state.duration),
         tabletopPaneHeight = tabletopPaneHeight,
+        playbackContext = org.prairieserver.prairie.playback.stats.PlaybackStatsContext(
+            plan = state.playbackPlan,
+            playMethod = state.playMethod,
+            audioTrack = state.audioTracks.getOrNull(state.selectedAudioIndex)?.let { track ->
+                org.prairieserver.prairie.playback.stats.describeAudioTrackForStats(
+                    ordinal = state.selectedAudioIndex,
+                    language = track.language,
+                    codec = track.codec,
+                    channels = track.channels,
+                    title = track.title,
+                )
+            },
+            streamUrl = state.streamUrl,
+            qualityPreference = state.qualityOptions
+                .firstOrNull { it.id.equals(state.selectedQualityId, ignoreCase = true) }
+                ?.label
+                ?: state.selectedQualityId,
+        ),
     )
 
     // Chapters picker — opened from the HUD chapters button (HUD product

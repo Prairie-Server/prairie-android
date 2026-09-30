@@ -33,6 +33,7 @@ import org.prairieserver.prairie.common.player.SleepTimerState
 import org.prairieserver.prairie.common.player.StartParams
 import org.prairieserver.prairie.common.player.backend.VideoBackendCapabilities
 import org.prairieserver.prairie.common.player.reducePlayerStats
+import org.prairieserver.prairie.common.player.recordPlayerEvent
 import org.prairieserver.prairie.common.player.seek.PendingSeekPresentationGuard
 import org.prairieserver.prairie.common.player.seek.PlaybackSeekDecision
 import org.prairieserver.prairie.common.player.seek.QuickSkipAccumulator
@@ -966,7 +967,13 @@ class PlayerViewModel(
 
         viewModelScope.launch {
             playbackAnalytics.events.collect { event ->
-                _uiState.update { it.copy(stats = reducePlayerStats(it.stats, event)) }
+                _uiState.update {
+                    // Prairie: also keep a timestamped event log for stats for nerds.
+                    it.copy(
+                        stats = reducePlayerStats(it.stats, event)
+                            .recordPlayerEvent(event, System.currentTimeMillis()),
+                    )
+                }
             }
         }
     }
