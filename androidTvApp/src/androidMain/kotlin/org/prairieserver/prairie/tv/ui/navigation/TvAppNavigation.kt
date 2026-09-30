@@ -630,7 +630,13 @@ fun TvAppNavigation(
             val canGoBack = navController.previousBackStackEntry != null
             TvServerListScreen(
                 onAddServer = {
-                    navController.navigate(TvRoute.ServerSetup.route)
+                    navController.navigate(TvRoute.ServerSetup.route) {
+                        // Prairie: on first run this list is the graph root. Hand
+                        // the root to setup so the auth chain's
+                        // popUpTo(ServerSetup) clears it, and Back from Main
+                        // cannot land on the connect list.
+                        if (!canGoBack) popUpTo(TvRoute.ServerList.route) { inclusive = true }
+                    }
                 },
                 onSwitched = { destination ->
                     // Land on the deepest route the new server's stored

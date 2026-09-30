@@ -35,6 +35,7 @@ androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMain
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	liveTvFeatureStore\.refresh\(\)	TV Live TV gate refresh
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	showLiveTv = liveTvEnabled	TV profile dropdown gate
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	label = "Live TV"	TV profile dropdown item
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/shell/TvMainShell.kt	1	currentRoute == TvMainRoute\.LiveTvPlayer\.ROUTE -> false	Live TV player keeps D-pad Up
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/livetv/TvLiveTvScreen.kt	1	requestFocusUntilObserved\(	TV Live TV initial focus (edb7e8cd)
 
 # --- Identity / rebrand (f8a795ff and follow-ups). Durable upgrade identity:
@@ -84,6 +85,8 @@ androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/MainActivity
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/MainTvActivity.kt	1	return TvRoute\.ServerList\.route	TV first run lands on the server list
 androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt	1	autoScan = !canGoBack	phone first-run LAN scan
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvAppNavigation.kt	1	autoScan = !canGoBack	TV first-run LAN scan
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/navigation/AppNavigation.kt	1	if \(!canGoBack\) popUpTo\(Route\.ServerList\.route\)	first-run list does not linger under Home
+androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/navigation/TvAppNavigation.kt	1	if \(!canGoBack\) popUpTo\(TvRoute\.ServerList\.route\)	first-run list does not linger under Main
 androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/servers/ServerListScreen.kt	1	viewModel\.maybeAutoScan\(\)	phone scan trigger
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/servers/TvServerListScreen.kt	1	viewModel\.maybeAutoScan\(\)	TV scan trigger (UI dropped by sync #28)
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/servers/TvServerListScreen.kt	1	DiscoveredRow\(	TV discovered-server rows

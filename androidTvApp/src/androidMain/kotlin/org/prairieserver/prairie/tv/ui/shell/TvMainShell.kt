@@ -1092,6 +1092,9 @@ fun TvMainShell(
                 .focusGroup()
                 .onPreviewKeyEvent { ev ->
                     when {
+                        // Prairie: the Live TV player's PlayerView controls own
+                        // D-pad Up; the shell must not steal it for the menu bar.
+                        currentRoute == TvMainRoute.LiveTvPlayer.ROUTE -> false
                         ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp -> {
                             val isRepeat = ev.nativeKeyEvent.repeatCount > 0
                             val contentHandledUp = contentUpFallback?.invoke(isRepeat)

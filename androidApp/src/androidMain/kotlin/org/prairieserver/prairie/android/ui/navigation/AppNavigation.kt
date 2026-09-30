@@ -570,7 +570,13 @@ fun AppNavigation(
             val canGoBack = navController.previousBackStackEntry != null
             ServerListScreen(
                 onAddServer = {
-                    navController.navigate(Route.ServerSetup.route)
+                    navController.navigate(Route.ServerSetup.route) {
+                        // Prairie: on first run this list is the graph root. Hand
+                        // the root to setup so the auth chain's
+                        // popUpTo(ServerSetup) clears it, and Back from Home
+                        // cannot land on the connect list.
+                        if (!canGoBack) popUpTo(Route.ServerList.route) { inclusive = true }
+                    }
                 },
                 onSwitched = { destination ->
                     // Route to whichever screen the new server's stored

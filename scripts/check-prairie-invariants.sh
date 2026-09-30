@@ -23,11 +23,22 @@ failures=0
 checked=0
 
 count_matches() {
-  # $1 path, $2 pattern
+  # $1 path, $2 pattern. Prints the number of matching lines, or "error" when
+  # grep itself fails (status > 1, e.g. an invalid regex), so a broken
+  # "absent" invariant cannot pass by matching nothing.
+  out=""
+  status=0
   if [ -d "$1" ]; then
-    { grep -rhE --include='*.kt' --include='*.xml' -e "$2" "$1" || true; } | wc -l | tr -d ' '
+    out="$(grep -rhE --include='*.kt' --include='*.xml' -e "$2" "$1")" || status=$?
   else
-    { grep -cE -e "$2" "$1" || true; } | tr -d ' '
+    out="$(grep -hE -e "$2" "$1")" || status=$?
+  fi
+  if [ "$status" -gt 1 ]; then
+    echo error
+  elif [ -z "$out" ]; then
+    echo 0
+  else
+    printf '%s\n' "$out" | wc -l | tr -d ' '
   fi
 }
 
@@ -45,6 +56,11 @@ while IFS="$tab" read -r path min pattern why || [ -n "${path:-}" ]; do
     continue
   fi
   count="$(count_matches "$path" "$pattern")"
+  if [ "$count" = "error" ]; then
+    echo "::error file=$path::Prairie invariant: grep failed for /$pattern/ (invalid regex?) ($why)"
+    failures=$((failures + 1))
+    continue
+  fi
   if [ "$min" = "absent" ]; then
     if [ "$count" -ne 0 ]; then
       echo "::error file=$path::Prairie invariant: /$pattern/ must not match but matched $count ($why)"
