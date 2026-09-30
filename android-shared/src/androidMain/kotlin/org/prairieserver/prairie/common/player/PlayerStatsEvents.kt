@@ -66,6 +66,7 @@ internal fun describePlayerEvent(
  * Appends [event] to the snapshot's event log, stamped [nowEpochMs]. Call
  * after [reducePlayerStats] with the wall clock; the reducer itself stays pure.
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 fun PlayerStatsSnapshot.recordPlayerEvent(
     event: PlaybackAnalyticsListener.Event,
     nowEpochMs: Long,
