@@ -698,8 +698,10 @@ val androidModule = module {
         )
     }
     viewModel { LiveTvPlayerViewModel(get()) }
+    viewModel {
         val catalog = get<org.prairieserver.prairie.repository.CatalogRepository>()
         org.prairieserver.prairie.viewmodel.WatchPartyPickerViewModel(
+            repository = get(),
             availability = get(),
             search = { query ->
                 when (val result = catalog.browse(query = query, limit = 30)) {
@@ -709,13 +711,15 @@ val androidModule = module {
                     is org.prairieserver.prairie.network.ApiResult.NetworkError -> result
                 }
             },
-        org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartyDetailViewModel(
-            handoff = get(),
-}
         )
     }
     viewModel {
+        org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartyDetailViewModel(
             repository = get(),
+            handoff = get(),
+        )
+    }
+}
 
 /**
  * The account signed in on [scope]'s server, read with that server's own
@@ -735,4 +739,5 @@ private suspend fun accountNameOn(
             null
         }
     is org.prairieserver.prairie.network.ApiResult.Error -> null
+}
 }
