@@ -9,6 +9,12 @@ import org.prairieserver.prairie.common.data.db.entity.CatalogCacheEntity
 @Dao
 interface CatalogCacheDao {
 
+    @Query("""
+        DELETE FROM catalog_cache WHERE serverId = :serverId AND profileId = :profileId
+        AND (cacheKey LIKE 'item-detail:%' OR cacheKey LIKE 'seasons:%' OR cacheKey LIKE 'episodes:%')
+    """)
+    suspend fun deleteDetailMetadata(serverId: String, profileId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(row: CatalogCacheEntity)
 

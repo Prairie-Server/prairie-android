@@ -257,6 +257,7 @@ fun TvRecommendationsScreen(
             }
             else -> TvSkylineSectionFeed(
                 surfaceKey = "for_you",
+                onMarqueeTranslated = viewModel::refresh,
                 sections = visibleSections,
                 onItemClick = onRecommendationItemClick,
                 // Both tokens are monotonic, so their sum is too — which is all

@@ -10,6 +10,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Shapes
 import androidx.tv.material3.darkColorScheme
+import org.prairieserver.prairie.common.ui.components.LocalDefaultArtworkMarkMaxSize
 
 private val PrairieTvDarkColorScheme = darkColorScheme(
     primary = PrairiePrimary,
@@ -58,6 +59,9 @@ private val PrairieTvShapes = Shapes(
 
 private const val TvUiFontScale = 0.86f
 
+/** Missing-artwork marks may grow larger on TV posters than on phone. */
+private val TvDefaultArtworkMarkMaxSize = 64.dp
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PrairieTvTheme(
@@ -77,7 +81,10 @@ fun PrairieTvTheme(
         typography = PrairieTvTypography,
         shapes = PrairieTvShapes,
     ) {
-        CompositionLocalProvider(LocalDensity provides tvDensity) {
+        CompositionLocalProvider(
+            LocalDensity provides tvDensity,
+            LocalDefaultArtworkMarkMaxSize provides TvDefaultArtworkMarkMaxSize,
+        ) {
             content()
         }
     }

@@ -1,17 +1,23 @@
+<<<<<<<< HEAD:androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/watchtogether/TvJoinCodeStateTest.kt
 package org.prairieserver.prairie.tv.ui.screens.watchtogether
+========
+package org.prairieserver.prairie.tv.ui.screens.watchparty
+>>>>>>>> upstream/main:androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/watchparty/TvJoinCodeStateTest.kt
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TvJoinCodeStateTest {
     @Test fun appendsUppercaseAndCapsAtEight() {
-        var s = JoinCodeState(); "abcd1234ef".forEach { s = s.append(it) }
-        assertEquals("ABCD1234", s.code); assertTrue(s.isComplete)
+        var s = JoinCodeState(); "abcd2345ef".forEach { s = s.append(it) }
+        assertEquals("ABCD2345", s.code); assertTrue(s.isComplete)
+        assertEquals("ABCD2345", s.normalized)
     }
-    @Test fun rejectsNonAlphanumeric() {
-        val s = JoinCodeState().append('-').append(' ').append('A')
+    @Test fun rejectsCharactersOutsideTheCodeAlphabet() {
+        val s = JoinCodeState().append('-').append(' ').append('0').append('1').append('I').append('O').append('A')
         assertEquals("A", s.code); assertFalse(s.isComplete)
     }
     @Test fun backspaceRemovesLast() {
@@ -22,6 +28,7 @@ class TvJoinCodeStateTest {
     }
     @Test fun incompleteUntilEight() {
         assertFalse(JoinCodeState().append('A').isComplete)
-        var t = JoinCodeState(); "ABCD1234".forEach { t = t.append(it) }; assertTrue(t.isComplete)
+        assertNull(JoinCodeState().append('A').normalized)
+        var t = JoinCodeState(); "ABCD2345".forEach { t = t.append(it) }; assertTrue(t.isComplete)
     }
 }

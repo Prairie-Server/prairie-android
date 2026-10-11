@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.profiles
 
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -218,7 +218,7 @@ fun CreateProfileScreen(
 
 @Composable
 internal fun SectionHeader(text: String) {
-    // iOS phone field labels use siloCaption (12pt regular, secondary).
+    // iOS phone field labels use prairieCaption (12pt regular, secondary).
     Text(
         text = text,
         fontSize = 12.sp,
@@ -240,14 +240,14 @@ internal fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            // iOS phone Toggle title: siloBody (14pt), onSurface.
+            // iOS phone Toggle title: prairieBody (14pt), onSurface.
             Text(
                 text = label,
                 fontSize = 14.sp,
                 color = AuthColors.OnBackground,
             )
             if (subtitle != null) {
-                // iOS phone Toggle subtitle: siloCaption (12pt), secondary.
+                // iOS phone Toggle subtitle: prairieCaption (12pt), secondary.
                 Text(
                     text = subtitle,
                     fontSize = 12.sp,
@@ -310,7 +310,7 @@ internal fun DropdownField(
             onDismissRequest = { expanded = false },
         ) {
             options.forEach { option ->
-                DropdownMenuItem(
+                PrairieDropdownMenuItem(
                     text = { Text(option) },
                     onClick = {
                         onSelected(option)

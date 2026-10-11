@@ -16,10 +16,10 @@ if (file("google-services.json").isFile) {
 
 // Play's own track vocabulary, plus the two ways a build reaches a device
 // without Play. Validated so a typo can't reach the server as a header value.
-val siloReleaseChannels = listOf("internal", "alpha", "beta", "production", "sideload", "dev")
+val prairieReleaseChannels = listOf("internal", "alpha", "beta", "production", "sideload", "dev")
 
-val siloVersionName = providers
-    .gradleProperty("siloVersionName")
+val prairieVersionName = providers
+    .gradleProperty("prairieVersionName")
     .orElse(providers.environmentVariable("PRAIRIE_VERSION_NAME"))
     // Release builds override this from the validated Git tag in
     // android-build.yml. Keep local/dev builds aligned with the latest release.
@@ -29,16 +29,16 @@ val siloVersionName = providers
 // the versionCode by CI, but the app also reports it verbatim to the server
 // (X-Prairie-Client-Build) and shows it on the About row, so it has to survive as
 // its own value rather than being reverse-engineered from the versionCode.
-val siloBuildNumber = providers
-    .gradleProperty("siloBuildNumber")
+val prairieBuildNumber = providers
+    .gradleProperty("prairieBuildNumber")
     .orElse(providers.environmentVariable("PRAIRIE_BUILD_NUMBER"))
     .map { value ->
-        val build = value.toIntOrNull() ?: error("siloBuildNumber must be an integer.")
+        val build = value.toIntOrNull() ?: error("prairieBuildNumber must be an integer.")
         // The same 0..999 window release.yml and the Fastfile enforce, so a
         // hand-run build can't stamp a counter the release scheme could never
         // produce. 0 is the unstamped local default; CI itself requires 1..999.
         require(build in 0..999) {
-            "siloBuildNumber must be between 0 and 999 (0 marks an unstamped local build)."
+            "prairieBuildNumber must be between 0 and 999 (0 marks an unstamped local build)."
         }
         build.toString()
     }
@@ -50,28 +50,28 @@ val siloBuildNumber = providers
 // uploading to, so a beta-track tester and a production user are told apart
 // rather than both reporting "release". Everything else is a hand-built or
 // sideloaded artifact, which is not on any track.
-val siloReleaseChannel = providers
-    .gradleProperty("siloReleaseChannel")
+val prairieReleaseChannel = providers
+    .gradleProperty("prairieReleaseChannel")
     .orElse(providers.environmentVariable("PRAIRIE_RELEASE_CHANNEL"))
     .map { value ->
         val channel = value.trim().lowercase()
-        require(channel in siloReleaseChannels) {
-            "siloReleaseChannel must be one of ${siloReleaseChannels.joinToString("/")} (got '$value')."
+        require(channel in prairieReleaseChannels) {
+            "prairieReleaseChannel must be one of ${prairieReleaseChannels.joinToString("/")} (got '$value')."
         }
         channel
     }
     .orElse("sideload")
 
-val siloVersionCode = providers
-    .gradleProperty("siloVersionCode")
+val prairieVersionCode = providers
+    .gradleProperty("prairieVersionCode")
     .orElse(providers.environmentVariable("PRAIRIE_VERSION_CODE"))
     .map { value ->
-        val code = value.toIntOrNull() ?: error("siloVersionCode must be an integer.")
-        require(code > 0) { "siloVersionCode must be positive." }
+        val code = value.toIntOrNull() ?: error("prairieVersionCode must be an integer.")
+        require(code > 0) { "prairieVersionCode must be positive." }
         // The *2 (+1 for TV) form-factor multiplier applied at versionCode
         // assignment must stay under Google Play's 2_100_000_000 ceiling.
         require(code <= 1_049_999_999) {
-            "siloVersionCode must be <= 1_049_999_999 so the form-factor multiplier " +
+            "prairieVersionCode must be <= 1_049_999_999 so the form-factor multiplier " +
                 "keeps both artifacts under Google Play's 2_100_000_000 versionCode limit."
         }
         code
@@ -117,6 +117,7 @@ kotlin {
             implementation(libs.koin.compose)
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.coil.compose)
+            implementation(libs.zxing.core)
             implementation(libs.haze)
             implementation(libs.coil.network.okhttp)
             // Ktor client (download worker wiring). Previously satisfied
@@ -132,6 +133,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.androidx.work.runtime.ktx)
             implementation(libs.androidx.webkit)
+            implementation(libs.androidx.browser)
+            implementation(libs.coil.svg)
             implementation(libs.koin.androidx.workmanager)
             implementation(libs.firebase.messaging)
             // Google Cast (Chromecast) — phone app only. TV app must not depend
@@ -192,13 +195,13 @@ android {
         // Shares one Play listing with the TV app (same applicationId). Two
         // artifacts under one listing need distinct versionCodes: phone =
         // base*2, TV = base*2+1, so each release bumps both by 2 with no reuse.
-        versionCode = siloVersionCode.get() * 2
-        versionName = siloVersionName.get()
+        versionCode = prairieVersionCode.get() * 2
+        versionName = prairieVersionName.get()
         // Reported to the server as X-Prairie-Client-Build and shown on the About
         // row, so both name the same build the way Play and TestFlight do:
-        // "1.0.0 (5)". Matches silo-apple, where CFBundleVersion feeds the
+        // "1.0.0 (5)". Matches prairie-apple, where CFBundleVersion feeds the
         // header, the playback context and diagnostics alike.
-        buildConfigField("String", "BUILD_NUMBER", "\"${siloBuildNumber.get()}\"")
+        buildConfigField("String", "BUILD_NUMBER", "\"${prairieBuildNumber.get()}\"")
         // Shadow the android-shared BuildConfig field so per-app flavors
         // (e.g., a "no-FFmpeg" sideload build for size-constrained QA) can
         // override without rebuilding the shared module. The runtime reads
@@ -234,7 +237,7 @@ android {
             buildConfigField("String", "RELEASE_CHANNEL", "\"dev\"")
         }
         release {
-            buildConfigField("String", "RELEASE_CHANNEL", "\"${siloReleaseChannel.get()}\"")
+            buildConfigField("String", "RELEASE_CHANNEL", "\"${prairieReleaseChannel.get()}\"")
             // Launch-prep: full R8 + resource shrinking. Keep rules for this
             // reflection/JNI-heavy stack live in the shared root proguard-rules.pro
             // (Koin, kotlinx.serialization, Media3 FFmpeg, BouncyCastle,

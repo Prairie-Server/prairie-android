@@ -21,6 +21,7 @@ import kotlin.test.*
 class HomeScreenV2Test {
     private var owner = AuthScopeSnapshot("s", "p", "https://example.invalid", "pin", identityGeneration = 1)
     private val tokens = object : TokenManager by TokenManagerImpl() { override suspend fun snapshotCurrentScope() = owner }
+    private val language = org.prairieserver.prairie.domain.settings.CatalogLanguageRevision()
     private var title = "Old"
     private var unresolved = false
     private var failFallback = false
@@ -61,7 +62,7 @@ class HomeScreenV2Test {
         val store = ViewModelStore()
         try {
             val repository = SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted)))
-            val vm = HomeViewModel(repository, MediaActionsCoordinator(PersonalDataRepository(PersonalDataApi(client))), cache, local)
+            val vm = HomeViewModel(repository, MediaActionsCoordinator(PersonalDataRepository(PersonalDataApi(client))), cache, local, catalogLanguage = language)
             store.put("home", vm); block(vm)
         } finally { store.clear(); client.close(); Dispatchers.resetMain() }
     }
@@ -96,4 +97,31 @@ class HomeScreenV2Test {
         gate.complete(Unit); runCurrent()
         assertEquals("New", vm.uiState.value.sections.single().items.single().title)
     }
+    @Test fun languageRefreshCompletesSupersededManualRefreshAndDrainsRealtime() = scenario { vm ->
+        runCurrent()
+        val gate = CompletableDeferred<Unit>()
+        var delayed = true
+        listHook = { if (delayed) { delayed = false; gate.await() } }
+        vm.refresh(); runCurrent()
+        assertTrue(vm.uiState.value.isRefreshing)
+        vm.refreshFromRealtime()
+        title = "Localized"; language.changed(); runCurrent()
+        assertFalse(vm.uiState.value.isRefreshing)
+        assertEquals(4, listReads)
+        gate.complete(Unit); runCurrent()
+        assertEquals("Localized", vm.uiState.value.sections.single().items.single().title)
+    }
+
+    @Test fun newerLanguageCancelsOlderLanguageRead() = scenario { vm ->
+        runCurrent()
+        val gate = CompletableDeferred<Unit>()
+        var delayed = true
+        listHook = { if (delayed) { delayed = false; gate.await() } }
+        title = "First language"; language.changed(); runCurrent()
+        title = "Latest language"; language.changed(); runCurrent()
+        assertEquals("Latest language", vm.uiState.value.sections.single().items.single().title)
+        gate.complete(Unit); runCurrent()
+        assertEquals("Latest language", vm.uiState.value.sections.single().items.single().title)
+    }
+
 }

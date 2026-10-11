@@ -33,12 +33,18 @@ data class SectionItem(
     @SerialName("position_seconds") val positionSeconds: Double? = null,
     @SerialName("duration_seconds") val durationSeconds: Double? = null,
     @SerialName("progress_updated_at") val progressUpdatedAt: String? = null,
+    @SerialName("poster_is_episode_still") val posterIsEpisodeStill: Boolean? = null,
+    @SerialName("backdrop_is_episode_still") val backdropIsEpisodeStill: Boolean? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,
     @SerialName("backdrop_thumbhash") val backdropThumbhash: String? = null,
     @SerialName("logo_url") val logoUrl: String? = null,
-    @SerialName("user_state") val userState: MediaItemUserState? = null
+    @SerialName("user_state") val userState: MediaItemUserState? = null,
+    /** This profile's metadata language while the card's description is not available in it yet. */
+    @SerialName("pending_translation_language") val pendingTranslationLanguage: String? = null,
+    /** Localized fields ("overview", "tagline") whose text was machine-translated by AI. */
+    @SerialName("machine_translated_fields") val machineTranslatedFields: List<String> = emptyList(),
 )
 
 @Serializable

@@ -9,7 +9,7 @@ import kotlin.test.assertNull
 class DeviceLoginRouteParserTest {
 
     @Test
-    fun customSiloTokenUrlRoutesToPairDevice() {
+    fun customPrairieTokenUrlRoutesToPairDevice() {
         assertEquals(
             "pair_device?token=t1",
             deviceLoginPairRouteOrNull("prairie://device?token=t1"),
@@ -17,7 +17,7 @@ class DeviceLoginRouteParserTest {
     }
 
     @Test
-    fun customSiloCodeUrlRoutesToPairDevice() {
+    fun customPrairieCodeUrlRoutesToPairDevice() {
         assertEquals(
             "pair_device?code=ABCD-1234",
             deviceLoginPairRouteOrNull("prairie://device?code=ABCD-1234"),
@@ -99,5 +99,30 @@ class DeviceLoginRouteParserTest {
             deviceLoginScope("https://prairie.example:0/device?code=A"),
         )
         assertNull(deviceLoginPairRouteOrNull("https://prairie.example:0/device?code=A"))
+    }
+
+    @Test
+    fun `an app link without server is scoped by its url origin`() {
+        assertEquals(
+            "pair_device?code=48217730&serverOrigin=https%3A%2F%2Fhome.example%3A8443",
+            deviceLoginPairRouteOrNull("prairie://device?url=https%3A%2F%2FHome.example%3A8443%2F&code=48217730"),
+        )
+        // The default port normalizes away, as for an https link.
+        assertEquals(
+            "pair_device?code=48217730&serverOrigin=https%3A%2F%2Fhome.example",
+            deviceLoginPairRouteOrNull("prairie://device?url=https%3A%2F%2Fhome.example%3A443&code=48217730"),
+        )
+    }
+
+    @Test
+    fun `an app link without server ignores an unreadable url`() {
+        assertEquals(
+            "pair_device?code=48217730",
+            deviceLoginPairRouteOrNull("prairie://device?url=javascript%3Aalert(1)&code=48217730"),
+        )
+        assertEquals(
+            "pair_device?code=48217730",
+            deviceLoginPairRouteOrNull("prairie://device?url=https%3A%2F%2F&code=48217730"),
+        )
     }
 }

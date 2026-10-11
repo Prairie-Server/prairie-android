@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/util/LanguageNames.kt
 package org.prairieserver.prairie.android.ui.util
+========
+package org.prairieserver.prairie.common.ui
+>>>>>>>> upstream/main:android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/ui/LanguageNames.kt
 
 /**
  * ISO 639 language code → English display name, mirroring the web player's

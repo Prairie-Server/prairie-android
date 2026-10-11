@@ -328,7 +328,8 @@ class SubtitleManager(
     }
 
     private fun buildCaptionStyle(appearance: SubtitleAppearance): CaptionStyleCompat {
-        val foreground = parseHexColor(appearance.fontColor)
+        val foregroundAlpha = appearance.textOpacity.coerceIn(1, 100) * 255 / 100
+        val foreground = parseHexColor(appearance.fontColor, foregroundAlpha)
         val backgroundAlpha = if (appearance.backgroundStyle == SubtitleBackgroundStylePreset.Box) {
             (appearance.backgroundOpacity.coerceIn(0, 100) * 255 / 100)
         } else {
@@ -578,7 +579,7 @@ internal fun displayedSubtitleContentFrameRect(
  * across SRT-as-VTT, native SRT, positioned WebVTT, and PGS.
  *
  * WebvttCueParser defaults every cue to `size == 1.0` (full width), and the
- * Silo server serves all sidecar text subs (including converted SRT) as .vtt —
+ * Prairie server serves all sidecar text subs (including converted SRT) as .vtt —
  * so nearly every sidecar cue would otherwise trigger a full-width opaque band
  * behind the text under the Box style. Only the full-width default is stripped:
  *

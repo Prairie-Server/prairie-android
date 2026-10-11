@@ -127,6 +127,7 @@ private sealed class TvTopMenuFocus {
     data class Tab(val type: TvLibraryTabType) : TvTopMenuFocus()
     data object ForYou : TvTopMenuFocus()
     data object Calendar : TvTopMenuFocus()
+    data object Requests : TvTopMenuFocus()
     data object Search : TvTopMenuFocus()
     data object Profile : TvTopMenuFocus()
 }
@@ -135,7 +136,7 @@ private sealed class TvTopMenuFocus {
  * The custom top menu bar — the Skyline grammar from tvOS `TVTopMenuBar.swift`.
  *
  * Layout (three zones):
- * - Leading: the Silo brand lockup image (see [TvSiloWordmark]).
+ * - Leading: the Prairie brand lockup image (see [TvPrairieWordmark]).
  * - Center: Search icon · `Home` · one inverted-capsule tab per visible
  *   library-type · `Calendar`, derived from [destinations] (the shell's
  *   `visibleRoots`), with an invisible search-size twin trailing the tabs so
@@ -202,6 +203,7 @@ fun TvTopMenuBar(
     val homeFocusRequester = remember { FocusRequester() }
     val calendarFocusRequester = remember { FocusRequester() }
     val forYouFocusRequester = remember { FocusRequester() }
+    val requestsFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val profileFocusRequester = remember { FocusRequester() }
     // One requester per library-type tab; stable across recompositions so a
@@ -244,6 +246,7 @@ fun TvTopMenuBar(
         TvRootDestination.Home -> TvTopMenuFocus.Home
         TvRootDestination.ForYou -> TvTopMenuFocus.ForYou
         TvRootDestination.Calendar -> TvTopMenuFocus.Calendar
+        TvRootDestination.Requests -> TvTopMenuFocus.Requests
         is TvRootDestination.LibraryType -> TvTopMenuFocus.Tab(root.type)
     }
 
@@ -257,6 +260,7 @@ fun TvTopMenuBar(
         is TvTopMenuFocus.Tab -> tabFocusRequesters[focus.type] ?: homeFocusRequester
         TvTopMenuFocus.ForYou -> forYouFocusRequester
         TvTopMenuFocus.Calendar -> calendarFocusRequester
+        TvTopMenuFocus.Requests -> requestsFocusRequester
         TvTopMenuFocus.Search -> searchFocusRequester
         TvTopMenuFocus.Profile -> profileFocusRequester
     }
@@ -271,6 +275,7 @@ fun TvTopMenuBar(
     fun selectedEntryRequester(): FocusRequester = when (val root = selectedRoot) {
         TvRootDestination.Home -> homeFocusRequester
         TvRootDestination.Calendar -> calendarFocusRequester
+        TvRootDestination.Requests -> requestsFocusRequester
         is TvRootDestination.LibraryType -> tabFocusRequesters[root.type] ?: homeFocusRequester
         TvRootDestination.ForYou -> forYouFocusRequester
         null -> if (isSearchActive) searchFocusRequester else homeFocusRequester
@@ -512,14 +517,14 @@ fun TvTopMenuBar(
             },
         verticalAlignment = Alignment.Bottom,
     ) {
-        // Leading: the Silo brand lockup.
+        // Leading: the Prairie brand lockup.
         Box(
             modifier = Modifier
                 .padding(start = TvSkyline.safeAreaX)
                 .height(TvSkyline.barHeight),
             contentAlignment = Alignment.Center,
         ) {
-            TvSiloWordmark()
+            TvPrairieWordmark()
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -631,6 +636,22 @@ fun TvTopMenuBar(
                         },
                         onClick = { onSelectRoot(TvRootDestination.Calendar) },
                     )
+
+                    TvRootDestination.Requests -> TvTopMenuTab(
+                        label = "Requests",
+                        isSelected = selectedRoot == TvRootDestination.Requests,
+                        isFocused = focusedButton == TvTopMenuFocus.Requests,
+                        canFocus = canFocusButton(TvTopMenuFocus.Requests),
+                        focusRequester = requestsFocusRequester,
+                        onFocusChanged = { hasFocus ->
+                            focusedButton = if (hasFocus) {
+                                TvTopMenuFocus.Requests
+                            } else {
+                                focusedButton.takeUnless { it == TvTopMenuFocus.Requests }
+                            }
+                        },
+                        onClick = { onSelectRoot(TvRootDestination.Requests) },
+                    )
                 }
             }
 
@@ -675,9 +696,9 @@ data class TvAccountState(
     val serverName: String = "",
 )
 
-/** The Silo brand lockup image, sized to the bar. */
+/** The Prairie brand lockup image, sized to the bar. */
 @Composable
-private fun TvSiloWordmark() {
+private fun TvPrairieWordmark() {
     Image(
         painter = painterResource(id = R.drawable.prairie_wordmark),
         contentDescription = "Prairie",

@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
@@ -66,6 +68,7 @@ class HomeViewModel(
     private val homeRealtime: org.prairieserver.prairie.repository.HomeRealtimeCoordinator? = null,
     private val identityTransitions: IdentityTransitionBarrier = DefaultIdentityTransitionBarrier(),
     private val diagnostics: HomeDiagnosticsObserver = HomeDiagnosticsObserver.None,
+    private val catalogLanguage: org.prairieserver.prairie.domain.settings.CatalogLanguageRevision? = null,
 ) : ViewModel() {
 
     private var displayedOwner: AuthScopeSnapshot? = null
@@ -94,6 +97,20 @@ class HomeViewModel(
 
     init {
         loadSections()
+        catalogLanguage?.let { language ->
+            viewModelScope.launch {
+                // A metadata-language change re-localizes every card: re-read
+                // quietly. Unlike refreshFromRealtime this never skips, since a
+                // fetch already in flight still asked for the old language.
+                language.revision.drop(1).collectLatest {
+                    val generation = fetchSections(HomeLoadTrigger.REALTIME)
+                    if (generation == fetchGeneration) {
+                        _uiState.update { it.copy(isRefreshing = false) }
+                        runPendingRealtimeRefresh()
+                    }
+                }
+            }
+        }
         homeRealtime?.let { coordinator ->
             viewModelScope.launch {
                 coordinator.refreshSignals.collect { refreshFromRealtime() }
@@ -102,6 +119,14 @@ class HomeViewModel(
     }
 
     private var realtimeRefreshInFlight = false
+
+    /**
+     * A realtime signal arrived while a fetch was running. That fetch may have
+     * been answered before the event behind the signal (an access change made
+     * after the request went out), so one more realtime refresh runs when it
+     * finishes.
+     */
+    private var realtimeRefreshPending = false
 
     /**
      * Bumped by every fetch, checked before any of them publishes.
@@ -117,12 +142,13 @@ class HomeViewModel(
     private var fetchGeneration = 0
 
     /**
-     * Debounced realtime refetch: quiet (no spinner) and single-flight —
-     * an in-flight realtime or manual refresh already delivers the fresh
-     * sections, so overlapping signals are dropped rather than raced.
+     * Debounced realtime refetch: quiet (no spinner) and single-flight.
+     * Signals that arrive while a realtime or manual refresh is running are
+     * not raced against it; they collapse into one follow-up refresh after it.
      */
     fun refreshFromRealtime() {
         if (realtimeRefreshInFlight || _uiState.value.isRefreshing) {
+            realtimeRefreshPending = true
             diagnostics.completed(
                 HomeLoadObservation(
                     trigger = HomeLoadTrigger.REALTIME,
@@ -143,7 +169,14 @@ class HomeViewModel(
             } finally {
                 realtimeRefreshInFlight = false
             }
+            runPendingRealtimeRefresh()
         }
+    }
+
+    private fun runPendingRealtimeRefresh() {
+        if (!realtimeRefreshPending) return
+        realtimeRefreshPending = false
+        refreshFromRealtime()
     }
 
     fun loadSections() {
@@ -213,6 +246,7 @@ class HomeViewModel(
             // it fires a redundant request.
             if (generation == fetchGeneration) {
                 _uiState.update { it.copy(isRefreshing = false) }
+                runPendingRealtimeRefresh()
             }
         }
     }
@@ -460,8 +494,9 @@ private fun List<ResolvedSection>.mapItem(
     else section.copy(items = section.items.map { if (it.contentId == itemId) transform(it) else it })
 }
 
+/** Watched and unwatched both reset resume progress, as the server does. */
 private fun SectionItem.withPlayed(played: Boolean): SectionItem =
-    copy(userState = (userState ?: MediaItemUserState()).copy(played = played))
+    copy(userState = (userState ?: MediaItemUserState()).copy(played = played), positionSeconds = 0.0)
 
 private fun SectionItem.withFavorite(favorite: Boolean): SectionItem =
     copy(userState = (userState ?: MediaItemUserState()).copy(isFavorite = favorite))
