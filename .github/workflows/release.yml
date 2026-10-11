@@ -516,7 +516,6 @@ jobs:
           set -euo pipefail
           shopt -s globstar nullglob
 
-          release_title="Silo Android ${RELEASE_TAG}"
           # Transfer each APK once, then recreate the universal aliases here.
           # Downloader by AFTVnews still redirects to the debug-named aliases.
           for prefix in prairie-android prairie-android-tv; do
@@ -531,7 +530,7 @@ jobs:
             cp "${universal_apk}" "${artifact_dir}/${prefix}-latest-universal-debug.apk"
           done
 
-          release_title="Prairie Android ${RELEASE_TAG}"
+          release_title="Silo Android ${RELEASE_TAG}"
           android_latest_url="https://github.com/${GH_REPO}/releases/latest/download/prairie-android-latest-universal-release.apk"
           android_tv_latest_url="https://github.com/${GH_REPO}/releases/latest/download/prairie-android-tv-latest-universal-release.apk"
           android_downloader_url="http://aftv.news/1051382"
