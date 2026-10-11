@@ -197,11 +197,11 @@ fun ThumbhashImage(
         }
     }
 
+    var failed by remember(url) { mutableStateOf(false) }
+    val failedArtwork = defaultArtwork?.takeIf { failed && !hasUsableThumbhash }
     val model = remember(current, decodeSizePx, crossfadeMillis, cacheKey) {
     // A failed load keeps the ThumbHash; only without one does a poster fall
     // back to the default artwork.
-    var failed by remember(url) { mutableStateOf(false) }
-    val failedArtwork = defaultArtwork?.takeIf { failed && !hasUsableThumbhash }
 
         ImageRequest.Builder(context)
             .data(current)
