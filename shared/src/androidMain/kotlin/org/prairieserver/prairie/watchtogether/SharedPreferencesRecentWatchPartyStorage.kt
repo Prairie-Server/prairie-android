@@ -1,4 +1,4 @@
-package org.siloserver.silo.watchtogether
+package org.prairieserver.prairie.watchtogether
 
 import android.content.SharedPreferences
 

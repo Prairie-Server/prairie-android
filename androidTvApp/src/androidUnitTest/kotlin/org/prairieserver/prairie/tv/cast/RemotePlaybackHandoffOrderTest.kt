@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.cast
+package org.prairieserver.prairie.tv.cast
 
 import android.app.Application
 import kotlin.test.*
@@ -6,9 +6,9 @@ import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.siloserver.silo.cast.SiloCastHandoffOffer
-import org.siloserver.silo.network.AndroidServerRegistry
-import org.siloserver.silo.network.TokenManagerImpl
+import org.prairieserver.prairie.cast.PrairieCastHandoffOffer
+import org.prairieserver.prairie.network.AndroidServerRegistry
+import org.prairieserver.prairie.network.TokenManagerImpl
 
 /**
  * Whatever the TV is playing has to close its server session under the
@@ -77,7 +77,7 @@ class RemotePlaybackHandoffOrderTest {
     }
 
     private suspend fun prepare(
-        offer: SiloCastHandoffOffer,
+        offer: PrairieCastHandoffOffer,
         beforeActivation: suspend () -> Unit = {},
     ) = manager.prepare(
         offer,
@@ -87,7 +87,7 @@ class RemotePlaybackHandoffOrderTest {
         beforeActivation = beforeActivation,
     ) {}
 
-    private fun offer(profileId: String = "profile-1") = SiloCastHandoffOffer(
+    private fun offer(profileId: String = "profile-1") = PrairieCastHandoffOffer(
         requestId = "request",
         serverId = AndroidServerRegistry.idFor(SERVER_URL),
         serverURL = SERVER_URL,

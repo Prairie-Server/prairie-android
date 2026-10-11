@@ -1,4 +1,4 @@
-package org.siloserver.silo.model.watchtogether
+package org.prairieserver.prairie.model.watchtogether
 
 actual fun readWatchPartyFixture(name: String): String =
     checkNotNull(WatchPartyFixtureAnchor::class.java.classLoader?.getResource("watchtogether/v2/$name")) {

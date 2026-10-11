@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.background
@@ -68,27 +68,27 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import org.siloserver.silo.android.ui.components.BackdropCard
-import org.siloserver.silo.android.ui.components.MediaCard
-import org.siloserver.silo.android.ui.navigation.LocalHeroSourceHandoff
-import org.siloserver.silo.android.ui.navigation.LocalSharedTransitionScope
-import org.siloserver.silo.android.ui.theme.SiloOnSurface
-import org.siloserver.silo.common.cards.LocalEpisodeSpoilerPrefs
-import org.siloserver.silo.android.ui.theme.SiloPageBackground
-import org.siloserver.silo.android.ui.theme.SiloSecondaryText
-import org.siloserver.silo.model.catalog.BrowseItem
-import org.siloserver.silo.model.section.SectionItem
-import org.siloserver.silo.model.watchtogether.ItemMemberState
-import org.siloserver.silo.model.watchtogether.MemberWatchState
-import org.siloserver.silo.model.watchtogether.PickerEntry
-import org.siloserver.silo.model.watchtogether.PickerNextUp
-import org.siloserver.silo.model.watchtogether.RoomMember
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.repository.CatalogRepository
-import org.siloserver.silo.repository.SectionRepository
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.viewmodel.WatchPartySpoilers
-import org.siloserver.silo.viewmodel.WatchPartyPickerViewModel
+import org.prairieserver.prairie.android.ui.components.BackdropCard
+import org.prairieserver.prairie.android.ui.components.MediaCard
+import org.prairieserver.prairie.android.ui.navigation.LocalHeroSourceHandoff
+import org.prairieserver.prairie.android.ui.navigation.LocalSharedTransitionScope
+import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.android.ui.theme.PrairiePageBackground
+import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.model.catalog.BrowseItem
+import org.prairieserver.prairie.model.section.SectionItem
+import org.prairieserver.prairie.model.watchtogether.ItemMemberState
+import org.prairieserver.prairie.model.watchtogether.MemberWatchState
+import org.prairieserver.prairie.model.watchtogether.PickerEntry
+import org.prairieserver.prairie.model.watchtogether.PickerNextUp
+import org.prairieserver.prairie.model.watchtogether.RoomMember
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.repository.CatalogRepository
+import org.prairieserver.prairie.repository.SectionRepository
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.viewmodel.WatchPartySpoilers
+import org.prairieserver.prairie.viewmodel.WatchPartyPickerViewModel
 
 /** What choosing a title in the picker does. */
 internal enum class WatchPartyPickMode(val title: String, val eyebrow: String, val confirmLabel: String) {
@@ -434,7 +434,7 @@ private fun PickerShelvesPage(
     Column(
         Modifier
             .fillMaxSize()
-            .background(SiloPageBackground)
+            .background(PrairiePageBackground)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
     ) {
         Box(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp)) {
@@ -450,7 +450,7 @@ private fun PickerShelvesPage(
             mode.title,
             fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
-            color = SiloOnSurface,
+            color = PrairieOnSurface,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         PickerSearchField(
@@ -469,11 +469,11 @@ private fun PickerShelvesPage(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 80.dp, start = 32.dp, end = 32.dp),
             ) {
-                Text("Nothing to pick from yet", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = SiloOnSurface)
+                Text("Nothing to pick from yet", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = PrairieOnSurface)
                 Text(
                     "Search for a title, or add something to a watchlist.",
                     fontSize = WatchPartyMetrics.BODY.sp,
-                    color = SiloSecondaryText,
+                    color = PrairieSecondaryText,
                 )
             }
             else -> LazyColumn(
@@ -490,13 +490,13 @@ private fun PickerShelvesPage(
 @Composable
 private fun PickerSearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(12.dp)
-    val style = TextStyle(fontSize = 16.sp, color = SiloOnSurface)
+    val style = TextStyle(fontSize = 16.sp, color = PrairieOnSurface)
     BasicTextField(
         value = query,
         onValueChange = onQuery,
         singleLine = true,
         textStyle = style,
-        cursorBrush = SolidColor(SiloOnSurface),
+        cursorBrush = SolidColor(PrairieOnSurface),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         modifier = modifier
             .fillMaxWidth()
@@ -506,17 +506,17 @@ private fun PickerSearchField(query: String, onQuery: (String) -> Unit, modifier
             .border(1.dp, WatchPartyColors.chromeBorder, shape),
         decorationBox = { inner ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, end = 4.dp)) {
-                Icon(Icons.Filled.Search, contentDescription = null, tint = SiloSecondaryText, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Search, contentDescription = null, tint = PrairieSecondaryText, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.weight(1f)) {
                     if (query.isEmpty()) {
-                        Text("Search movies and series", style = style.copy(color = SiloSecondaryText), maxLines = 1)
+                        Text("Search movies and series", style = style.copy(color = PrairieSecondaryText), maxLines = 1)
                     }
                     inner()
                 }
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { onQuery("") }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = SiloSecondaryText, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = PrairieSecondaryText, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -535,9 +535,9 @@ private fun PickerShelfRow(shelf: PickerShelf, onOpen: (SectionItem) -> Unit) {
             modifier = Modifier.padding(horizontal = 16.dp),
         ) {
             if (shelf.stills) {
-                Icon(Icons.Filled.PlayCircle, contentDescription = null, tint = SiloOnSurface, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.PlayCircle, contentDescription = null, tint = PrairieOnSurface, modifier = Modifier.size(20.dp))
             }
-            Text(shelf.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = SiloOnSurface)
+            Text(shelf.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = PrairieOnSurface)
         }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -615,8 +615,8 @@ private fun PickerSearchResults(state: WatchPartyPickerViewModel.PickerState, on
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
         ) {
-            Text("No results", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = SiloOnSurface)
-            Text("Try a different search term.", fontSize = WatchPartyMetrics.BODY.sp, color = SiloSecondaryText)
+            Text("No results", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = PrairieOnSurface)
+            Text("Try a different search term.", fontSize = WatchPartyMetrics.BODY.sp, color = PrairieSecondaryText)
         }
     }
 }
@@ -624,7 +624,7 @@ private fun PickerSearchResults(state: WatchPartyPickerViewModel.PickerState, on
 @Composable
 private fun PickerProgress() {
     Box(Modifier.fillMaxWidth().padding(top = 120.dp), contentAlignment = Alignment.TopCenter) {
-        CircularProgressIndicator(color = SiloSecondaryText, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+        CircularProgressIndicator(color = PrairieSecondaryText, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
     }
 }
 
@@ -685,12 +685,12 @@ private fun PickerChoicePage(
                         WatchPartyHeroTitle(choice.title, size = WatchPartyMetrics.HERO_TITLE * 0.9f)
                         val facts = listOfNotNull(choice.subtitle) + choice.facts
                         if (facts.isNotEmpty()) {
-                            Text(facts.joinToString(" · "), fontSize = WatchPartyMetrics.BODY.sp, color = SiloSecondaryText)
+                            Text(facts.joinToString(" · "), fontSize = WatchPartyMetrics.BODY.sp, color = PrairieSecondaryText)
                         }
                     }
                 }
                 choice.overview?.takeIf { it.isNotBlank() && !choice.spoilers.hidesOverview(spoilerPrefs) }?.let {
-                    Text(it, fontSize = WatchPartyMetrics.BODY.sp, color = SiloSecondaryText, maxLines = 6)
+                    Text(it, fontSize = WatchPartyMetrics.BODY.sp, color = PrairieSecondaryText, maxLines = 6)
                 }
                 WatchPartyButton(
                     text = mode.confirmLabel,
@@ -712,7 +712,7 @@ private fun PickerChoicePage(
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         WatchPartyEyebrow("Who's seen it")
                         if (loadingHistory) {
-                            Text("Checking viewing history…", fontSize = WatchPartyMetrics.CAPTION.sp, color = SiloSecondaryText)
+                            Text("Checking viewing history…", fontSize = WatchPartyMetrics.CAPTION.sp, color = PrairieSecondaryText)
                         } else {
                             val states = history?.members.orEmpty()
                             roomMembers.forEach { member ->
@@ -721,10 +721,10 @@ private fun PickerChoicePage(
                                     Text(
                                         watchPartyMemberName(member),
                                         fontSize = WatchPartyMetrics.BODY.sp,
-                                        color = SiloOnSurface,
+                                        color = PrairieOnSurface,
                                         modifier = Modifier.weight(1f),
                                     )
-                                    Text(watchHistoryLabel(watch), fontSize = WatchPartyMetrics.BODY.sp, color = SiloSecondaryText)
+                                    Text(watchHistoryLabel(watch), fontSize = WatchPartyMetrics.BODY.sp, color = PrairieSecondaryText)
                                 }
                             }
                         }

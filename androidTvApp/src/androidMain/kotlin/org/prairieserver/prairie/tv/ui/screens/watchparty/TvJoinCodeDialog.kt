@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -38,17 +38,17 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
-import org.siloserver.silo.tv.ui.focus.TvControlState
-import org.siloserver.silo.tv.ui.focus.tvControlSemantics
-import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
-import org.siloserver.silo.tv.ui.theme.FocusedContainer
-import org.siloserver.silo.tv.ui.theme.FocusedContent
-import org.siloserver.silo.tv.ui.theme.SiloOnSurface
-import org.siloserver.silo.watchtogether.WATCH_PARTY_CODE_ALPHABET
-import org.siloserver.silo.watchtogether.WATCH_PARTY_CODE_LENGTH
-import org.siloserver.silo.watchtogether.canDismissRoomEntry
-import org.siloserver.silo.watchtogether.normalizeWatchPartyCode
+import org.prairieserver.prairie.tv.ui.components.rememberTvDialogInitialFocus
+import org.prairieserver.prairie.tv.ui.focus.TvControlState
+import org.prairieserver.prairie.tv.ui.focus.tvControlSemantics
+import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
+import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
+import org.prairieserver.prairie.tv.ui.theme.FocusedContent
+import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.watchtogether.WATCH_PARTY_CODE_ALPHABET
+import org.prairieserver.prairie.watchtogether.WATCH_PARTY_CODE_LENGTH
+import org.prairieserver.prairie.watchtogether.canDismissRoomEntry
+import org.prairieserver.prairie.watchtogether.normalizeWatchPartyCode
 
 /**
  * Pure D-pad join-code accumulator. Appends only characters from the room
@@ -126,7 +126,7 @@ fun TvJoinCodeDialog(
                     text = "Enter the party code",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                 )
 
                 // One slot per character; the next one to fill is outlined.
@@ -144,7 +144,7 @@ fun TvJoinCodeDialog(
                                 .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(8.dp))
                                 .border(
                                     width = if (next) 1.5.dp else 1.dp,
-                                    color = if (next) SiloOnSurface.copy(alpha = 0.7f) else PartyChromeBorder,
+                                    color = if (next) PrairieOnSurface.copy(alpha = 0.7f) else PartyChromeBorder,
                                     shape = RoundedCornerShape(8.dp),
                                 ),
                             contentAlignment = Alignment.Center,
@@ -154,7 +154,7 @@ fun TvJoinCodeDialog(
                                 fontSize = 20.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = SiloOnSurface,
+                                color = PrairieOnSurface,
                             )
                         }
                     }

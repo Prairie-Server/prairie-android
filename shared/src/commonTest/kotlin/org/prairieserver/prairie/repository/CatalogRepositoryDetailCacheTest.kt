@@ -11,8 +11,10 @@ import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.api.CatalogApi
 import org.prairieserver.prairie.repository.port.CatalogCachePort
 import org.prairieserver.prairie.repository.port.CatalogCacheWriteLease
+import org.prairieserver.prairie.repository.port.CatalogCacheScope
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
@@ -36,9 +38,9 @@ import kotlin.test.assertTrue
 class CatalogRepositoryDetailCacheTest {
 
     private class FakeCache(
-        val preset: ItemDetail? = null,
-        val seasonsPreset: SeasonsResponse? = null,
-        val episodesPreset: EpisodesResponse? = null,
+        var preset: ItemDetail? = null,
+        var seasonsPreset: SeasonsResponse? = null,
+        var episodesPreset: EpisodesResponse? = null,
         val identityTransitions: IdentityTransitionBarrier? = null,
         val beforeItemCache: suspend () -> Unit = {},
     ) : CatalogCachePort {
@@ -54,7 +56,21 @@ class CatalogRepositoryDetailCacheTest {
                 lease.identityGeneration == identityTransitions.generation.value
             ) {
                 cachedId = contentId
+                preset = detail
             }
+        }
+        val invalidatedScopes = mutableListOf<CatalogCacheScope?>()
+        override suspend fun invalidateDetailMetadata(scope: CatalogCacheScope?) {
+            invalidatedScopes += scope
+            preset = null
+            seasonsPreset = null
+            episodesPreset = null
+        }
+        override suspend fun cacheSeasons(seriesId: String, response: SeasonsResponse) {
+            seasonsPreset = response
+        }
+        override suspend fun cacheEpisodes(seriesId: String, seasonNumber: Int, response: EpisodesResponse) {
+            episodesPreset = response
         }
         override suspend fun getCachedItemDetail(contentId: String): ItemDetail? = preset
         override suspend fun getCachedSeasons(seriesId: String): SeasonsResponse? = seasonsPreset
@@ -185,6 +201,30 @@ class CatalogRepositoryDetailCacheTest {
     }
 
     @Test
+    fun accessChangeReloadDoesNotJoinAnActiveWarmup() = runTest {
+        var calls = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val repository = gatedRepository(
+            requestDispatcher = StandardTestDispatcher(testScheduler),
+            requestEntered = entered,
+            releaseResponse = release,
+            onRequest = { calls += 1 },
+        )
+
+        // The warm-up went out before the access change; the reload after it
+        // must send its own request.
+        val warmup = async { repository.warmItemDetail("c1") }
+        entered.await()
+        val reload = async { repository.getItemDetail("c1", joinWarmup = false) }
+        repeat(10) { yield() }
+        release.complete(Unit)
+        listOf(warmup, reload).awaitAll()
+
+        assertEquals(2, calls)
+    }
+
+    @Test
     fun cancelingHomePrefetchDoesNotCancelDestinationDetailRequest() = runTest {
         var calls = 0
         val entered = CompletableDeferred<Unit>()
@@ -298,4 +338,139 @@ class CatalogRepositoryDetailCacheTest {
         assertTrue(repository.getItemDetail("c1") is ApiResult.Success)
         assertEquals(null, cache.cachedId)
     }
+    @Test
+    fun languageChangeRejectsOldWarmupsAndReplacesAllLocalizedCaches() = runTest {
+        val language = org.prairieserver.prairie.domain.settings.CatalogLanguageRevision()
+        val oldRequestsEntered = CompletableDeferred<Unit>()
+        val releaseOldResponses = CompletableDeferred<Unit>()
+        var oldCalls = 0
+        var newCalls = 0
+        val cache = FakeCache()
+        val client = HttpClient(MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { request ->
+                val old = language.revision.value == 0L
+                if (old) {
+                    oldCalls++
+                    if (oldCalls == 3) oldRequestsEntered.complete(Unit)
+                    releaseOldResponses.await()
+                } else {
+                    newCalls++
+                }
+                val title = if (old) "Old language" else "New language"
+                val body = when {
+                    request.url.encodedPath.endsWith("/episodes") ->
+                        """{"items":[{"content_id":"e1","season_number":1,"episode_number":1,"title":"$title","pending_translation_language":"de"}]}"""
+                    request.url.encodedPath.endsWith("/seasons") ->
+                        """{"items":[{"content_id":"s1","season_number":1,"title":"$title"}]}"""
+                    else -> """{"content_id":"c1","type":"series","title":"$title","cast":[],"crew":[],"subtitles":[],"versions":[]}"""
+                }
+                respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        })) { install(ContentNegotiation) { json(PrairieJson) } }
+        val repository = CatalogRepository(
+            CatalogApi(client), cache,
+            requestDispatcher = StandardTestDispatcher(testScheduler),
+            catalogLanguage = language,
+        )
+        val oldWarmups = listOf(
+            async { repository.warmItemDetail("c1") },
+            async { repository.warmSeasons("c1") },
+            async { repository.warmEpisodes("c1", 1) },
+        )
+        oldRequestsEntered.await()
+        language.changed()
+        val destinations = listOf(
+            async { repository.getItemDetail("c1") },
+            async { repository.getSeasonsForPrefetch("c1") },
+            async { repository.getEpisodesForPrefetch("c1", 1) },
+        )
+        // Drain new requests without releasing the old responses. A destination
+        // joining an old warmup would still be waiting here.
+        testScheduler.advanceUntilIdle()
+        val allDestinationsFinished = destinations.all { it.isCompleted }
+        releaseOldResponses.complete(Unit)
+        oldWarmups.awaitAll()
+        destinations.awaitAll()
+        assertTrue(allDestinationsFinished)
+        assertEquals(3, newCalls)
+        assertEquals("New language", repository.getCachedItemDetail("c1")?.title)
+        assertEquals("New language", repository.getCachedSeasons("c1")?.seasons?.single()?.title)
+        assertEquals("New language", repository.getCachedEpisodes("c1", 1)?.episodes?.single()?.title)
+        assertEquals("de", repository.getCachedEpisodes("c1", 1)?.episodes?.single()?.pendingTranslationLanguage)
+    }
+
+    @Test
+    fun languageChangeClearsCachedPrefetchAndOfflineFallbacks() = runTest {
+        val language = org.prairieserver.prairie.domain.settings.CatalogLanguageRevision()
+        val cache = FakeCache(
+            preset = ItemDetail(contentId = "c1", type = "series", title = "Old"),
+            seasonsPreset = SeasonsResponse(),
+            episodesPreset = EpisodesResponse(),
+        )
+        val client = HttpClient(MockEngine {
+            respond("{}", HttpStatusCode.ServiceUnavailable, headersOf(HttpHeaders.ContentType, "application/json"))
+        }) { install(ContentNegotiation) { json(PrairieJson) } }
+        val repository = CatalogRepository(CatalogApi(client), cache, catalogLanguage = language)
+        language.changed()
+        assertTrue(repository.getItemDetailForPrefetch("c1") is ApiResult.Error)
+        assertTrue(repository.getSeasonsForPrefetch("c1") is ApiResult.Error)
+        assertTrue(repository.getEpisodesForPrefetch("c1", 1) is ApiResult.Error)
+    }
+
+    @Test
+    fun languageInvalidationWaitsForAnAdmittedCacheWriteThenPurgesIt() = runTest {
+        val language = org.prairieserver.prairie.domain.settings.CatalogLanguageRevision()
+        val writeEntered = CompletableDeferred<Unit>()
+        val releaseWrite = CompletableDeferred<Unit>()
+        val cache = FakeCache(beforeItemCache = {
+            writeEntered.complete(Unit)
+            releaseWrite.await()
+        })
+        val client = HttpClient(MockEngine {
+            respond("""{"content_id":"c1","type":"movie","title":"Old","cast":[],"crew":[],"subtitles":[],"versions":[]}""",
+                HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }) { install(ContentNegotiation) { json(PrairieJson) } }
+        val repository = CatalogRepository(CatalogApi(client), cache, catalogLanguage = language)
+        val oldRequest = async { repository.getItemDetail("c1") }
+        writeEntered.await()
+        language.changed()
+        val invalidation = async { repository.invalidateLocalizedMetadata() }
+        testScheduler.runCurrent()
+        val invalidationWaited = !invalidation.isCompleted
+        releaseWrite.complete(Unit)
+        oldRequest.await()
+        invalidation.await()
+        assertTrue(invalidationWaited)
+        assertEquals(null, repository.getCachedItemDetail("c1"))
+    }
+
+    @Test
+    fun languageChangeBeforeLazyRepositoryConstructionStillPurgesPersistedMetadata() = runTest {
+        val language = org.prairieserver.prairie.domain.settings.CatalogLanguageRevision()
+        val cache = FakeCache(preset = ItemDetail(contentId = "c1", type = "series", title = "Old"))
+        language.changed()
+        val client = HttpClient(MockEngine { error("No live request expected") })
+        val repository = CatalogRepository(CatalogApi(client), cache, catalogLanguage = language)
+        repository.invalidateLocalizedMetadata()
+        assertEquals(null, repository.getCachedItemDetail("c1"))
+    }
+
+    @Test
+    fun languageInvalidationTracksEveryWriterAndOnlyAcknowledgesItsOwnRevision() = runTest {
+        val language = org.prairieserver.prairie.domain.settings.CatalogLanguageRevision()
+        val a = CatalogCacheScope("server", "a")
+        val b = CatalogCacheScope("server", "b")
+        language.changed(a)
+        language.changed(b)
+        val cache = FakeCache()
+        val client = HttpClient(MockEngine { error("No live request expected") })
+        val repository = CatalogRepository(CatalogApi(client), cache, catalogLanguage = language)
+        repository.invalidateLocalizedMetadata()
+        assertEquals<List<CatalogCacheScope?>>(listOf(a, b), cache.invalidatedScopes)
+        language.changed(a)
+        repository.invalidateLocalizedMetadata()
+        assertEquals<List<CatalogCacheScope?>>(listOf(a, b, a), cache.invalidatedScopes)
+    }
+
 }

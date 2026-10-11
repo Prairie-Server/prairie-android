@@ -1,4 +1,4 @@
-package org.siloserver.silo.network
+package org.prairieserver.prairie.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -22,15 +22,15 @@ import kotlin.test.assertTrue
  * token still works, so the client must refresh quietly and retry once — never
  * end the session.
  */
-class SiloAuthPluginTokenRefreshRequiredTest {
+class PrairieAuthPluginTokenRefreshRequiredTest {
 
     private val tokenRefreshRequired =
-        """{"type":"https://siloserver.org/problems/token_refresh_required","title":"Unauthorized","status":401,"detail":"Refresh the access token."}"""
+        """{"type":"https://prairieserver.org/problems/token_refresh_required","title":"Unauthorized","status":401,"detail":"Refresh the access token."}"""
 
     @Test
     fun `a role change refreshes and retries without signing out`() = runTest {
         val tokens = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("pre-change-access", "refresh-token", 3_600)
             setProfileIdentity("kid", "pin-token")
         }
@@ -61,8 +61,8 @@ class SiloAuthPluginTokenRefreshRequiredTest {
                 }
             },
         ) {
-            install(ContentNegotiation) { json(SiloJson) }
-            install(SiloAuthPlugin) { tokenManager = tokens }
+            install(ContentNegotiation) { json(PrairieJson) }
+            install(PrairieAuthPlugin) { tokenManager = tokens }
         }
 
         val response = client.get("/api/v2/home/sections")
@@ -87,11 +87,11 @@ class SiloAuthPluginTokenRefreshRequiredTest {
         val scope = AuthScopeSnapshot(
             serverId = "server-1",
             profileId = "kid",
-            serverUrl = "https://silo.example",
+            serverUrl = "https://prairie.example",
             profileToken = "pin-token",
         )
         val tokens = TokenManagerImpl().apply {
-            setServerUrl("https://silo.example")
+            setServerUrl("https://prairie.example")
             saveTokens("pre-change-access", "refresh-token", 3_600)
         }
         val client = HttpClient(
@@ -111,11 +111,11 @@ class SiloAuthPluginTokenRefreshRequiredTest {
                 }
             },
         ) {
-            install(ContentNegotiation) { json(SiloJson) }
-            install(SiloAuthPlugin) { tokenManager = tokens }
+            install(ContentNegotiation) { json(PrairieJson) }
+            install(PrairieAuthPlugin) { tokenManager = tokens }
         }
 
-        val response = client.get("https://silo.example/api/v2/playback/progress") { authScope(scope) }
+        val response = client.get("https://prairie.example/api/v2/playback/progress") { authScope(scope) }
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("post-change-access", tokens.getAccessToken())

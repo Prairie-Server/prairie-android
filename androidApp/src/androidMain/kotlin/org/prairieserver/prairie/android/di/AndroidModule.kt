@@ -112,6 +112,21 @@ val androidModule = module {
     // passes on cold start.
     single<SharedPreferences> { createSecureSharedPrefs(androidContext()) }
 
+    // External sign-in (OIDC): the one native flow the phone may have in
+    // flight. Its own scope, so redeeming a code outlives the activity that
+    // received the redirect.
+    single<org.prairieserver.prairie.android.auth.PendingNativeSignInStore> {
+        org.prairieserver.prairie.android.auth.SharedPrefsPendingNativeSignInStore(get())
+    }
+    single {
+        org.prairieserver.prairie.android.auth.NativeSignInCoordinator(
+            store = get(),
+            completer = org.prairieserver.prairie.android.auth.RepositoryNativeSignInCompleter(get(), get(), get()),
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+            accountChoices = org.prairieserver.prairie.android.auth.SharedPrefsAccountChoiceStore(get()),
+        )
+    }
+
     // Multi-server registry. Loaded synchronously in init so MainActivity's
     // `runBlocking { resolveStartDestination() }` reads consistent state.
     single<ServerRegistry> { AndroidServerRegistry(get(), get()) }
@@ -189,6 +204,20 @@ val androidModule = module {
     // every collaborator that reports client identity (headers, playback
     // context, diagnostics) resolves this rather than deriving its own answer.
     single { PrairieClientBuildIdentity(BuildConfig.BUILD_NUMBER, BuildConfig.RELEASE_CHANNEL) }
+    // Settings → Experimental → Watch Party: on by default only in debug builds.
+    single {
+        org.prairieserver.prairie.common.watchparty.WatchPartyExperiment(
+            prefs = androidContext().getSharedPreferences(
+                org.prairieserver.prairie.common.watchparty.WatchPartyExperiment.PREFS_NAME,
+                android.content.Context.MODE_PRIVATE,
+            ),
+            defaultEnabled = BuildConfig.DEBUG,
+            onDisabled = { get<org.prairieserver.prairie.watchtogether.RoomSession>().depart() },
+        )
+    }
+    single<org.prairieserver.prairie.model.feature.WatchPartyExposure> {
+        get<org.prairieserver.prairie.common.watchparty.WatchPartyExperiment>()
+    }
     single<org.prairieserver.prairie.network.DeviceMetadataProvider> {
         AndroidDeviceMetadataProvider(
             androidContext(),
@@ -199,13 +228,30 @@ val androidModule = module {
     single { PrairieCastNsdBrowser(androidContext()) }
     single { CompanionPairingNsdBrowser(androidContext()) }
     single<CompanionPairingServerStore> { RegistryCompanionPairingServerStore(get(), get()) }
-    single<CompanionDeviceLoginApprover> { RepositoryCompanionDeviceLoginApprover(get(), get()) }
+    single<CompanionDeviceLoginApprover> {
+        val authRepository = get<org.prairieserver.prairie.repository.AuthRepository>()
+        // The nearby approval card names the account approving signs the TV in as.
+        RepositoryCompanionDeviceLoginApprover(get(), get(), accountNameOf = { scope -> accountNameOn(authRepository, scope) })
+    }
     single<CompanionPairingTransportFactory> {
         CompanionPairingTransportFactory { target ->
             TlsPskPairingClientTransport.connect(target.host, target.port)
         }
     }
-    single { CompanionPairingCoordinator(get(), get(), get()) }
+    single {
+        CompanionPairingCoordinator(
+            serverStore = get(),
+            deviceLoginApprover = get(),
+            transportFactory = get(),
+            // serverIdentity + endpoints in pushServer, and st=login matching.
+            identitySource = org.prairieserver.prairie.common.pairing.RegistryCompanionServerIdentitySource(
+                registry = get(),
+                identities = get(),
+                identityApi = get(),
+                identityTransitions = get(),
+            ),
+        )
+    }
     single<PrairieCastLastTargetStore> { SharedPrefsPrairieCastLastTargetStore(androidContext()) }
     single {
         PrairieCastController(
@@ -213,6 +259,7 @@ val androidModule = module {
             serverRegistry = get(),
             tokenManager = get(),
             deviceLoginApi = get(),
+            catalogRepository = get(),
             lastTargetStore = get(),
             deviceNameProvider = {
                 android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android Phone"
@@ -354,6 +401,18 @@ val androidModule = module {
             profileRepository = get(),
         )
     }
+    worker {
+        org.prairieserver.prairie.common.downloads.OfflineSubtitleRefreshWorker(
+            appContext = androidContext(),
+            params = get(),
+            metadataStore = get(),
+            storage = get(),
+            httpClient = get(),
+            authorities = get(),
+            transitions = get(),
+            gate = get(),
+        )
+    }
     // Kept for consistency, but DEAD AT RUNTIME: Koin's WorkManager factory
     // returns null on WM 2.10 + Koin 4.1.0, so AppWorkerFactory does the real
     // injection (see AppWorkerFactory). Update both if SyncWorker's deps change.
@@ -390,22 +449,24 @@ val androidModule = module {
             qualityLadderClient = get(),
             seekIntervalStore = get(),
             activeProfileStore = get(),
+            shuffleFeatureStore = get(),
         )
     }
-    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get(), catalogLanguage = get()) }
     viewModel { MainHeaderViewModel(get()) }
     viewModel {
         LibrariesViewModel(
             get(), get(), get(),
             getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>() ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
             get(),
-            get<org.prairieserver.prairie.android.ui.screens.browse.BrowsePrefsStore>(),
+            get<org.prairieserver.prairie.common.settings.BrowsePrefsStore>(),
+            catalogLanguage = get(),
         )
     }
-    viewModel { RecommendationsViewModel(get()) }
+    viewModel { RecommendationsViewModel(get(), catalogLanguage = get()) }
     viewModel { SearchViewModel(get()) }
     single {
-        org.prairieserver.prairie.android.ui.screens.browse.BrowsePrefsStore(
+        org.prairieserver.prairie.common.settings.BrowsePrefsStore(
             context = get(),
             serverRegistry = get(),
         )
@@ -445,9 +506,12 @@ val androidModule = module {
     viewModel { HistoryViewModel(get(), get()) }
     viewModel { CollectionsViewModel(get()) }
     viewModel { params -> CollectionDetailViewModel(get(), get(), params.get()) }
-    viewModel { RequestsViewModel(get()) }
+    viewModel { RequestsViewModel(get(), get()) }
     viewModel { RequestSearchViewModel(get()) }
     viewModel { MyRequestsViewModel(get()) }
+    viewModel { params ->
+        org.prairieserver.prairie.viewmodel.RequestApprovalsViewModel(get(), loadOnInit = params.getOrNull<Boolean>() ?: true)
+    }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {
@@ -464,28 +528,55 @@ val androidModule = module {
             repository = get(),
             mediaType = args.first,
             tmdbId = args.second,
+            featureStore = get(),
         )
     }
-    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single {
+        org.prairieserver.prairie.android.auth.SignOutTeardown(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get())
+    }
+    single {
+        org.prairieserver.prairie.android.auth.ProfileSwitchTeardown(get(), get(), get(), get(), get(), get(), get())
+    }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { DiagnosticsViewModel(get()) }
-    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
-    viewModel { org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingViewModel(get(), get()) }
-    viewModel { ServerSetupViewModel(get(), get()) }
-    viewModel { LoginViewModel(get()) }
+    viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingViewModel(get(), get(), get()) }
+    viewModel {
+        val tokens = get<org.prairieserver.prairie.network.TokenManager>()
+        ServerSetupViewModel(get(), get(), hasSession = { !tokens.getAccessToken().isNullOrBlank() })
+    }
+    viewModel { LoginViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel {
+        org.prairieserver.prairie.android.ui.screens.settings.SignInSettingsViewModel(get(), get(), get(), get(), get())
+    }
     viewModel { SetupViewModel(get()) }
     viewModel { SignupViewModel(get()) }
     viewModel { InviteClaimViewModel(get(), get()) }
     viewModel { OnboardingTourViewModel(get(), get(), get(), get(), get()) }
-    viewModel { ProfileSelectionViewModel(get(), get()) }
+    viewModel { ProfileSelectionViewModel(get(), get(), profileVerificationRecovery = getOrNull()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }
     viewModel { ServerListViewModel(get(), get(), get(), get()) }
     viewModel { params ->
         val args = params.get<Pair<String?, String?>>()
+        val authRepository = get<org.prairieserver.prairie.repository.AuthRepository>()
         DevicePairingViewModel(
             repository = get(),
             initialToken = args.first,
             initialCode = args.second,
+            // "Sign in a TV" approves on a chosen saved server (active one
+            // preselected) through that server's own account scope.
+            servers = org.prairieserver.prairie.viewmodel.RegistryDeviceApprovalServers(
+                registry = get(),
+                tokenManager = get(),
+                identityTransitions = get(),
+                // Each server's account, read through that server's own scope
+                // (renewing its access token first when it is expiring).
+                accountNameOf = { scope -> accountNameOn(authRepository, scope) },
+            ),
+            initialServerId = params.getOrNull<String>(),
+            // A link named the server: approve there without switching.
+            lockServer = params.getOrNull<Boolean>() ?: false,
         )
     }
 
@@ -535,13 +626,30 @@ val androidModule = module {
             savedStateHandle = get(),
         )
     }
-    viewModel { org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherEntryViewModel(get()) }
-    viewModel { org.prairieserver.prairie.android.ui.screens.watchtogether.SuggestToRoomViewModel(get()) }
+    // Watch Party (phone). The shared ViewModels own the state; the handoff
+    // carries invitations and detail-page items to the hub in memory.
+    single { org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartyHandoff() }
+    viewModel {
+        val registry = get<org.prairieserver.prairie.network.ServerRegistry>()
+        org.prairieserver.prairie.viewmodel.WatchPartyHubViewModel(
+            repository = get(),
+            roomSession = get(),
+            availability = get(),
+            recents = get(),
+            isCurrentServer = { url ->
+                org.prairieserver.prairie.common.watchparty.watchPartyServerMatches(
+                    linkServerUrl = url,
+                    activeServerUrl = registry.activeEntry.value?.url,
+                )
+            },
+        )
+    }
     viewModel { params ->
-        org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherLobbyViewModel(
+        org.prairieserver.prairie.viewmodel.WatchPartyLobbyViewModel(
             roomId = params.get(),
             repository = get(),
             roomSession = get(),
+            availability = get(),
         )
     }
 
@@ -552,4 +660,36 @@ val androidModule = module {
         )
     }
     viewModel { LiveTvPlayerViewModel(get()) }
+        val catalog = get<org.prairieserver.prairie.repository.CatalogRepository>()
+        org.prairieserver.prairie.viewmodel.WatchPartyPickerViewModel(
+            availability = get(),
+            search = { query ->
+                when (val result = catalog.browse(query = query, limit = 30)) {
+                    is org.prairieserver.prairie.network.ApiResult.Success ->
+                        org.prairieserver.prairie.network.ApiResult.Success(result.data.items)
+                    is org.prairieserver.prairie.network.ApiResult.Error -> result
+                    is org.prairieserver.prairie.network.ApiResult.NetworkError -> result
+                }
+            },
+        org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartyDetailViewModel(
+            handoff = get(),
+}
+/**
+ * The account signed in on [scope]'s server, read with that server's own
+ * credentials (renewing its access token first when it is expiring). Null
+ * when it can't be read; throws when the provider couldn't re-check the
+ * session, so a card that can say so does.
+ */
+private suspend fun accountNameOn(
+    authRepository: org.prairieserver.prairie.repository.AuthRepository,
+    scope: org.prairieserver.prairie.network.AuthScopeSnapshot,
+): String? = when (val me = authRepository.getCurrentUser(scope)) {
+    is org.prairieserver.prairie.network.ApiResult.Success -> me.data.username
+    is org.prairieserver.prairie.network.ApiResult.NetworkError ->
+        if (org.prairieserver.prairie.network.PrairieAuthUnavailableException.isProviderUnavailable(me.exception)) {
+            throw me.exception
+        } else {
+            null
+        }
+    is org.prairieserver.prairie.network.ApiResult.Error -> null
 }

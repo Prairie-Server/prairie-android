@@ -37,11 +37,12 @@ import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 
 /**
- * Persistent "Playing on <TV>" bar shown above the tab content whenever a TV
+ * Persistent Remote Control bar shown above the tab content whenever a TV
  * control session is active and the full remote is dismissed. Mirrors
- * prairie-apple's `PrairieControlMiniBar`: poster thumb, title, target line, and a
- * trailing play/pause button (spinner while reconnecting). Tapping reopens
- * the remote; disconnect lives in the remote's menu, not here.
+ * prairie-apple's `PrairieControlMiniBar`: poster thumb, title, target line
+ * ("Playing on", "Starting on", or "Connected / to" while the TV is idle),
+ * and a trailing play/pause button (spinner while reconnecting or starting).
+ * Tapping reopens the remote; disconnect lives in the remote's menu, not here.
  *
  * Inset handling is the caller's: on tab screens the bar sits in the
  * Scaffold's bottomBar slot directly above the nav menu (which owns the
@@ -55,6 +56,8 @@ fun PrairieCastMiniBar(
 ) {
     val state by controller.state.collectAsState()
     val playback = state.playbackState
+    val launch = state.launch
+    val isIdle = playback?.contentId.isNullOrEmpty()
     val targetName = state.connectedTarget?.name ?: "Prairie TV"
     // Keep the bar up through a reconnect (with a spinner) instead of having
     // it vanish and pop back; hide it while an auto-resume probe is still
@@ -67,7 +70,7 @@ fun PrairieCastMiniBar(
         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
         modifier = modifier,
     ) {
-        val artwork = rememberPrairieCastArtwork(playback?.contentId)
+        val artwork = rememberPrairieCastArtwork(launch?.contentId ?: playback?.contentId)
         Surface(
             onClick = onOpenRemote,
             modifier = Modifier
@@ -87,13 +90,23 @@ fun PrairieCastMiniBar(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        if (state.isReconnecting) "Reconnecting…" else (playback?.title ?: "Connected"),
+                        when {
+                            state.isReconnecting -> "Reconnecting…"
+                            launch != null -> artwork.title ?: "Starting playback"
+                            isIdle -> "Connected"
+                            else -> playback?.title ?: "Connected"
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
-                        if (state.isReconnecting) "to $targetName" else "Playing on $targetName",
+                        when {
+                            state.isReconnecting -> "to $targetName"
+                            launch != null -> "Starting on $targetName…"
+                            isIdle -> "to $targetName"
+                            else -> "Playing on $targetName"
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -101,7 +114,7 @@ fun PrairieCastMiniBar(
                     )
                 }
 
-                if (state.isReconnecting) {
+                if (state.isReconnecting || launch != null) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(22.dp),
                         strokeWidth = 2.dp,

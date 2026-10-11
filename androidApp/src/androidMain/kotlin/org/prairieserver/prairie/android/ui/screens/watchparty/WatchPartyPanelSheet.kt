@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import android.widget.Toast
 import androidx.compose.runtime.Composable
@@ -14,15 +14,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
-import org.siloserver.silo.model.watchtogether.GuestControlPolicy
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.repository.WatchTogetherRepository
-import org.siloserver.silo.watchtogether.WatchPartyAvailability
-import org.siloserver.silo.watchtogether.WatchPartyAvailabilityRepository
-import org.siloserver.silo.watchtogether.WatchPartyEligibility
-import org.siloserver.silo.watchtogether.watchPartyErrorMessage
+import org.prairieserver.prairie.model.watchtogether.GuestControlPolicy
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailability
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailabilityRepository
+import org.prairieserver.prairie.watchtogether.WatchPartyEligibility
+import org.prairieserver.prairie.watchtogether.watchPartyErrorMessage
 
 /**
  * The party panel over a retained party player (Back opens it). It is the

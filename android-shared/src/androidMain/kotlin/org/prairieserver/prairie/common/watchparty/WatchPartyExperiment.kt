@@ -1,7 +1,7 @@
-package org.siloserver.silo.common.watchparty
+package org.prairieserver.prairie.common.watchparty
 
 import android.content.SharedPreferences
-import org.siloserver.silo.model.feature.WatchPartyExposure
+import org.prairieserver.prairie.model.feature.WatchPartyExposure
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,7 +37,7 @@ class WatchPartyExperiment(
 
     companion object {
         /** Preferences file for device-local experiments. */
-        const val PREFS_NAME = "silo_experimental"
+        const val PREFS_NAME = "prairie_experimental"
         private const val KEY = "watch_party"
     }
 }

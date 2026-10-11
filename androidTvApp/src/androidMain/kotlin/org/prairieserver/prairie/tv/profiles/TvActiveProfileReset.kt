@@ -1,18 +1,18 @@
-package org.siloserver.silo.tv.profiles
+package org.prairieserver.prairie.tv.profiles
 
-import org.siloserver.silo.common.settings.CardPresentationStore
-import org.siloserver.silo.common.settings.EpisodeSpoilerStore
-import org.siloserver.silo.common.settings.LibraryPlaybackPrefsStore
-import org.siloserver.silo.common.settings.OverlayPrefsStore
-import org.siloserver.silo.common.settings.SeekIntervalStore
-import org.siloserver.silo.common.settings.TitleArtStore
-import org.siloserver.silo.repository.ProfileRepository
-import org.siloserver.silo.tv.watchnext.WatchNextSeeder
+import org.prairieserver.prairie.common.settings.CardPresentationStore
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
+import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
+import org.prairieserver.prairie.common.settings.OverlayPrefsStore
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.common.settings.TitleArtStore
+import org.prairieserver.prairie.repository.ProfileRepository
+import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
 
 /**
  * Drops the active profile and everything cached for it, so the next profile
  * starts clean. Shared by Switch Profile and every Profile Selection path
- * (launch, return to Silo, server switch) so they all leave the same state.
+ * (launch, return to Prairie, server switch) so they all leave the same state.
  */
 class TvActiveProfileReset(
     private val profileRepository: ProfileRepository,

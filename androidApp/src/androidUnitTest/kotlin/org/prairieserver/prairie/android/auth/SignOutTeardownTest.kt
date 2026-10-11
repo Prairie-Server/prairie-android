@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -8,18 +8,18 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
-import org.siloserver.silo.model.feature.MetadataAiFeatureStore
-import org.siloserver.silo.model.feature.RequestsFeatureStore
-import org.siloserver.silo.model.profile.ActiveProfileStore
-import org.siloserver.silo.network.ServerRegistry
-import org.siloserver.silo.network.TokenManagerImpl
-import org.siloserver.silo.network.api.AuthApi
-import org.siloserver.silo.network.api.ProfileApi
-import org.siloserver.silo.network.apiv2.ApiV2Gate
-import org.siloserver.silo.repository.AuthRepository
-import org.siloserver.silo.repository.MetadataAiRepository
-import org.siloserver.silo.repository.ProfileRepository
-import org.siloserver.silo.repository.RequestsRepository
+import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
+import org.prairieserver.prairie.model.feature.RequestsFeatureStore
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
+import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.network.TokenManagerImpl
+import org.prairieserver.prairie.network.api.AuthApi
+import org.prairieserver.prairie.network.api.ProfileApi
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+import org.prairieserver.prairie.repository.AuthRepository
+import org.prairieserver.prairie.repository.MetadataAiRepository
+import org.prairieserver.prairie.repository.ProfileRepository
+import org.prairieserver.prairie.repository.RequestsRepository
 import java.lang.reflect.Proxy
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -29,7 +29,7 @@ import kotlin.test.assertTrue
 /**
  * An explicit sign-out asks the server's next provider sign-in to offer
  * another account (`prompt=select_account`): the provider's browser session
- * outlives the Silo one, and would otherwise sign the same person straight
+ * outlives the Prairie one, and would otherwise sign the same person straight
  * back in.
  */
 class SignOutTeardownTest {

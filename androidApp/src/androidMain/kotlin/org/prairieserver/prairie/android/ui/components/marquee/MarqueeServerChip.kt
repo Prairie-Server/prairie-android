@@ -1,7 +1,7 @@
-package org.siloserver.silo.android.ui.components.marquee
+package org.prairieserver.prairie.android.ui.components.marquee
 
-import org.siloserver.silo.android.ui.components.SiloDropdownMenuItem
-import org.siloserver.silo.android.ui.components.SiloDropdownMenu
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,8 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.siloserver.silo.common.ui.marquee.MarqueeColors
-import org.siloserver.silo.common.ui.marquee.MarqueeServerMark
+import org.prairieserver.prairie.common.ui.marquee.MarqueeColors
+import org.prairieserver.prairie.common.ui.marquee.MarqueeServerMark
 
 /**
  * Compact server capsule for the top bar. Tapping it opens a menu headed by
@@ -84,7 +84,7 @@ fun MarqueeServerChip(
             )
             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = MarqueeColors.InkTertiary, modifier = Modifier.size(16.dp))
         }
-        SiloDropdownMenu(
+        PrairieDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -94,7 +94,7 @@ fun MarqueeServerChip(
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            SiloDropdownMenuItem(
+            PrairieDropdownMenuItem(
                 text = { Text(actionLabel, color = MarqueeColors.Ink) },
                 leadingIcon = { Icon(Icons.Outlined.Dns, contentDescription = null, tint = MarqueeColors.Ink) },
                 onClick = {

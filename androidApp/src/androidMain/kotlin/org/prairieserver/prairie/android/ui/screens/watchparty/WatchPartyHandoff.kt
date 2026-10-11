@@ -1,8 +1,8 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import java.util.UUID
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.watchtogether.WatchPartyInvite
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.watchtogether.WatchPartyInvite
 
 /**
  * Process-memory handoffs into the Watch Party hub, keyed by opaque ids that
@@ -68,4 +68,4 @@ class WatchPartyHandoff {
 
 /** The hub route that joins [link] once handed over. It carries only an opaque id, never the token. */
 internal fun watchPartyInviteRoute(link: WatchPartyInvite.Link): String =
-    org.siloserver.silo.android.ui.navigation.Route.WatchPartyHub(invite = watchPartyInviteHandoffId(link)).route
+    org.prairieserver.prairie.android.ui.navigation.Route.WatchPartyHub(invite = watchPartyInviteHandoffId(link)).route

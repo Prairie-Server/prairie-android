@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -63,20 +63,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import org.siloserver.silo.android.cast.SiloCastSessionManager
-import org.siloserver.silo.android.ui.components.SiloConfirmDialog
-import org.siloserver.silo.android.ui.theme.SiloOnSurface
-import org.siloserver.silo.android.ui.theme.SiloSecondaryText
-import org.siloserver.silo.model.feature.WatchPartyExposure
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.repository.WatchPartyPendingAction
-import org.siloserver.silo.repository.WatchTogetherRepository
-import org.siloserver.silo.viewmodel.WatchPartyHubViewModel
-import org.siloserver.silo.watchtogether.RoomSession
-import org.siloserver.silo.watchtogether.WatchPartyAvailability
-import org.siloserver.silo.watchtogether.WatchPartyDestination
+import org.prairieserver.prairie.android.cast.PrairieCastSessionManager
+import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
+import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.model.feature.WatchPartyExposure
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.repository.WatchPartyPendingAction
+import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.viewmodel.WatchPartyHubViewModel
+import org.prairieserver.prairie.watchtogether.RoomSession
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailability
+import org.prairieserver.prairie.watchtogether.WatchPartyDestination
 
 /**
  * The Watch Party hub, opened from the profile menu, a detail page's Watch
@@ -102,7 +102,7 @@ fun WatchPartyHubScreen(
     val roomSession: RoomSession = koinInject()
     val exposure: WatchPartyExposure = koinInject()
     val enabled by exposure.enabled.collectAsState()
-    val castManager: SiloCastSessionManager = koinInject()
+    val castManager: PrairieCastSessionManager = koinInject()
     val castState by castManager.castState.collectAsState()
     val casting = castState.isConnected
     val context = LocalContext.current
@@ -157,7 +157,7 @@ fun WatchPartyHubScreen(
     // A party uses this device's player. Wait for the receiver to disconnect
     // before joining, creating, or consuming a detail/invitation handoff.
     if (enabled && casting) {
-        SiloConfirmDialog(
+        PrairieConfirmDialog(
             title = "Stop casting to use Watch Party?",
             body = "Casting will stop. Watch Party plays on this device.",
             confirmLabel = "Stop casting",
@@ -204,7 +204,7 @@ fun WatchPartyHubScreen(
                                 action = {
                                     if (endedRejoin) {
                                         TextButton(onClick = viewModel::rejoinRecent, enabled = !busy) {
-                                            Text("Rejoin", color = SiloOnSurface)
+                                            Text("Rejoin", color = PrairieOnSurface)
                                         }
                                     }
                                     DismissButton { dismissedEnded = endedKey }
@@ -235,7 +235,7 @@ fun WatchPartyHubScreen(
                                 action = {
                                     if (state.createRetryable) {
                                         TextButton(onClick = viewModel::retryCreate, enabled = !busy) {
-                                            Text("Retry", color = SiloOnSurface)
+                                            Text("Retry", color = PrairieOnSurface)
                                         }
                                     }
                                     DismissButton(viewModel::clearError)
@@ -245,7 +245,7 @@ fun WatchPartyHubScreen(
                         if (busy) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(
-                                    color = SiloSecondaryText,
+                                    color = PrairieSecondaryText,
                                     modifier = Modifier.size(18.dp),
                                     strokeWidth = 2.dp,
                                 )
@@ -258,7 +258,7 @@ fun WatchPartyHubScreen(
                                         else -> "Working…"
                                     },
                                     fontSize = WatchPartyMetrics.BODY.sp,
-                                    color = SiloSecondaryText,
+                                    color = PrairieSecondaryText,
                                 )
                             }
                         }
@@ -277,7 +277,7 @@ fun WatchPartyHubScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
                                 letterSpacing = (WatchPartyMetrics.CODE * 0.18f).sp,
-                                color = SiloOnSurface,
+                                color = PrairieOnSurface,
                             )
                         }
                         WatchPartyButton(
@@ -299,7 +299,7 @@ fun WatchPartyHubScreen(
                         Text(
                             "Leave this party to host or join another one.",
                             fontSize = WatchPartyMetrics.CAPTION.sp,
-                            color = SiloSecondaryText,
+                            color = PrairieSecondaryText,
                         )
                     }
                     return@Column
@@ -403,7 +403,7 @@ private fun HubHeadline(modifier: Modifier = Modifier) {
         Text(
             "Pick a title, share the code, and everyone's playback stays in step.",
             fontSize = WatchPartyMetrics.BODY.sp,
-            color = SiloSecondaryText,
+            color = PrairieSecondaryText,
         )
     }
 }
@@ -411,7 +411,7 @@ private fun HubHeadline(modifier: Modifier = Modifier) {
 @Composable
 private fun DismissButton(onClick: () -> Unit) {
     IconButton(onClick = onClick) {
-        Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = SiloSecondaryText)
+        Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = PrairieSecondaryText)
     }
 }
 
@@ -429,7 +429,7 @@ private fun WatchPartyCodeField(
         fontSize = 17.sp,
         fontWeight = FontWeight.Medium,
         fontFamily = FontFamily.Monospace,
-        color = SiloOnSurface,
+        color = PrairieOnSurface,
     )
     BasicTextField(
         value = value,
@@ -437,7 +437,7 @@ private fun WatchPartyCodeField(
         enabled = enabled,
         singleLine = true,
         textStyle = style,
-        cursorBrush = SolidColor(SiloOnSurface),
+        cursorBrush = SolidColor(PrairieOnSurface),
         keyboardOptions = KeyboardOptions(
             capitalization = KeyboardCapitalization.Characters,
             autoCorrectEnabled = false,
@@ -454,7 +454,7 @@ private fun WatchPartyCodeField(
         decorationBox = { inner ->
             Box(Modifier.fillMaxSize().padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
                 if (value.isEmpty()) {
-                    Text("Party code or invite link", style = style.copy(color = SiloSecondaryText.copy(alpha = 0.5f)), maxLines = 1)
+                    Text("Party code or invite link", style = style.copy(color = PrairieSecondaryText.copy(alpha = 0.5f)), maxLines = 1)
                 }
                 inner()
             }

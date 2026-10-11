@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,11 +25,11 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
-import org.siloserver.silo.repository.WatchTogetherConnectionState
-import org.siloserver.silo.tv.ui.components.TvDialogAction
-import org.siloserver.silo.tv.ui.components.TvDialogActionStyle
-import org.siloserver.silo.tv.ui.components.TvDialogCard
-import org.siloserver.silo.tv.ui.components.TvDialogDefaults
+import org.prairieserver.prairie.repository.WatchTogetherConnectionState
+import org.prairieserver.prairie.tv.ui.components.TvDialogAction
+import org.prairieserver.prairie.tv.ui.components.TvDialogActionStyle
+import org.prairieserver.prairie.tv.ui.components.TvDialogCard
+import org.prairieserver.prairie.tv.ui.components.TvDialogDefaults
 
 /** A non-focusable one- or two-line notice (reconnecting, host away, host stopped). */
 @Composable

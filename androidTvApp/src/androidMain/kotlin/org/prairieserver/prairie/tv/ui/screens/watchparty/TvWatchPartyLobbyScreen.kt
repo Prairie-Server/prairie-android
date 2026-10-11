@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -32,26 +32,26 @@ import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import org.siloserver.silo.common.ui.components.rememberProfileServerUrl
-import org.siloserver.silo.model.watchtogether.ItemMemberState
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.model.watchtogether.Suggestion
-import org.siloserver.silo.repository.WatchTogetherRepository
-import org.siloserver.silo.tv.ui.focus.TvControlState
-import org.siloserver.silo.tv.ui.focus.TvRestoreFocusOnModalDismiss
-import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
-import org.siloserver.silo.tv.ui.theme.SiloOnSurface
-import org.siloserver.silo.tv.ui.theme.SiloSecondaryText
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.viewmodel.WatchPartyLobbyViewModel
-import org.siloserver.silo.watchtogether.WatchPartyDestination
-import org.siloserver.silo.watchtogether.WatchPartyFeatures
-import org.siloserver.silo.watchtogether.canRemoveSuggestion
-import org.siloserver.silo.watchtogether.roomVoteWinner
-import org.siloserver.silo.watchtogether.watchPartyInviteUrl
-import org.siloserver.silo.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.common.ui.components.rememberProfileServerUrl
+import org.prairieserver.prairie.model.watchtogether.ItemMemberState
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.model.watchtogether.Suggestion
+import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.tv.ui.focus.TvControlState
+import org.prairieserver.prairie.tv.ui.focus.TvRestoreFocusOnModalDismiss
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.viewmodel.WatchPartyLobbyViewModel
+import org.prairieserver.prairie.watchtogether.WatchPartyDestination
+import org.prairieserver.prairie.watchtogether.WatchPartyFeatures
+import org.prairieserver.prairie.watchtogether.canRemoveSuggestion
+import org.prairieserver.prairie.watchtogether.roomVoteWinner
+import org.prairieserver.prairie.watchtogether.watchPartyInviteUrl
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 
 /**
  * The Watch Party lobby, laid out as the tvOS lobby ([TvWatchPartyRoomView]):
@@ -485,7 +485,7 @@ private fun ConnectingRoom(focus: TvPartyFocus, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             TvPartyEyebrow("Watch Party")
-            Text(text = "Connecting to the party…", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = SiloOnSurface)
+            Text(text = "Connecting to the party…", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = PrairieOnSurface)
             TvPartyButton(
                 label = "Back",
                 kind = TvPartyButtonKind.Secondary,
@@ -505,7 +505,7 @@ private fun SuggestionRetryRow(title: String, onRetry: () -> Unit, onDismiss: ()
         Text(
             text = "Couldn't confirm your suggestion of $title.",
             fontSize = TvPartyMetrics.caption,
-            color = SiloSecondaryText,
+            color = PrairieSecondaryText,
             modifier = Modifier.weight(1f, fill = false),
         )
         TvPartyButton(label = "Try again", kind = TvPartyButtonKind.Secondary, onClick = onRetry, height = 32.dp, fontSize = 14.sp)

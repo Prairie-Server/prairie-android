@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.components.marquee
+package org.prairieserver.prairie.android.ui.components.marquee
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -31,9 +31,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import org.siloserver.silo.android.R
-import org.siloserver.silo.common.ui.marquee.MarqueeScrim
-import org.siloserver.silo.common.ui.marquee.MarqueeScrimStyle
+import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.common.ui.marquee.MarqueeScrim
+import org.prairieserver.prairie.common.ui.marquee.MarqueeScrimStyle
 
 /**
  * A first-run screen on the phone: transparent over the shared backdrop, a
@@ -100,12 +100,12 @@ fun MarqueeStage(
     }
 }
 
-/** The Silo wordmark for a first-run top bar. */
+/** The Prairie wordmark for a first-run top bar. */
 @Composable
 fun MarqueeWordmark(width: Dp = 92.dp) {
     Image(
-        painter = painterResource(R.drawable.silo_wordmark),
-        contentDescription = "Silo",
+        painter = painterResource(R.drawable.prairie_wordmark),
+        contentDescription = "Prairie",
         contentScale = ContentScale.Fit,
         modifier = Modifier.width(width),
     )

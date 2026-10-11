@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import java.net.IDN
 import java.net.URI
@@ -9,16 +9,16 @@ import java.security.SecureRandom
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.Serializable
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.network.SiloAuthUnavailableException
-import org.siloserver.silo.network.canonicalHttpOrigin
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.PrairieAuthUnavailableException
+import org.prairieserver.prairie.network.canonicalHttpOrigin
 
 /**
- * The native OAuth handoff (silo-server `docs/architecture/external-sign-in.md`,
+ * The native OAuth handoff (prairie-server `docs/architecture/external-sign-in.md`,
  * "Native apps"): the app opens the provider's native start in the system
  * browser with a PKCE S256 challenge and a random `app_state`; the server
  * returns the browser to the fixed app redirect
- * `org.siloserver.silo:/auth/callback?code=&state=&server=&iss=` (or
+ * `org.prairieserver.prairie:/auth/callback?code=&state=&server=&iss=` (or
  * `error=`), and the app redeems the code with its verifier. Codes, verifiers
  * and tokens are never logged.
  *
@@ -33,7 +33,7 @@ import org.siloserver.silo.network.canonicalHttpOrigin
  * names its own origin.
  */
 object NativeSignInProtocol {
-    const val CALLBACK_SCHEME = "org.siloserver.silo"
+    const val CALLBACK_SCHEME = "org.prairieserver.prairie"
     const val CALLBACK_PATH = "/auth/callback"
 
     /** `prompt` value asking the provider to let the person pick another account. */
@@ -172,7 +172,7 @@ data class NativeSignInCallback(
 
     companion object {
         /**
-         * Null unless [uri] is exactly `org.siloserver.silo:/auth/callback`
+         * Null unless [uri] is exactly `org.prairieserver.prairie:/auth/callback`
          * with a query: another path, a host, or user info is not ours.
          */
         fun parse(uri: String?): NativeSignInCallback? {
@@ -215,7 +215,7 @@ enum class NativeSignInPurpose { SignIn, Link }
 @Serializable
 data class PendingNativeSignIn(
     val purpose: NativeSignInPurpose,
-    /** The saved server ([org.siloserver.silo.model.server.ServerEntry.id]) the flow belongs to. */
+    /** The saved server ([org.prairieserver.prairie.model.server.ServerEntry.id]) the flow belongs to. */
     val serverEntryId: String,
     /** That server's verified `server_id`; the redirect's `server` must equal it. */
     val verifiedServerId: String,
@@ -231,7 +231,7 @@ data class PendingNativeSignIn(
     val startedAtEpochMs: Long,
     /**
      * The saved server's login when the flow began
-     * ([org.siloserver.silo.network.TokenManager.loginSessionId]); null when
+     * ([org.prairieserver.prairie.network.TokenManager.loginSessionId]); null when
      * signed out there. It must be unchanged when the redirect arrives, so a
      * sign-in or sign-out since then supersedes the flow, and it survives the
      * process being killed while the browser is open. Linking requires one.
@@ -250,7 +250,7 @@ interface PendingNativeSignInStore {
 
 /**
  * Saved servers whose next provider sign-in asks the provider to offer
- * another account (`prompt=select_account`): set by an explicit Silo
+ * another account (`prompt=select_account`): set by an explicit Prairie
  * sign-out, cleared by the next sign-in there. Kept on disk, so a sign-out
  * today still asks tomorrow after the app was closed.
  */
@@ -279,7 +279,7 @@ object NativeSignInMessages {
     const val NETWORK = "network"
     const val NO_BROWSER = "no_browser"
     const val RATE_LIMITED = "rate_limited"
-    const val UPDATE_REQUIRED = org.siloserver.silo.network.apiv2.ApiV2Gate.UPDATE_REQUIRED_ERROR
+    const val UPDATE_REQUIRED = org.prairieserver.prairie.network.apiv2.ApiV2Gate.UPDATE_REQUIRED_ERROR
 
     /** Problem codes whose text is the same whichever operation refused. */
     private val SHARED_PROBLEMS = setOf(
@@ -320,7 +320,7 @@ object NativeSignInMessages {
         }
     }
 
-    /** The same words as silo-apple for a redirect from another server or origin. */
+    /** The same words as prairie-apple for a redirect from another server or origin. */
     const val DIFFERENT_SERVER = "This sign-in came back from a different server. Nothing was signed in."
 
     /**
@@ -350,7 +350,7 @@ object NativeSignInMessages {
      * bearer (linking, a link ticket), or the network.
      */
     fun networkReason(error: ApiResult.NetworkError): String =
-        if (SiloAuthUnavailableException.isProviderUnavailable(error.exception)) "provider_unavailable" else NETWORK
+        if (PrairieAuthUnavailableException.isProviderUnavailable(error.exception)) "provider_unavailable" else NETWORK
 
     /** [networkReason]'s text. */
     fun forNetworkError(error: ApiResult.NetworkError, providerName: String? = null): String =

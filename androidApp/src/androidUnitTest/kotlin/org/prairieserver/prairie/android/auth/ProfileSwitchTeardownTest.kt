@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -12,15 +12,15 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.siloserver.silo.common.settings.EpisodeSpoilerStore
-import org.siloserver.silo.common.settings.PlayerSettingsStore
-import org.siloserver.silo.common.settings.SeekIntervalStore
-import org.siloserver.silo.common.settings.TitleArtStore
-import org.siloserver.silo.model.profile.ActiveProfileStore
-import org.siloserver.silo.network.TokenManagerImpl
-import org.siloserver.silo.network.api.ProfileApi
-import org.siloserver.silo.network.apiv2.ApiV2Gate
-import org.siloserver.silo.repository.ProfileRepository
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
+import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.common.settings.TitleArtStore
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
+import org.prairieserver.prairie.network.TokenManagerImpl
+import org.prairieserver.prairie.network.api.ProfileApi
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+import org.prairieserver.prairie.repository.ProfileRepository
 import java.lang.reflect.Proxy
 import kotlin.test.AfterTest
 import kotlin.test.Test

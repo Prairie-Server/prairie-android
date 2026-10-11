@@ -12,6 +12,7 @@ import org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorF
 import org.prairieserver.prairie.common.downloads.DownloadSubscriptionWorker
 import org.prairieserver.prairie.common.downloads.DownloadStatusWorker
 import org.prairieserver.prairie.common.downloads.DownloadWorker
+import org.prairieserver.prairie.common.downloads.OfflineSubtitleRefreshWorker
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsCoordinator
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsUploadWorker
 import org.prairieserver.prairie.common.diagnostics.HostedDiagnosticsDeletionWorker
@@ -74,6 +75,19 @@ class AppWorkerFactory : WorkerFactory() {
                     repository = koin.get<DownloadsRepository>(),
                     authorities = koin.get(),
                     devices = koin.get(),
+                )
+            }
+            OfflineSubtitleRefreshWorker::class.java.name -> {
+                Log.i(TAG, "Building OfflineSubtitleRefreshWorker via Koin")
+                OfflineSubtitleRefreshWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    metadataStore = koin.get<org.prairieserver.prairie.common.downloads.DownloadMetadataStore>(),
+                    storage = koin.get<DownloadStorage>(),
+                    httpClient = koin.get<HttpClient>(),
+                    authorities = koin.get(),
+                    transitions = koin.get(),
+                    gate = koin.get(),
                 )
             }
             DownloadSubscriptionWorker::class.java.name -> {

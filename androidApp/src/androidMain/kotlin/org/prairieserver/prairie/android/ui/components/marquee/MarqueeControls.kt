@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.components.marquee
+package org.prairieserver.prairie.android.ui.components.marquee
 
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
@@ -53,8 +53,8 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.svg.SvgDecoder
-import org.siloserver.silo.common.ui.marquee.MarqueeColors
-import org.siloserver.silo.model.auth.SignInProvider
+import org.prairieserver.prairie.common.ui.marquee.MarqueeColors
+import org.prairieserver.prairie.model.auth.SignInProvider
 
 /** First-run sizes on the phone, matching the Apple apps' points. */
 object MarqueeMetrics {

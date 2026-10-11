@@ -21,8 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.android.ui.screens.requests.RequestMediaCard
+import org.prairieserver.prairie.common.requests.rememberRequestRouter
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.request.RequestMediaResult
 import org.prairieserver.prairie.model.request.RequestMediaType
@@ -33,12 +35,13 @@ fun RequestSearchSection(
     query: String,
     selectedMediaType: MobileSearchMediaType,
     requestsEnabled: Boolean,
-    onRequestMediaClick: (RequestMediaResult) -> Unit,
+    onRequestMediaClick: (mediaType: String, tmdbId: Int) -> Unit,
     onRequestLibraryItemClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: RequestSearchViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val router = rememberRequestRouter(koinInject(), onRequestLibraryItemClick, onRequestMediaClick)
     val trimmedQuery = query.trim()
     val requestMediaType = selectedMediaType.toRequestMediaType()
     val visibleResults = state.results.filter { result ->
@@ -92,14 +95,7 @@ fun RequestSearchSection(
                     ) { item ->
                         RequestMediaCard(
                             item = item,
-                            onClick = {
-                                val libraryId = item.libraryContentId?.takeIf { it.isNotBlank() }
-                                if (libraryId != null) {
-                                    onRequestLibraryItemClick(libraryId)
-                                } else {
-                                    onRequestMediaClick(item)
-                                }
-                            },
+                            onClick = { router.openResult(item) },
                         )
                     }
                 }

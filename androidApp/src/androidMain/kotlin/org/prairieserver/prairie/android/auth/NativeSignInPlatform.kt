@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -11,13 +11,13 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import kotlinx.serialization.json.Json
 import org.koin.android.ext.android.inject
-import org.siloserver.silo.android.MainActivity
-import org.siloserver.silo.model.auth.User
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.network.AuthScopeSnapshot
-import org.siloserver.silo.network.TokenManager
-import org.siloserver.silo.network.api.ExternalSignInApi
-import org.siloserver.silo.repository.AuthRepository
+import org.prairieserver.prairie.android.MainActivity
+import org.prairieserver.prairie.model.auth.User
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.api.ExternalSignInApi
+import org.prairieserver.prairie.repository.AuthRepository
 
 /**
  * Signs in through [AuthRepository] and links through [ExternalSignInApi], at
@@ -133,7 +133,7 @@ fun Context.openNativeSignIn(url: String): Boolean = try {
 }
 
 /**
- * Receives `org.siloserver.silo:/auth/callback`. Hands the redirect to the
+ * Receives `org.prairieserver.prairie:/auth/callback`. Hands the redirect to the
  * coordinator, which acts on it only when it answers the flow this app
  * started, then brings the app's task back to [MainActivity], closing the
  * Custom Tab above it. Shows nothing itself.

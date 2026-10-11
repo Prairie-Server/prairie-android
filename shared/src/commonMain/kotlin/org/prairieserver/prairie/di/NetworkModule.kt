@@ -14,7 +14,16 @@ import org.koin.dsl.module
 val networkModule = module {
     single<IdentityTransitionBarrier> { DefaultIdentityTransitionBarrier() }
     single<TokenManager> { TokenManagerImpl(get()) }
-    single { createPrairieClient(get(), getOrNull(), getOrNull(), getOrNull()) }
+    single { org.prairieserver.prairie.network.AccessChangeSignals() }
+    single {
+        createPrairieClient(
+            tokenManager = get(),
+            deviceMetadataProvider = getOrNull(),
+            diagnosticsObserver = getOrNull(),
+            cleartextOriginConsent = getOrNull(),
+            accessChangeSignals = get(),
+        )
+    }
     single { ApiV2Gate(getOrNull()) }
     single { MembershipV2Api(get(), get(), get()) }
     single { ApiV2Probe(get()) }
@@ -23,6 +32,10 @@ val networkModule = module {
     single { AuthApi(get(), get()) }
     single { OnboardingApi(get(), get(), get()) }
     single<DeviceLoginApi> { DefaultDeviceLoginApi(get(), get()) }
+    single<ServerIdentityApi> { DefaultServerIdentityApi(get()) }
+    single<org.prairieserver.prairie.network.api.ExternalSignInApi> {
+        org.prairieserver.prairie.network.api.DefaultExternalSignInApi(get(), get())
+    }
     single { CatalogV2Api(get(), get(), get()) }
     single { PersonRefreshV2Api(get(), get(), get()) }
     single { WatchDetailV2Api(get(), get(), get()) }
@@ -43,12 +56,13 @@ val networkModule = module {
     single { SimilarCardsV2Api(get(), get(), get()) }
     single { TasteProfileV2Api(get(), get(), get()) }
     single { DiscoverV2Api(get(), get(), get()) }
+    single { ShufflesV2Api(get(), get(), get()) }
     single { RecommendationApi(get(), get(), get(), get()) }
     single<RequestsApi> { DefaultRequestsApi(get(), get(), get()) }
     // Prairie-only: Live TV (Jellyfin-compat endpoints on prairie-server).
     single<LiveTvApi> { DefaultLiveTvApi(get()) }
     single<MetadataAiApi> { DefaultMetadataAiApi(get(), get(), get()) }
-    single { EventsSocketV2Api(get(), get(), get()) }
+    single { EventsSocketV2Api(get(), get(), get(), getOrNull()) }
     single<HomeRealtimeClient> { DefaultHomeRealtimeClient(get()) }
     single<CalendarApi> { DefaultCalendarApi(get(), get(), get()) }
     single { HealthApi(get()) }
@@ -67,9 +81,25 @@ val networkModule = module {
     single { SubtitleDownloadV2Api(get(), get(), get()) }
     single { SubtitleReadsV2Api(get(), get(), get()) }
     single { SubtitleAiCreateV2Api(get(), get(), get()) }
+    single { SubtitleSyncV2Api(get(), get(), get()) }
     single<SubtitlesApi> { DefaultSubtitlesApi(get(), get(), get(), get()) }
     single<NotificationsApi> { NotificationsV2Api(get(), get(), get()) }
     single<PushRegistrationApi> { DefaultPushRegistrationApi(get(), get(), get()) }
-    single<WatchTogetherApi> { DefaultWatchTogetherApi(get(), get()) }
+    single<WatchTogetherApi> {
+        DefaultWatchTogetherApi(
+            client = get(),
+            gate = get(),
+            tokens = get(),
+            // Start, select, and promote must never be resent by the engine.
+            nonReplayingClient = createPrairieClient(
+                tokenManager = get(),
+                deviceMetadataProvider = getOrNull(),
+                diagnosticsObserver = getOrNull(),
+                cleartextOriginConsent = getOrNull(),
+                retryOnConnectionFailure = false,
+                accessChangeSignals = get(),
+            ),
+        )
+    }
     single<DiagnosticsApi> { DefaultDiagnosticsApi(get(), gate = get()) }
 }

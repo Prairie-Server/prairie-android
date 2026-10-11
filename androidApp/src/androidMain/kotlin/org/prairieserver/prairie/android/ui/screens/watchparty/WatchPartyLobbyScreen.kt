@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -27,19 +27,19 @@ import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import org.siloserver.silo.android.ui.theme.SiloOnSurface
-import org.siloserver.silo.android.ui.theme.SiloSecondaryText
-import org.siloserver.silo.model.watchtogether.GuestControlPolicy
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.model.watchtogether.Suggestion
-import org.siloserver.silo.network.ServerRegistry
-import org.siloserver.silo.repository.WatchTogetherRepository
-import org.siloserver.silo.viewmodel.WatchPartyConnectionStatus
-import org.siloserver.silo.viewmodel.WatchPartyLobbyViewModel
-import org.siloserver.silo.watchtogether.WatchPartyDestination
-import org.siloserver.silo.watchtogether.watchPartyInviteUrl
+import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.model.watchtogether.GuestControlPolicy
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.model.watchtogether.Suggestion
+import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.viewmodel.WatchPartyConnectionStatus
+import org.prairieserver.prairie.viewmodel.WatchPartyLobbyViewModel
+import org.prairieserver.prairie.watchtogether.WatchPartyDestination
+import org.prairieserver.prairie.watchtogether.watchPartyInviteUrl
 
 /**
  * The Watch Party lobby, after Apple's phone lobby: the staged film's artwork
@@ -135,8 +135,8 @@ fun WatchPartyLobbyScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.align(Alignment.Center),
             ) {
-                CircularProgressIndicator(color = SiloSecondaryText)
-                Text("Connecting to the party…", color = SiloSecondaryText)
+                CircularProgressIndicator(color = PrairieSecondaryText)
+                Text("Connecting to the party…", color = PrairieSecondaryText)
             }
         }
         return
@@ -209,9 +209,9 @@ fun WatchPartyLobbyScreen(
                     text = "Couldn't confirm your suggestion of ${draft.title}.",
                     tone = WatchPartyBannerTone.Warning,
                     action = {
-                        TextButton(onClick = viewModel::retrySuggestion) { Text("Try again", color = SiloOnSurface) }
+                        TextButton(onClick = viewModel::retrySuggestion) { Text("Try again", color = PrairieOnSurface) }
                         IconButton(onClick = viewModel::dismissSuggestionRetry) {
-                            Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = SiloSecondaryText)
+                            Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = PrairieSecondaryText)
                         }
                     },
                 )

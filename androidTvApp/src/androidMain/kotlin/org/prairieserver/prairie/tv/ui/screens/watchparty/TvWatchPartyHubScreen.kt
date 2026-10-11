@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -35,17 +35,17 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.repository.WatchPartyPendingAction
-import org.siloserver.silo.tv.ui.focus.TvControlState
-import org.siloserver.silo.tv.ui.focus.TvRestoreFocusOnModalDismiss
-import org.siloserver.silo.tv.ui.focus.rememberTvContentInitialFocus
-import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
-import org.siloserver.silo.tv.ui.theme.SiloOnSurface
-import org.siloserver.silo.tv.ui.theme.SiloSecondaryText
-import org.siloserver.silo.viewmodel.WatchPartyHubViewModel
-import org.siloserver.silo.watchtogether.WatchPartyAvailability
-import org.siloserver.silo.watchtogether.WatchPartyDestination
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.repository.WatchPartyPendingAction
+import org.prairieserver.prairie.tv.ui.focus.TvControlState
+import org.prairieserver.prairie.tv.ui.focus.TvRestoreFocusOnModalDismiss
+import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.viewmodel.WatchPartyHubViewModel
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailability
+import org.prairieserver.prairie.watchtogether.WatchPartyDestination
 
 private enum class HubFocus { Return, Rejoin, Host, Join, Retry }
 
@@ -166,13 +166,13 @@ fun TvWatchPartyHubScreen(
                         lineHeight = 54.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = (-0.8).sp,
-                        color = SiloOnSurface,
+                        color = PrairieOnSurface,
                     )
                     Text(
                         text = "Pick a title, share the code, and everyone's playback stays in step.",
                         fontSize = TvPartyMetrics.body,
                         lineHeight = 21.sp,
-                        color = SiloSecondaryText,
+                        color = PrairieSecondaryText,
                     )
                 }
                 val ended = state.ended
@@ -210,7 +210,7 @@ fun TvWatchPartyHubScreen(
                         Text(
                             text = "Party code ${tvWatchPartyDisplayCode(current.code)}",
                             fontSize = TvPartyMetrics.caption,
-                            color = SiloSecondaryText,
+                            color = PrairieSecondaryText,
                         )
                     } else {
                         TvPartyEyebrow("Host")
@@ -218,7 +218,7 @@ fun TvWatchPartyHubScreen(
                             Text(
                                 text = "This server can't host a Watch Party. You can still join one.",
                                 fontSize = TvPartyMetrics.caption,
-                                color = SiloSecondaryText,
+                                color = PrairieSecondaryText,
                             )
                         } else {
                             TvPartyButton(
@@ -259,7 +259,7 @@ fun TvWatchPartyHubScreen(
                             Text(
                                 text = "Finish creating the party you started.",
                                 fontSize = TvPartyMetrics.caption,
-                                color = SiloSecondaryText,
+                                color = PrairieSecondaryText,
                             )
                         }
                     }

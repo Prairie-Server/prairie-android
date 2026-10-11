@@ -73,8 +73,10 @@ import org.prairieserver.prairie.model.catalog.Person
 import org.prairieserver.prairie.model.catalog.personMetadataBadges
 import org.prairieserver.prairie.tv.ui.components.TvCatalogEmptyState
 import org.prairieserver.prairie.tv.ui.components.TvCatalogGrid
+import org.prairieserver.prairie.tv.ui.components.TvDialogDefaults
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
+import org.prairieserver.prairie.tv.ui.components.tvDialogSurface
 import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.tvPresetGridColumns
@@ -468,16 +470,14 @@ private fun TvPersonBioDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.62f)),
+                .background(TvDialogDefaults.Scrim),
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.56f)
                     .fillMaxHeight(0.76f)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f))
-                    .border(0.6.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
+                    .tvDialogSurface()
                     .onPreviewKeyEvent { ev ->
                         when {
                             ev.type == KeyEventType.KeyUp &&

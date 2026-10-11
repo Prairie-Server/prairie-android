@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
@@ -11,8 +11,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.siloserver.silo.model.auth.User
-import org.siloserver.silo.network.ApiResult
+import org.prairieserver.prairie.model.auth.User
+import org.prairieserver.prairie.network.ApiResult
 
 /** How one native flow ended, for the screen that started it. */
 sealed interface NativeSignInResult {
@@ -56,8 +56,8 @@ sealed interface NativeSignInStart {
  * Redeems what the flow's code is worth, at the saved server's base URL and
  * only while it is still at [PendingNativeSignIn.startOrigin]. The
  * production implementation ([RepositoryNativeSignInCompleter]) signs in
- * through [org.siloserver.silo.repository.AuthRepository] and links through
- * [org.siloserver.silo.network.api.ExternalSignInApi].
+ * through [org.prairieserver.prairie.repository.AuthRepository] and links through
+ * [org.prairieserver.prairie.network.api.ExternalSignInApi].
  */
 interface NativeSignInCompleter {
     suspend fun signIn(pending: PendingNativeSignIn, code: String): ApiResult<User>
@@ -92,7 +92,7 @@ interface NativeSignInCompleter {
  * access providers, loopback, private, link-local and 100.64.0.0/10 IP
  * literals, and single-label, .local, .lan, .localdomain, .home.arpa and
  * .internal names. A hostile saved server on such an address can still relay.
- * See silo-server `docs/architecture/external-sign-in.md` ("Native apps").
+ * See prairie-server `docs/architecture/external-sign-in.md` ("Native apps").
  * A listing that names another origin changes nothing: only its path is
  * used, on the saved base.
  */
@@ -127,7 +127,7 @@ class NativeSignInCoordinator(
      *
      * [autoStart] ("Not you? Switch account" where the provider takes
      * `select_account`) also has that server's login screen start the sign-in
-     * as soon as it has its providers (silo-apple `SelectAccountPrompt`). It
+     * as soon as it has its providers (prairie-apple `SelectAccountPrompt`). It
      * lives in memory only, so a relaunch never opens a browser by itself.
      */
     fun requestAccountChoice(serverEntryId: String, autoStart: Boolean = false) {

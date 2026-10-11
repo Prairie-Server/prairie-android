@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,8 +65,13 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.cards.LocalCardPresentation
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
+import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
+import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import org.prairieserver.prairie.tv.ui.components.TvMediaCardActions
 import org.prairieserver.prairie.tv.ui.components.TvMediaCardContextMenu
 import org.prairieserver.prairie.tv.ui.components.tvEpisodeCardWidth
@@ -358,6 +362,10 @@ private fun TvDetailEpisodeCard(
     // Continue Watching rail. Legacy season/episode routes keep their existing
     // geometry so this targeted parity change cannot disturb those layouts.
     val cardWidth = if (usesSeriesGeometry) tvEpisodeCardWidth() else 230.dp.cardScaled()
+    val spoilers = LocalEpisodeSpoilerPrefs.current
+    val unwatched = EpisodeSpoilers.isUnwatched(episode.userData)
+    val visibleOverview = episode.overview
+        ?.takeIf { it.isNotBlank() && !spoilers.hidesOverview(unwatched) }
     val stillHeight = if (usesSeriesGeometry) cardWidth * (9f / 16f) else 130.dp.cardScaled()
     val eyebrowFontSize = if (usesSeriesGeometry) 11.sp else 14.sp
     val eyebrowLineHeight = if (usesSeriesGeometry) 14.sp else 17.sp
@@ -429,24 +437,15 @@ private fun TvDetailEpisodeCard(
                     },
                 ),
         ) {
-            if (!episode.stillUrl.isNullOrBlank()) {
-                ThumbhashImage(
-                    url = episode.stillUrl,
-                    thumbhash = episode.stillThumbhash,
-                    contentDescription = episode.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Filled.Movie,
-                    contentDescription = null,
-                    tint = PrairieSecondaryText,
-                    modifier = Modifier
-                        .size(24.dp)
-                        .align(Alignment.Center),
-                )
-            }
+            SpoilerImage(
+                url = episode.stillUrl,
+                thumbhash = episode.stillThumbhash,
+                hidden = spoilers.hidesImage(unwatched, episode.stillIsEpisodeStill),
+                contentDescription = episode.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                defaultArtwork = DefaultArtworkKind.Tv,
+            )
 
             if (episode.userData?.played == true) {
                 Box(
@@ -532,6 +531,12 @@ private fun TvDetailEpisodeCard(
                     } else if (isCurrent) {
                         NowViewingTag()
                     }
+                    if (!hidesEpisodeTitle && caption.showsMetadata &&
+                        visibleOverview != null &&
+                        hasMachineTranslatedOverview(episode.machineTranslatedFields)
+                    ) {
+                        TvMachineTranslatedLabel(compact = true, iconSize = 12.dp)
+                    }
                 }
 
                 if (!hidesEpisodeTitle) {
@@ -566,9 +571,10 @@ private fun TvDetailEpisodeCard(
                     // exactly 3 text lines (minLines/maxLines rather than a fixed dp
                     // clamp so accessibility text scaling can't clip glyphs), and
                     // render even when there is no overview so every card keeps
-                    // identical vertical metrics.
+                    // identical vertical metrics. Spoiler protection blanks it
+                    // the same way.
                     Text(
-                        text = episode.overview?.takeIf { it.isNotBlank() }.orEmpty(),
+                        text = visibleOverview.orEmpty(),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Normal,
                         color = PrairieSecondaryText,

@@ -1,23 +1,23 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import java.security.MessageDigest
-import org.siloserver.silo.model.catalog.FileVersion
-import org.siloserver.silo.model.watchtogether.RoomMember
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.model.watchtogether.RoomPlaybackState
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.repository.WatchPartyEndReason
-import org.siloserver.silo.watchtogether.WatchPartyInvite
-import org.siloserver.silo.watchtogether.parseWatchPartyInvite
+import org.prairieserver.prairie.model.catalog.FileVersion
+import org.prairieserver.prairie.model.watchtogether.RoomMember
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.model.watchtogether.RoomPlaybackState
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.repository.WatchPartyEndReason
+import org.prairieserver.prairie.watchtogether.WatchPartyInvite
+import org.prairieserver.prairie.watchtogether.parseWatchPartyInvite
 
 /**
- * A `silo://watch-party?server=…&token=…` app link, validated by the shared
- * invitation parser. Anything else (including `silo://invite`, the account
+ * A `prairie://watch-party?server=…&token=…` app link, validated by the shared
+ * invitation parser. Anything else (including `prairie://invite`, the account
  * invitation) is not a party link.
  */
 internal fun watchPartyAppLinkOrNull(rawUri: String?): WatchPartyInvite.Link? {
     val text = rawUri?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    if (!text.startsWith("silo://", ignoreCase = true)) return null
+    if (!text.startsWith("prairie://", ignoreCase = true)) return null
     return parseWatchPartyInvite(text) as? WatchPartyInvite.Link
 }
 
@@ -94,9 +94,9 @@ private fun RoomMember.isSameMemberAs(other: RoomMember): Boolean =
 /** Share text: the host's invitation link with the code, or the code alone for guests. */
 internal fun watchPartyShareText(code: String, inviteUrl: String?): String =
     if (inviteUrl != null) {
-        "Join my Watch Party on Silo: $inviteUrl\nOr enter the code $code."
+        "Join my Watch Party on Prairie: $inviteUrl\nOr enter the code $code."
     } else {
-        "Join my Watch Party on Silo with the code $code."
+        "Join my Watch Party on Prairie with the code $code."
     }
 
 /** Quality chips for the staged version, for example "4K" and "HDR". */

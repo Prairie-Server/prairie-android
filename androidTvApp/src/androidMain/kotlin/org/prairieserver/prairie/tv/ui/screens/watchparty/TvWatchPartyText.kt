@@ -1,10 +1,10 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
-import org.siloserver.silo.model.watchtogether.RoomMember
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.model.watchtogether.RoomPlaybackState
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.repository.WatchPartyEndReason
+import org.prairieserver.prairie.model.watchtogether.RoomMember
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.model.watchtogether.RoomPlaybackState
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.repository.WatchPartyEndReason
 
 /** Plain-language reason this device's Watch Party ended. */
 internal fun tvWatchPartyEndedMessage(reason: String): String = when (reason) {

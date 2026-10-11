@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.cast
+package org.prairieserver.prairie.tv.cast
 
 import android.app.Application
 import kotlin.test.Test
@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.siloserver.silo.network.AndroidServerRegistry
+import org.prairieserver.prairie.network.AndroidServerRegistry
 
 /**
  * The same-profile fast path skips the server's profile exchange, so every

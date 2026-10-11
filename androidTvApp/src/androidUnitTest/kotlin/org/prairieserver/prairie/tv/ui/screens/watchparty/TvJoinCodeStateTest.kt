@@ -1,8 +1,4 @@
-<<<<<<<< HEAD:androidTvApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/tv/ui/screens/watchtogether/TvJoinCodeStateTest.kt
-package org.prairieserver.prairie.tv.ui.screens.watchtogether
-========
-package org.siloserver.silo.tv.ui.screens.watchparty
->>>>>>>> upstream/main:androidTvApp/src/androidUnitTest/kotlin/org/siloserver/silo/tv/ui/screens/watchparty/TvJoinCodeStateTest.kt
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -3,9 +3,13 @@ package org.prairieserver.prairie.android.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.profile.ActiveProfileStore
+import org.prairieserver.prairie.android.auth.SignOutTeardown
 import org.prairieserver.prairie.common.settings.CardPresentationSource
 import org.prairieserver.prairie.common.settings.CardPresentationStore
 import org.prairieserver.prairie.common.settings.CardPresentationUiState
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerSetting
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerState
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
@@ -15,6 +19,7 @@ import org.prairieserver.prairie.common.player.AudiobookSettingsStore
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.auth.User
+import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.download.DownloadQuality
 import org.prairieserver.prairie.model.download.effectiveDefault
 import org.prairieserver.prairie.model.download.labelFor
@@ -26,6 +31,7 @@ import org.prairieserver.prairie.model.settings.CardPresentation
 import org.prairieserver.prairie.model.settings.CardPresentationPreset
 import org.prairieserver.prairie.model.settings.QualityPresets
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.NotificationsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +62,10 @@ data class SettingsUiState(
     // Account
     val user: User? = null,
     val serverUrl: String = "",
+    // The account card shows the active profile's name and avatar, and the
+    // Server row the server's display name, as the Apple apps do.
+    val activeProfile: Profile? = null,
+    val serverName: String = "",
     val isLoadingUser: Boolean = false,
     val loggedOut: Boolean = false,
 
@@ -79,15 +89,35 @@ data class SettingsUiState(
     val autoSkipCredits: Boolean = false,
     val pictureInPictureEnabled: Boolean = true,
     val dolbyVisionEnabled: Boolean = true,
-    val dvProfile7HDR10Fallback: Boolean = true,
+    val dvProfile7HDR10Fallback: Boolean = false,
     val subtitleMatchesDevice: Boolean = false,
     val showAudiobooks: Boolean = false,
     val subtitleAppearance: org.prairieserver.prairie.model.settings.SubtitleAppearance =
         org.prairieserver.prairie.model.settings.SubtitleAppearance.DEFAULT,
+    /**
+     * What playback draws: [subtitleAppearance], or the device caption style
+     * while Use Device Settings is on. The preview shows this; the editors
+     * edit [subtitleAppearance].
+     */
+    val effectiveSubtitleAppearance: org.prairieserver.prairie.model.settings.SubtitleAppearance =
+        org.prairieserver.prairie.model.settings.SubtitleAppearance.DEFAULT,
+    /** False when the server is known to discard subtitle text opacity. */
+    val subtitleTextOpacitySupported: Boolean = true,
     // Up Next card: auto-play the next episode at countdown expiry, and how
     // many seconds before the end to surface the card (0 = only at end).
     val autoPlayNext: Boolean = true,
     val nextUpPromptSeconds: Int = 30,
+    /**
+     * Keys this device holds its own value for. A profile-layered control
+     * whose key is absent shows "Use profile setting" as its choice.
+     */
+    val deviceOverrides: Set<String> = emptySet(),
+    /**
+     * Outcome of the last "Use Profile Settings", until the screen has told the
+     * user: true when the server confirmed every clear, false when it
+     * couldn't (offline, refused, or interrupted).
+     */
+    val playbackOverridesReset: Boolean? = null,
     // Seconds to skip back on resume (0 = off); consecutive auto-advances
     // before the "Still watching?" prompt (0 = off).
     val resumeRewindSeconds: Int = 7,
@@ -115,6 +145,10 @@ data class SettingsUiState(
     // Media cards: the effective `ui.card_presentation` value plus where it
     // resolved from and whether the server supports the key at all.
     val cardPresentation: CardPresentationUiState = CardPresentationUiState(),
+    /** Spoiler protection for unwatched episodes; toggles show only when supported. */
+    val episodeSpoilers: EpisodeSpoilerState = EpisodeSpoilerState(),
+    /** Why the last spoiler switch change wasn't saved. */
+    val episodeSpoilerSaveError: String? = null,
 
     // Notifications (in-app). Section is hidden entirely unless the server
     // reports in-app notifications are enabled AND preferences load.
@@ -129,15 +163,16 @@ data class SettingsUiState(
 class SettingsViewModel(
     private val authRepository: AuthRepository,
     private val playerSettingsStore: PlayerSettingsStore,
-    private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
-    private val overlayPrefsStore: OverlayPrefsStore,
     private val activeProfileStore: ActiveProfileStore,
     private val notificationsRepository: NotificationsRepository,
     private val profileSettings: ProfileSettingsController,
     private val cardPresentationStore: CardPresentationStore,
     private val seekIntervalStore: SeekIntervalStore,
+    private val episodeSpoilerStore: EpisodeSpoilerStore,
+    private val signOutTeardown: SignOutTeardown,
     audiobookSettingsStore: AudiobookSettingsStore,
     private val downloadsRepository: DownloadsRepository? = null,
+    private val serverRegistry: ServerRegistry? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -155,12 +190,25 @@ class SettingsViewModel(
 
     init {
         loadUserInfo()
+        observeAccountCard()
         observePlayerSettings()
         observePlaybackBehaviorSettings()
         observeNotifications()
         observeCardPresentation()
+        observeEpisodeSpoilers()
         // Opening Settings is a refresh edge for the seek-interval support probe.
         seekIntervals.refresh()
+    }
+
+    private fun observeAccountCard() {
+        activeProfileStore.activeProfile.onEach { profile ->
+            _uiState.update { it.copy(activeProfile = profile) }
+        }.launchIn(viewModelScope)
+        serverRegistry?.activeEntry?.onEach { entry ->
+            _uiState.update { it.copy(serverName = entry?.displayName.orEmpty()) }
+        }?.launchIn(viewModelScope)
+        // Cached after the first fetch, so this is cheap on every later visit.
+        viewModelScope.launch { activeProfileStore.refresh() }
     }
 
     private fun loadUserInfo() {
@@ -279,7 +327,17 @@ class SettingsViewModel(
         }.launchIn(viewModelScope)
         playerSettingsStore.subtitleAppearanceFlow.onEach { appearance ->
             _uiState.update { it.copy(subtitleAppearance = appearance) }
-        }.launchIn(viewModelScope)    }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.effectiveSubtitleAppearanceFlow.onEach { appearance ->
+            _uiState.update { it.copy(effectiveSubtitleAppearance = appearance) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.subtitleTextOpacitySupportedFlow.onEach { supported ->
+            _uiState.update { it.copy(subtitleTextOpacitySupported = supported) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.deviceOverrideKeysFlow.onEach { keys ->
+            _uiState.update { it.copy(deviceOverrides = keys) }
+        }.launchIn(viewModelScope)
+    }
 
     fun setDownloadsWifiOnly(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setDownloadsWifiOnly(value) }
@@ -424,6 +482,28 @@ class SettingsViewModel(
         viewModelScope.launch { cardPresentationStore.useProfileDefault() }
     }
 
+    // -- Spoilers --
+
+    private fun observeEpisodeSpoilers() {
+        episodeSpoilerStore.state.onEach { state ->
+            _uiState.update { it.copy(episodeSpoilers = state) }
+        }.launchIn(viewModelScope)
+        episodeSpoilerStore.saveError.onEach { error ->
+            _uiState.update { it.copy(episodeSpoilerSaveError = error) }
+        }.launchIn(viewModelScope)
+        // Opening Settings is a refresh edge, so a change made on another
+        // device shows here without waiting for the next foreground.
+        viewModelScope.launch { episodeSpoilerStore.refresh() }
+    }
+
+    fun setHideUnwatchedEpisodeImages(enabled: Boolean) {
+        episodeSpoilerStore.set(EpisodeSpoilerSetting.Images, enabled)
+    }
+
+    fun setHideUnwatchedEpisodeOverviews(enabled: Boolean) {
+        episodeSpoilerStore.set(EpisodeSpoilerSetting.Overviews, enabled)
+    }
+
     fun setNotificationsEnabled(value: Boolean) {
         updateNotificationPreferences(NotificationPreferencesUpdate(enabled = value))
     }
@@ -454,16 +534,9 @@ class SettingsViewModel(
 
     fun logout() {
         viewModelScope.launch {
-            // Push any in-flight settings before tearing down the session.
-            playerSettingsStore.flushPendingDeviceSettings()
-            authRepository.logout()
-            // Drop per-profile cached prefs so the next user doesn't see
-            // stale rows flash before the fresh fetch lands.
-            libraryPlaybackPrefsStore.clear()
-            overlayPrefsStore.clear()
-            activeProfileStore.reset()
-            cardPresentationStore.clear()
-            seekIntervalStore.clear()
+            // Pushes in-flight settings, then drops per-profile cached prefs so
+            // the next user doesn't see stale rows flash before the fresh fetch.
+            signOutTeardown.signOut()
             _uiState.update { it.copy(loggedOut = true) }
         }
     }
@@ -520,18 +593,38 @@ class SettingsViewModel(
         viewModelScope.launch { playerSettingsStore.setShowAudiobooks(enabled) }
     }
 
-    fun setSubtitleAppearance(value: org.prairieserver.prairie.model.settings.SubtitleAppearance) {
+    /**
+     * Commits a subtitle-appearance change via a transform rather than a
+     * precomputed value (replaced the former `setSubtitleAppearance`).
+     * [PlayerSettingsStore.updateSubtitleAppearance][org.prairieserver.prairie.common.settings.PlayerSettingsStore.updateSubtitleAppearance]
+     * applies it atomically inside the store's own write transaction, so two
+     * edits committing around the same time (e.g. two opacity fields as the
+     * sheet is dismissed) can't race on a snapshot read before either writes.
+     */
+    fun editSubtitleAppearance(
+        transform: (org.prairieserver.prairie.model.settings.SubtitleAppearance) -> org.prairieserver.prairie.model.settings.SubtitleAppearance,
+    ) {
         viewModelScope.launch {
-            playerSettingsStore.setSubtitleAppearance(value)
-            // The granular subtitle.* fields are client-local — the contract
-            // carries appearance as one object — so a per-field edit only
-            // reaches the server once projected into the composite.
+            playerSettingsStore.updateSubtitleAppearance(transform)
             playerSettingsStore.flushProjectedSubtitleAppearance()
         }
     }
 
+    /** "Use Profile Settings": clears every setting this device holds its own value for. */
     fun resetPlaybackOverrides() {
-        viewModelScope.launch { playerSettingsStore.resetAllDeviceSettings() }
+        viewModelScope.launch {
+            val landed = playerSettingsStore.resetAllDeviceSettings()
+            _uiState.update { it.copy(playbackOverridesReset = landed) }
+        }
+    }
+
+    fun onPlaybackOverridesResetShown() {
+        _uiState.update { it.copy(playbackOverridesReset = null) }
+    }
+
+    /** Goes back to the profile's value for one setting's control on this device. */
+    fun useProfileSetting(key: String) {
+        viewModelScope.launch { playerSettingsStore.resetDeviceSetting(key) }
     }
 
     /** Lifecycle hook — call from ON_STOP so debounced writes survive. */

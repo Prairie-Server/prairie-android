@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -54,30 +54,30 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
-import org.siloserver.silo.common.ui.components.DefaultArtworkKind
-import org.siloserver.silo.model.catalog.BrowseItem
-import org.siloserver.silo.model.section.SectionItem
-import org.siloserver.silo.model.watchtogether.ItemMemberState
-import org.siloserver.silo.model.watchtogether.MemberWatchState
-import org.siloserver.silo.model.watchtogether.PickerEntry
-import org.siloserver.silo.model.watchtogether.RoomMember
-import org.siloserver.silo.tv.ui.components.TvMediaRow
-import org.siloserver.silo.tv.ui.components.TvPoster
-import org.siloserver.silo.tv.ui.components.TvTextInputDialog
-import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
-import org.siloserver.silo.tv.ui.focus.TvRestoreFocusOnModalDismiss
-import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
-import org.siloserver.silo.tv.ui.focus.tvModalFocusBoundary
-import org.siloserver.silo.tv.ui.theme.DarkBackground
-import org.siloserver.silo.tv.ui.theme.FocusedContainer
-import org.siloserver.silo.tv.ui.theme.FocusedContent
-import org.siloserver.silo.tv.ui.theme.SiloOnSurface
-import org.siloserver.silo.tv.ui.theme.SiloSecondaryText
-import org.siloserver.silo.tv.ui.theme.TvSkyline
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.viewmodel.WatchPartyPickerViewModel
-import org.siloserver.silo.viewmodel.WatchPartySpoilers
-import org.siloserver.silo.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
+import org.prairieserver.prairie.model.catalog.BrowseItem
+import org.prairieserver.prairie.model.section.SectionItem
+import org.prairieserver.prairie.model.watchtogether.ItemMemberState
+import org.prairieserver.prairie.model.watchtogether.MemberWatchState
+import org.prairieserver.prairie.model.watchtogether.PickerEntry
+import org.prairieserver.prairie.model.watchtogether.RoomMember
+import org.prairieserver.prairie.tv.ui.components.TvMediaRow
+import org.prairieserver.prairie.tv.ui.components.TvPoster
+import org.prairieserver.prairie.tv.ui.components.TvTextInputDialog
+import org.prairieserver.prairie.tv.ui.components.rememberTvDialogInitialFocus
+import org.prairieserver.prairie.tv.ui.focus.TvRestoreFocusOnModalDismiss
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.focus.tvModalFocusBoundary
+import org.prairieserver.prairie.tv.ui.theme.DarkBackground
+import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
+import org.prairieserver.prairie.tv.ui.theme.FocusedContent
+import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.tv.ui.theme.TvSkyline
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.viewmodel.WatchPartyPickerViewModel
+import org.prairieserver.prairie.viewmodel.WatchPartySpoilers
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 
 /** One Home-style shelf of the picker. */
 private data class TvPickerShelf(
@@ -317,11 +317,11 @@ internal fun TvWatchPartyPicker(
                         modifier = Modifier.padding(horizontal = TvSkyline.safeAreaX, vertical = 40.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(text = "Nothing to pick from yet", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = SiloOnSurface)
+                        Text(text = "Nothing to pick from yet", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = PrairieOnSurface)
                         Text(
                             text = "Search for a title, or add something to a watchlist.",
                             fontSize = TvPartyMetrics.body,
-                            color = SiloSecondaryText,
+                            color = PrairieSecondaryText,
                         )
                         state.error?.let { message ->
                             TvPartyBanner(message = message, warning = true)
@@ -457,13 +457,13 @@ private fun TvPickerConfirmation(
                             lineHeight = 48.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = (-0.5).sp,
-                            color = SiloOnSurface,
+                            color = PrairieOnSurface,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                         val facts = listOfNotNull(choice.subtitle) + choice.facts
                         if (facts.isNotEmpty()) {
-                            Text(text = facts.joinToString(" · "), fontSize = TvPartyMetrics.body, color = SiloSecondaryText)
+                            Text(text = facts.joinToString(" · "), fontSize = TvPartyMetrics.body, color = PrairieSecondaryText)
                         }
                     }
                 }
@@ -472,7 +472,7 @@ private fun TvPickerConfirmation(
                         text = overview,
                         fontSize = TvPartyMetrics.body,
                         lineHeight = 21.sp,
-                        color = SiloSecondaryText,
+                        color = PrairieSecondaryText,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.widthIn(max = 560.dp),
@@ -488,7 +488,7 @@ private fun TvPickerConfirmation(
                     MemberStateLoad.Unavailable -> Unit
                     MemberStateLoad.Loading -> if (memberState != null) {
                         WhoSeenSection {
-                            Text(text = "Checking viewing history…", fontSize = TvPartyMetrics.caption, color = SiloSecondaryText)
+                            Text(text = "Checking viewing history…", fontSize = TvPartyMetrics.caption, color = PrairieSecondaryText)
                         }
                     }
                     is MemberStateLoad.Loaded -> WhoSeenSection {
@@ -500,10 +500,10 @@ private fun TvPickerConfirmation(
                                 Text(
                                     text = tvWatchPartyMemberName(member),
                                     fontSize = TvPartyMetrics.body,
-                                    color = SiloOnSurface,
+                                    color = PrairieOnSurface,
                                     modifier = Modifier.weight(1f),
                                 )
-                                Text(text = tvWatchPartyHistoryLabel(watch), fontSize = TvPartyMetrics.body, color = SiloSecondaryText)
+                                Text(text = tvWatchPartyHistoryLabel(watch), fontSize = TvPartyMetrics.body, color = PrairieSecondaryText)
                             }
                         }
                     }
@@ -576,7 +576,7 @@ private fun PickerStatus(text: String) {
     Text(
         text = text,
         fontSize = TvPartyMetrics.body,
-        color = SiloSecondaryText,
+        color = PrairieSecondaryText,
         modifier = Modifier.padding(horizontal = TvSkyline.safeAreaX, vertical = 24.dp),
     )
 }

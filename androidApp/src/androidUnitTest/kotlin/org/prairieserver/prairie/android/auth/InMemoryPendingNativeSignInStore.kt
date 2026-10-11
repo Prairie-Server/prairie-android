@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 /** A [PendingNativeSignInStore] for tests; the app keeps the flow in encrypted preferences. */
 class InMemoryPendingNativeSignInStore : PendingNativeSignInStore {

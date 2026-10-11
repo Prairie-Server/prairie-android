@@ -1,7 +1,14 @@
 package org.prairieserver.prairie.android.ui.screens.downloads
 
+import org.prairieserver.prairie.android.ui.components.PrairieDialogActionStyle
+import org.prairieserver.prairie.android.ui.components.PrairieDialogAction
+import org.prairieserver.prairie.android.ui.components.PrairieDialog
+import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
 import org.prairieserver.prairie.android.ui.util.formatBytes
 import android.content.Context
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -25,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.DownloadForOffline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -94,6 +100,15 @@ fun DownloadsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(viewModel) { viewModel.refreshLocalUserState() }
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshLocalUserState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Multi-select delete (mirrors iOS's edit-mode selection). Selection unit
     // is a top-level entry — selecting a series selects all its episodes.
@@ -313,18 +328,22 @@ fun DownloadsScreen(
                     Text(
                         text = if (ids.size == 1) "Delete Download" else "Delete ${ids.size} Downloads",
                         color = MaterialTheme.colorScheme.error,
-                    )
                 }
-            },
             dismissButton = {
                 TextButton(onClick = { pendingBulkDelete = null }) { Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel") }
+        PrairieConfirmDialog(
+            title = "Delete downloaded files?",
+            body = "This removes the downloaded cop${if (ids.size == 1) "y" else "ies"} from this device. " +
+                "Nothing is deleted from the server library.",
+            confirmLabel = if (ids.size == 1) "Delete Download" else "Delete ${ids.size} Downloads",
+            onConfirm = {
+                viewModel.removeDownloadIds(ids)
+                pendingBulkDelete = null
+                exitSelectMode()
             },
+            onDismiss = { pendingBulkDelete = null },
         )
     }
 
@@ -354,17 +373,27 @@ fun DownloadsScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Reclaim")
                 }
-            },
             dismissButton = {
                 TextButton(onClick = viewModel::clearReclaimPlan) {
-                    Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(if (plan.count == 0) "Close" else "Cancel")
+        PrairieDialog(
+            title = "Reclaim Watched",
+            message = if (plan.count == 0) {
+                "No watched downloads are ready to reclaim."
+            } else {
+                "Delete ${plan.count} watched download${if (plan.count == 1) "" else "s"} and free ${formatBytes(plan.totalBytes)}?"
+            actions = buildList {
+                if (plan.count > 0) {
+                    add(
+                        PrairieDialogAction(
+                            label = "Reclaim",
+                            onClick = viewModel::reclaimWatched,
+                            style = PrairieDialogActionStyle.Destructive,
+                            enabled = !state.isReclaiming,
+                        ),
                 }
+                add(PrairieDialogAction(if (plan.count == 0) "Close" else "Cancel", viewModel::clearReclaimPlan))
             },
         )
     }

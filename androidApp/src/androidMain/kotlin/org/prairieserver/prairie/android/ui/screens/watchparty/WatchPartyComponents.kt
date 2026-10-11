@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -12,10 +12,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
-import org.siloserver.silo.android.ui.components.SiloConfirmDialog
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.repository.WatchTogetherRepository
-import org.siloserver.silo.watchtogether.RoomSession
+import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.watchtogether.RoomSession
 
 /** A reconnect shorter than this is routine (socket rotation) and stays silent. */
 internal const val WATCH_PARTY_RECONNECT_NOTICE_DELAY_MS = 2_000L
@@ -41,7 +41,7 @@ internal fun rememberWatchPartyReconnectNotice(disconnected: Boolean, since: Lon
 /** Confirms ending the party for everyone (host). */
 @Composable
 internal fun WatchPartyEndDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    SiloConfirmDialog(
+    PrairieConfirmDialog(
         title = "End the party for everyone?",
         body = "Everyone leaves the Watch Party, and it can't be rejoined.",
         confirmLabel = "End party",
@@ -53,7 +53,7 @@ internal fun WatchPartyEndDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 /** Explains a host's Leave before it happens: the room outlives them for two minutes. */
 @Composable
 internal fun WatchPartyHostLeaveDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    SiloConfirmDialog(
+    PrairieConfirmDialog(
         title = "Leave the party?",
         body = "You're the host. The party ends for everyone two minutes after you leave, unless you rejoin.",
         confirmLabel = "Leave",
@@ -107,7 +107,7 @@ fun rememberWatchPartySoloGuard(): WatchPartySoloGuard {
 @Composable
 fun WatchPartySoloGuardDialog(guard: WatchPartySoloGuard) {
     if (guard.pending == null) return
-    SiloConfirmDialog(
+    PrairieConfirmDialog(
         title = "Leave the Watch Party to play this?",
         body = if (guard.pendingFromHost) {
             "You're the host. The party ends for everyone two minutes after you leave, unless you rejoin."

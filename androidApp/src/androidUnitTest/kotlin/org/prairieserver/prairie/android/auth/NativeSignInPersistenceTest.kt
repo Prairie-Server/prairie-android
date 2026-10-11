@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -95,7 +95,7 @@ class NativeSignInPersistenceTest {
             purpose = NativeSignInPurpose.Link,
             serverEntryId = "entry-1",
             verifiedServerId = "server-1",
-            startOrigin = "https://silo.test",
+            startOrigin = "https://prairie.test",
             appState = "app-state",
             codeVerifier = "code-verifier",
             providerName = "Keycloak",
@@ -106,7 +106,7 @@ class NativeSignInPersistenceTest {
         /** [LINK] as the current serializer writes it. */
         const val STORED_LINK_JSON =
             """{"purpose":"Link","serverEntryId":"entry-1","verifiedServerId":"server-1",""" +
-                """"startOrigin":"https://silo.test","appState":"app-state","codeVerifier":"code-verifier",""" +
+                """"startOrigin":"https://prairie.test","appState":"app-state","codeVerifier":"code-verifier",""" +
                 """"providerName":"Keycloak","startedAtEpochMs":1759300000000,"loginSessionId":"login-1"}"""
     }
 }

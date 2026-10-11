@@ -1,4 +1,4 @@
-package org.siloserver.silo.common.requests
+package org.prairieserver.prairie.common.requests
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,14 +18,14 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import org.siloserver.silo.model.request.MediaRequest
-import org.siloserver.silo.model.request.RequestDisplayState
-import org.siloserver.silo.model.request.RequestMediaType
-import org.siloserver.silo.model.request.RequestProgress
-import org.siloserver.silo.model.request.RequestStatusTint
-import org.siloserver.silo.model.request.RequestStep
-import org.siloserver.silo.model.request.RequestTargetSummary
-import org.siloserver.silo.model.request.requestReasonCopy
+import org.prairieserver.prairie.model.request.MediaRequest
+import org.prairieserver.prairie.model.request.RequestDisplayState
+import org.prairieserver.prairie.model.request.RequestMediaType
+import org.prairieserver.prairie.model.request.RequestProgress
+import org.prairieserver.prairie.model.request.RequestStatusTint
+import org.prairieserver.prairie.model.request.RequestStep
+import org.prairieserver.prairie.model.request.RequestTargetSummary
+import org.prairieserver.prairie.model.request.requestReasonCopy
 
 /**
  * The request status colors, shared by phone and TV and matching the Apple

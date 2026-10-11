@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import android.app.Application
 import android.content.Context
@@ -15,16 +15,16 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.siloserver.silo.network.AndroidServerRegistry
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.network.AuthScopeSnapshot
-import org.siloserver.silo.network.EncryptedTokenManagerImpl
-import org.siloserver.silo.network.SiloAuthPlugin
-import org.siloserver.silo.network.SiloJson
-import org.siloserver.silo.network.api.AuthApi
-import org.siloserver.silo.network.api.DefaultExternalSignInApi
-import org.siloserver.silo.network.apiv2.ApiV2Gate
-import org.siloserver.silo.repository.AuthRepository
+import org.prairieserver.prairie.network.AndroidServerRegistry
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.EncryptedTokenManagerImpl
+import org.prairieserver.prairie.network.PrairieAuthPlugin
+import org.prairieserver.prairie.network.PrairieJson
+import org.prairieserver.prairie.network.api.AuthApi
+import org.prairieserver.prairie.network.api.DefaultExternalSignInApi
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+import org.prairieserver.prairie.repository.AuthRepository
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,7 +33,7 @@ import kotlin.test.assertTrue
 
 /**
  * A server saved at its LAN address signs in and links there, through the
- * app's own registry, token manager, [SiloAuthPlugin] and API: the code and
+ * app's own registry, token manager, [PrairieAuthPlugin] and API: the code and
  * the account's bearer go to the LAN address, and the saved server keeps its
  * address and id (no move, no second entry).
  */
@@ -56,7 +56,7 @@ class NativeSignInLinkTransportTest {
                 )
                 linkStatus == HttpStatusCode.NoContent -> respond("", linkStatus)
                 else -> respond(
-                    """{"type":"https://siloserver.org/docs/api/v2/problems/invalid_grant","title":"Bad request","status":400}""",
+                    """{"type":"https://prairieserver.org/docs/api/v2/problems/invalid_grant","title":"Bad request","status":400}""",
                     linkStatus,
                     headersOf(HttpHeaders.ContentType, "application/problem+json"),
                 )
@@ -94,8 +94,8 @@ class NativeSignInLinkTransportTest {
         private fun build() {
             tokens = EncryptedTokenManagerImpl(prefs, registry)
             val client = http.config {
-                install(ContentNegotiation) { json(SiloJson) }
-                install(SiloAuthPlugin) { tokenManager = tokens }
+                install(ContentNegotiation) { json(PrairieJson) }
+                install(PrairieAuthPlugin) { tokenManager = tokens }
             }
             completer = RepositoryNativeSignInCompleter(
                 authRepository = AuthRepository(AuthApi(client, ApiV2Gate.Unrestricted), tokens, serverRegistry = registry),

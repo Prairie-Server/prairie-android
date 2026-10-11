@@ -1,4 +1,4 @@
-package org.siloserver.silo.network
+package org.prairieserver.prairie.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -16,15 +16,15 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * The active session's side of [freshSiloAuth]: a TV approval from a token
+ * The active session's side of [freshPrairieAuth]: a TV approval from a token
  * link, or from the TV's own pair screen, goes out on the active session
  * rather than a pinned scope. When its expired token's refresh is refused
  * with 503 `provider_unavailable`, the approval isn't sent with a bearer that
  * would come back 401 and read as "sign in again"; it fails with the reason.
  */
-class SiloAuthPluginFreshActiveRefreshTest {
+class PrairieAuthPluginFreshActiveRefreshTest {
     private suspend fun expiredSession() = TokenManagerImpl().apply {
-        setServerUrl("https://silo.example")
+        setServerUrl("https://prairie.example")
         saveTokens(accessToken = "stale", refreshToken = "refresh-1", expiresIn = 0)
     }
 
@@ -33,7 +33,7 @@ class SiloAuthPluginFreshActiveRefreshTest {
             paths += request.url.encodedPath
             if (request.url.encodedPath.endsWith("/auth/refresh")) {
                 respond(
-                    """{"type":"https://siloserver.org/docs/api/v2/problems/provider_unavailable","title":"Provider unavailable",""" +
+                    """{"type":"https://prairieserver.org/docs/api/v2/problems/provider_unavailable","title":"Provider unavailable",""" +
                         """"status":503,"detail":"Try again later; the session stays valid."}""",
                     HttpStatusCode.ServiceUnavailable,
                     headersOf(HttpHeaders.ContentType, "application/problem+json"),
@@ -43,18 +43,18 @@ class SiloAuthPluginFreshActiveRefreshTest {
             }
         },
     ) {
-        install(ContentNegotiation) { json(SiloJson) }
-        install(SiloAuthPlugin) { tokenManager = tokens }
+        install(ContentNegotiation) { json(PrairieJson) }
+        install(PrairieAuthPlugin) { tokenManager = tokens }
     }
 
     @Test
     fun aProviderOutageFailsAFreshRequestWithItsReason() = runTest {
         val tokens = expiredSession()
         val paths = mutableListOf<String>()
-        val thrown = assertFailsWith<SiloAuthUnavailableException> {
-            client(tokens, paths).post("/api/v2/auth/device/approve") { freshSiloAuth() }
+        val thrown = assertFailsWith<PrairieAuthUnavailableException> {
+            client(tokens, paths).post("/api/v2/auth/device/approve") { freshPrairieAuth() }
         }
-        assertTrue(SiloAuthUnavailableException.isProviderUnavailable(thrown))
+        assertTrue(PrairieAuthUnavailableException.isProviderUnavailable(thrown))
         assertEquals(listOf("/api/v2/auth/refresh"), paths, "the approval never went out")
         assertEquals("stale", tokens.getAccessToken(), "the session is kept")
         assertEquals("refresh-1", tokens.getRefreshToken())

@@ -31,7 +31,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import org.prairieserver.prairie.common.ui.OnViewerAccessChanged
+import org.prairieserver.prairie.network.AccessChangeSignals
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
@@ -48,6 +51,7 @@ fun CollectionsScreen(
     viewModel: CollectionsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    OnViewerAccessChanged(koinInject<AccessChangeSignals>(), viewModel.accessChanges) { viewModel.refresh() }
 
     Scaffold(
         topBar = {

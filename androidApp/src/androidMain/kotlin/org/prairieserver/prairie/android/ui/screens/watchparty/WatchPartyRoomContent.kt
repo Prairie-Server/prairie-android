@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -78,35 +78,35 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
-import org.siloserver.silo.android.ui.components.SiloDropdownMenu
-import org.siloserver.silo.android.ui.theme.SiloDestructive
-import org.siloserver.silo.android.ui.theme.SiloOnSurface
-import org.siloserver.silo.android.ui.theme.SiloSecondaryText
-import org.siloserver.silo.model.catalog.ItemDetail
-import org.siloserver.silo.model.watchtogether.GuestControlPolicy
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.model.watchtogether.Suggestion
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.repository.CatalogRepository
-import org.siloserver.silo.common.cards.LocalEpisodeSpoilerPrefs
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.viewmodel.WatchPartySpoilers
-import org.siloserver.silo.watchtogether.WatchPartyConnectionTone
-import org.siloserver.silo.watchtogether.WatchPartyEligibility
-import org.siloserver.silo.watchtogether.WatchPartyFeatures
-import org.siloserver.silo.watchtogether.WatchPartyPrimaryAction
-import org.siloserver.silo.watchtogether.WatchPartySecondaryAction
-import org.siloserver.silo.watchtogether.canRemoveSuggestion
-import org.siloserver.silo.watchtogether.roomVoteWinner
-import org.siloserver.silo.watchtogether.watchPartyConnectionLabel
-import org.siloserver.silo.watchtogether.watchPartyLobbyBanner
-import org.siloserver.silo.watchtogether.watchPartyLobbyHero
-import org.siloserver.silo.watchtogether.watchPartyLobbyHint
-import org.siloserver.silo.watchtogether.watchPartyPrimaryAction
-import org.siloserver.silo.watchtogether.watchPartySecondaryAction
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
+import org.prairieserver.prairie.android.ui.theme.PrairieDestructive
+import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.watchtogether.GuestControlPolicy
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.model.watchtogether.Suggestion
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.repository.CatalogRepository
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.viewmodel.WatchPartySpoilers
+import org.prairieserver.prairie.watchtogether.WatchPartyConnectionTone
+import org.prairieserver.prairie.watchtogether.WatchPartyEligibility
+import org.prairieserver.prairie.watchtogether.WatchPartyFeatures
+import org.prairieserver.prairie.watchtogether.WatchPartyPrimaryAction
+import org.prairieserver.prairie.watchtogether.WatchPartySecondaryAction
+import org.prairieserver.prairie.watchtogether.canRemoveSuggestion
+import org.prairieserver.prairie.watchtogether.roomVoteWinner
+import org.prairieserver.prairie.watchtogether.watchPartyConnectionLabel
+import org.prairieserver.prairie.watchtogether.watchPartyLobbyBanner
+import org.prairieserver.prairie.watchtogether.watchPartyLobbyHero
+import org.prairieserver.prairie.watchtogether.watchPartyLobbyHint
+import org.prairieserver.prairie.watchtogether.watchPartyPrimaryAction
+import org.prairieserver.prairie.watchtogether.watchPartySecondaryAction
 
 /*
  * The room itself, shared by the lobby screen and the party panel over the
@@ -363,7 +363,7 @@ internal fun WatchPartyRoomContent(
                         WatchPartyCircleButton(Icons.AutoMirrored.Filled.ArrowBack, "Navigate back", onBack, size = 40.dp)
                         Spacer(Modifier.width(14.dp))
                     }
-                    Text("Watch Party", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = SiloOnSurface)
+                    Text("Watch Party", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = PrairieOnSurface)
                     Spacer(Modifier.width(14.dp))
                     ConnectionDot(room, connected, reconnecting = !connected && !firstConnect)
                     Spacer(Modifier.weight(1f))
@@ -405,7 +405,7 @@ private fun ConnectionDot(room: RoomSnapshot, connected: Boolean, reconnecting: 
     val color = when (tone) {
         WatchPartyConnectionTone.Good -> WatchPartyColors.emerald
         WatchPartyConnectionTone.Warning -> WatchPartyColors.amber
-        WatchPartyConnectionTone.Neutral -> SiloSecondaryText
+        WatchPartyConnectionTone.Neutral -> PrairieSecondaryText
         WatchPartyConnectionTone.Bad -> WatchPartyColors.rose
     }
     Row(
@@ -414,7 +414,7 @@ private fun ConnectionDot(room: RoomSnapshot, connected: Boolean, reconnecting: 
         modifier = Modifier.semantics(mergeDescendants = true) {},
     ) {
         Box(Modifier.size((WatchPartyMetrics.CAPTION * 0.55f).dp).clip(CircleShape).background(color))
-        Text(label, fontSize = WatchPartyMetrics.CAPTION.sp, color = SiloSecondaryText, maxLines = 1)
+        Text(label, fontSize = WatchPartyMetrics.CAPTION.sp, color = PrairieSecondaryText, maxLines = 1)
     }
 }
 
@@ -442,7 +442,7 @@ private fun RoomHero(room: RoomSnapshot, staged: WatchPartyStagedTitle?, suggest
             val title = hero.title ?: staged?.title
             WatchPartyHeroTitle(
                 text = title ?: "Loading title…",
-                color = if (title == null || staged?.unavailable == true) SiloSecondaryText else SiloOnSurface,
+                color = if (title == null || staged?.unavailable == true) PrairieSecondaryText else PrairieOnSurface,
                 size = titleSize,
             )
             val selected = !room.selectedContentId.isNullOrBlank() && !hero.isVoteQuestion
@@ -451,7 +451,7 @@ private fun RoomHero(room: RoomSnapshot, staged: WatchPartyStagedTitle?, suggest
                 Text(
                     it,
                     fontSize = if (selected) WatchPartyMetrics.CAPTION.sp else WatchPartyMetrics.BODY.sp,
-                    color = if (selected) SiloSecondaryText.copy(alpha = 0.7f) else SiloSecondaryText,
+                    color = if (selected) PrairieSecondaryText.copy(alpha = 0.7f) else PrairieSecondaryText,
                 )
             }
         }
@@ -467,12 +467,12 @@ private fun FactsLine(staged: WatchPartyStagedTitle) {
             Text(
                 buildAnnotatedString {
                     parts.forEachIndexed { index, part ->
-                        if (index > 0) withStyle(SpanStyle(color = SiloSecondaryText.copy(alpha = 0.5f))) { append("  ·  ") }
+                        if (index > 0) withStyle(SpanStyle(color = PrairieSecondaryText.copy(alpha = 0.5f))) { append("  ·  ") }
                         append(part)
                     }
                 },
                 fontSize = (WatchPartyMetrics.BODY - 1).sp,
-                color = SiloSecondaryText,
+                color = PrairieSecondaryText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
@@ -483,10 +483,10 @@ private fun FactsLine(staged: WatchPartyStagedTitle) {
                 chip,
                 fontSize = (WatchPartyMetrics.CAPTION * 0.85f).sp,
                 fontWeight = FontWeight.SemiBold,
-                color = SiloSecondaryText,
+                color = PrairieSecondaryText,
                 maxLines = 1,
                 modifier = Modifier
-                    .border(1.dp, SiloSecondaryText.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                    .border(1.dp, PrairieSecondaryText.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 1.dp),
             )
         }
@@ -540,7 +540,7 @@ private fun PrimaryButton(
                     Text(
                         "  tap to undo",
                         fontSize = WatchPartyMetrics.CAPTION.sp,
-                        color = SiloOnSurface.copy(alpha = 0.6f),
+                        color = PrairieOnSurface.copy(alpha = 0.6f),
                         maxLines = 1,
                     )
                 },
@@ -590,7 +590,7 @@ private fun WatchPartyOptionsMenu(
             contentDescription = "Party options",
             onClick = { open = true },
         )
-        SiloDropdownMenu(expanded = open, onDismissRequest = ::close) {
+        PrairieDropdownMenu(expanded = open, onDismissRequest = ::close) {
             val vote = room.selectionMode == RoomSelectionMode.Vote
             val guestsControl = room.guestControlPolicy == GuestControlPolicy.GuestPlayPause
             when (page) {
@@ -671,7 +671,7 @@ private fun OptionRow(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val color = if (destructive) SiloDestructive else SiloOnSurface
+    val color = if (destructive) PrairieDestructive else PrairieOnSurface
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -686,19 +686,19 @@ private fun OptionRow(
             checked != null -> Box(Modifier.size(20.dp)) {
                 if (checked) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = color, modifier = Modifier.size(20.dp))
             }
-            icon != null -> Icon(icon, contentDescription = null, tint = if (header) SiloSecondaryText else color, modifier = Modifier.size(20.dp))
+            icon != null -> Icon(icon, contentDescription = null, tint = if (header) PrairieSecondaryText else color, modifier = Modifier.size(20.dp))
         }
         if (checked != null || icon != null) Spacer(Modifier.width(12.dp))
         Text(
             label,
             fontSize = 16.sp,
             fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (header) SiloSecondaryText else color,
+            color = if (header) PrairieSecondaryText else color,
             modifier = Modifier.weight(1f),
         )
         if (value != null) {
             Spacer(Modifier.width(16.dp))
-            Text(value, fontSize = 14.sp, color = SiloSecondaryText, maxLines = 1)
+            Text(value, fontSize = 14.sp, color = PrairieSecondaryText, maxLines = 1)
         }
     }
 }
@@ -732,10 +732,10 @@ private fun WatchPartyBallot(
             Text(
                 "Nothing suggested yet. Anyone can add a title.",
                 fontSize = WatchPartyMetrics.CAPTION.sp,
-                color = SiloSecondaryText,
+                color = PrairieSecondaryText,
             )
         }
-        val dashColor = SiloSecondaryText.copy(alpha = 0.5f)
+        val dashColor = PrairieSecondaryText.copy(alpha = 0.5f)
         Row(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
@@ -753,9 +753,9 @@ private fun WatchPartyBallot(
                 }
                 .clickable(enabled = eligibility.canSuggest, role = Role.Button, onClick = actions::suggest),
         ) {
-            Icon(Icons.Filled.Add, contentDescription = null, tint = SiloSecondaryText, modifier = Modifier.size(18.dp))
+            Icon(Icons.Filled.Add, contentDescription = null, tint = PrairieSecondaryText, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Suggest a title", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = SiloSecondaryText)
+            Text("Suggest a title", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = PrairieSecondaryText)
         }
     }
 }
@@ -785,7 +785,7 @@ private fun CandidateRow(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(if (isLeader) WatchPartyColors.chromeSelectedFill else WatchPartyColors.chromeFill)
-                .border(1.dp, if (isLeader) SiloOnSurface.copy(alpha = 0.35f) else WatchPartyColors.chromeBorder, shape)
+                .border(1.dp, if (isLeader) PrairieOnSurface.copy(alpha = 0.35f) else WatchPartyColors.chromeBorder, shape)
                 .combinedClickable(
                     enabled = voteEnabled || hasMenu,
                     onClick = { if (voteEnabled) actions.vote(suggestion) },
@@ -815,14 +815,14 @@ private fun CandidateRow(
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                 )
                 Text(
                     if (suggestion.voteCount == 1) "VOTE" else "VOTES",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.sp,
-                    color = SiloSecondaryText,
+                    color = PrairieSecondaryText,
                 )
             }
             val toggleShape = RoundedCornerShape(12.dp)
@@ -832,7 +832,7 @@ private fun CandidateRow(
                     .size(44.dp)
                     .alpha(if (voteEnabled) 1f else 0.45f)
                     .clip(toggleShape)
-                    .background(if (voted && votesKnown) SiloOnSurface else Color.Transparent)
+                    .background(if (voted && votesKnown) PrairieOnSurface else Color.Transparent)
                     .border(1.dp, if (voted && votesKnown) Color.Transparent else WatchPartyColors.outline, toggleShape)
                     .clickable(enabled = voteEnabled, role = Role.Button) { actions.vote(suggestion) }
                     .semantics {
@@ -850,12 +850,12 @@ private fun CandidateRow(
                         else -> Icons.Filled.Add
                     },
                     contentDescription = null,
-                    tint = if (voted && votesKnown) Color.Black else SiloSecondaryText,
+                    tint = if (voted && votesKnown) Color.Black else PrairieSecondaryText,
                     modifier = Modifier.size(20.dp),
                 )
             }
         }
-        SiloDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        PrairieDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             if (canPromote) {
                 OptionRow("Start this one", icon = Icons.Filled.PlayArrow) {
                     menu = false
@@ -879,7 +879,7 @@ private fun SuggestionText(suggestion: Suggestion, modifier: Modifier) {
             suggestion.title,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
-            color = SiloOnSurface,
+            color = PrairieOnSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -888,7 +888,7 @@ private fun SuggestionText(suggestion: Suggestion, modifier: Modifier) {
             suggestion.note.takeIf { it.isNotBlank() }?.let { "“$it”" },
         ).joinToString(" · ")
         if (detail.isNotEmpty()) {
-            Text(detail, fontSize = 12.sp, color = SiloSecondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, fontSize = 12.sp, color = PrairieSecondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -915,7 +915,7 @@ private fun WatchPartyHostPickSuggestions(
             Text(
                 if (manages) "Queue one to put it up next." else "The host decides what plays.",
                 fontSize = WatchPartyMetrics.CAPTION.sp,
-                color = SiloSecondaryText,
+                color = PrairieSecondaryText,
                 maxLines = 1,
             )
         }
@@ -980,7 +980,7 @@ private fun HostPickSuggestionRow(
                     "Up next",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = SiloSecondaryText,
+                    color = PrairieSecondaryText,
                     modifier = Modifier.padding(horizontal = 8.dp),
                 )
                 canQueue -> WatchPartyButton(
@@ -991,7 +991,7 @@ private fun HostPickSuggestionRow(
                 )
             }
         }
-        SiloDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        PrairieDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             OptionRow("Remove suggestion", icon = Icons.Outlined.Delete, destructive = true) {
                 menu = false
                 actions.remove(suggestion)

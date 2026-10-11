@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.cast
+package org.prairieserver.prairie.tv.cast
 
 import android.app.Application
 import kotlin.test.*
@@ -10,13 +10,13 @@ import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.siloserver.silo.cast.SiloCastHandoffOffer
-import org.siloserver.silo.model.auth.DeviceLoginStartResponse
-import org.siloserver.silo.network.AndroidServerRegistry
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.network.AuthScopeSnapshot
-import org.siloserver.silo.network.TokenManagerImpl
-import org.siloserver.silo.network.api.DeviceLoginApi
+import org.prairieserver.prairie.cast.PrairieCastHandoffOffer
+import org.prairieserver.prairie.model.auth.DeviceLoginStartResponse
+import org.prairieserver.prairie.network.AndroidServerRegistry
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.TokenManagerImpl
+import org.prairieserver.prairie.network.api.DeviceLoginApi
 
 /**
  * The receiver's stop() ends the temporary identity only after the player's
@@ -113,10 +113,10 @@ class RemotePlaybackIdentityClaimTest {
         assertNotEquals(ending.generationId, manager.activeIdentity?.generationId)
     }
 
-    private suspend fun prepare(offer: SiloCastHandoffOffer, run: Long) =
+    private suspend fun prepare(offer: PrairieCastHandoffOffer, run: Long) =
         manager.prepare(offer, CONTROLLER, controllerDeviceName = null, receiverRun = run) {}
 
-    private fun offer(profileId: String = "profile-1") = SiloCastHandoffOffer(
+    private fun offer(profileId: String = "profile-1") = PrairieCastHandoffOffer(
         requestId = "request",
         serverId = AndroidServerRegistry.idFor(SERVER_URL),
         serverURL = SERVER_URL,

@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -63,22 +63,22 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.siloserver.silo.android.ui.theme.SiloBackground
-import org.siloserver.silo.android.ui.theme.SiloOnSurface
-import org.siloserver.silo.android.ui.theme.SiloSecondaryText
-import org.siloserver.silo.android.ui.theme.SiloSurfaceElevated
-import org.siloserver.silo.common.ui.components.SpoilerImage
-import org.siloserver.silo.model.watchtogether.RoomMember
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.watchtogether.WatchPartySeatState
-import org.siloserver.silo.watchtogether.watchPartyAvatarIndex
-import org.siloserver.silo.watchtogether.watchPartyPresenceSummary
-import org.siloserver.silo.watchtogether.watchPartySeatOrder
-import org.siloserver.silo.watchtogether.watchPartySeatState
-import org.siloserver.silo.watchtogether.watchPartySeatStatus
+import org.prairieserver.prairie.android.ui.theme.PrairieBackground
+import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceElevated
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.model.watchtogether.RoomMember
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.watchtogether.WatchPartySeatState
+import org.prairieserver.prairie.watchtogether.watchPartyAvatarIndex
+import org.prairieserver.prairie.watchtogether.watchPartyPresenceSummary
+import org.prairieserver.prairie.watchtogether.watchPartySeatOrder
+import org.prairieserver.prairie.watchtogether.watchPartySeatState
+import org.prairieserver.prairie.watchtogether.watchPartySeatStatus
 
 /*
- * The Watch Party look, after silo-apple's WatchPartyComponents (iOS values):
+ * The Watch Party look, after prairie-apple's WatchPartyComponents (iOS values):
  * the film's artwork is the room, members sit over it as seats, and actions
  * are white-on-black pills.
  */
@@ -107,7 +107,7 @@ internal object WatchPartyColors {
 }
 
 @Composable
-internal fun WatchPartyEyebrow(text: String, modifier: Modifier = Modifier, color: Color = SiloSecondaryText) {
+internal fun WatchPartyEyebrow(text: String, modifier: Modifier = Modifier, color: Color = PrairieSecondaryText) {
     Text(
         text = text.uppercase(),
         fontSize = WatchPartyMetrics.EYEBROW.sp,
@@ -131,7 +131,7 @@ internal fun WatchPartyBackdrop(
     /** Spoiler protection hides this artwork: an unwatched episode's still. */
     hidden: Boolean = false,
 ) {
-    Box(modifier.fillMaxSize().background(SiloBackground)) {
+    Box(modifier.fillMaxSize().background(PrairieBackground)) {
         // Each artwork keeps its own treatment while it fades out, so an
         // outgoing protected still is never drawn unhidden. A layer showing
         // the current artwork is hidden at once when protection turns on.
@@ -185,7 +185,7 @@ internal fun WatchPartyTopBar(onBack: (() -> Unit)?, modifier: Modifier = Modifi
             title,
             fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold,
-            color = SiloOnSurface,
+            color = PrairieOnSurface,
             modifier = Modifier.align(Alignment.Center),
         )
     }
@@ -211,7 +211,7 @@ internal fun WatchPartyCircleButton(
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { this.contentDescription = contentDescription },
     ) {
-        Icon(icon, contentDescription = null, tint = SiloOnSurface, modifier = Modifier.size(size * 0.5f))
+        Icon(icon, contentDescription = null, tint = PrairieOnSurface, modifier = Modifier.size(size * 0.5f))
     }
 }
 
@@ -236,13 +236,13 @@ internal fun WatchPartyCodePill(code: String, onClick: () -> Unit, modifier: Mod
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
             letterSpacing = (size * 0.18f).sp,
-            color = SiloOnSurface,
+            color = PrairieOnSurface,
             maxLines = 1,
         )
         Icon(
             Icons.Filled.QrCode2,
             contentDescription = null,
-            tint = SiloSecondaryText,
+            tint = PrairieSecondaryText,
             modifier = Modifier.size((size * 0.9f).dp),
         )
     }
@@ -305,7 +305,7 @@ internal fun WatchPartySeat(member: RoomMember, state: WatchPartySeatState, size
                     name.trim().take(1).uppercase(),
                     fontSize = (size.value * 0.36f).sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                 )
             }
             SeatRing(state = state, modifier = Modifier.size(ring))
@@ -315,7 +315,7 @@ internal fun WatchPartySeat(member: RoomMember, state: WatchPartySeatState, size
                     fontSize = 8.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .offset(y = -(size * 0.12f))
@@ -337,7 +337,7 @@ internal fun WatchPartySeat(member: RoomMember, state: WatchPartySeatState, size
                         .background(Color.Black)
                         .padding(size * 0.03f)
                         .clip(CircleShape)
-                        .background(SiloOnSurface),
+                        .background(PrairieOnSurface),
                 ) {
                     Icon(
                         Icons.Filled.Check,
@@ -353,12 +353,12 @@ internal fun WatchPartySeat(member: RoomMember, state: WatchPartySeatState, size
                 buildAnnotatedString {
                     append(name)
                     if (member.isSelf) {
-                        withStyle(SpanStyle(color = SiloSecondaryText, fontWeight = FontWeight.Normal)) { append(" · you") }
+                        withStyle(SpanStyle(color = PrairieSecondaryText, fontWeight = FontWeight.Normal)) { append(" · you") }
                     }
                 },
                 fontSize = (size.value * 0.19f).sp,
                 fontWeight = FontWeight.Medium,
-                color = SiloOnSurface,
+                color = PrairieOnSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -367,7 +367,7 @@ internal fun WatchPartySeat(member: RoomMember, state: WatchPartySeatState, size
                 Text(
                     status,
                     fontSize = (size.value * 0.16f).sp,
-                    color = SiloSecondaryText,
+                    color = PrairieSecondaryText,
                     maxLines = 1,
                 )
             }
@@ -382,9 +382,9 @@ private fun SeatRing(state: WatchPartySeatState, modifier: Modifier) {
         val radius = (this.size.minDimension - width) / 2
         when (state) {
             WatchPartySeatState.Ready, WatchPartySeatState.Watching ->
-                drawCircle(SiloOnSurface, radius = radius, style = Stroke(width))
+                drawCircle(PrairieOnSurface, radius = radius, style = Stroke(width))
             WatchPartySeatState.Away -> drawCircle(
-                SiloOnSurface.copy(alpha = 0.25f),
+                PrairieOnSurface.copy(alpha = 0.25f),
                 radius = radius,
                 style = Stroke(
                     width,
@@ -393,7 +393,7 @@ private fun SeatRing(state: WatchPartySeatState, modifier: Modifier) {
                 ),
             )
             else -> drawCircle(
-                SiloOnSurface.copy(alpha = 0.38f),
+                PrairieOnSurface.copy(alpha = 0.38f),
                 radius = radius,
                 style = Stroke(width, pathEffect = PathEffect.dashPathEffect(floatArrayOf(width * 3, width * 2.2f))),
             )
@@ -420,9 +420,9 @@ private fun WatchPartyInviteSeat(onClick: () -> Unit, size: Dp = WatchPartyMetri
                 .size(size * 1.14f)
                 .border(size * 0.035f, WatchPartyColors.outline, CircleShape),
         ) {
-            Icon(Icons.Filled.Add, contentDescription = null, tint = SiloSecondaryText, modifier = Modifier.size(size * 0.4f))
+            Icon(Icons.Filled.Add, contentDescription = null, tint = PrairieSecondaryText, modifier = Modifier.size(size * 0.4f))
         }
-        Text("Invite", fontSize = (size.value * 0.19f).sp, fontWeight = FontWeight.Medium, color = SiloSecondaryText)
+        Text("Invite", fontSize = (size.value * 0.19f).sp, fontWeight = FontWeight.Medium, color = PrairieSecondaryText)
     }
 }
 
@@ -441,7 +441,7 @@ internal fun WatchPartySeatsRow(
             Text(
                 watchPartyPresenceSummary(members, phase),
                 fontSize = WatchPartyMetrics.CAPTION.sp,
-                color = SiloSecondaryText.copy(alpha = 0.7f),
+                color = PrairieSecondaryText.copy(alpha = 0.7f),
             )
         }
         Row(
@@ -471,16 +471,16 @@ internal fun WatchPartyButton(
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(14.dp)
-    val foreground = if (kind == WatchPartyButtonKind.Primary) Color.Black else SiloOnSurface
+    val foreground = if (kind == WatchPartyButtonKind.Primary) Color.Black else PrairieOnSurface
     val background = when (kind) {
-        WatchPartyButtonKind.Primary -> SiloOnSurface
+        WatchPartyButtonKind.Primary -> PrairieOnSurface
         WatchPartyButtonKind.Secondary -> WatchPartyColors.chromeFill
         WatchPartyButtonKind.Outlined -> Color.Transparent
     }
     val border = when (kind) {
         WatchPartyButtonKind.Primary -> Color.Transparent
         WatchPartyButtonKind.Secondary -> WatchPartyColors.chromeBorder
-        WatchPartyButtonKind.Outlined -> SiloOnSurface
+        WatchPartyButtonKind.Outlined -> PrairieOnSurface
     }
     Row(
         horizontalArrangement = Arrangement.Center,
@@ -535,13 +535,13 @@ internal fun WatchPartyBanner(
             Modifier
                 .size((WatchPartyMetrics.CAPTION * 0.6f).dp)
                 .clip(CircleShape)
-                .background(if (warning) WatchPartyColors.amber else SiloSecondaryText),
+                .background(if (warning) WatchPartyColors.amber else PrairieSecondaryText),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             text,
             fontSize = (WatchPartyMetrics.CAPTION + 1).sp,
-            color = if (warning) WatchPartyColors.amberText else SiloOnSurface,
+            color = if (warning) WatchPartyColors.amberText else PrairieOnSurface,
             modifier = Modifier.weight(1f),
         )
         action?.invoke()
@@ -561,10 +561,10 @@ internal fun WatchPartyPoster(
     val shape = RoundedCornerShape(cornerRadius)
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.width(width).height(width * 1.5f).clip(shape).background(SiloSurfaceElevated),
+        modifier = modifier.width(width).height(width * 1.5f).clip(shape).background(PrairieSurfaceElevated),
     ) {
         if (url.isNullOrBlank()) {
-            Icon(Icons.Outlined.Movie, contentDescription = null, tint = SiloSecondaryText)
+            Icon(Icons.Outlined.Movie, contentDescription = null, tint = PrairieSecondaryText)
         } else {
             SpoilerImage(
                 url = url,
@@ -603,7 +603,7 @@ internal fun WatchPartyHint(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         fontSize = WatchPartyMetrics.CAPTION.sp,
-        color = SiloSecondaryText.copy(alpha = 0.7f),
+        color = PrairieSecondaryText.copy(alpha = 0.7f),
         textAlign = TextAlign.Center,
         modifier = modifier.fillMaxWidth(),
     )
@@ -611,7 +611,7 @@ internal fun WatchPartyHint(text: String, modifier: Modifier = Modifier) {
 
 /** Title-sized heading helper. */
 @Composable
-internal fun WatchPartyHeroTitle(text: String, color: Color = SiloOnSurface, size: Float = WatchPartyMetrics.HERO_TITLE, maxLines: Int = 3) {
+internal fun WatchPartyHeroTitle(text: String, color: Color = PrairieOnSurface, size: Float = WatchPartyMetrics.HERO_TITLE, maxLines: Int = 3) {
     Text(
         text,
         fontSize = size.sp,

@@ -1,12 +1,12 @@
-package org.siloserver.silo.tv.cast
+package org.prairieserver.prairie.tv.cast
 
-import org.siloserver.silo.cast.SiloCastProtocol
-import org.siloserver.silo.model.auth.DeviceLoginCapabilityResponse
-import org.siloserver.silo.model.auth.DeviceLoginPollResponse
-import org.siloserver.silo.model.auth.DeviceLoginStartResponse
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.network.AuthScopeSnapshot
-import org.siloserver.silo.network.api.DeviceLoginApi
+import org.prairieserver.prairie.cast.PrairieCastProtocol
+import org.prairieserver.prairie.model.auth.DeviceLoginCapabilityResponse
+import org.prairieserver.prairie.model.auth.DeviceLoginPollResponse
+import org.prairieserver.prairie.model.auth.DeviceLoginStartResponse
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.api.DeviceLoginApi
 
 /** Remote-playback device-login API that approves every handoff unless told otherwise. */
 internal class FakeRemotePlaybackApi : DeviceLoginApi {
@@ -17,7 +17,7 @@ internal class FakeRemotePlaybackApi : DeviceLoginApi {
     override suspend fun remotePlaybackCapabilityAt(serverUrl: String) = ApiResult.Success(
         DeviceLoginCapabilityResponse(
             remotePlaybackHandoff = true,
-            protocolVersions = listOf(SiloCastProtocol.version),
+            protocolVersions = listOf(PrairieCastProtocol.version),
         ),
     )
 

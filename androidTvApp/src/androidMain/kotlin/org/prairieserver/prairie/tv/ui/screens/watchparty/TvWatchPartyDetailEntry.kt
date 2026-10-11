@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import android.widget.Toast
 import androidx.compose.runtime.Composable
@@ -19,22 +19,22 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import org.siloserver.silo.model.feature.WatchPartyExposure
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.model.watchtogether.SetSelectionRequest
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.repository.WatchTogetherRepository
-import org.siloserver.silo.viewmodel.WatchPartyHubViewModel
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.viewmodel.WatchPartyLobbyViewModel
-import org.siloserver.silo.watchtogether.RoomSession
-import org.siloserver.silo.watchtogether.WatchPartyAvailability
-import org.siloserver.silo.watchtogether.WatchPartyAvailabilityRepository
-import org.siloserver.silo.watchtogether.WatchPartyDestination
-import org.siloserver.silo.watchtogether.watchPartyErrorMessage
-import org.siloserver.silo.watchtogether.watchPartyHostingOffered
+import org.prairieserver.prairie.model.feature.WatchPartyExposure
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.model.watchtogether.SetSelectionRequest
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.viewmodel.WatchPartyHubViewModel
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.viewmodel.WatchPartyLobbyViewModel
+import org.prairieserver.prairie.watchtogether.RoomSession
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailability
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailabilityRepository
+import org.prairieserver.prairie.watchtogether.WatchPartyDestination
+import org.prairieserver.prairie.watchtogether.watchPartyErrorMessage
+import org.prairieserver.prairie.watchtogether.watchPartyHostingOffered
 
 /** The detail page's Watch Party row in its More menu. */
 internal data class TvWatchPartyDetailOption(

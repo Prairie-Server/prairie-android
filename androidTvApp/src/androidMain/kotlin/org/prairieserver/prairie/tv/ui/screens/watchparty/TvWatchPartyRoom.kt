@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -63,37 +63,37 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import org.siloserver.silo.common.ui.components.DefaultArtworkKind
-import org.siloserver.silo.model.watchtogether.GuestControlPolicy
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.model.watchtogether.Suggestion
-import org.siloserver.silo.repository.WatchTogetherConnectionState
-import org.siloserver.silo.tv.ui.components.TvPoster
-import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
-import org.siloserver.silo.tv.ui.focus.TvControlState
-import org.siloserver.silo.tv.ui.focus.tvControlSemantics
-import org.siloserver.silo.tv.ui.focus.tvModalFocusBoundary
-import org.siloserver.silo.tv.ui.screens.auth.QrCodePanel
-import org.siloserver.silo.tv.ui.theme.SiloOnSurface
-import org.siloserver.silo.tv.ui.theme.SiloSecondaryText
-import org.siloserver.silo.watchtogether.WatchPartyEligibility
-import org.siloserver.silo.watchtogether.WatchPartyFeatures
-import org.siloserver.silo.watchtogether.WatchPartyLobbyHero
-import org.siloserver.silo.watchtogether.WatchPartyPrimaryAction
-import org.siloserver.silo.watchtogether.WatchPartySecondaryAction
-import org.siloserver.silo.watchtogether.canRemoveSuggestion
-import org.siloserver.silo.watchtogether.roomVoteWinner
-import org.siloserver.silo.watchtogether.watchPartyConnectionLabel
-import org.siloserver.silo.watchtogether.watchPartyLobbyBanner
-import org.siloserver.silo.watchtogether.watchPartyLobbyHero
-import org.siloserver.silo.watchtogether.watchPartyLobbyHint
-import org.siloserver.silo.watchtogether.watchPartyPrimaryAction
-import org.siloserver.silo.watchtogether.watchPartySecondaryAction
-import org.siloserver.silo.common.cards.LocalEpisodeSpoilerPrefs
-import org.siloserver.silo.viewmodel.WatchPartySpoilers
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
+import org.prairieserver.prairie.model.watchtogether.GuestControlPolicy
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.model.watchtogether.Suggestion
+import org.prairieserver.prairie.repository.WatchTogetherConnectionState
+import org.prairieserver.prairie.tv.ui.components.TvPoster
+import org.prairieserver.prairie.tv.ui.components.rememberTvDialogInitialFocus
+import org.prairieserver.prairie.tv.ui.focus.TvControlState
+import org.prairieserver.prairie.tv.ui.focus.tvControlSemantics
+import org.prairieserver.prairie.tv.ui.focus.tvModalFocusBoundary
+import org.prairieserver.prairie.tv.ui.screens.auth.QrCodePanel
+import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.watchtogether.WatchPartyEligibility
+import org.prairieserver.prairie.watchtogether.WatchPartyFeatures
+import org.prairieserver.prairie.watchtogether.WatchPartyLobbyHero
+import org.prairieserver.prairie.watchtogether.WatchPartyPrimaryAction
+import org.prairieserver.prairie.watchtogether.WatchPartySecondaryAction
+import org.prairieserver.prairie.watchtogether.canRemoveSuggestion
+import org.prairieserver.prairie.watchtogether.roomVoteWinner
+import org.prairieserver.prairie.watchtogether.watchPartyConnectionLabel
+import org.prairieserver.prairie.watchtogether.watchPartyLobbyBanner
+import org.prairieserver.prairie.watchtogether.watchPartyLobbyHero
+import org.prairieserver.prairie.watchtogether.watchPartyLobbyHint
+import org.prairieserver.prairie.watchtogether.watchPartyPrimaryAction
+import org.prairieserver.prairie.watchtogether.watchPartySecondaryAction
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.viewmodel.WatchPartySpoilers
 
 /** What a room screen can do. The lobby and the in-player panel each supply their own. */
 internal class TvPartyRoomActions(
@@ -228,7 +228,7 @@ internal fun TvWatchPartyRoomView(
                     .padding(top = if (voting) 30.dp else TvPartyMetrics.headerTop),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = "Watch Party", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = SiloOnSurface)
+                Text(text = "Watch Party", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = PrairieOnSurface)
                 Spacer(modifier = Modifier.width(10.dp))
                 TvPartyConnectionDot(tone = tone, text = connectionText)
                 Spacer(modifier = Modifier.weight(1f))
@@ -294,7 +294,7 @@ internal fun TvWatchPartyRoomView(
                                     text = overview,
                                     fontSize = TvPartyMetrics.overview,
                                     lineHeight = 20.sp,
-                                    color = SiloSecondaryText,
+                                    color = PrairieSecondaryText,
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -356,7 +356,7 @@ internal fun TvWatchPartyRoomView(
                         Text(
                             text = hint,
                             fontSize = TvPartyMetrics.caption,
-                            color = SiloSecondaryText.copy(alpha = 0.7f),
+                            color = PrairieSecondaryText.copy(alpha = 0.7f),
                             textAlign = TextAlign.End,
                             modifier = Modifier.widthIn(max = 360.dp),
                         )
@@ -399,7 +399,7 @@ private fun HeroText(
             lineHeight = size * 1.06f,
             fontWeight = FontWeight.Bold,
             letterSpacing = (-0.5).sp,
-            color = if (staged == null && selected && hero.title == null) SiloSecondaryText else SiloOnSurface,
+            color = if (staged == null && selected && hero.title == null) PrairieSecondaryText else PrairieOnSurface,
             maxLines = if (hero.isVoteQuestion) 1 else 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -410,14 +410,14 @@ private fun HeroText(
                 Text(
                     text = chose,
                     fontSize = TvPartyMetrics.caption,
-                    color = SiloSecondaryText.copy(alpha = 0.7f),
+                    color = PrairieSecondaryText.copy(alpha = 0.7f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         } else {
             hero.supporting?.let {
-                Text(text = it, fontSize = TvPartyMetrics.body, lineHeight = 21.sp, color = SiloSecondaryText)
+                Text(text = it, fontSize = TvPartyMetrics.body, lineHeight = 21.sp, color = PrairieSecondaryText)
             }
         }
     }
@@ -430,17 +430,17 @@ private fun FactsLine(staged: TvStagedPreview) {
     if (parts.isEmpty() && staged.chips.isEmpty()) return
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         parts.forEachIndexed { index, part ->
-            if (index > 0) Text(text = "·", fontSize = 14.sp, color = SiloSecondaryText.copy(alpha = 0.5f))
-            Text(text = part, fontSize = 14.sp, color = SiloSecondaryText, maxLines = 1)
+            if (index > 0) Text(text = "·", fontSize = 14.sp, color = PrairieSecondaryText.copy(alpha = 0.5f))
+            Text(text = part, fontSize = 14.sp, color = PrairieSecondaryText, maxLines = 1)
         }
         staged.chips.forEach { chip ->
             Text(
                 text = chip,
                 fontSize = TvPartyMetrics.caption,
                 fontWeight = FontWeight.SemiBold,
-                color = SiloSecondaryText,
+                color = PrairieSecondaryText,
                 modifier = Modifier
-                    .border(1.dp, SiloSecondaryText.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                    .border(1.dp, PrairieSecondaryText.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
                     .padding(horizontal = 4.dp, vertical = 1.dp),
             )
         }
@@ -575,13 +575,13 @@ private fun VoteBadge(count: Int, isLeader: Boolean) {
     val shape = RoundedCornerShape(100.dp)
     Row(
         modifier = Modifier
-            .background(if (isLeader) SiloOnSurface else Color.Black.copy(alpha = 0.7f), shape)
+            .background(if (isLeader) PrairieOnSurface else Color.Black.copy(alpha = 0.7f), shape)
             .border(1.dp, if (isLeader) Color.Transparent else PartyChromeBorder, shape)
             .padding(horizontal = 7.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        val color = if (isLeader) Color.Black else SiloOnSurface
+        val color = if (isLeader) Color.Black else PrairieOnSurface
         Text(text = "$count", fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = color)
         Text(
             text = if (count == 1) "VOTE" else "VOTES",
@@ -617,7 +617,7 @@ private fun TvPartyHostPickSuggestions(
             Text(
                 text = if (manages) "Queue one to put it up next." else "The host decides what plays.",
                 fontSize = TvPartyMetrics.caption,
-                color = SiloSecondaryText,
+                color = PrairieSecondaryText,
                 maxLines = 1,
             )
         }
@@ -660,7 +660,7 @@ private fun UpNextBadge() {
         letterSpacing = 0.8.sp,
         color = Color.Black,
         modifier = Modifier
-            .background(SiloOnSurface, RoundedCornerShape(100.dp))
+            .background(PrairieOnSurface, RoundedCornerShape(100.dp))
             .padding(horizontal = 5.dp, vertical = 1.dp),
     )
 }
@@ -704,7 +704,7 @@ private fun TvPartySuggestionCard(
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
             border = ClickableSurfaceDefaults.border(
                 border = Border(BorderStroke(1.dp, PartyChromeBorder), shape = shape),
-                focusedBorder = Border(BorderStroke(3.dp, SiloOnSurface), shape = shape),
+                focusedBorder = Border(BorderStroke(3.dp, PrairieOnSurface), shape = shape),
             ),
             glow = ClickableSurfaceDefaults.glow(
                 focusedGlow = Glow(elevationColor = Color.White.copy(alpha = 0.22f), elevation = 16.dp),
@@ -738,7 +738,7 @@ private fun TvPartySuggestionCard(
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
                             .size(22.dp)
-                            .background(SiloOnSurface, CircleShape),
+                            .background(PrairieOnSurface, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(Icons.Filled.Check, contentDescription = "Your vote", tint = Color.Black, modifier = Modifier.size(14.dp))
@@ -751,13 +751,13 @@ private fun TvPartySuggestionCard(
                 text = suggestion.title,
                 fontSize = titleSize,
                 fontWeight = FontWeight.SemiBold,
-                color = if (isFocused) SiloOnSurface else SiloOnSurface.copy(alpha = 0.92f),
+                color = if (isFocused) PrairieOnSurface else PrairieOnSurface.copy(alpha = 0.92f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (showSubtitle) {
                 val line = suggestion.note.takeIf { it.isNotBlank() }?.let { "“$it”" } ?: suggestion.subtitle.ifBlank { " " }
-                Text(text = line, fontSize = TvPartyMetrics.caption, color = SiloSecondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = line, fontSize = TvPartyMetrics.caption, color = PrairieSecondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -789,7 +789,7 @@ private fun TvPartySuggestCard(
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
             border = ClickableSurfaceDefaults.border(
                 border = Border(BorderStroke(0.dp, Color.Transparent), shape = shape),
-                focusedBorder = Border(BorderStroke(2.dp, SiloOnSurface), shape = shape),
+                focusedBorder = Border(BorderStroke(2.dp, PrairieOnSurface), shape = shape),
             ),
             modifier = modifier.tvControlSemantics(state),
         ) {
@@ -801,7 +801,7 @@ private fun TvPartySuggestCard(
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val stroke = 1.dp.toPx()
                         drawRoundRect(
-                            color = SiloSecondaryText.copy(alpha = 0.5f),
+                            color = PrairieSecondaryText.copy(alpha = 0.5f),
                             topLeft = Offset(stroke / 2, stroke / 2),
                             size = Size(size.width - stroke, size.height - stroke),
                             cornerRadius = CornerRadius(6.dp.toPx()),
@@ -812,14 +812,14 @@ private fun TvPartySuggestCard(
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = "Suggest a title",
-                    tint = if (isFocused) SiloOnSurface else SiloSecondaryText,
+                    tint = if (isFocused) PrairieOnSurface else PrairieSecondaryText,
                     modifier = Modifier.size(34.dp),
                 )
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(text = "Suggest a title", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = SiloSecondaryText, maxLines = 1)
-            Text(text = "Anyone can add one", fontSize = TvPartyMetrics.caption, color = SiloSecondaryText.copy(alpha = 0.7f), maxLines = 1)
+            Text(text = "Suggest a title", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = PrairieSecondaryText, maxLines = 1)
+            Text(text = "Anyone can add one", fontSize = TvPartyMetrics.caption, color = PrairieSecondaryText.copy(alpha = 0.7f), maxLines = 1)
         }
     }
 }
@@ -930,13 +930,13 @@ internal fun TvWatchPartyInvitePage(
                             fontSize = 40.sp,
                             lineHeight = 46.sp,
                             fontWeight = FontWeight.Bold,
-                            color = SiloOnSurface,
+                            color = PrairieOnSurface,
                         )
                         Text(
-                            text = "Anyone with a profile on this Silo server can enter it from Watch Party.",
+                            text = "Anyone with a profile on this Prairie server can enter it from Watch Party.",
                             fontSize = TvPartyMetrics.body,
                             lineHeight = 21.sp,
-                            color = SiloSecondaryText,
+                            color = PrairieSecondaryText,
                         )
                     }
                     Text(
@@ -945,14 +945,14 @@ internal fun TvWatchPartyInvitePage(
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 8.sp,
-                        color = SiloOnSurface,
+                        color = PrairieOnSurface,
                         maxLines = 1,
                     )
                     if (inviteUrl != null) {
                         Text(
                             text = "Or scan to open the invitation on a phone.",
                             fontSize = TvPartyMetrics.caption,
-                            color = SiloSecondaryText,
+                            color = PrairieSecondaryText,
                         )
                     }
                     TvPartyButton(

@@ -1,4 +1,4 @@
-package org.siloserver.silo.common.watchparty
+package org.prairieserver.prairie.common.watchparty
 
 import java.net.URI
 

@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import android.widget.Toast
 import androidx.compose.runtime.Composable
@@ -19,23 +19,23 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import org.siloserver.silo.android.ui.components.SiloConfirmDialog
-import org.siloserver.silo.model.feature.WatchPartyExposure
-import org.siloserver.silo.model.watchtogether.AddSuggestionRequest
-import org.siloserver.silo.model.watchtogether.MemberRole
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.model.watchtogether.RoomSelectionMode
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.model.watchtogether.SetSelectionRequest
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.repository.WatchTogetherRepository
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.watchtogether.WatchPartyAvailability
-import org.siloserver.silo.watchtogether.WatchPartyAvailabilityRepository
-import org.siloserver.silo.watchtogether.newWatchPartyId
-import org.siloserver.silo.watchtogether.watchPartyEligibility
-import org.siloserver.silo.watchtogether.watchPartyErrorMessage
-import org.siloserver.silo.watchtogether.watchPartyHostingOffered
+import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
+import org.prairieserver.prairie.model.feature.WatchPartyExposure
+import org.prairieserver.prairie.model.watchtogether.AddSuggestionRequest
+import org.prairieserver.prairie.model.watchtogether.MemberRole
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.model.watchtogether.SetSelectionRequest
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.repository.WatchTogetherRepository
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailability
+import org.prairieserver.prairie.watchtogether.WatchPartyAvailabilityRepository
+import org.prairieserver.prairie.watchtogether.newWatchPartyId
+import org.prairieserver.prairie.watchtogether.watchPartyEligibility
+import org.prairieserver.prairie.watchtogether.watchPartyErrorMessage
+import org.prairieserver.prairie.watchtogether.watchPartyHostingOffered
 
 /** The detail page's one Watch Party overflow action. */
 data class DetailPartyAction(val label: String, val onClick: () -> Unit)
@@ -181,7 +181,7 @@ fun rememberWatchPartyDetailActions(
     )
     val dialogs: @Composable () -> Unit = {
         selecting?.let { item ->
-            SiloConfirmDialog(
+            PrairieConfirmDialog(
                 title = "Play this for everyone?",
                 body = "The party switches to it now.",
                 confirmLabel = "Play for everyone",

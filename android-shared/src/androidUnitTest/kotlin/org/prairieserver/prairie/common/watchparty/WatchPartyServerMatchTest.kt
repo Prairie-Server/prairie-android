@@ -1,4 +1,4 @@
-package org.siloserver.silo.common.watchparty
+package org.prairieserver.prairie.common.watchparty
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -10,7 +10,7 @@ class WatchPartyServerMatchTest {
         assertTrue(watchPartyServerMatches("https://media.example.com", "https://media.example.com"))
         assertTrue(watchPartyServerMatches("https://Media.Example.com/", "https://media.example.com"))
         assertTrue(watchPartyServerMatches("HTTPS://media.example.com", "https://media.example.com"))
-        assertTrue(watchPartyServerMatches("https://media.example.com/silo/", "https://media.example.com/silo"))
+        assertTrue(watchPartyServerMatches("https://media.example.com/prairie/", "https://media.example.com/prairie"))
         assertTrue(watchPartyServerMatches("https://media.example.com:443", "https://media.example.com"))
         assertTrue(watchPartyServerMatches("http://10.0.0.5:8096", "http://10.0.0.5:8096/"))
         assertTrue(watchPartyServerMatches("http://[fd00::5]:8096", "http://[FD00::5]:8096/"))
@@ -20,8 +20,8 @@ class WatchPartyServerMatchTest {
     fun `a different scheme, port, base path, or address is a different server`() {
         assertFalse(watchPartyServerMatches("http://media.example.com", "https://media.example.com"))
         assertFalse(watchPartyServerMatches("https://media.example.com:8443", "https://media.example.com"))
-        assertFalse(watchPartyServerMatches("https://media.example.com/silo", "https://media.example.com"))
-        assertFalse(watchPartyServerMatches("https://media.example.com/Silo", "https://media.example.com/silo"))
+        assertFalse(watchPartyServerMatches("https://media.example.com/prairie", "https://media.example.com"))
+        assertFalse(watchPartyServerMatches("https://media.example.com/Prairie", "https://media.example.com/prairie"))
         assertFalse(watchPartyServerMatches("http://[fd00::5]:8096", "http://[fd00::5]"))
         // A LAN address and a public address for the same server do not match.
         assertFalse(watchPartyServerMatches("http://192.168.1.10:8096", "https://media.example.com"))

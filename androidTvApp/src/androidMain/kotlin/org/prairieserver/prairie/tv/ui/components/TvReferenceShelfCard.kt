@@ -32,6 +32,8 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.tv.ui.theme.ProgressFill
 import org.prairieserver.prairie.tv.ui.theme.ProgressTrack
@@ -41,12 +43,15 @@ import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 @Composable
 fun TvReferenceShelfCard(
     title: String,
+    hideArtwork: Boolean = false,
     imageUrl: String?,
     imageThumbhash: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     detail: String? = null,
+    /** Catalog item type; picks the mark on the default artwork. */
+    mediaType: String? = null,
     progress: Float? = null,
     width: Dp = 268.dp,
     focusRequester: FocusRequester? = null,
@@ -77,12 +82,14 @@ fun TvReferenceShelfCard(
                 .fillMaxSize(),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                ThumbhashImage(
+                SpoilerImage(
+                    hidden = hideArtwork,
                     url = imageUrl,
                     thumbhash = imageThumbhash,
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    defaultArtwork = DefaultArtworkKind.forItemType(mediaType),
                 )
 
             Box(

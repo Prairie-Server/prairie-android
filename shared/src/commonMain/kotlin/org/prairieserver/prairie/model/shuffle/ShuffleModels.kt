@@ -1,8 +1,8 @@
-package org.siloserver.silo.model.shuffle
+package org.prairieserver.prairie.model.shuffle
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import org.siloserver.silo.model.section.SectionItem
+import org.prairieserver.prairie.model.section.SectionItem
 
 /** What a shuffle draws its random picks from. Wire values of `ShuffleScopeRequest.kind`. */
 enum class ShuffleScopeKind(val wire: String) {
@@ -65,5 +65,5 @@ private val SHUFFLE_LIBRARY_TYPES = setOf("movie", "movies", "series", "show", "
 fun isShuffleLibraryType(type: String?): Boolean = type?.trim()?.lowercase() in SHUFFLE_LIBRARY_TYPES
 
 /** A season shuffles only when it has two or more playable episodes. */
-fun canShuffleSeason(episodes: List<org.siloserver.silo.model.catalog.EpisodeListItem>): Boolean =
+fun canShuffleSeason(episodes: List<org.prairieserver.prairie.model.catalog.EpisodeListItem>): Boolean =
     episodes.count { it.files.isNotEmpty() } > 1

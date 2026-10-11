@@ -1,4 +1,4 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -67,31 +67,31 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import org.siloserver.silo.model.watchtogether.RoomMember
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.tv.ui.components.rememberTvDialogInitialFocus
-import org.siloserver.silo.tv.ui.focus.TvControlState
-import org.siloserver.silo.tv.ui.focus.requestFocusUntilObserved
-import org.siloserver.silo.tv.ui.focus.tvControlSemantics
-import org.siloserver.silo.tv.ui.focus.tvModalFocusBoundary
-import org.siloserver.silo.tv.ui.theme.DarkBackground
-import org.siloserver.silo.tv.ui.theme.DarkSurfaceElevated
-import org.siloserver.silo.tv.ui.theme.FocusedContainer
-import org.siloserver.silo.tv.ui.theme.FocusedContent
-import org.siloserver.silo.tv.ui.theme.SiloOnSurface
-import org.siloserver.silo.tv.ui.theme.SiloSecondaryText
-import org.siloserver.silo.watchtogether.WatchPartyConnectionTone
-import org.siloserver.silo.watchtogether.watchPartyAvatarIndex
-import org.siloserver.silo.watchtogether.WatchPartySeatState
-import org.siloserver.silo.watchtogether.watchPartyPresenceSummary
-import org.siloserver.silo.watchtogether.watchPartySeatOrder
-import org.siloserver.silo.watchtogether.watchPartySeatState
-import org.siloserver.silo.watchtogether.watchPartySeatStatus
-import org.siloserver.silo.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.model.watchtogether.RoomMember
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.tv.ui.components.rememberTvDialogInitialFocus
+import org.prairieserver.prairie.tv.ui.focus.TvControlState
+import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.tv.ui.focus.tvControlSemantics
+import org.prairieserver.prairie.tv.ui.focus.tvModalFocusBoundary
+import org.prairieserver.prairie.tv.ui.theme.DarkBackground
+import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
+import org.prairieserver.prairie.tv.ui.theme.FocusedContainer
+import org.prairieserver.prairie.tv.ui.theme.FocusedContent
+import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.watchtogether.WatchPartyConnectionTone
+import org.prairieserver.prairie.watchtogether.watchPartyAvatarIndex
+import org.prairieserver.prairie.watchtogether.WatchPartySeatState
+import org.prairieserver.prairie.watchtogether.watchPartyPresenceSummary
+import org.prairieserver.prairie.watchtogether.watchPartySeatOrder
+import org.prairieserver.prairie.watchtogether.watchPartySeatState
+import org.prairieserver.prairie.watchtogether.watchPartySeatStatus
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
 
 /*
  * The Watch Party look, ported from the tvOS clients (`WatchPartyComponents`
- * in silo-apple). tvOS metrics are pixels at 1920×1080; this app lays out a
+ * in prairie-apple). tvOS metrics are pixels at 1920×1080; this app lays out a
  * 960×540dp canvas and scales text by 0.86, so lengths are px / 2 and text is
  * px / 2 / 0.86, never below the TV app's 14sp reading floor (eyebrows,
  * captions, and badges land on the floor rather than at tvOS's smaller size).
@@ -155,7 +155,7 @@ internal fun Modifier.partyFocus(focus: TvPartyFocus, key: String): Modifier = t
 // ---- Type ------------------------------------------------------------------
 
 @Composable
-internal fun TvPartyEyebrow(text: String, modifier: Modifier = Modifier, color: Color = SiloSecondaryText) {
+internal fun TvPartyEyebrow(text: String, modifier: Modifier = Modifier, color: Color = PrairieSecondaryText) {
     Text(
         text = text.uppercase(),
         fontSize = TvPartyMetrics.eyebrow,
@@ -247,9 +247,9 @@ internal fun TvPartyButton(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val shape = RoundedCornerShape(100.dp)
     val (restFill, restContent, restBorder) = when (kind) {
-        TvPartyButtonKind.Primary -> Triple(SiloOnSurface, DarkBackground, Color.Transparent)
-        TvPartyButtonKind.Secondary -> Triple(PartyChromeFill, SiloOnSurface, PartyChromeBorder)
-        TvPartyButtonKind.Outlined -> Triple(Color.Transparent, SiloOnSurface, SiloOnSurface.copy(alpha = 0.8f))
+        TvPartyButtonKind.Primary -> Triple(PrairieOnSurface, DarkBackground, Color.Transparent)
+        TvPartyButtonKind.Secondary -> Triple(PartyChromeFill, PrairieOnSurface, PartyChromeBorder)
+        TvPartyButtonKind.Outlined -> Triple(Color.Transparent, PrairieOnSurface, PrairieOnSurface.copy(alpha = 0.8f))
     }
     val content = if (isFocused) FocusedContent else restContent
     Surface(
@@ -319,7 +319,7 @@ internal fun TvPartyCodePill(code: String, onClick: () -> Unit, modifier: Modifi
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = PartyChromeFill,
-            contentColor = SiloOnSurface,
+            contentColor = PrairieOnSurface,
             focusedContainerColor = FocusedContainer,
             focusedContentColor = FocusedContent,
             pressedContainerColor = FocusedContainer,
@@ -347,7 +347,7 @@ internal fun TvPartyCodePill(code: String, onClick: () -> Unit, modifier: Modifi
                 fontSize = TvPartyMetrics.caption,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 1.4.sp,
-                color = if (isFocused) Color.Black.copy(alpha = 0.5f) else SiloSecondaryText,
+                color = if (isFocused) Color.Black.copy(alpha = 0.5f) else PrairieSecondaryText,
             )
             Text(
                 text = code,
@@ -355,12 +355,12 @@ internal fun TvPartyCodePill(code: String, onClick: () -> Unit, modifier: Modifi
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 3.sp,
-                color = if (isFocused) FocusedContent else SiloOnSurface,
+                color = if (isFocused) FocusedContent else PrairieOnSurface,
             )
             Icon(
                 imageVector = Icons.Filled.QrCode2,
                 contentDescription = "Invite friends",
-                tint = if (isFocused) Color.Black.copy(alpha = 0.6f) else SiloSecondaryText,
+                tint = if (isFocused) Color.Black.copy(alpha = 0.6f) else PrairieSecondaryText,
                 modifier = Modifier.size(16.dp),
             )
         }
@@ -380,7 +380,7 @@ internal fun TvPartyOptionsButton(onClick: () -> Unit, modifier: Modifier = Modi
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = PartyChromeFill,
-            contentColor = SiloOnSurface,
+            contentColor = PrairieOnSurface,
             focusedContainerColor = FocusedContainer,
             focusedContentColor = FocusedContent,
             pressedContainerColor = FocusedContainer,
@@ -400,7 +400,7 @@ internal fun TvPartyOptionsButton(onClick: () -> Unit, modifier: Modifier = Modi
             Icon(
                 imageVector = Icons.Filled.MoreHoriz,
                 contentDescription = "Party options",
-                tint = if (isFocused) FocusedContent else SiloOnSurface,
+                tint = if (isFocused) FocusedContent else PrairieOnSurface,
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -414,7 +414,7 @@ internal fun TvPartyConnectionDot(tone: WatchPartyConnectionTone, text: String, 
     val color = when (tone) {
         WatchPartyConnectionTone.Good -> PartyEmerald
         WatchPartyConnectionTone.Warning -> PartyAmber
-        WatchPartyConnectionTone.Neutral -> SiloSecondaryText
+        WatchPartyConnectionTone.Neutral -> PrairieSecondaryText
         WatchPartyConnectionTone.Bad -> PartyRose
     }
     Row(
@@ -423,7 +423,7 @@ internal fun TvPartyConnectionDot(tone: WatchPartyConnectionTone, text: String, 
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(modifier = Modifier.size(6.dp).background(color, CircleShape))
-        Text(text = text, fontSize = TvPartyMetrics.caption, color = SiloSecondaryText, maxLines = 1)
+        Text(text = text, fontSize = TvPartyMetrics.caption, color = PrairieSecondaryText, maxLines = 1)
     }
 }
 
@@ -442,13 +442,13 @@ internal fun TvPartyBanner(message: String, modifier: Modifier = Modifier, warni
         Box(
             modifier = Modifier
                 .size(7.dp)
-                .background(if (warning) PartyAmber else SiloSecondaryText, CircleShape),
+                .background(if (warning) PartyAmber else PrairieSecondaryText, CircleShape),
         )
         Text(
             text = message,
             fontSize = TvPartyMetrics.caption,
             lineHeight = 17.sp,
-            color = if (warning) PartyAmberText else SiloOnSurface,
+            color = if (warning) PartyAmberText else PrairieOnSurface,
         )
     }
 }
@@ -479,9 +479,9 @@ internal fun tvPartyAvatarBrush(member: RoomMember): Brush {
 internal fun TvPartySeat(member: RoomMember, state: WatchPartySeatState, size: Dp = TvPartyMetrics.seat) {
     val ring = size * 1.14f
     val ringColor = when (state) {
-        WatchPartySeatState.Ready, WatchPartySeatState.Watching -> SiloOnSurface
-        WatchPartySeatState.Away -> SiloOnSurface.copy(alpha = 0.25f)
-        else -> SiloOnSurface.copy(alpha = 0.38f)
+        WatchPartySeatState.Ready, WatchPartySeatState.Watching -> PrairieOnSurface
+        WatchPartySeatState.Away -> PrairieOnSurface.copy(alpha = 0.25f)
+        else -> PrairieOnSurface.copy(alpha = 0.38f)
     }
     val done = state == WatchPartySeatState.Ready || state == WatchPartySeatState.Watching
     val nameSize = (size.value * 0.19f / 0.86f).coerceAtLeast(MIN_SP).sp
@@ -508,7 +508,7 @@ internal fun TvPartySeat(member: RoomMember, state: WatchPartySeatState, size: D
                     text = tvWatchPartyMemberName(member).take(1).uppercase(),
                     fontSize = (size.value * 0.36f / 0.86f).sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                 )
             }
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -534,7 +534,7 @@ internal fun TvPartySeat(member: RoomMember, state: WatchPartySeatState, size: D
                     fontSize = MIN_SP.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         // Text keeps a 14sp floor, so on a small seat the tag is wider than the disc.
@@ -555,7 +555,7 @@ internal fun TvPartySeat(member: RoomMember, state: WatchPartySeatState, size: D
                         .size(badge)
                         .background(Color.Black, CircleShape)
                         .padding(size * 0.03f)
-                        .background(SiloOnSurface, CircleShape),
+                        .background(PrairieOnSurface, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -571,7 +571,7 @@ internal fun TvPartySeat(member: RoomMember, state: WatchPartySeatState, size: D
             text = tvWatchPartyMemberName(member),
             fontSize = nameSize,
             fontWeight = FontWeight.Medium,
-            color = SiloOnSurface,
+            color = PrairieOnSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -580,7 +580,7 @@ internal fun TvPartySeat(member: RoomMember, state: WatchPartySeatState, size: D
         listOfNotNull("you".takeIf { member.isSelf }, watchPartySeatStatus(state))
             .takeIf { it.isNotEmpty() }
             ?.let { detail ->
-                Text(text = detail.joinToString(" · "), fontSize = detailSize, color = SiloSecondaryText, maxLines = 1)
+                Text(text = detail.joinToString(" · "), fontSize = detailSize, color = PrairieSecondaryText, maxLines = 1)
             }
     }
 }
@@ -605,7 +605,7 @@ internal fun TvPartyInviteSeat(onClick: () -> Unit, modifier: Modifier = Modifie
             shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.Transparent,
-                contentColor = SiloSecondaryText,
+                contentColor = PrairieSecondaryText,
                 focusedContainerColor = FocusedContainer,
                 focusedContentColor = FocusedContent,
                 pressedContainerColor = FocusedContainer,
@@ -627,7 +627,7 @@ internal fun TvPartyInviteSeat(onClick: () -> Unit, modifier: Modifier = Modifie
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = "Invite friends",
-                    tint = if (isFocused) FocusedContent else SiloSecondaryText,
+                    tint = if (isFocused) FocusedContent else PrairieSecondaryText,
                     modifier = Modifier.size(size * 0.42f),
                 )
             }
@@ -636,7 +636,7 @@ internal fun TvPartyInviteSeat(onClick: () -> Unit, modifier: Modifier = Modifie
             text = "Invite",
             fontSize = (size.value * 0.19f / 0.86f).coerceAtLeast(MIN_SP).sp,
             fontWeight = FontWeight.Medium,
-            color = SiloSecondaryText,
+            color = PrairieSecondaryText,
         )
     }
 }
@@ -656,7 +656,7 @@ internal fun TvPartySeatsRow(
             Text(
                 text = watchPartyPresenceSummary(members, phase),
                 fontSize = TvPartyMetrics.caption,
-                color = SiloSecondaryText.copy(alpha = 0.7f),
+                color = PrairieSecondaryText.copy(alpha = 0.7f),
                 maxLines = 1,
             )
         }
@@ -692,7 +692,7 @@ internal fun TvPartyOptionRow(
         isFocused && destructive -> PartyDestructiveFocused
         isFocused -> FocusedContent
         destructive -> PartyDestructive
-        else -> SiloOnSurface
+        else -> PrairieOnSurface
     }
     Surface(
         onClick = { state.perform(onClick) },
@@ -701,13 +701,13 @@ internal fun TvPartyOptionRow(
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.White.copy(alpha = 0.04f),
-            contentColor = SiloOnSurface,
+            contentColor = PrairieOnSurface,
             focusedContainerColor = FocusedContainer,
             focusedContentColor = FocusedContent,
             pressedContainerColor = FocusedContainer,
             pressedContentColor = FocusedContent,
             disabledContainerColor = Color.White.copy(alpha = 0.04f),
-            disabledContentColor = SiloOnSurface,
+            disabledContentColor = PrairieOnSurface,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
         border = ClickableSurfaceDefaults.border(
@@ -742,7 +742,7 @@ internal fun TvPartyOptionRow(
                 Text(
                     text = value,
                     fontSize = 14.sp,
-                    color = (if (isFocused) FocusedContent else SiloOnSurface).copy(alpha = 0.7f),
+                    color = (if (isFocused) FocusedContent else PrairieOnSurface).copy(alpha = 0.7f),
                     maxLines = 1,
                 )
             }
@@ -807,7 +807,7 @@ internal fun TvPartyMenuOverlay(
                     text = title,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(bottom = 2.dp),

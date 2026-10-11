@@ -1,14 +1,14 @@
-package org.siloserver.silo.common.requests
+package org.prairieserver.prairie.common.requests
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import org.siloserver.silo.model.request.MediaRequest
-import org.siloserver.silo.model.request.RequestMediaResult
-import org.siloserver.silo.model.request.libraryItemToOpen
-import org.siloserver.silo.repository.RequestDetailCache
-import org.siloserver.silo.repository.RequestsRepository
-import org.siloserver.silo.repository.cacheKey
+import org.prairieserver.prairie.model.request.MediaRequest
+import org.prairieserver.prairie.model.request.RequestMediaResult
+import org.prairieserver.prairie.model.request.libraryItemToOpen
+import org.prairieserver.prairie.repository.RequestDetailCache
+import org.prairieserver.prairie.repository.RequestsRepository
+import org.prairieserver.prairie.repository.cacheKey
 
 /**
  * The standard taps on request cards and rows, on phone and TV: a title that

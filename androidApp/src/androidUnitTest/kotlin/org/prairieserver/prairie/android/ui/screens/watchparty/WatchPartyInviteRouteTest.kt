@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -6,7 +6,7 @@ import kotlin.test.assertFalse
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.siloserver.silo.android.ui.navigation.Route
+import org.prairieserver.prairie.android.ui.navigation.Route
 
 // Route strings call android.net.Uri.encode, which needs Robolectric's runtime.
 @RunWith(RobolectricTestRunner::class)
@@ -16,7 +16,7 @@ class WatchPartyInviteRouteTest {
     @Test
     fun `an app link becomes a hub route that carries only an opaque id`() {
         val link = watchPartyAppLinkOrNull(
-            "silo://watch-party?server=https%3A%2F%2Fmedia.example.com&token=secret-join-token",
+            "prairie://watch-party?server=https%3A%2F%2Fmedia.example.com&token=secret-join-token",
         )!!
         val route = watchPartyInviteRoute(link)
 

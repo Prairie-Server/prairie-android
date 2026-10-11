@@ -1,36 +1,36 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
-import org.siloserver.silo.model.watchtogether.RoomMember
-import org.siloserver.silo.model.watchtogether.RoomPhase
-import org.siloserver.silo.model.watchtogether.RoomPlaybackState
-import org.siloserver.silo.model.watchtogether.RoomSnapshot
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.watchtogether.WatchPartyInvite
+import org.prairieserver.prairie.model.watchtogether.RoomMember
+import org.prairieserver.prairie.model.watchtogether.RoomPhase
+import org.prairieserver.prairie.model.watchtogether.RoomPlaybackState
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.watchtogether.WatchPartyInvite
 
 class WatchPartySupportTest {
 
     // ---- Invitation links ---------------------------------------------------
 
     @Test
-    fun `a silo watch-party link parses into its server and token`() {
+    fun `a prairie watch-party link parses into its server and token`() {
         val link = watchPartyAppLinkOrNull(
-            "silo://watch-party?server=https%3A%2F%2Fmedia.example.com%2Fsilo&token=secret-token",
+            "prairie://watch-party?server=https%3A%2F%2Fmedia.example.com%2Fprairie&token=secret-token",
         )
-        assertEquals(WatchPartyInvite.Link("https://media.example.com/silo", "secret-token"), link)
+        assertEquals(WatchPartyInvite.Link("https://media.example.com/prairie", "secret-token"), link)
     }
 
     @Test
     fun `account invitations, web links, codes, and malformed links are not party app links`() {
-        assertNull(watchPartyAppLinkOrNull("silo://invite?server=https%3A%2F%2Fmedia.example.com&token=t"))
+        assertNull(watchPartyAppLinkOrNull("prairie://invite?server=https%3A%2F%2Fmedia.example.com&token=t"))
         assertNull(watchPartyAppLinkOrNull("https://media.example.com/rooms/join?token=t"))
         assertNull(watchPartyAppLinkOrNull("ABCD2345"))
-        assertNull(watchPartyAppLinkOrNull("silo://watch-party?server=https%3A%2F%2Fmedia.example.com"))
-        assertNull(watchPartyAppLinkOrNull("silo://watch-party?server=https%3A%2F%2Fmedia.example.com&token=a&token=b"))
+        assertNull(watchPartyAppLinkOrNull("prairie://watch-party?server=https%3A%2F%2Fmedia.example.com"))
+        assertNull(watchPartyAppLinkOrNull("prairie://watch-party?server=https%3A%2F%2Fmedia.example.com&token=a&token=b"))
         assertNull(watchPartyAppLinkOrNull(null))
         assertNull(watchPartyAppLinkOrNull(""))
     }

@@ -1,70 +1,59 @@
 package org.prairieserver.prairie.android.ui.screens.settings
 
-import org.prairieserver.prairie.model.settings.SeekMedia
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.ArrowCircleDown
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.ConnectedTv
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
+import androidx.compose.ui.unit.dp
+import org.koin.compose.viewmodel.koinViewModel
+import org.prairieserver.prairie.android.BuildConfig
+import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.android.ui.components.SignOutConfirmDialog
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
-import org.prairieserver.prairie.android.ui.screens.downloads.DownloadsViewModel
-import org.prairieserver.prairie.android.ui.screens.home.HomeSectionsEditor
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.shouldShowDiagnosticsEntry
 import org.prairieserver.prairie.android.ui.theme.SettingsDimens
 import org.prairieserver.prairie.android.ui.theme.SettingsTextStyles
-import org.prairieserver.prairie.android.ui.theme.PrairieBorder
-import org.prairieserver.prairie.android.ui.theme.PrairieDestructive
-import org.prairieserver.prairie.android.ui.theme.PrairieForeground
-import org.prairieserver.prairie.android.ui.theme.PrairieMutedText
+import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.android.ui.theme.PrairieSettingsBackground
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceContainer
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceContainerHigh
@@ -75,20 +64,37 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.metadata.MetadataAiOnView
+import org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi
+import org.prairieserver.prairie.common.network.clientVersionLabel
+import org.prairieserver.prairie.common.settings.CardPresentationSupport
+import org.prairieserver.prairie.model.settings.LanguageOptions
+import org.prairieserver.prairie.model.settings.QualityPresets
+import org.prairieserver.prairie.model.settings.SettingKeys
+
+/** Prairie's privacy policy, linked from About and from Diagnostics. */
+internal const val PRAIRIE_PRIVACY_POLICY_URL = "https://prairieserver.org/privacy"
 
 /**
- * Main settings screen organized in grouped sections.
+ * The Settings overview, laid out like the Apple apps' (prairie-apple
+ * `IOSSettingsOverview`): a large title, the account card, a search field,
+ * then grouped one-line rows with graphite icon tiles that open the sub-pages.
  *
- * This screen is used as tab content within MainScreen (Settings tab)
- * and does NOT have its own top bar back button since it's a tab root.
- *
- * @param onLoggedOut Called after the user signs out.
- * @param showTopBar Whether to show the top bar (false when inside MainScreen tab).
- * @param onBackClick Back navigation handler for standalone mode.
+ * Android adds what the Apple apps keep elsewhere: Notifications, the Library
+ * shortcuts (Watchlist, Favorites, History, Collections — reachable only from
+ * here on the phone) and Sign in a TV. Each sits in the group it belongs to
+ * rather than in a group of its own. The Sign-in group
+ * (the server's external sign-in providers) appears only on servers that
+ * offer one.
  */
 @Composable
 fun SettingsScreen(
     onLoggedOut: () -> Unit,
+    onBackClick: (() -> Unit)? = null,
+    onOpenInterface: () -> Unit = {},
+    onOpenPlayback: () -> Unit = {},
+    onOpenSubtitles: () -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
     onNavigateToServers: () -> Unit = {},
     onPairDevice: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
@@ -97,25 +103,23 @@ fun SettingsScreen(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToCollections: () -> Unit = {},
     onNavigateToDiagnostics: () -> Unit = {},
-    showTopBar: Boolean = false,
-    onBackClick: (() -> Unit)? = null,
     viewModel: SettingsViewModel = koinViewModel(),
-    downloadsViewModel: DownloadsViewModel = koinViewModel(),
     diagnosticsViewModel: DiagnosticsViewModel = koinViewModel(),
+    signInViewModel: SignInSettingsViewModel = koinViewModel(),
 ) {
-    val recovery = org.prairieserver.prairie.common.player.rememberPlaybackRecoverySettings(org.koin.compose.koinInject())
     val state by viewModel.uiState.collectAsState()
-    var subtitleStyleVisible by remember { mutableStateOf(false) }
-    org.prairieserver.prairie.android.ui.screens.player.SubtitleStyleSheet(
-        isVisible = subtitleStyleVisible,
-        appearance = state.subtitleAppearance,
-        onUpdate = viewModel::setSubtitleAppearance,
-        onDismiss = { subtitleStyleVisible = false },
-    )
-    val downloadsState by downloadsViewModel.uiState.collectAsState()
+    val signInState by signInViewModel.uiState.collectAsState()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
-    var showRemoveAllDownloadsConfirm by remember { mutableStateOf(false) }
-    var showHomeSectionsEditor by remember { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
+    var query by rememberSaveable { mutableStateOf("") }
+    var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    // The large title scrolls away and the bar takes the title over, the way
+    // a large navigation title collapses to an inline one.
+    val titleScrolledAway by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+    val watchPartyExperiment: org.prairieserver.prairie.common.watchparty.WatchPartyExperiment =
+        org.koin.compose.koinInject()
+    val watchPartyEnabled by watchPartyExperiment.enabled.collectAsState()
 
     LaunchedEffect(state.loggedOut) {
         if (state.loggedOut) {
@@ -124,278 +128,274 @@ fun SettingsScreen(
         }
     }
 
+    val search = SettingsSearch(query)
+    val versionLabel = clientVersionLabel(BuildConfig.VERSION_NAME, BuildConfig.BUILD_NUMBER)
+    val serverLabel = state.serverName.ifBlank { serverHost(state.serverUrl) ?: "Not connected" }
+    val showDiagnostics = shouldShowDiagnosticsEntry(diagnosticsState) &&
+        search.matches("diagnostics", "support", "reports", "debug", "crash")
+
+    val matchesInterface = search.matches(
+        "interface", "appearance", "cards", "posters", "captions", "home", "sections",
+        "title art", "logos",
+    )
+    val matchesNotifications = state.notificationsAvailable && search.matches(
+        "notifications", "alerts", "favorites", "watchlist", "continue watching", "next up",
+    )
+    val matchesPlayback = search.matches(
+        "playback", "quality", "audio", "dolby vision", "picture-in-picture", "episodes", "next up",
+        "skip", "intros", "credits", "rewind", "still watching", "skip interval", "audiobooks",
+        "spoilers", "unwatched", "blur", "descriptions",
+    )
+    val matchesSubtitles = search.matches(
+        "subtitles", "captions", "language", "behavior", "appearance", "forced", "metadata",
+    )
+    val matchesDownloads = search.matches("downloads", "offline", "quality", "wi-fi", "cleanup", "storage")
+    val matchesWatchlist = search.matches("library", "watchlist")
+    val matchesFavorites = search.matches("library", "favorites")
+    val matchesHistory = search.matches("library", "history", "watch history")
+    val matchesCollections = search.matches("library", "collections")
+    val matchesServer = search.matches("server", "connection", serverLabel)
+    val matchesPairDevice = search.matches("connection", "pair", "device", "tv", "link", "sign in")
+    // External sign-in (OIDC/LDAP): shown only on servers that have it.
+    val matchesSignIn = signInState.visible &&
+        search.matches("sign-in", "sign in", "account", "provider", "connect", "disconnect", "sso")
+    val matchesExperimental = search.matches(
+        "experimental", "beta", "testing", "audiobooks", "navigation", "watch party", "party",
+    )
+    val matchesAbout = search.matches("about", "version", versionLabel, "privacy", "policy", "information")
+    val matchesSignOut = search.matches("sign out", "account")
+
+    val hasResults = matchesInterface || matchesNotifications || matchesPlayback || matchesSubtitles ||
+        matchesDownloads || matchesWatchlist || matchesFavorites || matchesHistory || matchesCollections ||
+        showDiagnostics || matchesServer || matchesPairDevice || matchesExperimental ||
+        matchesAbout || matchesSignOut || matchesSignIn
+
     Scaffold(
         topBar = {
-            if (showTopBar) {
-                PrairieTopBar(
-                    title = "Settings",
-                    onBackClick = onBackClick,
-                    containerColor = PrairieSettingsBackground,
-                )
-            }
+            PrairieTopBar(
+                title = if (titleScrolledAway) "Settings" else "",
+                onBackClick = onBackClick,
+                containerColor = PrairieSettingsBackground,
+                centerTitle = true,
+            )
         },
         containerColor = PrairieSettingsBackground,
     ) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(SettingsDimens.pageGutter),
+            contentPadding = PaddingValues(
+                start = SettingsDimens.pageGutter,
+                end = SettingsDimens.pageGutter,
+                bottom = SettingsDimens.pageBottomSpacer,
+            ),
             verticalArrangement = Arrangement.spacedBy(SettingsDimens.sectionGap),
         ) {
-            item {
-                if (!showTopBar) {
+            item(key = "title") {
+                Column {
                     Text(
                         text = "Settings",
-                        style = MaterialTheme.typography.displayMedium,
-                        color = PrairieForeground,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(
-                            top = SettingsDimens.pageTopPadding,
-                            bottom = SettingsDimens.headerStartInset,
-                        ),
+                        style = SettingsTextStyles.largeTitle,
+                        color = PrairieOnSurface,
+                    )
+                    Spacer(modifier = Modifier.height(SettingsDimens.headerBottomGap))
+                    SettingsAccountCard(
+                        profile = state.activeProfile,
+                        user = state.user,
+                        serverHost = serverHost(state.serverUrl),
+                        onClick = onSwitchProfile,
                     )
                 }
             }
 
-            item {
-                AccountSection(
-                    onSwitchProfile = onSwitchProfile,
-                    user = state.user,
-                    isLoadingUser = state.isLoadingUser,
-                    onPairDevice = onPairDevice,
-                    onSignOut = viewModel::logout,
-                )
+            item(key = "search") {
+                SettingsSearchField(query = query, onQueryChange = { query = it })
             }
 
-            if (recovery.visible) {
-                item {
-                    SettingsSectionCard {
-                        SettingsNavigationRow(
-                            label = if (recovery.busy) "Recovering playback…" else "Retry pending playback stops",
-                            description = recovery.message,
-                            onClick = recovery.retry,
-                            enabled = !recovery.busy,
-                        )
-                    }
-                }
-            }
-            if (shouldShowDiagnosticsEntry(diagnosticsState)) {
-                item {
-                    SettingsSectionCard {
-                        SettingsNavigationRow(
-                            label = "Diagnostics",
-                            description = "Capture and review a report when something goes wrong.",
-                            value = when (diagnosticsState.availability) {
-                                org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi.AVAILABLE -> "Available"
-                                org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi.DISABLED -> "Disabled"
-                                org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi.STORAGE_UNAVAILABLE -> "Unavailable"
-                                org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi.OFFLINE -> "Offline"
-                                org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi.INELIGIBLE -> null
-                            },
-                            onClick = onNavigateToDiagnostics,
-                        )
-                    }
-                }
-            }
-
-            item {
-                PlaybackSettings(
-                    qualityResolution = state.qualityResolution,
-                    maxBitrateKbps = state.maxBitrateKbps,
-                    audioLanguage = state.audioLanguage,
-                    audioLanguageSuggestions = state.audioLanguageSuggestions,
-                    introSkipMode = state.introSkipMode,
-                    autoSkipCredits = state.autoSkipCredits,
-                    pictureInPictureEnabled = state.pictureInPictureEnabled,
-                    dolbyVisionEnabled = state.dolbyVisionEnabled,
-                    dvProfile7HDR10Fallback = state.dvProfile7HDR10Fallback,
-                    autoPlayNext = state.autoPlayNext,
-                    nextUpPromptSeconds = state.nextUpPromptSeconds,
-                    resumeRewindSeconds = state.resumeRewindSeconds,
-                    passOutThreshold = state.passOutThreshold,
-                    onQualityPresetSelected = viewModel::setQualityPreset,
-                    onAudioLanguageChanged = viewModel::setAudioLanguage,
-                    onIntroSkipModeChanged = viewModel::setIntroSkipMode,
-                    onAutoSkipCreditsChanged = viewModel::setAutoSkipCredits,
-                    onPictureInPictureEnabledChanged = viewModel::setPictureInPictureEnabled,
-                    onDolbyVisionEnabledChanged = viewModel::setDolbyVisionEnabled,
-                    onDvProfile7HDR10FallbackChanged = viewModel::setDvProfile7HDR10Fallback,
-                    onAutoPlayNextChanged = viewModel::setAutoPlayNext,
-                    onNextUpPromptSecondsChanged = viewModel::setNextUpPromptSeconds,
-                    onResumeRewindSecondsChanged = viewModel::setResumeRewindSeconds,
-                    onPassOutThresholdChanged = viewModel::setPassOutThreshold,
-                    onResetPlaybackOverrides = viewModel::resetPlaybackOverrides,
-                )
-            }
-
-            item {
-                val seekIntervals by viewModel.seekIntervals.state.collectAsState()
-                SeekIntervalSettings(
-                    media = SeekMedia.Video,
-                    state = seekIntervals,
-                    onIntervalSelected = viewModel.seekIntervals::select,
-                    onImportLegacyAudiobook = viewModel.seekIntervals::importLegacyAudiobook,
-                    onRetry = viewModel.seekIntervals::refresh,
-                )
-            }
-
-            item {
-                val seekIntervals by viewModel.seekIntervals.state.collectAsState()
-                SeekIntervalSettings(
-                    media = SeekMedia.Audiobook,
-                    state = seekIntervals,
-                    onIntervalSelected = viewModel.seekIntervals::select,
-                    onImportLegacyAudiobook = viewModel.seekIntervals::importLegacyAudiobook,
-                    onRetry = viewModel.seekIntervals::refresh,
-                )
-            }
-
-            item {
-                val metadataAiStore: MetadataAiFeatureStore = koinInject()
-                val metadataAiStatus by metadataAiStore.status.collectAsState()
-                SubtitleSettings(
-                    subtitleLanguage = state.subtitleLanguage,
-                    subtitleLanguageSuggestions = state.subtitleLanguageSuggestions,
-                    subtitleMode = state.subtitleMode,
-                    showForcedSubtitles = state.showForcedSubtitles,
-                    onLanguageChanged = viewModel::setSubtitleLanguage,
-                    onModeChanged = viewModel::setSubtitleMode,
-                    onForcedSubtitlesChanged = viewModel::setShowForcedSubtitles,
-                    subtitleMatchesDevice = state.subtitleMatchesDevice,
-                    onSubtitleMatchesDeviceChanged = viewModel::setSubtitleMatchesDevice,
-                    onOpenSubtitleAppearance = { subtitleStyleVisible = true },
-                    metadataLanguageEnabled = metadataAiStatus.enabled &&
-                        metadataAiStatus.onView != MetadataAiOnView.Off,
-                    metadataLanguage = state.metadataLanguage,
-                    metadataLanguageSuggestions = state.metadataLanguageSuggestions,
-                    onMetadataLanguageChanged = viewModel::setMetadataLanguage,
-                )
-            }
-
-            item {
-                SettingsSection(title = "Library") {
-                    SettingsNavigationRow(
-                        label = "Watchlist",
-                        description = "Titles you saved to watch later.",
-                        onClick = onNavigateToWatchlist,
-                    )
-                    SettingsNavigationRow(
-                        label = "Favorites",
-                        description = "Titles you marked as favorites.",
-                        onClick = onNavigateToFavorites,
-                    )
-                    SettingsNavigationRow(
-                        label = "Watch history",
-                        description = "Everything you have played, most recent first.",
-                        onClick = onNavigateToHistory,
-                    )
-                    SettingsNavigationRow(
-                        label = "Collections",
-                        description = "Curated groups of titles from your libraries.",
-                        onClick = onNavigateToCollections,
-                    )
-                    SettingsSwitchRow(
-                        label = "Show audiobooks",
-                        description = "Show the Audiobooks section in navigation.",
-                        checked = state.showAudiobooks,
-                        onCheckedChange = viewModel::setShowAudiobooks,
+            if (!hasResults) {
+                item(key = "no-results") {
+                    Text(
+                        text = "No Results for “${query.trim()}”",
+                        style = SettingsTextStyles.rowLabel,
+                        color = PrairieSecondaryText,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 36.dp),
                     )
                 }
             }
 
-            item {
-                SettingsSection(title = "Interface") {
-                    SettingsNavigationRow(
-                        label = "Home Sections",
-                        description = "Choose which Home rows are visible and the order they appear in.",
-                        onClick = { showHomeSectionsEditor = true },
-                    )
-                }
-            }
-
-            item {
-                MediaCardsSettings(
-                    state = state.cardPresentation,
-                    onPresetSelected = viewModel::setCardPreset,
-                    onPosterSizeSelected = viewModel::setCardPosterSize,
-                    onCaptionSelected = viewModel::setCardCaption,
-                    onDeviceOnlyChanged = viewModel::setCardDeviceOnly,
-                    onUseProfileDefault = viewModel::useCardProfileDefault,
-                )
-            }
-
-            if (state.notificationsAvailable) {
-                item {
-                    SettingsSection(title = "Notifications") {
-                        SettingsSwitchRow(
-                            label = "In-app notifications",
-                            description = "Show alerts inside Prairie as new releases arrive.",
-                            checked = state.notificationsEnabled,
-                            onCheckedChange = viewModel::setNotificationsEnabled,
-                        )
-                        if (state.notificationsEnabled) {
-                            SettingsSwitchRow(
-                                label = "Favorites",
-                                description = "Notify when something you favorited has a new episode.",
-                                checked = state.notifyFavorites,
-                                onCheckedChange = viewModel::setNotifyFavorites,
+            if (matchesInterface || matchesNotifications) {
+                item(key = "preferences") {
+                    SettingsSection(title = "Preferences") {
+                        if (matchesInterface) {
+                            SettingsNavigationRow(
+                                label = "Interface",
+                                icon = Icons.Filled.Dashboard,
+                                value = state.cardPresentation.takeIf {
+                                    it.support != CardPresentationSupport.Unsupported
+                                }?.let { it.presentation.preset?.displayName ?: "Custom" },
+                                onClick = onOpenInterface,
                             )
-                            SettingsSwitchRow(
-                                label = "Watchlist",
-                                description = "Notify when something on your watchlist becomes available.",
-                                checked = state.notifyWatchlist,
-                                onCheckedChange = viewModel::setNotifyWatchlist,
-                            )
-                            SettingsSwitchRow(
-                                label = "Continue watching",
-                                description = "Notify about titles you started but have not finished.",
-                                checked = state.notifyContinueWatching,
-                                onCheckedChange = viewModel::setNotifyContinueWatching,
-                            )
-                            SettingsSwitchRow(
-                                label = "Next up",
-                                description = "Notify when the next episode of a series you watch arrives.",
-                                checked = state.notifyNextUp,
-                                onCheckedChange = viewModel::setNotifyNextUp,
+                        }
+                        if (matchesNotifications) {
+                            SettingsNavigationRow(
+                                label = "Notifications",
+                                icon = Icons.Filled.Notifications,
+                                value = if (state.notificationsEnabled) "On" else "Off",
+                                onClick = onOpenNotifications,
                             )
                         }
                     }
                 }
             }
 
-            item {
-                SettingsSection(title = "Downloads") {
-                    SettingsDropdownRow(
-                        label = "Download quality",
-                        description = "Quality preset used for new downloads.",
-                        value = state.defaultDownloadQuality,
-                        options = state.downloadQualityOptions,
-                        onOptionSelected = viewModel::setDefaultDownloadQuality,
-                    )
-                    SettingsSwitchRow(
-                        label = "Download over Wi-Fi only",
-                        description = "Only download while connected to Wi-Fi.",
-                        checked = state.downloadsWifiOnly,
-                        onCheckedChange = viewModel::setDownloadsWifiOnly,
-                    )
-                    SettingsSwitchRow(
-                        label = "Keep watched downloads",
-                        description = "Do not suggest reclaiming space from downloads you have finished.",
-                        checked = state.keepWatchedDownloads,
-                        onCheckedChange = viewModel::setKeepWatchedDownloads,
-                    )
-                    if (!downloadsState.isEmpty || downloadsState.totalBytesUsed > 0L) {
-                        SettingsDestructiveRow(
-                            label = if (downloadsState.isRemovingAllDownloads) {
-                                "Removing downloads…"
-                            } else {
-                                "Remove all downloads"
-                            },
-                            description = "Delete every downloaded file from this device.",
-                            value = formatBytes(downloadsState.totalBytesUsed),
-                            enabled = !downloadsState.isRemovingAllDownloads,
-                            onClick = { showRemoveAllDownloadsConfirm = true },
+            if (matchesPlayback || matchesSubtitles || matchesDownloads) {
+                item(key = "playback") {
+                    SettingsSection(title = "Playback") {
+                        if (matchesPlayback) {
+                            SettingsNavigationRow(
+                                label = "Playback",
+                                icon = Icons.Filled.PlayArrow,
+                                value = QualityPresets.describe(state.qualityResolution, state.maxBitrateKbps),
+                                onClick = onOpenPlayback,
+                            )
+                        }
+                        if (matchesSubtitles) {
+                            SettingsNavigationRow(
+                                label = "Subtitles",
+                                icon = Icons.Filled.Subtitles,
+                                value = LanguageOptions.label(state.subtitleLanguage, SettingKeys.PLAYBACK_SUBTITLE_LANGUAGE),
+                                onClick = onOpenSubtitles,
+                            )
+                        }
+                        if (matchesDownloads) {
+                            SettingsNavigationRow(
+                                label = "Downloads",
+                                icon = Icons.Filled.ArrowCircleDown,
+                                onClick = onOpenDownloads,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (matchesWatchlist || matchesFavorites || matchesHistory || matchesCollections) {
+                item(key = "library") {
+                    SettingsSection(title = "Library") {
+                        if (matchesWatchlist) {
+                            SettingsNavigationRow(
+                                label = "Watchlist",
+                                icon = Icons.Filled.Bookmark,
+                                onClick = onNavigateToWatchlist,
+                            )
+                        }
+                        if (matchesFavorites) {
+                            SettingsNavigationRow(
+                                label = "Favorites",
+                                icon = Icons.Filled.Favorite,
+                                onClick = onNavigateToFavorites,
+                            )
+                        }
+                        if (matchesHistory) {
+                            SettingsNavigationRow(
+                                label = "Watch History",
+                                icon = Icons.Filled.History,
+                                onClick = onNavigateToHistory,
+                            )
+                        }
+                        if (matchesCollections) {
+                            SettingsNavigationRow(
+                                label = "Collections",
+                                icon = Icons.Filled.CollectionsBookmark,
+                                onClick = onNavigateToCollections,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (showDiagnostics) {
+                item(key = "support") {
+                    SettingsSection(title = "Support") {
+                        SettingsNavigationRow(
+                            label = "Diagnostics",
+                            icon = Icons.Filled.MonitorHeart,
+                            value = diagnosticsAvailabilityLabel(diagnosticsState.availability),
+                            onClick = onNavigateToDiagnostics,
+                        )
+                    }
+                }
+            }
+
+            if (matchesServer || matchesPairDevice) {
+                item(key = "connection") {
+                    SettingsSection(title = "Connection") {
+                        if (matchesServer) {
+                            SettingsNavigationRow(
+                                label = "Server",
+                                icon = Icons.Filled.Dns,
+                                value = serverLabel,
+                                onClick = onNavigateToServers,
+                            )
+                        }
+                        if (matchesPairDevice) {
+                            SettingsNavigationRow(
+                                label = stringResource(R.string.sign_in_tv_settings_label),
+                                icon = Icons.Filled.ConnectedTv,
+                                onClick = onPairDevice,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (matchesSignIn) {
+                item(key = "sign-in") {
+                    SignInSection(viewModel = signInViewModel)
+                }
+            }
+
+            if (matchesExperimental) {
+                item(key = "experimental") {
+                    SettingsSection(title = "Experimental") {
+                        SettingsSwitchRow(
+                            label = "Show Audiobooks",
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            checked = state.showAudiobooks,
+                            onCheckedChange = viewModel::setShowAudiobooks,
+                        )
+                        // Device-local; never synced with the server's settings.
+                        SettingsSwitchRow(
+                            label = "Watch Party",
+                            description = "Try Watch Party before it's finished. Turning it off leaves any party you're in.",
+                            icon = Icons.Filled.Groups,
+                            checked = watchPartyEnabled,
+                            onCheckedChange = watchPartyExperiment::setEnabled,
+                        )
+                    }
+                }
+            }
+
+            if (matchesAbout) {
+                item(key = "about") {
+                    SettingsSection(title = "About") {
+                        // Includes the build number so a support report and the
+                        // server's admin Activity page name the exact same build,
+                        // in the "1.0.0 (5)" form Play, TestFlight and the server's
+                        // diagnostics page all use.
+                        SettingsNavigationRow(
+                            label = "Version",
+                            icon = Icons.Filled.Info,
+                            value = versionLabel,
+                        )
+                        SettingsNavigationRow(
+                            label = "Privacy Policy",
+                            icon = Icons.Filled.PanTool,
+                            onClick = { uriHandler.openUri(PRAIRIE_PRIVACY_POLICY_URL) },
                         )
                     }
                 }
@@ -412,7 +412,6 @@ fun SettingsScreen(
             item { Spacer(modifier = Modifier.height(SettingsDimens.pageBottomSpacer)) }
         }
     }
-
     if (showRemoveAllDownloadsConfirm) {
         PrairieConfirmDialog(
             title = "Remove all downloads?",
@@ -426,13 +425,9 @@ fun SettingsScreen(
             },
             onDismiss = { showRemoveAllDownloadsConfirm = false },
         )
-    }
-
     if (showHomeSectionsEditor) {
         HomeSectionsEditor(onDismiss = { showHomeSectionsEditor = false })
-    }
 }
-
 // --- Shared Settings UI Components ---
 //
 // The grouped surface these build is the Silo web client's, adapted to Android
@@ -440,7 +435,6 @@ fun SettingsScreen(
 // above rather than inside it, a label over a muted description, and the
 // control kept trailing rather than stacked underneath the way the web layout
 // stacks it. Metrics live in `ui.theme.SettingsDimens` / `SettingsTextStyles`.
-//
 // There is deliberately no leading icon on any row. The web client puts icons
 // only in its settings *sidebar*, never on a row; Android has no sidebar, so
 // its destination rows sit inline among the value rows and an icon on half of
@@ -448,7 +442,6 @@ fun SettingsScreen(
 // split this pass removed. The description line is the scanning aid now, and
 // the trailing affordance (chevron / value / switch) is what separates a
 // destination from a setting.
-
 /**
  * Per-card row counter backing the "no divider above the first row" rule.
  *
@@ -461,46 +454,29 @@ fun SettingsScreen(
 @Stable
 internal class SettingsSectionSlots {
     private var next = 0
-
     fun claim(): Int = next++
-}
-
 internal val LocalSettingsSectionSlots = staticCompositionLocalOf<SettingsSectionSlots?> { null }
-
 /** True for the first row composed into the enclosing [SettingsSectionCard]. */
 @Composable
 private fun isFirstSettingsRow(): Boolean {
     val slots = LocalSettingsSectionSlots.current ?: return true
     return remember(slots) { slots.claim() } == 0
-}
-
-/**
  * Claims a row slot for a card child that is not a [SettingsRow] — the account
  * header, a prose pane — and reports whether it should draw a hairline above
  * itself. A custom child that skips this is invisible to the divider rule, and
  * the row after it would wrongly believe it is the card's first.
- *
  * Pair with [settingsRowDivider].
- */
-@Composable
 fun settingsRowDividerVisible(): Boolean = !isFirstSettingsRow()
-
 /** Draws the standard inter-row hairline along this element's top edge. */
 fun Modifier.settingsRowDivider(show: Boolean): Modifier = settingsRowTopDivider(show)
-
 // The hairline itself lives in `ui.theme` beside the tokens it draws with:
 // the popup menus rule their rows the same way, and one line rendered by two
 // implementations is how two lines end up different.
 private fun Modifier.settingsRowTopDivider(show: Boolean): Modifier = siloRowTopDivider(show)
-
-/**
  * A settings group: a lettered heading sitting above its card.
- *
  * The heading used to render *inside* the card as its first child, which is
  * what made every section start with a stray caps line on the same surface as
  * the rows. Its own KDoc always described the intended placement.
- */
-@Composable
 fun SettingsSection(
     title: String?,
     modifier: Modifier = Modifier,
@@ -509,19 +485,9 @@ fun SettingsSection(
     Column(modifier = modifier.fillMaxWidth()) {
         if (!title.isNullOrBlank()) {
             SettingsSectionHeader(title)
-        }
         SettingsSectionCard(content = content)
-    }
-}
-
-/**
  * Card container for a settings section, and the owner of the row dividers.
- */
-@Composable
 fun SettingsSectionCard(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
     val slots = remember { SettingsSectionSlots() }
     CompositionLocalProvider(LocalSettingsSectionSlots provides slots) {
         Column(
@@ -530,15 +496,8 @@ fun SettingsSectionCard(
                 .clip(RoundedCornerShape(SettingsDimens.cardRadius))
                 .background(PrairieSurfaceContainer),
             content = content,
-        )
-    }
-}
-
-/**
  * Section heading — uppercased, letter-spaced, muted, sitting above the card
  * with a small inset.
- */
-@Composable
 fun SettingsSectionHeader(title: String) {
     Text(
         text = title.uppercase(),
@@ -550,29 +509,18 @@ fun SettingsSectionHeader(title: String) {
             bottom = SettingsDimens.headerBottomGap,
         ),
     )
-}
-
-/**
  * Disclosure chevron.
- */
-@Composable
 fun SettingsRowChevron(enabled: Boolean = true) {
     Icon(
         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
         contentDescription = null,
         tint = PrairieMutedText.copy(alpha = if (enabled) 1f else SettingsDimens.disabledAlpha),
         modifier = Modifier.size(SettingsDimens.chevronSize),
-    )
-}
-
-/**
  * The one settings row.
- *
  * Every other row type in this package is this one with a different trailing
  * slot: label over an optional description, control trailing, a 60dp floor so
  * a described row and a bare row still read as the same list, and a hairline
  * above every row but the card's first.
- *
  * A trailing [value] shares the *label's* line rather than sitting beside the
  * whole text block. That is the structural half of a real defect: with the
  * value beside the block, a long one ("30 seconds before end") squeezed the
@@ -583,14 +531,10 @@ fun SettingsRowChevron(enabled: Boolean = true) {
  * shorter, not taller. Only [trailing] controls (chevron, switch, radio) sit
  * beside the block now, and an icon at [SettingsDimens.rowTrailingGap] does
  * not read as a collision the way text does.
- *
  * @param showDivider Overrides the automatic first-row rule. Only needed in a
  *   card whose opening row is conditional.
- */
-@Composable
 fun SettingsRow(
     label: String,
-    modifier: Modifier = Modifier,
     description: String? = null,
     value: String? = null,
     labelColor: Color = PrairieForeground,
@@ -598,7 +542,6 @@ fun SettingsRow(
     onClick: (() -> Unit)? = null,
     showDivider: Boolean? = null,
     trailing: @Composable RowScope.() -> Unit = {},
-) {
     val contentAlpha = if (enabled) 1f else SettingsDimens.disabledAlpha
     val divider = showDivider ?: !isFirstSettingsRow()
     Row(
@@ -619,7 +562,6 @@ fun SettingsRow(
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(SettingsDimens.rowLabelGap),
         ) {
@@ -634,273 +576,58 @@ fun SettingsRow(
                     // Fills the line so the value stays trailing-aligned, and
                     // yields — by wrapping — when a capped value needs room.
                     modifier = Modifier.weight(1f),
-                )
                 if (value != null) {
                     Spacer(modifier = Modifier.width(SettingsDimens.rowLabelValueGap))
                     SettingsRowValue(value = value, enabled = enabled)
+            if (matchesSignOut) {
+                item(key = "sign-out") {
+                    SettingsSectionCard {
+                        SettingsButtonRow(label = "Sign Out", onClick = { confirmSignOut = true })
+                    }
                 }
             }
-            if (!description.isNullOrBlank()) {
-                Text(
-                    text = description,
-                    style = SettingsTextStyles.rowDescription,
-                    color = PrairieMutedText.copy(alpha = contentAlpha),
-                )
-            }
-        }
-        trailing()
-    }
-}
-
-/**
- * A row that navigates somewhere, optionally showing the current value.
- *
- * Replaces the old `SettingsRowLabel` (iOS coloured badge) and
- * `SettingsClickableRow` (bare 20dp icon), which differed only in their
- * leading treatment.
- */
-@Composable
-fun SettingsNavigationRow(
-    label: String,
-    modifier: Modifier = Modifier,
-    description: String? = null,
-    value: String? = null,
-    onClick: (() -> Unit)? = null,
-    showChevron: Boolean = onClick != null,
-    enabled: Boolean = true,
-    labelColor: Color = PrairieForeground,
-) {
-    SettingsRow(
-        label = label,
-        modifier = modifier,
-        description = description,
-        value = value,
-        labelColor = labelColor,
-        enabled = enabled,
-        onClick = onClick,
-    ) {
-        if (showChevron) {
-            Spacer(modifier = Modifier.width(SettingsDimens.rowTrailingGap))
-            SettingsRowChevron(enabled = enabled)
         }
     }
-}
 
-/**
- * Destructive row. One tint, [PrairieDestructive], for every destructive action
- * on this surface — Sign out, Reset playback settings, Remove all downloads —
- * which previously used three different layouts and two different reds.
- */
-@Composable
-fun SettingsDestructiveRow(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    description: String? = null,
-    value: String? = null,
-    enabled: Boolean = true,
-) {
-    SettingsNavigationRow(
-        label = label,
-        modifier = modifier,
-        description = description,
-        value = value,
-        onClick = onClick,
-        showChevron = false,
-        enabled = enabled,
-        labelColor = PrairieDestructive,
+    // Same dialog the profile menu raises, so the answer to "are you sure?"
+    // does not depend on which of the two routes was taken.
+    SignOutConfirmDialog(
+        visible = confirmSignOut,
+        accountName = state.user?.username,
+        onConfirm = {
+            confirmSignOut = false
+            viewModel.logout()
+        },
+        onDismiss = { confirmSignOut = false },
     )
 }
 
 /**
- * Trailing value text — smaller and muted, so a picker's current choice does
- * not read as a second label.
- *
- * Unweighted, so [SettingsRow]'s label line measures it first: it gets the
- * width it asks for up to [SettingsDimens.rowValueMaxWidth], and the label
- * takes what is left.
+ * The overview search (Apple `IOSSettingsOverview.matches`): a row shows when
+ * any of its keywords contains the trimmed query, case-insensitively. An
+ * empty query shows everything.
  */
-@Composable
-private fun SettingsRowValue(value: String, enabled: Boolean) {
-    Text(
-        text = value,
-        style = SettingsTextStyles.rowValue,
-        color = PrairieMutedText.copy(alpha = if (enabled) 1f else SettingsDimens.disabledAlpha),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        textAlign = TextAlign.End,
-        modifier = Modifier.widthIn(max = SettingsDimens.rowValueMaxWidth),
-    )
+private class SettingsSearch(query: String) {
+    private val needle = query.trim()
+
+    fun matches(vararg terms: String): Boolean =
+        needle.isEmpty() || terms.any { it.contains(needle, ignoreCase = true) }
 }
 
-/**
- * Settings row with a switch toggle. The whole row toggles, not just the
- * thumb, and [enabled] now exists — the diagnostics screen used to hand-roll
- * its own copy of this row purely to get a disabled switch.
- */
-@Composable
-fun SettingsSwitchRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-    description: String? = null,
-    enabled: Boolean = true,
-) {
-    SettingsRow(
-        label = label,
-        description = description,
-        enabled = enabled,
-        modifier = modifier.toggleable(
-            value = checked,
-            enabled = enabled,
-            role = Role.Switch,
-            onValueChange = onCheckedChange,
-        ),
-    ) {
-        Spacer(modifier = Modifier.width(SettingsDimens.rowTrailingGap))
-        Switch(
-            checked = checked,
-            // The row owns the gesture; the switch is the indicator.
-            onCheckedChange = null,
-            enabled = enabled,
-            colors = settingsSwitchColors(),
-        )
-    }
+/** The host of [serverUrl], or null when there is no server. */
+private fun serverHost(serverUrl: String): String? {
+    if (serverUrl.isBlank()) return null
+    return serverUrl
+        .substringAfter("://", serverUrl)
+        .substringBefore('/')
+        .ifBlank { serverUrl }
 }
 
-@Composable
-private fun settingsSwitchColors() = SwitchDefaults.colors(
-    checkedThumbColor = PrairieSurfaceContainer,
-    checkedTrackColor = PrairieForeground,
-    checkedBorderColor = Color.Transparent,
-    uncheckedThumbColor = PrairieMutedText,
-    uncheckedTrackColor = PrairieSurfaceContainerHigh,
-    uncheckedBorderColor = PrairieBorder,
-    disabledCheckedThumbColor = PrairieSurfaceContainer,
-    disabledCheckedTrackColor = PrairieForeground.copy(alpha = SettingsDimens.disabledAlpha),
-    disabledCheckedBorderColor = Color.Transparent,
-    disabledUncheckedThumbColor = PrairieMutedText.copy(alpha = SettingsDimens.disabledAlpha),
-    disabledUncheckedTrackColor = PrairieSurfaceContainerHigh.copy(alpha = SettingsDimens.disabledAlpha),
-    disabledUncheckedBorderColor = PrairieBorder.copy(alpha = SettingsDimens.disabledAlpha),
-)
-
-/**
- * Settings row for one option in a mutually exclusive set. Like the switch
- * row, the whole row is the target.
- */
-@Composable
-fun SettingsChoiceRow(
-    label: String,
-    selected: Boolean,
-    onSelect: () -> Unit,
-    modifier: Modifier = Modifier,
-    description: String? = null,
-    enabled: Boolean = true,
-) {
-    SettingsRow(
-        label = label,
-        description = description,
-        enabled = enabled,
-        modifier = modifier.selectable(
-            selected = selected,
-            enabled = enabled,
-            role = Role.RadioButton,
-            onClick = onSelect,
-        ),
-    ) {
-        Spacer(modifier = Modifier.width(SettingsDimens.rowTrailingGap))
-        RadioButton(
-            selected = selected,
-            // The row owns the gesture; the button is the indicator.
-            onClick = null,
-            enabled = enabled,
-            colors = RadioButtonDefaults.colors(
-                selectedColor = PrairieForeground,
-                unselectedColor = PrairieMutedText,
-                disabledSelectedColor = PrairieForeground.copy(alpha = SettingsDimens.disabledAlpha),
-                disabledUnselectedColor = PrairieMutedText.copy(alpha = SettingsDimens.disabledAlpha),
-            ),
-        )
-    }
-}
-
-/**
- * A settings row that opens a menu of options.
- *
- * Trailing value plus a chevron, so a picker reads as something you can open
- * rather than as a read-only fact.
- */
-@Composable
-fun SettingsDropdownRow(
-    label: String,
-    value: String,
-    options: List<String>,
-    onOptionSelected: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    description: String? = null,
-    enabled: Boolean = true,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box(modifier = modifier) {
-        SettingsNavigationRow(
-            label = label,
-            description = description,
-            value = value,
-            enabled = enabled,
-            onClick = { expanded = true },
-        )
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option) },
-                    onClick = {
-                        onOptionSelected(option)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
-}
-
-/**
- * A prose block inside a card, for the notices that are explanation rather
- * than setting. Carries the same divider rule as a row.
- */
-@Composable
-fun SettingsProse(
-    body: String,
-    modifier: Modifier = Modifier,
-    title: String? = null,
-) {
-    val divider = !isFirstSettingsRow()
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .settingsRowTopDivider(divider)
-            .padding(
-                horizontal = SettingsDimens.proseHorizontalPadding,
-                vertical = SettingsDimens.proseVerticalPadding,
-            ),
-        verticalArrangement = Arrangement.spacedBy(SettingsDimens.rowLabelGap),
-    ) {
-        if (title != null) {
-            Text(
-                text = title,
-                style = SettingsTextStyles.rowLabel,
-                color = PrairieForeground,
-            )
-        }
-        Text(
-            text = body,
-            style = SettingsTextStyles.rowDescription,
-            color = PrairieMutedText,
-        )
-    }
+/** The Diagnostics row's value, in the Apple apps' wording. */
+private fun diagnosticsAvailabilityLabel(availability: DiagnosticsAvailabilityUi): String? = when (availability) {
+    DiagnosticsAvailabilityUi.AVAILABLE -> "Available"
+    DiagnosticsAvailabilityUi.DISABLED -> "Disabled by server"
+    DiagnosticsAvailabilityUi.STORAGE_UNAVAILABLE -> "Storage unavailable"
+    DiagnosticsAvailabilityUi.OFFLINE -> "Offline"
+    DiagnosticsAvailabilityUi.INELIGIBLE -> null
 }

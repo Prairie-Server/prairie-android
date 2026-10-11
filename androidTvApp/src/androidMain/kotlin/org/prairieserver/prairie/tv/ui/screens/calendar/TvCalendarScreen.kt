@@ -89,6 +89,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.common.calendar.localDisplayAirTime
 import org.prairieserver.prairie.common.cards.LocalCardPresentation
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.calendar.CalendarBadge
 import org.prairieserver.prairie.model.calendar.CalendarFilter
@@ -1453,6 +1454,7 @@ private fun CalendarEventCard(
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    defaultArtwork = DefaultArtworkKind.forItemType(item.type),
                 )
 
                 // Badge pills (top-leading) — tvOS CalendarBadgePill.

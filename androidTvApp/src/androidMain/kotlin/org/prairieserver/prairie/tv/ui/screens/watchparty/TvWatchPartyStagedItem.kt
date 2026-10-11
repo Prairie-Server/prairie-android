@@ -1,15 +1,15 @@
-package org.siloserver.silo.tv.ui.screens.watchparty
+package org.prairieserver.prairie.tv.ui.screens.watchparty
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import org.koin.compose.koinInject
-import org.siloserver.silo.model.catalog.ItemDetail
-import org.siloserver.silo.model.watchtogether.Suggestion
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.repository.CatalogRepository
-import org.siloserver.silo.viewmodel.WatchPartyItem
-import org.siloserver.silo.viewmodel.WatchPartySpoilers
+import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.watchtogether.Suggestion
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.repository.CatalogRepository
+import org.prairieserver.prairie.viewmodel.WatchPartyItem
+import org.prairieserver.prairie.viewmodel.WatchPartySpoilers
 import java.util.concurrent.ConcurrentHashMap
 
 /**

@@ -4,6 +4,11 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import org.prairieserver.prairie.repository.SectionRepository
+import org.prairieserver.prairie.repository.CatalogRepository
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerSupport
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -21,17 +26,58 @@ class WatchNextSyncWorker(
     params: WorkerParameters,
     private val sectionRepository: SectionRepository,
     private val repository: WatchNextRepository,
+    private val spoilerStore: EpisodeSpoilerStore,
+    private val catalogRepository: CatalogRepository,
+    /** Profile Selection's verdict; see [TvProfileLaunchPreferences.allowsWatchNext]. */
+    private val allowsWatchNext: () -> Boolean = { true },
+    /**
+     * A phone's cast identity is active; its titles never reach this TV's
+     * launcher. Returning to this TV's profile after the cast seeds again.
+     */
+    private val hasTemporaryScope: suspend () -> Boolean = { false },
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val completed = syncWatchNextHome(sectionRepository, repository.writeGate, { isStopped }) { fields, run, authority ->
+        if (wipeIfHidden()) return@withContext Result.success()
+        if (inputData.getBoolean(KEY_POLICY_CHECK_ONLY, false)) return@withContext Result.success()
+        val stopped = { isStopped || !allowsWatchNext() }
+        val completed = syncWatchNextHome(
+            sectionRepository, repository.writeGate, stopped,
+            spoilerPreferences = {
+                spoilerStore.refresh()
+                spoilerStore.state.value.takeUnless { it.support == EpisodeSpoilerSupport.Unknown }?.prefs
+            },
+            preferencesCurrent = { prefs ->
+                spoilerStore.state.value.let { it.support != EpisodeSpoilerSupport.Unknown && it.prefs == prefs }
+            },
+            seriesArtwork = { id -> (catalogRepository.getItemDetail(id) as? ApiResult.Success)?.data },
+            borrowedIdentity = hasTemporaryScope,
+        ) { fields, run, authority ->
             repository.diffAndApply(fields, run, authority)
         }
+        // The verdict can flip mid-run (a timed choice expiring); wipe what
+        // this run already wrote instead of leaving it for a retry.
+        if (wipeIfHidden()) return@withContext Result.success()
         if (completed) Result.success() else Result.retry()
+    }
+
+    /**
+     * Profile Selection hides the previous viewer's titles from the launcher
+     * (prairie-apple TopShelfProfilePolicy): wipe instead of writing.
+     */
+    private suspend fun wipeIfHidden(): Boolean {
+        if (allowsWatchNext()) return false
+        repository.invalidate()
+        repository.clearAll()
+        return true
     }
 
     companion object {
         const val UNIQUE_NAME_PERIODIC = "watch_next_sync_periodic"
         const val UNIQUE_NAME_ONESHOT = "watch_next_sync_oneshot"
+        const val UNIQUE_NAME_PROFILE_EXPIRY = "watch_next_profile_expiry"
+
+        /** Input flag: only apply Profile Selection's verdict, never sync. */
+        const val KEY_POLICY_CHECK_ONLY = "policy_check_only"
     }
 }

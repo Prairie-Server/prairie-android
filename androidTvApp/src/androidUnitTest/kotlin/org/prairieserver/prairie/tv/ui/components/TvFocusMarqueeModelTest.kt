@@ -1,14 +1,144 @@
 package org.prairieserver.prairie.tv.ui.components
 
 import java.io.File
+import org.prairieserver.prairie.model.catalog.MediaItemUserState
+import org.prairieserver.prairie.model.catalog.DisplayRating
 import org.prairieserver.prairie.model.catalog.OverlaySummary
+import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.model.section.SectionItem
+import org.prairieserver.prairie.model.settings.EpisodeSpoilerPrefs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TvFocusMarqueeModelTest {
+    @Test
+    fun rowUpdatesRefreshWatchStateWithoutChangingFocusOrEnrichment() {
+        val state = TvFocusMarqueeState()
+        state.spoilerPrefs = EpisodeSpoilerPrefs(true, true)
+        val episode = SectionItem(
+            contentId = "episode", type = "episode", title = "Episode",
+            overview = "Spoiler", backdropUrl = "https://example.test/still.jpg",
+            userState = MediaItemUserState(played = true),
+        )
+        val row = ResolvedSection("row", "next_up", "Next Up", items = listOf(episode))
+        state.preview(episode, row.title, row.id)
+        state.commit(state.candidate)
+        val enrichment = TvMarqueeEnrichment(null, "https://example.test/series.jpg", null, backdropIsEpisodeStill = false)
+        state.applyEnrichment(episode.contentId, enrichment)
+
+        val unwatched = episode.copy(userState = MediaItemUserState(played = false))
+        state.refreshSources(listOf(row.copy(items = listOf(unwatched))))
+
+        assertEquals(null, state.content?.synopsis)
+        assertEquals(null, state.content?.heroBackdropUrl)
+        assertEquals("row#episode", state.focusedMarqueeId)
+        assertTrue(state.hasSettledRealFocus)
+        assertEquals(enrichment, state.enrichment)
+        assertEquals(enrichment.backdropUrl, state.backdropContent?.heroBackdropUrl)
+        // A detail backdrop that is, or may be, the episode's still stays hidden.
+        state.applyEnrichment(episode.contentId, enrichment.copy(backdropIsEpisodeStill = null))
+        assertEquals(null, state.backdropContent?.heroBackdropUrl)
+
+        state.refreshSources(listOf(row))
+        assertEquals("Spoiler", state.content?.synopsis)
+        assertEquals(episode.backdropUrl, state.content?.heroBackdropUrl)
+    }
+
+    @Test
+    fun aDepartingLayerFollowsAProtectionChange() {
+        val episode = SectionItem(
+            contentId = "episode", type = "episode", title = "Episode",
+            overview = "Spoiler", backdropUrl = "https://example.test/still.jpg",
+        )
+        val shown = TvMarqueeContent.from(episode, "Next Up", "row")
+
+        val protected = shown.underPrefs(EpisodeSpoilerPrefs(true, true))
+        assertEquals(null, protected.heroBackdropUrl)
+        assertEquals(null, protected.synopsis)
+        assertEquals(shown.id, protected.id)
+        assertTrue(shown.underPrefs(EpisodeSpoilerPrefs.NONE) === shown)
+        val watched = TvMarqueeContent.from(episode.copy(userState = MediaItemUserState(played = true)), "Next Up", "row")
+        assertTrue(watched.underPrefs(EpisodeSpoilerPrefs(true, true)) === watched)
+        // An unchanged layer without a description stays the same instance.
+        val noOverview = TvMarqueeContent.from(episode.copy(overview = null), "Next Up", "row", EpisodeSpoilerPrefs(true, true))
+        assertTrue(noOverview.underPrefs(EpisodeSpoilerPrefs(true, true)) === noOverview)
+    }
+
+    @Test
+    fun hidingKeepsAnExplicitSeriesBackdropFromEnrichment() {
+        val episode = SectionItem(
+            contentId = "episode", type = "episode", title = "Episode",
+            overview = "Spoiler", backdropUrl = "https://example.test/still.jpg",
+        )
+        val shown = TvMarqueeContent.from(episode, "Next Up", "row")
+        val series = TvMarqueeEnrichment(null, "https://example.test/series.jpg", null, backdropIsEpisodeStill = false)
+
+        val keptSeries = shown.withEnrichment(series).underPrefs(EpisodeSpoilerPrefs(true, true))
+        assertEquals("https://example.test/series.jpg", keptSeries.heroBackdropUrl)
+        assertEquals(null, keptSeries.synopsis)
+        val unknown = shown.withEnrichment(series.copy(backdropIsEpisodeStill = null)).underPrefs(EpisodeSpoilerPrefs(true, true))
+        assertEquals(null, unknown.heroBackdropUrl)
+    }
+
+    @Test
+    fun rowUpdatesKeepDisplayedAndPendingCopiesBoundToTheirOwnRows() {
+        val state = TvFocusMarqueeState()
+        state.spoilerPrefs = EpisodeSpoilerPrefs(true, true)
+        val watched = SectionItem(
+            contentId = "episode", type = "episode", title = "Episode",
+            overview = "Displayed spoiler", userState = MediaItemUserState(played = true),
+        )
+        val displayedRow = ResolvedSection("displayed", "next_up", "Next Up", items = listOf(watched))
+        val pendingItem = watched.copy(overview = "Pending spoiler")
+        val pendingRow = displayedRow.copy(id = "pending", items = listOf(pendingItem))
+        state.preview(watched, displayedRow.title, displayedRow.id)
+        state.commit(state.candidate)
+        state.preview(pendingItem, pendingRow.title, pendingRow.id)
+
+        val unwatched = watched.copy(userState = MediaItemUserState(played = false))
+        state.refreshSources(listOf(pendingRow, displayedRow.copy(items = listOf(unwatched))))
+
+        assertEquals(unwatched, state.content?.source)
+        assertEquals(null, state.content?.synopsis)
+        assertEquals(pendingItem, state.candidate?.source)
+        assertEquals("Pending spoiler", state.candidate?.synopsis)
+        assertEquals("pending#episode", state.focusedMarqueeId)
+
+        val displayed = state.content
+        val pending = state.candidate
+        state.refreshSources(emptyList())
+        assertEquals(displayed, state.content)
+        assertEquals(pending, state.candidate)
+    }
+
+    @Test
+    fun preferencesReprojectTheDisplayedAndPendingEpisodes() {
+        val state = TvFocusMarqueeState()
+        val episode = SectionItem(
+            contentId = "unstarted", type = "episode", title = "Episode",
+            overview = "Spoiler", backdropUrl = "https://example.test/still.jpg",
+        )
+        state.preview(episode, "Next Up")
+        state.commit(state.candidate)
+        state.preview(episode.copy(contentId = "pending"), "Next Up")
+        val pendingBeforeHydration = state.candidate
+
+        state.spoilerPrefs = EpisodeSpoilerPrefs(true, true)
+
+        assertEquals(null, state.content?.synopsis)
+        assertEquals(null, state.backdropContent?.heroBackdropUrl)
+        assertEquals(null, state.candidate?.synopsis)
+        state.commit(pendingBeforeHydration)
+        assertEquals(null, state.content?.synopsis)
+        assertEquals(null, state.backdropContent?.heroBackdropUrl)
+
+        state.spoilerPrefs = EpisodeSpoilerPrefs.NONE
+        assertEquals("Spoiler", state.content?.synopsis)
+        assertEquals(episode.backdropUrl, state.backdropContent?.heroBackdropUrl)
+    }
+
     @Test
     fun movieHeroSeparatesEditorialMetadataFromFormatBadges() {
         val content = TvMarqueeContent.from(
@@ -32,8 +162,12 @@ class TvFocusMarqueeModelTest {
 
         assertEquals(listOf("PG-13"), content.badges)
         assertEquals(
-            listOf("2016", "1h 56m", "7.9", "Science Fiction"),
-            content.metaParts,
+            listOf("2016", "1h 56m", "IMDb 7.9", "Science Fiction"),
+            content.metaText(),
+        )
+        assertEquals(
+            TvHeroFactToken.ExternalRating(DisplayRating("imdb", "IMDb", 79.0, "7.9")),
+            content.metaParts[2],
         )
         assertEquals("4K · Dolby Vision · Atmos", content.specLine)
     }
@@ -61,7 +195,10 @@ class TvFocusMarqueeModelTest {
 
         assertEquals("The Last of Us", content.title)
         assertEquals(listOf("TV-MA"), content.badges)
-        assertEquals(listOf("S01E03", "Long, Long Time"), content.metaParts)
+        assertEquals(
+            listOf(TvHeroFactToken.TextToken("S01E03"), TvHeroFactToken.TextToken("Long, Long Time", truncates = true)),
+            content.metaParts,
+        )
         assertEquals("1080P · EAC3", content.specLine)
     }
 
@@ -82,9 +219,9 @@ class TvFocusMarqueeModelTest {
             rowTitle = "Continue Watching",
         )
 
-        assertEquals(listOf("S03E01", "Persuader"), content.metaParts)
-        assertFalse(content.metaParts.any { it.contains("left", ignoreCase = true) })
-        assertFalse(content.metaParts.any { it.contains("min", ignoreCase = true) })
+        assertEquals(listOf("S03E01", "Persuader"), content.metaText())
+        assertFalse(content.metaText().any { it.contains("left", ignoreCase = true) })
+        assertFalse(content.metaText().any { it.contains("min", ignoreCase = true) })
     }
 
     @Test
@@ -144,7 +281,7 @@ class TvFocusMarqueeModelTest {
             )
 
             assertEquals(emptyList(), content.metaParts)
-        }
+            }
     }
 
     @Test
@@ -160,7 +297,7 @@ class TvFocusMarqueeModelTest {
             rowTitle = "Row",
         )
 
-        assertEquals(listOf("2h"), content.metaParts)
+        assertEquals(listOf("2h"), content.metaText())
     }
 
     @Test
@@ -176,7 +313,7 @@ class TvFocusMarqueeModelTest {
             rowTitle = "Row",
         )
 
-        assertEquals(listOf("8.4"), content.metaParts)
+        assertEquals(listOf("IMDb 8.4"), content.metaText())
     }
 
     @Test
@@ -192,7 +329,7 @@ class TvFocusMarqueeModelTest {
             rowTitle = "Row",
         )
 
-        assertEquals(listOf("2h 5m"), content.metaParts)
+        assertEquals(listOf("2h 5m"), content.metaText())
     }
 
     @Test
@@ -208,6 +345,15 @@ class TvFocusMarqueeModelTest {
             rowTitle = "Row",
         )
 
-        assertEquals(listOf("1h 56m"), content.metaParts)
+        assertEquals(listOf("1h 56m"), content.metaText())
+    }
+
+    private fun TvMarqueeContent.metaText(): List<String> = metaParts.map { token ->
+        when (token) {
+            is TvHeroFactToken.TextToken -> token.value
+            is TvHeroFactToken.ExternalRating -> "${token.rating.name} ${token.rating.display}"
+            is TvHeroFactToken.Rating -> token.value
+            is TvHeroFactToken.Chip -> token.value
+        }
     }
 }

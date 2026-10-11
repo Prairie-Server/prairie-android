@@ -1,8 +1,4 @@
-<<<<<<<< HEAD:androidApp/src/androidUnitTest/kotlin/org/prairieserver/prairie/android/ui/util/LanguageNamesTest.kt
-package org.prairieserver.prairie.android.ui.util
-========
 package org.prairieserver.prairie.common.ui
->>>>>>>> upstream/main:android-shared/src/androidUnitTest/kotlin/org/prairieserver/prairie/common/ui/LanguageNamesTest.kt
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -1,9 +1,13 @@
 package org.prairieserver.prairie.domain.settings
 
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.prairieserver.prairie.model.settings.EffectiveSettingValue
 import org.prairieserver.prairie.model.settings.SettingKeys
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.repository.SettingsRepository
+import org.prairieserver.prairie.repository.port.CatalogCacheScope
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -28,6 +32,9 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class ProfileSettingsController(
     private val repository: SettingsRepository,
+    private val catalogLanguage: CatalogLanguageRevision = CatalogLanguageRevision(),
+    private val captureAuthority: (suspend () -> AuthScopeSnapshot?)? = null,
+    private val invalidateCatalogMetadata: suspend () -> Unit = {},
 ) {
 
     /** Whether the connected server answered the canonical settings probe. */
@@ -110,8 +117,8 @@ class ProfileSettingsController(
      * caller should surface: the write landed, and the optimistic value is
      * still the best guess until the next load.
      */
-    private suspend fun reresolve(): Snapshot? =
-        when (val result = repository.getEffectiveValues(PROFILE_KEYS)) {
+    private suspend fun reresolve(authority: AuthScopeSnapshot? = null): Snapshot? =
+        when (val result = repository.getEffectiveValues(PROFILE_KEYS, authority = authority)) {
             is ApiResult.Success -> snapshotOf(result.data)
             is ApiResult.Error, is ApiResult.NetworkError -> null
         }
@@ -128,27 +135,40 @@ class ProfileSettingsController(
         resolved(write(SettingKeys.PLAYBACK_SHOW_FORCED_SUBTITLES, JsonPrimitive(enabled)))
 
     /** [language] is a BCP 47 tag, or "" to inherit the library's language. */
-    suspend fun setMetadataLanguage(language: String): WriteResult =
-        resolved(writeLanguage(SettingKeys.CATALOG_METADATA_LANGUAGE, language))
+    suspend fun setMetadataLanguage(language: String): WriteResult {
+        val authority = captureAuthority?.invoke()
+        if (captureAuthority != null && authority?.profileId == null) return WriteResult(false, null)
+        val result = writeLanguage(SettingKeys.CATALOG_METADATA_LANGUAGE, language, authority)
+        // The write committed even if the following settings read is canceled.
+        if (result is ApiResult.Success) {
+            catalogLanguage.changed(authority?.let { CatalogCacheScope(it.serverId, requireNotNull(it.profileId)) })
+            // Complete durable invalidation even if the post-write reload is
+            // canceled, so a later app launch cannot revive the old language.
+            withContext(NonCancellable) {
+                invalidateCatalogMetadata()
+            }
+        }
+        return resolved(result, authority)
+    }
 
-    private suspend fun resolved(write: ApiResult<Unit>): WriteResult =
+    private suspend fun resolved(write: ApiResult<Unit>, authority: AuthScopeSnapshot? = null): WriteResult =
         if (write is ApiResult.Success) {
-            WriteResult(succeeded = true, snapshot = reresolve())
+            WriteResult(succeeded = true, snapshot = reresolve(authority))
         } else {
             WriteResult(succeeded = false, snapshot = null)
         }
 
-    private suspend fun writeLanguage(key: String, language: String): ApiResult<Unit> {
+    private suspend fun writeLanguage(key: String, language: String, authority: AuthScopeSnapshot? = null): ApiResult<Unit> {
         val tag = language.trim()
         // The store spells "no preference" as the empty string; the contract
         // spells it as no row at all (the server's language_tag validator
         // refuses ""). Clearing rather than writing null keeps the two the
         // same statement and matches how the server mirrors the legacy column.
-        return if (tag.isEmpty()) repository.clearProfileValue(key) else write(key, JsonPrimitive(tag))
+        return if (tag.isEmpty()) repository.clearProfileValue(key, authority) else write(key, JsonPrimitive(tag), authority)
     }
 
-    private suspend fun write(key: String, value: JsonElement): ApiResult<Unit> =
-        when (val result = repository.setProfileValue(key, value)) {
+    private suspend fun write(key: String, value: JsonElement, authority: AuthScopeSnapshot? = null): ApiResult<Unit> =
+        when (val result = repository.setProfileValue(key, value, authority)) {
             is ApiResult.Success -> ApiResult.Success(Unit)
             is ApiResult.Error -> result
             is ApiResult.NetworkError -> result

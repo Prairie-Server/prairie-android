@@ -12,21 +12,28 @@ import org.prairieserver.prairie.common.player.SleepTimerController
 import org.prairieserver.prairie.common.settings.AndroidPlayerSettingsStore
 import org.prairieserver.prairie.common.settings.CardPresentationStore
 import org.prairieserver.prairie.common.settings.DefaultCardPresentationStore
+import org.prairieserver.prairie.common.settings.DefaultEpisodeSpoilerStore
 import org.prairieserver.prairie.common.settings.DefaultLibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.DefaultOverlayPrefsStore
 import org.prairieserver.prairie.common.settings.DefaultSeekIntervalStore
 import org.prairieserver.prairie.common.settings.DefaultServerSettingsFlusher
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.ServerDrivenConfigRefresher
 import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.common.settings.SettingsContractRevision
+import org.prairieserver.prairie.common.settings.DefaultTitleArtStore
+import org.prairieserver.prairie.common.settings.TitleArtStore
 import org.prairieserver.prairie.common.settings.ServerSettingsFlusher
 import org.prairieserver.prairie.domain.player.IntroAutoSkipController
 import org.prairieserver.prairie.domain.settings.SeekIntervalController
+import org.prairieserver.prairie.domain.settings.TitleArtController
 import org.prairieserver.prairie.network.DeviceMetadataProvider
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.api.SettingsApi
 import org.prairieserver.prairie.repository.LibraryPlaybackPrefsRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SettingsRepository
@@ -89,6 +96,16 @@ val playerInfraModule = module {
         }
     }
 
+    // The connected server's settings manifest revision. One instance, so the
+    // flusher's send-time gates and the settings UI agree on what it supports.
+    single<SettingsContractRevision> {
+        val settingsApi = get<SettingsApi>()
+        SettingsContractRevision(
+            fetchCapabilities = { settingsApi.getContractCapabilities() },
+            getServerUrl = { get<TokenManager>().getServerUrl() },
+        )
+    }
+
     // Long-lived application-scope flusher: debounced server writes survive
     // ViewModel teardown. Uses Dispatchers.IO since flushOne does network work.
     single<ServerSettingsFlusher> {
@@ -100,6 +117,7 @@ val playerInfraModule = module {
             // against is still the one requests would reach.
             getServerUrl = { get<TokenManager>().getServerUrl() },
             getAuthScope = { get<TokenManager>().snapshotCurrentScope() },
+            contractRevision = get(),
         )
     }
 
@@ -132,6 +150,7 @@ val playerInfraModule = module {
             // server so settings scope stays in lockstep with what the
             // server records as `device_id` for each override.
             getDeviceId = { get<DeviceMetadataProvider>().current()?.id },
+            contractRevision = get(),
         )
     }
 
@@ -184,6 +203,45 @@ val playerInfraModule = module {
         )
     }
 
+    // Spoiler protection for unwatched episodes (see EpisodeSpoilers.MIN_CONTRACT_REVISION). Both
+    // keys are profile-scope only, so the store writes the profile row itself
+    // rather than going through the profile_device flusher. Resets and
+    // re-resolves on a server or profile change, like SeekIntervalStore:
+    // Add Server → sign in → pick profile clears nothing on its own.
+    single<EpisodeSpoilerStore> {
+        val identityChanges = get<ServerRegistry>().activeEntry
+            .map { it?.url to it?.profileId }
+            .distinctUntilChanged()
+            .map { Unit }
+        DefaultEpisodeSpoilerStore(
+            context = androidContext(),
+            repository = get<SettingsRepository>(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
+            getServerUrl = { get<TokenManager>().getServerUrl() },
+            captureAuthority = { get<TokenManager>().snapshotCurrentScope() },
+            identityChanges = identityChanges,
+        )
+    }
+
+    // "Show title art" (settings revision 16) for this device. Every title
+    // surface and both settings screens read this one instance, so a change
+    // reaches an open detail page without a restart.
+    single<TitleArtStore> {
+        val registry = get<ServerRegistry>()
+        val identityChanges = registry.activeEntry
+            .map { it?.url to it?.profileId }
+            .distinctUntilChanged()
+            .map { Unit }
+        DefaultTitleArtStore(
+            context = androidContext(),
+            controller = TitleArtController(get<SettingsRepository>()),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            getAuthScope = { get<TokenManager>().snapshotCurrentScope() },
+            identityChanges = identityChanges,
+        )
+    }
+
     single {
         ServerDrivenConfigRefresher(
             overlayPrefsStore = get(),
@@ -191,6 +249,9 @@ val playerInfraModule = module {
             libraryPlaybackPrefsStore = get(),
             playerSettingsStore = get(),
             seekIntervalStore = get(),
+            episodeSpoilerStore = get(),
+            titleArtStore = get(),
+            hiddenLibrariesStore = get(),
             hasAuthenticatedProfile = {
                 !get<ProfileRepository>().getActiveProfileId().isNullOrBlank()
             },

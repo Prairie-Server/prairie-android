@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.screens.detail.CircleActionButton
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.book.BookFormat
 import org.prairieserver.prairie.model.catalog.FileVersion
@@ -187,6 +188,7 @@ fun BookDetailContent(
                         .width(BookCoverWidthDp.dp)
                         .aspectRatio(2f / 3f)
                         .clip(RoundedCornerShape(12.dp)),
+                    defaultArtwork = DefaultArtworkKind.forItemType(detail.type),
                 )
                 Text(
                     text = detail.title,

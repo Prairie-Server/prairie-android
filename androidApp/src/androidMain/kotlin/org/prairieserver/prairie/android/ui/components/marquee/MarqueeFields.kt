@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.components.marquee
+package org.prairieserver.prairie.android.ui.components.marquee
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,8 +48,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import org.siloserver.silo.android.ui.components.siloKeyboardActions
-import org.siloserver.silo.common.ui.marquee.MarqueeColors
+import org.prairieserver.prairie.android.ui.components.prairieKeyboardActions
+import org.prairieserver.prairie.common.ui.marquee.MarqueeColors
 
 private val LocalMarqueeFieldGrouped = compositionLocalOf { false }
 
@@ -135,7 +135,7 @@ fun MarqueeTextField(
                     imeAction = imeAction,
                     autoCorrectEnabled = false,
                 ),
-                keyboardActions = siloKeyboardActions(onImeAction),
+                keyboardActions = prairieKeyboardActions(onImeAction),
                 interactionSource = interaction,
             )
         }

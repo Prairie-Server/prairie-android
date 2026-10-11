@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.components
 
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -63,11 +65,15 @@ fun TvEpisodeCard(
     stillUrl: String?,
     stillThumbhash: String?,
     onClick: () -> Unit,
+    /** Spoiler protection: blur the still of an episode not yet started. */
+    hideStill: Boolean = false,
     modifier: Modifier = Modifier,
     seriesTitle: String? = null,
     year: Int? = null,
     seasonNumber: Int? = null,
     episodeNumber: Int? = null,
+    /** Catalog item type; picks the mark on the default artwork. */
+    mediaType: String? = null,
     progress: Float? = null,
     width: Dp = tvEpisodeCardWidth(),
     focusRequester: FocusRequester? = null,
@@ -113,12 +119,14 @@ fun TvEpisodeCard(
                 .aspectRatio(16f / 9f),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                ThumbhashImage(
+                SpoilerImage(
                     url = stillUrl,
                     thumbhash = stillThumbhash,
+                    hidden = hideStill,
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    defaultArtwork = DefaultArtworkKind.forItemType(mediaType),
                 )
 
                 Box(

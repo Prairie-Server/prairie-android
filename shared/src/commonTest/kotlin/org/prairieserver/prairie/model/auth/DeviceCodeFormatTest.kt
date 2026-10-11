@@ -1,4 +1,4 @@
-package org.siloserver.silo.model.auth
+package org.prairieserver.prairie.model.auth
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,17 +23,17 @@ class DeviceCodeFormatTest {
     @Test
     fun activateTextDropsHttpsButKeepsHttpAndPaths() {
         assertEquals(
-            "silo.example.test/activate",
-            DeviceCodeFormat.activateText("https://silo.example.test/activate", ""),
+            "prairie.example.test/activate",
+            DeviceCodeFormat.activateText("https://prairie.example.test/activate", ""),
         )
         assertEquals(
             "http://192.168.1.5:8090/activate",
             DeviceCodeFormat.activateText("http://192.168.1.5:8090/activate", ""),
         )
         assertEquals(
-            "media.example.com/silo/activate",
-            DeviceCodeFormat.activateText("", "https://media.example.com/silo/activate?code=48217730"),
+            "media.example.com/prairie/activate",
+            DeviceCodeFormat.activateText("", "https://media.example.com/prairie/activate?code=48217730"),
         )
-        assertEquals("silo.example.test", DeviceCodeFormat.host("https://silo.example.test/activate"))
+        assertEquals("prairie.example.test", DeviceCodeFormat.host("https://prairie.example.test/activate"))
     }
 }

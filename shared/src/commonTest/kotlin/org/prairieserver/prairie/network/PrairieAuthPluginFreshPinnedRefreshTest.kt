@@ -1,4 +1,4 @@
-package org.siloserver.silo.network
+package org.prairieserver.prairie.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -17,12 +17,12 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * A pinned request marked [freshSiloAuth] (a phone approving a TV on a saved
+ * A pinned request marked [freshPrairieAuth] (a phone approving a TV on a saved
  * server, active or not) renews that scope's access token first when it is
  * expiring, through the same refresh the 401 path uses. Other pinned requests
  * keep the reactive behaviour.
  */
-class SiloAuthPluginFreshPinnedRefreshTest {
+class PrairieAuthPluginFreshPinnedRefreshTest {
     private val scope = AuthScopeSnapshot.profileless("cabin", "https://cabin.example", identityGeneration = 0L)
 
     private class Recorded(val path: String, val authorization: String?)
@@ -38,8 +38,8 @@ class SiloAuthPluginFreshPinnedRefreshTest {
             }
         },
     ) {
-        install(ContentNegotiation) { json(SiloJson) }
-        install(SiloAuthPlugin) { tokenManager = tokens }
+        install(ContentNegotiation) { json(PrairieJson) }
+        install(PrairieAuthPlugin) { tokenManager = tokens }
     }
 
     @Test
@@ -48,7 +48,7 @@ class SiloAuthPluginFreshPinnedRefreshTest {
         val calls = mutableListOf<Recorded>()
         client(tokens, calls).post("/api/v2/auth/device/approve") {
             authScope(scope)
-            freshSiloAuth()
+            freshPrairieAuth()
         }
         assertEquals(listOf("/api/v2/auth/refresh", "/api/v2/auth/device/approve"), calls.map { it.path })
         assertEquals(null, calls[0].authorization, "the refresh carries only its refresh token")
@@ -63,7 +63,7 @@ class SiloAuthPluginFreshPinnedRefreshTest {
         val calls = mutableListOf<Recorded>()
         client(tokens, calls).post("/api/v2/auth/device/approve") {
             authScope(scope)
-            freshSiloAuth()
+            freshPrairieAuth()
         }
         assertEquals(listOf("/api/v2/auth/device/approve"), calls.map { it.path })
         assertEquals("Bearer stale", calls[0].authorization)
@@ -75,7 +75,7 @@ class SiloAuthPluginFreshPinnedRefreshTest {
         val calls = mutableListOf<Recorded>()
         client(tokens, calls).post("/api/v2/account/identities/link-complete") {
             authScope(scope)
-            freshSiloAuth()
+            freshPrairieAuth()
             singleAttempt()
         }
         assertEquals(
@@ -95,12 +95,12 @@ class SiloAuthPluginFreshPinnedRefreshTest {
                 respond("{}", HttpStatusCode.Unauthorized, headersOf(HttpHeaders.ContentType, "application/json"))
             },
         ) {
-            install(ContentNegotiation) { json(SiloJson) }
-            install(SiloAuthPlugin) { tokenManager = tokens }
+            install(ContentNegotiation) { json(PrairieJson) }
+            install(PrairieAuthPlugin) { tokenManager = tokens }
         }
         client.post("/api/v2/account/identities/link-complete") {
             authScope(scope)
-            freshSiloAuth()
+            freshPrairieAuth()
             singleAttempt()
         }
         assertEquals(listOf("/api/v2/account/identities/link-complete"), calls.map { it.path })
@@ -121,7 +121,7 @@ class SiloAuthPluginFreshPinnedRefreshTest {
                 calls += Recorded(request.url.encodedPath, request.headers[HttpHeaders.Authorization])
                 if (request.url.encodedPath.endsWith("/auth/refresh")) {
                     respond(
-                        """{"type":"https://siloserver.org/docs/api/v2/problems/provider_unavailable","title":"Provider unavailable",""" +
+                        """{"type":"https://prairieserver.org/docs/api/v2/problems/provider_unavailable","title":"Provider unavailable",""" +
                             """"status":503,"detail":"Try again later; the session stays valid."}""",
                         HttpStatusCode.ServiceUnavailable,
                         headersOf(HttpHeaders.ContentType, "application/problem+json"),
@@ -131,16 +131,16 @@ class SiloAuthPluginFreshPinnedRefreshTest {
                 }
             },
         ) {
-            install(ContentNegotiation) { json(SiloJson) }
-            install(SiloAuthPlugin) { tokenManager = tokens }
+            install(ContentNegotiation) { json(PrairieJson) }
+            install(PrairieAuthPlugin) { tokenManager = tokens }
         }
-        val thrown = assertFailsWith<SiloAuthUnavailableException> {
+        val thrown = assertFailsWith<PrairieAuthUnavailableException> {
             client.post("/api/v2/auth/device/approve") {
                 authScope(scope)
-                freshSiloAuth()
+                freshPrairieAuth()
             }
         }
-        assertTrue(SiloAuthUnavailableException.isProviderUnavailable(thrown))
+        assertTrue(PrairieAuthUnavailableException.isProviderUnavailable(thrown))
         assertEquals(listOf("/api/v2/auth/refresh"), calls.map { it.path }, "the approval never went out")
         assertEquals("stale", tokens.access, "the session is kept")
         assertEquals("refresh-1", tokens.refresh)
@@ -160,12 +160,12 @@ class SiloAuthPluginFreshPinnedRefreshTest {
                 }
             },
         ) {
-            install(ContentNegotiation) { json(SiloJson) }
-            install(SiloAuthPlugin) { tokenManager = tokens }
+            install(ContentNegotiation) { json(PrairieJson) }
+            install(PrairieAuthPlugin) { tokenManager = tokens }
         }
         client.post("/api/v2/auth/device/approve") {
             authScope(scope)
-            freshSiloAuth()
+            freshPrairieAuth()
         }
         assertEquals(listOf("/api/v2/auth/refresh", "/api/v2/auth/device/approve"), calls.map { it.path })
     }
@@ -190,13 +190,13 @@ class SiloAuthPluginFreshPinnedRefreshTest {
                 }
             },
         ) {
-            install(ContentNegotiation) { json(SiloJson) }
-            install(SiloAuthPlugin) { tokenManager = tokens }
+            install(ContentNegotiation) { json(PrairieJson) }
+            install(PrairieAuthPlugin) { tokenManager = tokens }
         }
-        assertFailsWith<SiloAuthUnavailableException> {
+        assertFailsWith<PrairieAuthUnavailableException> {
             client.post("/api/v2/auth/device/approve") {
                 authScope(scope)
-                freshSiloAuth()
+                freshPrairieAuth()
             }
         }
         assertEquals(listOf("/api/v2/auth/refresh"), calls.map { it.path }, "the approval never went out")

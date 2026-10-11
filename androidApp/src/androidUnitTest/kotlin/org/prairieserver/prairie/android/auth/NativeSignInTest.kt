@@ -1,10 +1,10 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
-import org.siloserver.silo.model.auth.User
-import org.siloserver.silo.network.ApiResult
+import org.prairieserver.prairie.model.auth.User
+import org.prairieserver.prairie.network.ApiResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -42,13 +42,13 @@ class NativeSignInProtocolTest {
     fun startUrlAddsThePkceAndStateParameters() {
         val verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
         assertEquals(
-            "https://silo.example.test/api/v2/auth/oauth/5/native/start" +
+            "https://prairie.example.test/api/v2/auth/oauth/5/native/start" +
                 "?code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&app_state=abc",
-            NativeSignInProtocol.startUrl("https://silo.example.test/", "/api/v2/auth/oauth/5/native/start", "abc", verifier),
+            NativeSignInProtocol.startUrl("https://prairie.example.test/", "/api/v2/auth/oauth/5/native/start", "abc", verifier),
         )
-        val linking = NativeSignInProtocol.startUrl("https://h/silo", "/api/v2/auth/oauth/5/native/start?x=1#frag", "s", verifier, linkTicket = "t k")
+        val linking = NativeSignInProtocol.startUrl("https://h/prairie", "/api/v2/auth/oauth/5/native/start?x=1#frag", "s", verifier, linkTicket = "t k")
         assertEquals(
-            "https://h/silo/api/v2/auth/oauth/5/native/start?x=1&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" +
+            "https://h/prairie/api/v2/auth/oauth/5/native/start?x=1&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" +
                 "&code_challenge_method=S256&app_state=s&link_ticket=t+k",
             linking,
         )
@@ -58,8 +58,8 @@ class NativeSignInProtocolTest {
     /** The start opens on the saved base and nowhere else: a path that names another host opens nothing. */
     @Test
     fun startUrlNeverLeavesTheSavedBase() {
-        assertNull(NativeSignInProtocol.startUrl("https://silo.example.test", "//evil.example.test/x", "s", "v"))
-        assertNull(NativeSignInProtocol.startUrl("https://silo.example.test", "https://evil.example.test/x", "s", "v"))
+        assertNull(NativeSignInProtocol.startUrl("https://prairie.example.test", "//evil.example.test/x", "s", "v"))
+        assertNull(NativeSignInProtocol.startUrl("https://prairie.example.test", "https://evil.example.test/x", "s", "v"))
         assertNull(NativeSignInProtocol.startUrl("not a url", "/api/v2/auth/oauth/5/native/start", "s", "v"))
         assertEquals(
             "http://192.168.1.10:8096",
@@ -78,12 +78,12 @@ class NativeSignInProtocolTest {
 
     @Test
     fun originsCompareSchemeHostAndEffectivePort() {
-        assertEquals("https://silo.example.test", NativeSignInProtocol.origin("https://Silo.Example.test:443/api/v2/x?y=1"))
+        assertEquals("https://prairie.example.test", NativeSignInProtocol.origin("https://Prairie.Example.test:443/api/v2/x?y=1"))
         assertEquals("http://10.0.0.2:8096", NativeSignInProtocol.origin("http://10.0.0.2:8096/"))
-        assertEquals("http://silo.lan", NativeSignInProtocol.origin("http://silo.lan:80"))
-        assertNotEquals(NativeSignInProtocol.origin("https://silo.example.test"), NativeSignInProtocol.origin("http://silo.example.test"))
-        assertNotEquals(NativeSignInProtocol.origin("https://silo.example.test"), NativeSignInProtocol.origin("https://silo.example.test:8443"))
-        listOf(null, "", "silo.example.test", "ftp://silo.example.test", "https://user@silo.example.test", "https:///x", "ws://silo.lan")
+        assertEquals("http://prairie.lan", NativeSignInProtocol.origin("http://prairie.lan:80"))
+        assertNotEquals(NativeSignInProtocol.origin("https://prairie.example.test"), NativeSignInProtocol.origin("http://prairie.example.test"))
+        assertNotEquals(NativeSignInProtocol.origin("https://prairie.example.test"), NativeSignInProtocol.origin("https://prairie.example.test:8443"))
+        listOf(null, "", "prairie.example.test", "ftp://prairie.example.test", "https://user@prairie.example.test", "https:///x", "ws://prairie.lan")
             .forEach { assertNull(NativeSignInProtocol.origin(it), "$it") }
     }
 
@@ -94,9 +94,9 @@ class NativeSignInProtocolTest {
      */
     @Test
     fun originsAgreeWithTheAppsCanonicalOrigin() {
-        assertEquals("http://silo_server:8096", NativeSignInProtocol.origin("http://silo_server:8096/api/v2/auth/oauth/5/native/start"))
-        listOf("http://silo_server:8096", "https://[fd00::1]:8920/x", "https://Silo.Example.test:443").forEach {
-            assertEquals(org.siloserver.silo.network.canonicalHttpOrigin(it), NativeSignInProtocol.origin(it), it)
+        assertEquals("http://prairie_server:8096", NativeSignInProtocol.origin("http://prairie_server:8096/api/v2/auth/oauth/5/native/start"))
+        listOf("http://prairie_server:8096", "https://[fd00::1]:8920/x", "https://Prairie.Example.test:443").forEach {
+            assertEquals(org.prairieserver.prairie.network.canonicalHttpOrigin(it), NativeSignInProtocol.origin(it), it)
         }
     }
 
@@ -107,7 +107,7 @@ class NativeSignInProtocolTest {
      */
     @Test
     fun originsWriteTheHostTheWayABrowserSendsIt() {
-        assertEquals("https://xn--bcher-kva.example", NativeSignInProtocol.origin("https://bücher.example/silo"))
+        assertEquals("https://xn--bcher-kva.example", NativeSignInProtocol.origin("https://bücher.example/prairie"))
         assertEquals(NativeSignInProtocol.origin("https://xn--bcher-kva.example"), NativeSignInProtocol.origin("https://BÜCHER.example"))
         assertEquals("http://[fd00::1]:8096", NativeSignInProtocol.origin("http://[fd00:0:0:0:0:0:0:1]:8096"))
         assertEquals("http://[fd00::1]:8096", NativeSignInProtocol.origin("http://[FD00:0000::0001]:8096/"))
@@ -123,7 +123,7 @@ class NativeSignInCallbackTest {
     @Test
     fun parsesOnlyTheExactAppRedirect() {
         val parsed = assertNotNull(
-            NativeSignInCallback.parse("org.siloserver.silo:/auth/callback?code=c%2B1&state=s&server=srv-1"),
+            NativeSignInCallback.parse("org.prairieserver.prairie:/auth/callback?code=c%2B1&state=s&server=srv-1"),
         )
         assertEquals("c+1", parsed.code)
         assertEquals("s", parsed.state)
@@ -132,43 +132,43 @@ class NativeSignInCallbackTest {
         assertFalse(parsed.link)
         assertNull(parsed.iss)
         assertEquals(
-            "https://silo.example.test",
-            assertNotNull(NativeSignInCallback.parse("org.siloserver.silo:/auth/callback?code=c&iss=https%3A%2F%2Fsilo.example.test")).iss,
+            "https://prairie.example.test",
+            assertNotNull(NativeSignInCallback.parse("org.prairieserver.prairie:/auth/callback?code=c&iss=https%3A%2F%2Fprairie.example.test")).iss,
         )
         // A raw iss (some servers don't encode the colon and slashes) parses the same.
         assertEquals(
-            "https://silo.example.test:8443",
-            assertNotNull(NativeSignInCallback.parse("org.siloserver.silo:/auth/callback?code=c&iss=https://silo.example.test:8443")).iss,
+            "https://prairie.example.test:8443",
+            assertNotNull(NativeSignInCallback.parse("org.prairieserver.prairie:/auth/callback?code=c&iss=https://prairie.example.test:8443")).iss,
         )
 
-        val error = assertNotNull(NativeSignInCallback.parse("org.siloserver.silo:/auth/callback?error=not_permitted&state=s&server=x"))
+        val error = assertNotNull(NativeSignInCallback.parse("org.prairieserver.prairie:/auth/callback?error=not_permitted&state=s&server=x"))
         assertEquals("not_permitted", error.error)
         assertNull(error.code)
-        assertTrue(assertNotNull(NativeSignInCallback.parse("org.siloserver.silo:/auth/callback?code=c&link=1")).link)
+        assertTrue(assertNotNull(NativeSignInCallback.parse("org.prairieserver.prairie:/auth/callback?code=c&link=1")).link)
 
         listOf(
             null,
             "",
-            "org.siloserver.silo:/auth/other?code=c",
-            "org.siloserver.silo:/auth/callback/extra?code=c",
-            "org.siloserver.silo://auth/callback?code=c",
-            "org.siloserver.silo://evil.example/auth/callback?code=c",
-            "org.siloserver.silo:auth/callback?code=c",
-            "org.siloserver.silo:/auth/callback",
-            "silo:/auth/callback?code=c",
-            "https://silo.example.test/auth/callback?code=c",
+            "org.prairieserver.prairie:/auth/other?code=c",
+            "org.prairieserver.prairie:/auth/callback/extra?code=c",
+            "org.prairieserver.prairie://auth/callback?code=c",
+            "org.prairieserver.prairie://evil.example/auth/callback?code=c",
+            "org.prairieserver.prairie:auth/callback?code=c",
+            "org.prairieserver.prairie:/auth/callback",
+            "prairie:/auth/callback?code=c",
+            "https://prairie.example.test/auth/callback?code=c",
         ).forEach { assertNull(NativeSignInCallback.parse(it), "$it") }
     }
 
     @Test
     fun aRepeatedParameterKeepsTheFirstValue() {
-        val parsed = assertNotNull(NativeSignInCallback.parse("org.siloserver.silo:/auth/callback?state=a&state=b&code=c"))
+        val parsed = assertNotNull(NativeSignInCallback.parse("org.prairieserver.prairie:/auth/callback?state=a&state=b&code=c"))
         assertEquals("a", parsed.state)
     }
 
     @Test
     fun secretsStayOutOfLogs() {
-        val parsed = assertNotNull(NativeSignInCallback.parse("org.siloserver.silo:/auth/callback?code=SECRET&state=STATE&server=x"))
+        val parsed = assertNotNull(NativeSignInCallback.parse("org.prairieserver.prairie:/auth/callback?code=SECRET&state=STATE&server=x"))
         assertFalse(parsed.toString().contains("SECRET"))
         assertFalse(parsed.toString().contains("STATE"))
         val pending = pending(NativeSignInPurpose.SignIn)
@@ -183,7 +183,7 @@ class NativeSignInManifestTest {
         val manifest = File("src/androidMain/AndroidManifest.xml").readText()
         val activity = manifest.substringAfter("""android:name=".auth.NativeSignInCallbackActivity"""").substringBefore("</activity>")
         assertTrue(activity.contains("""android:exported="true""""))
-        assertTrue(activity.contains("""<data android:scheme="org.siloserver.silo" />"""))
+        assertTrue(activity.contains("""<data android:scheme="org.prairieserver.prairie" />"""))
         assertTrue(activity.contains("android.intent.category.BROWSABLE"))
         assertFalse(activity.contains("autoVerify"))
     }
@@ -191,7 +191,7 @@ class NativeSignInManifestTest {
     @Test
     fun tvNeverClaimsTheAppRedirect() {
         val tv = File("../androidTvApp/src/androidMain/AndroidManifest.xml").readText()
-        assertFalse(tv.contains("org.siloserver.silo\""), "TVs never run a provider sign-in")
+        assertFalse(tv.contains("org.prairieserver.prairie\""), "TVs never run a provider sign-in")
     }
 }
 
@@ -227,7 +227,7 @@ class NativeSignInCoordinatorTest {
         server: String? = "srv-1",
         error: String? = null,
         link: Boolean = false,
-        iss: String? = "https://silo.example.test",
+        iss: String? = "https://prairie.example.test",
     ) = NativeSignInCallback(code = code, state = state, server = server, error = error, link = link, iss = iss)
 
     private suspend fun NativeSignInCoordinator.start(
@@ -238,7 +238,7 @@ class NativeSignInCoordinatorTest {
             begin(
                 purpose = purpose,
                 serverEntryId = "entry-1",
-                serverUrl = "https://silo.example.test/",
+                serverUrl = "https://prairie.example.test/",
                 verifiedServerId = "srv-1",
                 providerName = "Keycloak",
                 nativeStartPath = START_PATH,
@@ -333,7 +333,7 @@ class NativeSignInCoordinatorTest {
         val url = begin()
         assertTrue(url.startsWith("http://192.168.1.10:8096/api/v2/auth/oauth/5/native/start?"), url)
         assertEquals("http://192.168.1.10:8096", store.load()?.startOrigin)
-        assertTrue(coordinator.finish(callback(state = url.substringAfter("app_state=").substringBefore('&'), iss = "https://silo.example.test")))
+        assertTrue(coordinator.finish(callback(state = url.substringAfter("app_state=").substringBefore('&'), iss = "https://prairie.example.test")))
         assertEquals(NativeSignInMessages.ISSUER_MISMATCH, assertIs<NativeSignInResult.Failed>(coordinator.result.value).reason)
         assertTrue(completer.startOrigins.isEmpty())
 
@@ -349,7 +349,7 @@ class NativeSignInCoordinatorTest {
         val store = InMemoryPendingNativeSignInStore()
         val coordinator = coordinator(store, FakeCompleter(), this)
         assertIs<NativeSignInStart.Refused>(
-            coordinator.begin(NativeSignInPurpose.SignIn, "pub", "https://silo.example.test", "srv-1", "Keycloak", "//evil.example.test/x"),
+            coordinator.begin(NativeSignInPurpose.SignIn, "pub", "https://prairie.example.test", "srv-1", "Keycloak", "//evil.example.test/x"),
         )
         assertIs<NativeSignInStart.Refused>(
             coordinator.begin(NativeSignInPurpose.SignIn, "pub", "not a url", "srv-1", "Keycloak", START_PATH),
@@ -365,7 +365,7 @@ class NativeSignInCoordinatorTest {
         assertEquals(NativeSignInMessages.ISSUER_MISMATCH, assertIs<NativeSignInResult.Failed>(coordinator.result.value).reason)
         assertTrue(completer.signIns.isEmpty())
 
-        assertTrue(coordinator.finish(callback(state = coordinator.start(), iss = "https://SILO.example.test:443")))
+        assertTrue(coordinator.finish(callback(state = coordinator.start(), iss = "https://PRAIRIE.example.test:443")))
         assertIs<NativeSignInResult.SignedIn>(coordinator.result.value)
         assertEquals(1, completer.signIns.size)
     }
@@ -494,8 +494,8 @@ class NativeSignInCoordinatorTest {
 
         // The provider couldn't re-check the session before a fresh-bearer request.
         completer.signInResult = ApiResult.NetworkError(
-            org.siloserver.silo.network.SiloAuthUnavailableException(
-                org.siloserver.silo.network.SiloAuthUnavailableException.PROVIDER_UNAVAILABLE,
+            org.prairieserver.prairie.network.PrairieAuthUnavailableException(
+                org.prairieserver.prairie.network.PrairieAuthUnavailableException.PROVIDER_UNAVAILABLE,
             ),
         )
         coordinator.finish(callback(state = coordinator.start()))
@@ -545,14 +545,14 @@ internal fun pending(purpose: NativeSignInPurpose) = PendingNativeSignIn(
     purpose = purpose,
     serverEntryId = "entry-1",
     verifiedServerId = "srv-1",
-    startOrigin = "https://silo.example.test",
+    startOrigin = "https://prairie.example.test",
     appState = NativeSignInProtocol.newAppState(),
     codeVerifier = NativeSignInProtocol.newCodeVerifier(),
     providerName = "Keycloak",
     startedAtEpochMs = 0L,
 )
 
-/** The nearby-TV confirmation uses the same content model as silo-apple's CompanionPairingCard. */
+/** The nearby-TV confirmation uses the same content model as prairie-apple's CompanionPairingCard. */
 class CompanionConfirmCopyTest {
     @Test
     fun confirmationCopyMatchesTheIphoneApp() {

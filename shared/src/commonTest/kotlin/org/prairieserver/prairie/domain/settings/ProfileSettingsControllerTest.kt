@@ -8,9 +8,12 @@ import org.prairieserver.prairie.model.settings.SettingKeys
 import org.prairieserver.prairie.model.settings.SettingsContractCapabilities
 import org.prairieserver.prairie.model.settings.StoredSettingValue
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.repository.port.CatalogCacheScope
 import org.prairieserver.prairie.network.api.SettingsApi
 import org.prairieserver.prairie.repository.SettingsRepository
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -37,9 +40,13 @@ class ProfileSettingsControllerTest {
             ApiResult.Success(StoredSettingValue(key = it, scope = "profile"))
         },
         val deleteResult: ApiResult<Unit> = ApiResult.Success(Unit),
+        val effectiveHook: suspend () -> Unit = {},
+        val deleteHook: suspend () -> Unit = {},
     ) : SettingsApi(org.prairieserver.prairie.network.apiv2.SettingsV2Api(HttpClient(), org.prairieserver.prairie.network.TokenManagerImpl(), org.prairieserver.prairie.network.apiv2.ApiV2Gate.Unrestricted)) {
 
         val calls = mutableListOf<Call>()
+        val writeAuthorities = mutableListOf<AuthScopeSnapshot?>()
+        val readAuthorities = mutableListOf<AuthScopeSnapshot?>()
 
         override suspend fun getContractCapabilities(): ApiResult<SettingsContractCapabilities> = capabilities
 
@@ -48,7 +55,11 @@ class ProfileSettingsControllerTest {
             libraryIds: List<Int>,
             seriesIds: List<String>,
             authority: org.prairieserver.prairie.network.AuthScopeSnapshot?,
-        ): ApiResult<EffectiveSettingValuesResponse> = effective
+        ): ApiResult<EffectiveSettingValuesResponse> {
+            readAuthorities += authority
+            effectiveHook()
+            return effective
+        }
 
         override suspend fun putValue(
             key: String,
@@ -57,6 +68,7 @@ class ProfileSettingsControllerTest {
             profileId: String?,
         authority: org.prairieserver.prairie.network.AuthScopeSnapshot?,
         ): ApiResult<StoredSettingValue> {
+            writeAuthorities += authority
             calls += Call.Put(key, scope.scope, value)
             return putResult(key)
         }
@@ -67,7 +79,9 @@ class ProfileSettingsControllerTest {
             profileId: String?,
         authority: org.prairieserver.prairie.network.AuthScopeSnapshot?,
         ): ApiResult<Unit> {
+            writeAuthorities += authority
             calls += Call.Delete(key, scope.scope)
+            deleteHook()
             return deleteResult
         }
     }
@@ -125,6 +139,94 @@ class ProfileSettingsControllerTest {
             ),
             api.calls,
         )
+    }
+
+    @Test
+    fun `only a metadata language write that lands bumps the catalog language revision`() = runTest {
+        val revision = CatalogLanguageRevision()
+        val controller = ProfileSettingsController(SettingsRepository(FakeSettingsApi()), revision)
+
+        controller.setSubtitleLanguage("nl")
+        assertEquals(0L, revision.revision.value)
+        controller.setMetadataLanguage("nl")
+        assertEquals(1L, revision.revision.value)
+
+        val failing = ProfileSettingsController(
+            SettingsRepository(FakeSettingsApi(putResult = { ApiResult.Error(500, "server_error", "Failed") })),
+            revision,
+        )
+        failing.setMetadataLanguage("de")
+        assertEquals(1L, revision.revision.value)
+    }
+
+    @Test
+    fun `committed language write invalidates cards even when settings reload is canceled`() = runTest {
+        val revision = CatalogLanguageRevision()
+        val api = FakeSettingsApi(effectiveHook = { throw kotlinx.coroutines.CancellationException("Settings closed") })
+        var invalidated = false
+        val controller = ProfileSettingsController(SettingsRepository(api), revision) { invalidated = true }
+        kotlin.test.assertFailsWith<kotlinx.coroutines.CancellationException> {
+            controller.setMetadataLanguage("de")
+        }
+        assertEquals(1L, revision.revision.value)
+        assertEquals(1, api.calls.size)
+        assertTrue(invalidated)
+    }
+
+    @Test
+    fun `cancellation after committed language write still finishes durable invalidation`() = runTest {
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var invalidated = false
+        val controller = ProfileSettingsController(SettingsRepository(FakeSettingsApi())) {
+            entered.complete(Unit)
+            release.await()
+            invalidated = true
+        }
+        val job = launch {
+            controller.setMetadataLanguage("de")
+        }
+        entered.await()
+        job.cancel()
+        release.complete(Unit)
+        job.join()
+        assertTrue(invalidated)
+    }
+
+    @Test
+    fun `metadata write clear signal and reread retain the initiating owner after a switch`() = runTest {
+        val a = AuthScopeSnapshot("server", "a", "https://example.test", null)
+        val b = a.copy(profileId = "b")
+        for (tag in listOf("de", "")) {
+            var active = a
+            val language = CatalogLanguageRevision()
+            val api = FakeSettingsApi(
+                putResult = {
+                    active = b
+                    ApiResult.Success(StoredSettingValue(key = it, scope = "profile"))
+                },
+                deleteHook = { active = b },
+            )
+            val controller = ProfileSettingsController(
+                SettingsRepository(api), language, captureAuthority = { active },
+            )
+            assertTrue(controller.setMetadataLanguage(tag).succeeded)
+            assertEquals(b, active)
+            assertEquals<List<AuthScopeSnapshot?>>(listOf(a), api.writeAuthorities)
+            assertEquals<List<AuthScopeSnapshot?>>(listOf(a), api.readAuthorities)
+            assertEquals<Map<CatalogCacheScope?, Long>>(mapOf(CatalogCacheScope("server", "a") to 1L), language.changes.scopes)
+        }
+    }
+
+    @Test
+    fun `metadata change without a captured profile sends no request or signal`() = runTest {
+        val api = FakeSettingsApi()
+        val language = CatalogLanguageRevision()
+        val controller = ProfileSettingsController(SettingsRepository(api), language, captureAuthority = { null })
+        assertFalse(controller.setMetadataLanguage("de").succeeded)
+        assertTrue(api.calls.isEmpty())
+        assertTrue(api.readAuthorities.isEmpty())
+        assertEquals(0L, language.revision.value)
     }
 
     @Test

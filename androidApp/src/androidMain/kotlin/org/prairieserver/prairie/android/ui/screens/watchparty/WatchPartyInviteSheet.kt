@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.ui.screens.watchparty
+package org.prairieserver.prairie.android.ui.screens.watchparty
 
 import android.content.Intent
 import androidx.compose.foundation.Canvas
@@ -49,8 +49,8 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.common.BitMatrix
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
-import org.siloserver.silo.android.ui.theme.SiloOnSurface
-import org.siloserver.silo.android.ui.theme.SiloSecondaryText
+import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
+import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
 
 /**
  * The invitation, after Apple's `WatchPartyInviteView` phone layout: the
@@ -72,7 +72,7 @@ internal fun WatchPartyInviteSheet(
     fun share(text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Join my Silo Watch Party")
+            putExtra(Intent.EXTRA_SUBJECT, "Join my Prairie Watch Party")
             putExtra(Intent.EXTRA_TEXT, text)
         }
         context.startActivity(Intent.createChooser(send, "Share Watch Party invitation"))
@@ -82,7 +82,7 @@ internal fun WatchPartyInviteSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Color.Black,
-        contentColor = SiloOnSurface,
+        contentColor = PrairieOnSurface,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -100,13 +100,13 @@ internal fun WatchPartyInviteSheet(
                     "Join with this code",
                     fontSize = (WatchPartyMetrics.HERO_TITLE * 0.8f).sp,
                     fontWeight = FontWeight.Bold,
-                    color = SiloOnSurface,
+                    color = PrairieOnSurface,
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    "Anyone with a profile on this Silo server can enter it from Watch Party.",
+                    "Anyone with a profile on this Prairie server can enter it from Watch Party.",
                     fontSize = WatchPartyMetrics.BODY.sp,
-                    color = SiloSecondaryText,
+                    color = PrairieSecondaryText,
                     textAlign = TextAlign.Center,
                 )
             }
@@ -116,7 +116,7 @@ internal fun WatchPartyInviteSheet(
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 8.sp,
-                color = SiloOnSurface,
+                color = PrairieOnSurface,
                 maxLines = 1,
                 modifier = Modifier
                     .padding(start = 8.dp)
@@ -135,7 +135,7 @@ internal fun WatchPartyInviteSheet(
                 Text(
                     "Or scan to open the invitation on a phone.",
                     fontSize = WatchPartyMetrics.CAPTION.sp,
-                    color = SiloSecondaryText,
+                    color = PrairieSecondaryText,
                     textAlign = TextAlign.Center,
                 )
             }

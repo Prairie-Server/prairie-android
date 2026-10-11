@@ -1,4 +1,4 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -7,25 +7,25 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.runTest
-import org.siloserver.silo.model.auth.AccountIdentities
-import org.siloserver.silo.model.auth.AccountIdentity
-import org.siloserver.silo.model.auth.AccountIdentityLinkTicket
-import org.siloserver.silo.model.auth.ExternalSignInCapabilities
-import org.siloserver.silo.model.auth.LoginResponse
-import org.siloserver.silo.model.auth.OAuthHandshakeCapabilities
-import org.siloserver.silo.model.auth.SignInProviders
-import org.siloserver.silo.model.auth.User
-import org.siloserver.silo.model.server.ServerEntry
-import org.siloserver.silo.network.AccountSessionExpectation
-import org.siloserver.silo.network.ApiResult
-import org.siloserver.silo.network.AuthScopeSnapshot
-import org.siloserver.silo.network.ServerRegistry
-import org.siloserver.silo.network.TokenManager
-import org.siloserver.silo.network.TokenManagerImpl
-import org.siloserver.silo.network.api.AuthApi
-import org.siloserver.silo.network.api.ExternalSignInApi
-import org.siloserver.silo.network.apiv2.ApiV2Gate
-import org.siloserver.silo.repository.AuthRepository
+import org.prairieserver.prairie.model.auth.AccountIdentities
+import org.prairieserver.prairie.model.auth.AccountIdentity
+import org.prairieserver.prairie.model.auth.AccountIdentityLinkTicket
+import org.prairieserver.prairie.model.auth.ExternalSignInCapabilities
+import org.prairieserver.prairie.model.auth.LoginResponse
+import org.prairieserver.prairie.model.auth.OAuthHandshakeCapabilities
+import org.prairieserver.prairie.model.auth.SignInProviders
+import org.prairieserver.prairie.model.auth.User
+import org.prairieserver.prairie.model.server.ServerEntry
+import org.prairieserver.prairie.network.AccountSessionExpectation
+import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.AuthScopeSnapshot
+import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.TokenManagerImpl
+import org.prairieserver.prairie.network.api.AuthApi
+import org.prairieserver.prairie.network.api.ExternalSignInApi
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+import org.prairieserver.prairie.repository.AuthRepository
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -65,11 +65,11 @@ class NativeSignInCompleterTest {
 
     @Test
     fun aSignInRedeemsAtTheSavedBase() = runTest {
-        val f = Fixture(ServerEntry(id = "pub", url = "https://silo.example.test/silo", verifiedServerId = "srv-1"))
+        val f = Fixture(ServerEntry(id = "pub", url = "https://prairie.example.test/prairie", verifiedServerId = "srv-1"))
         f.start()
-        val signedIn = f.completer.signIn(pending("https://silo.example.test", entryId = "pub"), "code-1")
+        val signedIn = f.completer.signIn(pending("https://prairie.example.test", entryId = "pub"), "code-1")
         assertEquals(user, assertIs<ApiResult.Success<User>>(signedIn).data)
-        assertEquals(listOf("https://silo.example.test/silo"), f.api.redeemedAt)
+        assertEquals(listOf("https://prairie.example.test/prairie"), f.api.redeemedAt)
         assertEquals(listOf<String?>("pub"), f.tokens.installedOn)
     }
 
@@ -96,7 +96,7 @@ class NativeSignInCompleterTest {
     fun aSavedServerOnAnotherOriginThanTheFlowRedeemsNothing() = runTest {
         val f = Fixture(ServerEntry(id = "pub", url = "https://elsewhere.example.test", verifiedServerId = "srv-1"))
         f.start()
-        val refused = assertIs<ApiResult.Error>(f.completer.signIn(pending("https://silo.example.test", entryId = "pub"), "c"))
+        val refused = assertIs<ApiResult.Error>(f.completer.signIn(pending("https://prairie.example.test", entryId = "pub"), "c"))
         assertEquals(NativeSignInMessages.ACCOUNT_CHANGED, NativeSignInCoordinator.completionReason(refused))
         assertTrue(f.api.redeemedAt.isEmpty())
         assertTrue(f.tokens.installedOn.isEmpty())
@@ -109,10 +109,10 @@ class NativeSignInCompleterTest {
      */
     @Test
     fun aSignInSinceTheFlowBeganRedeemsNothing() = runTest {
-        val f = Fixture(ServerEntry(id = "pub", url = "https://silo.example.test", verifiedServerId = "srv-1"))
+        val f = Fixture(ServerEntry(id = "pub", url = "https://prairie.example.test", verifiedServerId = "srv-1"))
         f.start()
         f.tokens.loginSessionIds["pub"] = "password-login"
-        val refused = assertIs<ApiResult.Error>(f.completer.signIn(pending("https://silo.example.test", entryId = "pub"), "c"))
+        val refused = assertIs<ApiResult.Error>(f.completer.signIn(pending("https://prairie.example.test", entryId = "pub"), "c"))
         assertEquals(NativeSignInMessages.ACCOUNT_CHANGED, NativeSignInCoordinator.completionReason(refused))
         assertTrue(f.api.redeemedAt.isEmpty())
         assertTrue(f.tokens.installedOn.isEmpty())
@@ -120,9 +120,9 @@ class NativeSignInCompleterTest {
 
     @Test
     fun aFlowForAnotherSavedServerRedeemsNothing() = runTest {
-        val f = Fixture(ServerEntry(id = "pub", url = "https://silo.example.test", verifiedServerId = "srv-1"))
+        val f = Fixture(ServerEntry(id = "pub", url = "https://prairie.example.test", verifiedServerId = "srv-1"))
         f.start()
-        assertIs<ApiResult.Error>(f.completer.signIn(pending("https://silo.example.test", entryId = "other"), "c"))
+        assertIs<ApiResult.Error>(f.completer.signIn(pending("https://prairie.example.test", entryId = "other"), "c"))
         assertTrue(f.api.redeemedAt.isEmpty())
     }
 
@@ -143,7 +143,7 @@ class NativeSignInCompleterTest {
         // Another login, no login, or a flow started on another origin confirms nothing.
         assertIs<ApiResult.Error>(f.completer.link(linking.copy(loginSessionId = "login-2"), "code-1"))
         assertIs<ApiResult.Error>(f.completer.link(linking.copy(loginSessionId = null), "code-1"))
-        assertIs<ApiResult.Error>(f.completer.link(linking.copy(startOrigin = "https://silo.example.test"), "code-1"))
+        assertIs<ApiResult.Error>(f.completer.link(linking.copy(startOrigin = "https://prairie.example.test"), "code-1"))
         assertEquals(1, f.api.linkedAt.size)
     }
 

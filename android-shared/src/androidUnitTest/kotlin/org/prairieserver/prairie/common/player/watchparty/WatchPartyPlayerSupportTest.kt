@@ -1,7 +1,7 @@
-package org.siloserver.silo.common.player.watchparty
+package org.prairieserver.prairie.common.player.watchparty
 
-import org.siloserver.silo.watchtogether.RoomPlaybackNotice
-import org.siloserver.silo.watchtogether.RoomTransportIntent
+import org.prairieserver.prairie.watchtogether.RoomPlaybackNotice
+import org.prairieserver.prairie.watchtogether.RoomTransportIntent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

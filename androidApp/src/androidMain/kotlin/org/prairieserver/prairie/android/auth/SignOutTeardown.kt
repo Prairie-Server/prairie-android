@@ -1,17 +1,17 @@
-package org.siloserver.silo.android.auth
+package org.prairieserver.prairie.android.auth
 
-import org.siloserver.silo.common.settings.CardPresentationStore
-import org.siloserver.silo.common.settings.EpisodeSpoilerStore
-import org.siloserver.silo.common.settings.LibraryPlaybackPrefsStore
-import org.siloserver.silo.common.settings.OverlayPrefsStore
-import org.siloserver.silo.common.settings.PlayerSettingsStore
-import org.siloserver.silo.common.settings.SeekIntervalStore
-import org.siloserver.silo.common.settings.TitleArtStore
-import org.siloserver.silo.model.feature.MetadataAiFeatureStore
-import org.siloserver.silo.model.feature.RequestsFeatureStore
-import org.siloserver.silo.model.profile.ActiveProfileStore
-import org.siloserver.silo.network.ServerRegistry
-import org.siloserver.silo.repository.AuthRepository
+import org.prairieserver.prairie.common.settings.CardPresentationStore
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
+import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
+import org.prairieserver.prairie.common.settings.OverlayPrefsStore
+import org.prairieserver.prairie.common.settings.PlayerSettingsStore
+import org.prairieserver.prairie.common.settings.SeekIntervalStore
+import org.prairieserver.prairie.common.settings.TitleArtStore
+import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
+import org.prairieserver.prairie.model.feature.RequestsFeatureStore
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
+import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.repository.AuthRepository
 
 /**
  * The one sign-out of the active server's account, shared by Settings, the
@@ -20,7 +20,7 @@ import org.siloserver.silo.repository.AuthRepository
  * per-profile caches are dropped so the next account's shell doesn't render
  * (or write back) the previous profile's values.
  *
- * Signing out of Silo leaves the provider's session in the browser, so the
+ * Signing out of Prairie leaves the provider's session in the browser, so the
  * server's next provider sign-in asks the provider to offer another account
  * ([NativeSignInCoordinator.requestAccountChoice]). A session that expired
  * never comes through here and never asks.
