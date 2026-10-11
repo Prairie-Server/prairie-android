@@ -204,14 +204,6 @@ fun PrairieMenuHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .widthIn(min = MenuDimens.minWidth)
-            .heightIn(min = MenuDimens.rowMinHeight)
-            .siloRowTopDivider(showDivider)
-            .clickable(onClick = onClick)
-            .padding(
-                horizontal = MenuDimens.rowHorizontalPadding,
-                vertical = MenuDimens.rowVerticalPadding,
-            ),
             .padding(start = MenuDimens.rowHorizontalPadding, end = MenuDimens.rowHorizontalPadding, top = 8.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
