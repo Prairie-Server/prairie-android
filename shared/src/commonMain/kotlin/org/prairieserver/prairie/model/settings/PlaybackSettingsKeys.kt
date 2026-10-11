@@ -29,6 +29,18 @@ object PlaybackSettingsKeys {
     const val IntroSkipMode = "playback.intro_skip_mode"
     const val AutoSkipCredits = "playback.auto_skip_credits"
     const val AutoPlayNext = "playback.auto_play_next"
+    /**
+     * Skip "previously on" recaps automatically when Prairie can detect them —
+     * `playback.auto_skip_recap`. Same scopes and resolution order as the other
+     * episode behavior keys.
+     */
+    const val AutoSkipRecap = "playback.auto_skip_recap"
+    /**
+     * Show a preview of the next episode while credits play —
+     * `playback.auto_play_next_preview`. Paired with [AutoPlayNext] at the
+     * Up-Next surface.
+     */
+    const val AutoPlayNextPreview = "playback.auto_play_next_preview"
     // Renamed at the settings cutover: every other key carries a domain prefix
     // and this one did not, so the contract registers it as
     // playback.subtitle_appearance. Old servers are gone by the time this
@@ -174,6 +186,8 @@ object PlaybackSettingsKeys {
         IntroSkipMode,
         AutoSkipCredits,
         AutoPlayNext,
+        AutoSkipRecap,
+        AutoPlayNextPreview,
         SubtitleAppearance,
         HdrEnabled,
         PlaybackSpeed,
@@ -213,6 +227,8 @@ object PlaybackSettingsKeys {
         IntroSkipMode,
         AutoSkipCredits,
         AutoPlayNext,
+        AutoSkipRecap,
+        AutoPlayNextPreview,
         NextUpPromptSeconds,
         SubtitleAppearance,
     )

@@ -87,6 +87,10 @@ data class SettingsUiState(
     val audioLanguageSuggestions: List<String> = emptyList(),
     val introSkipMode: IntroSkipMode = IntroSkipMode.Default,
     val autoSkipCredits: Boolean = false,
+    /** Skip "previously on" recaps automatically — `playback.auto_skip_recap`. */
+    val autoSkipRecap: Boolean = false,
+    /** Preview the next episode while credits play — `playback.auto_play_next_preview`. */
+    val autoPlayNextPreview: Boolean = false,
     val pictureInPictureEnabled: Boolean = true,
     val dolbyVisionEnabled: Boolean = true,
     val dvProfile7HDR10Fallback: Boolean = false,
@@ -193,6 +197,7 @@ class SettingsViewModel(
         observeAccountCard()
         observePlayerSettings()
         observePlaybackBehaviorSettings()
+        observeEpisodeSkipSettings()
         observeNotifications()
         observeCardPresentation()
         observeEpisodeSpoilers()
@@ -373,12 +378,37 @@ class SettingsViewModel(
         }.launchIn(viewModelScope)
     }
 
+    // Separate combine for the two episode-skip booleans: the behavior
+    // settings above already sit at combine()'s 5-flow ceiling, so these
+    // get their own small one.
+    private fun observeEpisodeSkipSettings() {
+        combine(
+            playerSettingsStore.autoSkipRecapFlow,
+            playerSettingsStore.autoPlayNextPreviewFlow,
+        ) { skipRecap, previewNext ->
+            _uiState.update {
+                it.copy(
+                    autoSkipRecap = skipRecap,
+                    autoPlayNextPreview = previewNext,
+                )
+            }
+        }.launchIn(viewModelScope)
+    }
+
     fun setResumeRewindSeconds(value: Int) {
         viewModelScope.launch { playerSettingsStore.setResumeRewindSeconds(value) }
     }
 
     fun setAutoPlayNext(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoPlayNext(value) }
+    }
+
+    fun setAutoSkipRecap(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setAutoSkipRecap(value) }
+    }
+
+    fun setAutoPlayNextPreview(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setAutoPlayNextPreview(value) }
     }
 
     fun setNextUpPromptSeconds(value: Int) {

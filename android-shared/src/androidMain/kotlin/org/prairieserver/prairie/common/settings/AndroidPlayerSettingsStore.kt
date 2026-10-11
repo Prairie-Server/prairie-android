@@ -262,6 +262,12 @@ class AndroidPlayerSettingsStore(
     override val autoPlayNextFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.AutoPlayNext, true) }
 
+    override val autoSkipRecapFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.AutoSkipRecap, false) }
+
+    override val autoPlayNextPreviewFlow: Flow<Boolean> =
+        profileScopedFlow(false) { p, s -> p.boolFor(s, PlaybackSettingsKeys.AutoPlayNextPreview, false) }
+
     override val hdrEnabledFlow: Flow<Boolean> =
         profileScopedFlow(true) { p, s -> p.boolFor(s, PlaybackSettingsKeys.HdrEnabled, true) }
 
@@ -453,6 +459,12 @@ class AndroidPlayerSettingsStore(
 
     override suspend fun setAutoPlayNext(value: Boolean) =
         writeBool(PlaybackSettingsKeys.AutoPlayNext, value)
+
+    override suspend fun setAutoSkipRecap(value: Boolean) =
+        writeBool(PlaybackSettingsKeys.AutoSkipRecap, value)
+
+    override suspend fun setAutoPlayNextPreview(value: Boolean) =
+        writeBool(PlaybackSettingsKeys.AutoPlayNextPreview, value)
 
     override suspend fun setHdrEnabled(value: Boolean) =
         writeBool(PlaybackSettingsKeys.HdrEnabled, value)

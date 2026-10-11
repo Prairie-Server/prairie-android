@@ -189,6 +189,8 @@ fun PlaybackEpisodesSection(
     nextUpPromptSeconds: Int,
     introSkipMode: IntroSkipMode,
     autoSkipCredits: Boolean,
+    autoSkipRecap: Boolean,
+    autoPlayNextPreview: Boolean,
     resumeRewindSeconds: Int,
     passOutThreshold: Int,
     /** Keys this device holds its own value for. */
@@ -197,6 +199,8 @@ fun PlaybackEpisodesSection(
     onNextUpPromptSecondsChanged: (Int) -> Unit,
     onIntroSkipModeChanged: (IntroSkipMode) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onAutoSkipRecapChanged: (Boolean) -> Unit,
+    onAutoPlayNextPreviewChanged: (Boolean) -> Unit,
     onResumeRewindSecondsChanged: (Int) -> Unit,
     onPassOutThresholdChanged: (Int) -> Unit,
     /** Receives the key of the control going back to the profile's value. */
@@ -217,6 +221,14 @@ fun PlaybackEpisodesSection(
             overridden = overridden(PlaybackSettingsKeys.AutoPlayNext),
             onCheckedChange = onAutoPlayNextChanged,
             onUseProfileSetting = { onUseProfileSetting(PlaybackSettingsKeys.AutoPlayNext) },
+        )
+
+        ProfileLayeredSwitchRow(
+            label = "Preview Next Episode",
+            checked = autoPlayNextPreview,
+            overridden = overridden(PlaybackSettingsKeys.AutoPlayNextPreview),
+            onCheckedChange = onAutoPlayNextPreviewChanged,
+            onUseProfileSetting = { onUseProfileSetting(PlaybackSettingsKeys.AutoPlayNextPreview) },
         )
 
         ProfileLayeredDropdownRow(
@@ -249,6 +261,14 @@ fun PlaybackEpisodesSection(
             overridden = overridden(PlaybackSettingsKeys.AutoSkipCredits),
             onCheckedChange = onAutoSkipCreditsChanged,
             onUseProfileSetting = { onUseProfileSetting(PlaybackSettingsKeys.AutoSkipCredits) },
+        )
+
+        ProfileLayeredSwitchRow(
+            label = "Skip Recaps",
+            checked = autoSkipRecap,
+            overridden = overridden(PlaybackSettingsKeys.AutoSkipRecap),
+            onCheckedChange = onAutoSkipRecapChanged,
+            onUseProfileSetting = { onUseProfileSetting(PlaybackSettingsKeys.AutoSkipRecap) },
         )
 
         SettingsDropdownRow(

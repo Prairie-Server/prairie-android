@@ -297,6 +297,8 @@ fun TvSettingsScreen(
         onAutoPlayNextChanged = viewModel::onAutoPlayNextChanged,
         onIntroSkipModeChanged = viewModel::onIntroSkipModeChanged,
         onAutoSkipCreditsChanged = viewModel::onAutoSkipCreditsChanged,
+        onAutoSkipRecapChanged = viewModel::onAutoSkipRecapChanged,
+        onAutoPlayNextPreviewChanged = viewModel::onAutoPlayNextPreviewChanged,
         onHideUnwatchedEpisodeImagesChanged = viewModel::setHideUnwatchedEpisodeImages,
         onHideUnwatchedEpisodeOverviewsChanged = viewModel::setHideUnwatchedEpisodeOverviews,
         onMatchContentFrameRateChanged = viewModel::onMatchContentFrameRateChanged,
@@ -450,6 +452,8 @@ private fun SettingsSplitLayout(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onIntroSkipModeChanged: (IntroSkipMode) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onAutoSkipRecapChanged: (Boolean) -> Unit,
+    onAutoPlayNextPreviewChanged: (Boolean) -> Unit,
     onHideUnwatchedEpisodeImagesChanged: (Boolean) -> Unit,
     onHideUnwatchedEpisodeOverviewsChanged: (Boolean) -> Unit,
     onMatchContentFrameRateChanged: (Boolean) -> Unit,
@@ -534,6 +538,8 @@ private fun SettingsSplitLayout(
             onAutoPlayNextChanged = onAutoPlayNextChanged,
             onIntroSkipModeChanged = onIntroSkipModeChanged,
             onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+            onAutoSkipRecapChanged = onAutoSkipRecapChanged,
+            onAutoPlayNextPreviewChanged = onAutoPlayNextPreviewChanged,
             onHideUnwatchedEpisodeImagesChanged = onHideUnwatchedEpisodeImagesChanged,
             onHideUnwatchedEpisodeOverviewsChanged = onHideUnwatchedEpisodeOverviewsChanged,
             onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
@@ -820,6 +826,8 @@ private fun SettingsDetailPane(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onIntroSkipModeChanged: (IntroSkipMode) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onAutoSkipRecapChanged: (Boolean) -> Unit,
+    onAutoPlayNextPreviewChanged: (Boolean) -> Unit,
     onHideUnwatchedEpisodeImagesChanged: (Boolean) -> Unit,
     onHideUnwatchedEpisodeOverviewsChanged: (Boolean) -> Unit,
     onMatchContentFrameRateChanged: (Boolean) -> Unit,
@@ -879,6 +887,8 @@ private fun SettingsDetailPane(
                 onAutoPlayNextChanged = onAutoPlayNextChanged,
                 onIntroSkipModeChanged = onIntroSkipModeChanged,
                 onAutoSkipCreditsChanged = onAutoSkipCreditsChanged,
+                onAutoSkipRecapChanged = onAutoSkipRecapChanged,
+                onAutoPlayNextPreviewChanged = onAutoPlayNextPreviewChanged,
                 onHideUnwatchedEpisodeImagesChanged = onHideUnwatchedEpisodeImagesChanged,
                 onHideUnwatchedEpisodeOverviewsChanged = onHideUnwatchedEpisodeOverviewsChanged,
             onMatchContentFrameRateChanged = onMatchContentFrameRateChanged,
@@ -1199,6 +1209,8 @@ private fun TvPlaybackSettingsPane(
     onAutoPlayNextChanged: (Boolean) -> Unit,
     onIntroSkipModeChanged: (IntroSkipMode) -> Unit,
     onAutoSkipCreditsChanged: (Boolean) -> Unit,
+    onAutoSkipRecapChanged: (Boolean) -> Unit,
+    onAutoPlayNextPreviewChanged: (Boolean) -> Unit,
     onHideUnwatchedEpisodeImagesChanged: (Boolean) -> Unit,
     onHideUnwatchedEpisodeOverviewsChanged: (Boolean) -> Unit,
     onMatchContentFrameRateChanged: (Boolean) -> Unit,
@@ -1228,6 +1240,8 @@ private fun TvPlaybackSettingsPane(
     // handed back to the switch above it rather than lost.
     val autoPlayNextFocus = remember { FocusRequester() }
     val skipCreditsFocus = remember { FocusRequester() }
+    val autoPlayNextPreviewFocus = remember { FocusRequester() }
+    val skipRecapFocus = remember { FocusRequester() }
     val seekState = seekIntervals?.state?.collectAsState()?.value
     var seekPicker by remember { mutableStateOf<Pair<SeekMedia, SeekDirection>?>(null) }
     // Where focus goes when a skip-interval group drops the focused row and
@@ -1331,6 +1345,21 @@ private fun TvPlaybackSettingsPane(
                         },
                     )
                 }
+                SettingsToggleRow(
+                    label = "Preview Next Episode",
+                    checked = state.autoPlayNextPreview,
+                    onCheckedChange = onAutoPlayNextPreviewChanged,
+                    focusRequester = autoPlayNextPreviewFocus,
+                )
+                if (overridden(PlaybackSettingsKeys.AutoPlayNextPreview)) {
+                    UseProfileSettingRow(
+                        setting = "Preview Next Episode",
+                        onClick = {
+                            autoPlayNextPreviewFocus.requestFocus()
+                            onUseProfileSetting(PlaybackSettingsKeys.AutoPlayNextPreview)
+                        },
+                    )
+                }
                 SettingsValueRow(
                     label = "Show Next Up",
                     value = nextUpPromptLabel(state.nextUpPromptSeconds),
@@ -1356,6 +1385,21 @@ private fun TvPlaybackSettingsPane(
                         onClick = {
                             skipCreditsFocus.requestFocus()
                             onUseProfileSetting(PlaybackSettingsKeys.AutoSkipCredits)
+                        },
+                    )
+                }
+                SettingsToggleRow(
+                    label = "Skip Recaps",
+                    checked = state.autoSkipRecap,
+                    onCheckedChange = onAutoSkipRecapChanged,
+                    focusRequester = skipRecapFocus,
+                )
+                if (overridden(PlaybackSettingsKeys.AutoSkipRecap)) {
+                    UseProfileSettingRow(
+                        setting = "Skip Recaps",
+                        onClick = {
+                            skipRecapFocus.requestFocus()
+                            onUseProfileSetting(PlaybackSettingsKeys.AutoSkipRecap)
                         },
                     )
                 }
