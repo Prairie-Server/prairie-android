@@ -2646,6 +2646,193 @@ private fun TvPlayerCommandEffects(
                         } else {
                             -1L
                         },
+                }
+                delay(500)
+            }
+    // Applies a local audio switch: the track is already in the mounted stream,
+    // so it only needs selecting on the player. The ViewModel does not commit
+    // on the strength of this call -- AudioTrackManager returns Unit and does
+    // nothing silently if the group is gone -- it waits for onTracksChanged to
+    // show the target selected.
+    LaunchedEffect(videoBackend) {
+        val backend = videoBackend ?: return@LaunchedEffect
+        viewModel.pendingLocalAudioSelection.collect { request ->
+            request ?: return@collect
+            backend.selectAudioTrack(
+                VideoPlayerTrackEntry(
+                    index = request.targetOrdinal,
+                    label = "",
+                    language = null,
+                    isSelected = true,
+                ),
+    // The single path from the subtitle transaction adapter to the player.
+    // Every request carries the owner that armed it, so the acknowledgement can
+    // never be dropped for want of one. Mirrors the seekRequests idiom.
+        viewModel.subtitleMountRequests.collect { request ->
+            if (!viewModel.canApplySubtitleMount(request)) return@collect
+            if (request.trackIndex == -1) {
+                if (backend.selectSubtitle(null)) {
+                    viewModel.onSubtitleSelectionApplied(request)
+                } else {
+                    viewModel.onSubtitleSelectionFailed(request)
+                return@collect
+            val selectedTrack = viewModel.uiState.value.subtitleTracks
+                .firstOrNull { it.index == request.trackIndex }
+                ?.toVideoTrackEntry()
+            if (selectedTrack != null && backend.selectSubtitle(selectedTrack)) {
+                viewModel.onSubtitleSelectionApplied(request)
+            } else {
+                viewModel.onSubtitleSelectionFailed(request)
+    // Remote set_audio_track / set_subtitle_track are latched and resolved in
+    // the ViewModel after stable track identities exist. Only the transaction
+    // adapter may emit a backend subtitle mount request.
+    // Mirror user-intent pause state into the player. Kept separate from the
+    // onPlayingChanged listener so a transient buffering stall can't flip the
+    // pause icon or cancel the auto-hide timer.
+    LaunchedEffect(mediaController, isPaused, playWhenReadyReconciliationGate) {
+        val desired = !isPaused
+        if (controller.playWhenReady != desired) {
+            if (playWhenReadyReconciliationGate.requestProgrammaticChange(desired)) {
+                controller.playWhenReady = desired
+    LaunchedEffect(mediaController) {
+        viewModel.seekRequests.collect { targetSec ->
+            val targetMs = (targetSec * 1000).toLong()
+            watchParty?.recordIssuedSeek(targetMs)
+            controller.seekTo(targetMs)
+    // Apply per-profile playback speed to the MediaController (a Watch Party
+    // runs at 1x or the room's correction rate instead).
+    TvPlaybackSpeedEffect(mediaController, watchParty != null, viewModel, playbackSpeed)
+ * Registers this player with the PrairieCast receiver for the screen's lifetime.
+private fun TvPrairieCastPlayerRegistration(
+    prairieCastReceiver: TvPrairieCastReceiver,
+    contentId: String,
+    castLaunchId: String?,
+    onStaleCastLaunch: () -> Unit,
+    subtitleDelayMs: Int,
+    hdrEnabled: Boolean,
+    subtitleAppearance: SubtitleAppearance,
+    val latestPrairieCastPlaybackSpeed by rememberUpdatedState(playbackSpeed)
+    val latestPrairieCastSubtitleDelayMs by rememberUpdatedState(subtitleDelayMs)
+    val latestPrairieCastHdrEnabled by rememberUpdatedState(hdrEnabled)
+    val latestPrairieCastSubtitleAppearance by rememberUpdatedState(subtitleAppearance)
+    val latestPrairieCastMediaController by rememberUpdatedState(mediaController)
+    DisposableEffect(prairieCastReceiver, viewModel, contentId) {
+        // In a Watch Party a phone's transport is one more input: the TV
+        // membership's permissions decide, so a host's phone controls the
+        // room and a guest's is refused with a notice. Stop ends only this
+        // device's engagement. Solo casting is unchanged.
+        val adapter = TvPrairieCastPlayerAdapter(
+            play = {
+                if (watchParty != null) {
+                    watchParty.setPlaying(play = true)
+                    viewModel.setPaused(false)
+                    latestPrairieCastMediaController?.play()
+            },
+            pause = {
+                    watchParty.setPlaying(play = false)
+                    viewModel.setPaused(true)
+                    latestPrairieCastMediaController?.pause()
+            playPause = {
+                if (watchParty != null) watchParty.togglePlayPause() else viewModel.onPlayPause()
+            seek = { seconds ->
+                if (watchParty != null) watchParty.seek(seconds) else viewModel.seekImmediate(seconds)
+            stop = {
+                watchParty?.leave()
+                viewModel.remoteStop()
+            selectAudio = { index -> viewModel.remoteSelectAudio(index.toInt()) },
+            selectSubtitle = { index -> viewModel.remoteSelectSubtitle(index?.toInt() ?: -1) },
+            setPlaybackSpeed = { speed ->
+                // Refused in a Watch Party, and never written to the preference.
+                tvPrairieCastPlaybackSpeed(inWatchParty = watchParty != null, requested = speed)?.let { applied ->
+                    viewModel.onSetPlaybackSpeed(applied)
+                    latestPrairieCastMediaController?.playbackParameters = PlaybackParameters(applied.toFloat())
+            // The phone offers the same server quality ladder as the HUD, so its pick
+            // is applied the same way: the server re-plans the stream at that rung.
+            setQuality = { qualityId ->
+                switchTvPlaybackQuality(
+                    viewModel,
+                    watchParty,
+                    qualityId.takeUnless { it == VIDEO_QUALITY_AUTO_ID } ?: PlaybackQuality.Auto.wireValue,
+            setVideoGravity = { value ->
+                viewModel.onVideoFillModeChanged(value.toPrairieCastVideoFillMode())
+            setSubtitleSyncMs = viewModel::onSubtitleDelayChanged,
+            setSubtitlePosition = { value ->
+                viewModel.onSetSubtitleAppearance(
+                    latestPrairieCastSubtitleAppearance.copy(position = value.toPrairieCastSubtitlePosition()),
+            setVolume = { volume ->
+                latestPrairieCastMediaController?.let { controller ->
+                    val next = volume.toFloat().coerceIn(0f, 1f)
+                    prairieCastReceiver.recordPlayerVolume(next.toDouble())
+                    controller.volume = next
+            setMuted = { muted ->
+                    prairieCastReceiver.recordPlayerMuted(muted, controller.volume.toDouble())
+                    controller.volume = if (muted) 0f else prairieCastReceiver.retainedPlayerVolume().toFloat()
+            playNext = viewModel::playNextEpisodeNow,
+            // A phone's launch never silently replaces the party player.
+            launchRefusal = { watchParty?.refuseLaunch() },
+        val registration = prairieCastReceiver.registerPlayer(
+            adapter = adapter,
+            launchId = castLaunchId,
+            onStaleLaunch = onStaleCastLaunch,
+        ) {
+            val volumeState = prairieCastReceiver.resolvePlayerVolume(
+                currentVolume = latestPrairieCastMediaController?.volume?.toDouble(),
+            viewModel.uiState.value.toPrairieCastPlaybackState(
+                // A Watch Party plays at 1x; its correction rate is never shown.
+                playbackSpeed = if (watchParty != null) 1.0 else latestPrairieCastPlaybackSpeed,
+                hdrEnabled = latestPrairieCastHdrEnabled,
+                subtitleDelayMs = latestPrairieCastSubtitleDelayMs,
+                subtitleAppearance = latestPrairieCastSubtitleAppearance,
+                volumeState = volumeState,
+        onDispose { registration.close() }
+    }
+}
+
+/**
+ * The position poll and the ViewModel's requests to the player: local audio
+ * switches, subtitle mounts, the pause mirror, seeks, and the playback speed.
+ *
+ * Split out of [TvPlayerScreen] to keep that composable's generated method
+ * within ART's JIT limit (see [TvPlayerOverlays]).
+ */
+@Composable
+private fun TvPlayerCommandEffects(
+    videoBackend: VideoPlaybackBackend?,
+    mediaController: MediaController?,
+    sessionId: String?,
+    lifecycleOwner: androidx.lifecycle.LifecycleOwner,
+    viewModel: TvPlayerViewModel,
+    watchParty: TvWatchPartyScreenController?,
+    isPaused: Boolean,
+    playWhenReadyReconciliationGate: PlayWhenReadyReconciliationGate,
+    playbackSpeed: Double,
+) {
+    // Position polling — lifecycle-bounded so it doesn't outlive the screen.
+    LaunchedEffect(mediaController, sessionId, lifecycleOwner) {
+        val controller = mediaController ?: return@LaunchedEffect
+        val timelineWindow = Timeline.Window()
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive && sessionId != null) {
+                viewModel.onPositionChanged(
+                    controller.currentPosition,
+                    controller.duration.coerceAtLeast(0L),
+                )
+                // Mounted-transport extent for the VM's native-first seek
+                // decision (see TvPlayerViewModel.mountedSeekableSourceRange).
+                // A seekable window with a known length can serve any target
+                // it spans without a server reanchor.
+                if (!controller.currentTimeline.isEmpty) {
+                    controller.currentTimeline.getWindow(
+                        controller.currentMediaItemIndex,
+                        timelineWindow,
+                    )
+                    viewModel.onPlayerWindowChanged(
+                        isSeekable = timelineWindow.isSeekable,
+                        windowEndPlayerMs = if (timelineWindow.durationUs != C.TIME_UNSET) {
+                            timelineWindow.durationUs / 1000
+                        } else {
+                            -1L
+                        },
                     )
                 }
                 delay(500)
@@ -3038,12 +3225,16 @@ private fun TvPlayerIdleOverlay(
                         text = eyebrow.uppercase(),
                         style = TvPlayerType.Eyebrow,
                         maxLines = 1,
+                    )
+                }
                 androidx.tv.material3.Text(
                     text = title,
                     style = TvPlayerType.Title,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+                )
+            }
 
             // Interactive scrubber — capsule track with chapter ticks, interval
             // skip, hold-to-auto-seek, and Select to commit. tvOS spec §4.1.
@@ -3383,7 +3574,6 @@ private fun TvPlayerNextUpOverlay(
                                     color = Color.White.copy(alpha = 0.75f),
                                     style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
                                     maxLines = 1,
-                                )
                             }
                         }
                         val eyebrow = when {
@@ -3391,13 +3581,11 @@ private fun TvPlayerNextUpOverlay(
                             shuffle != null -> "Up Next at Random"
                             videoEnded -> "Playing Next"
                             else -> "Up Next"
-                        }
                         androidx.tv.material3.Text(
                             text = eyebrow.uppercase(),
                             color = Color.White.copy(alpha = 0.52f),
                             style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
                         )
-
                         if (nextEpisode != null) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 // A shuffled movie has no series line; its own title heads the panel.

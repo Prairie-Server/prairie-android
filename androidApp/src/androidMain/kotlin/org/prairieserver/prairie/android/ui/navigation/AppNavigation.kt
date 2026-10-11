@@ -269,8 +269,36 @@ fun AppNavigation(
             ).route,
         ) {
             if (replacing != null) popUpTo(replacing) { inclusive = true }
+    }
+    // Back to the hub below, or replace [replacing] with a new hub.
+    fun openPartyHub(replacing: String) {
+        if (!navController.popBackStack(Route.WatchPartyHub.ROUTE, inclusive = false)) {
+            navController.navigate(Route.WatchPartyHub().route) {
+                popUpTo(replacing) { inclusive = true }
+            }
+
+    // The party player loads from the room itself; the route's content
+    // arguments are placeholders only. There is one party player at a time:
+    // when this room's player is already in the back stack, return to it; it
+    // follows the room's selection on its own.
+    fun openPartyPlayer(room: RoomSnapshot, replacing: String?) {
+        val topPlayer = runCatching { navController.getBackStackEntry(Route.Player.ROUTE) }.getOrNull()
+        if (topPlayer?.arguments?.getString("roomId") == room.roomId) {
+            navController.popBackStack(Route.Player.ROUTE, inclusive = false)
+            return
+        }
+        navController.navigate(
+            Route.Player(
+                contentId = room.selectedContentId?.takeIf { it.isNotBlank() } ?: PARTY_PLAYER_PLACEHOLDER_ID,
+                fileId = room.selectedFileId,
+                libraryId = room.selectedLibraryId,
+                roomId = room.roomId,
+            ).route,
+        ) {
+            if (replacing != null) popUpTo(replacing) { inclusive = true }
         }
     }
+    PrairieCastLaunchHaptics(prairieCastController)
 
     // Back to the hub below, or replace [replacing] with a new hub.
     fun openPartyHub(replacing: String) {

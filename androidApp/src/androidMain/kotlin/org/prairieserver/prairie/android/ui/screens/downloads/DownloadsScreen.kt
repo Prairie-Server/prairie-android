@@ -383,6 +383,8 @@ fun DownloadsScreen(
                 "No watched downloads are ready to reclaim."
             } else {
                 "Delete ${plan.count} watched download${if (plan.count == 1) "" else "s"} and free ${formatBytes(plan.totalBytes)}?"
+            },
+            onDismissRequest = viewModel::clearReclaimPlan,
             actions = buildList {
                 if (plan.count > 0) {
                     add(
@@ -392,6 +394,7 @@ fun DownloadsScreen(
                             style = PrairieDialogActionStyle.Destructive,
                             enabled = !state.isReclaiming,
                         ),
+                    )
                 }
                 add(PrairieDialogAction(if (plan.count == 0) "Close" else "Cancel", viewModel::clearReclaimPlan))
             },

@@ -1274,6 +1274,11 @@ fun ItemDetailScreen(
                         text = {
                             Text("Turn Off Control Mode", color = MaterialTheme.colorScheme.error)
                             prairieCastController.disconnect()
+                    PrairieDropdownMenuItem(
+                        },
+                        onClick = {
+                            remoteMenuExpanded = false
+                    )
                 }
             },
         )

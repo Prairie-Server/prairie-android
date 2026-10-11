@@ -674,6 +674,11 @@ val androidModule = module {
         org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartyDetailViewModel(
             handoff = get(),
 }
+        )
+    }
+    viewModel {
+            repository = get(),
+
 /**
  * The account signed in on [scope]'s server, read with that server's own
  * credentials (renewing its access token first when it is expiring). Null

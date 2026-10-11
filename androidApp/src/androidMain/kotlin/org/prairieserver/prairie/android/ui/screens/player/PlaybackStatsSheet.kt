@@ -1,19 +1,13 @@
 package org.prairieserver.prairie.android.ui.screens.player
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -24,24 +18,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
 import org.prairieserver.prairie.common.player.healthRows
 import org.prairieserver.prairie.playback.stats.PlaybackStatsContext
 import org.prairieserver.prairie.playback.stats.displayLine
 import org.prairieserver.prairie.playback.stats.planRows
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaybackStatsSheet(
     isVisible: Boolean,
     stats: PlayerStatsSnapshot,
     onDismiss: () -> Unit,
-    // Gear-submenu back affordance: dismisses this sheet and reopens the
-    // parent settings sheet (wired in PlayerOverlay).
+    // Back affordance: hands over to the settings menu (wired in PlayerOverlay).
     onBack: (() -> Unit)? = null,
     sessionId: String? = null,
     playMethod: String? = null,
@@ -52,9 +45,7 @@ fun PlaybackStatsSheet(
 ) {
     if (!isVisible) return
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    val dismissSheet = { scope.dismissPlayerSheet(sheetState, onDismiss) }
+    val controller = rememberPlayerMenuController(onDismiss)
 
     LaunchedEffect(isVisible) {
         if (isVisible) sheetState.show()
@@ -99,9 +90,7 @@ fun PlaybackStatsSheet(
                     text = "Current stream",
                     color = Color.White.copy(alpha = 0.62f),
                     fontSize = 13.sp,
-                )
                 Spacer(modifier = Modifier.height(18.dp))
-
                 val planRows = playbackContext.planRows()
                 val rows = buildList {
                     sessionId?.takeIf { it.isNotBlank() }?.let { add("Session" to it) }
@@ -115,18 +104,28 @@ fun PlaybackStatsSheet(
                         planRows.forEach { row -> StatsBlockRow(label = row.label, value = row.value) }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                }
                 if (rows.isEmpty() && planRows.isEmpty()) {
                     Text(
                         text = "Waiting for player data",
                         color = Color.White.copy(alpha = 0.66f),
                         fontSize = 15.sp,
                     )
+    PlayerMenu(controller = controller, tabletopPaneHeight = tabletopPaneHeight) {
+        PlayerPanelHeader(
+            title = "Playback stats",
+            onClose = { controller.dismiss() },
+            onBack = onBack?.let { back -> { controller.dismiss(then = back) } },
+            backDescription = "Back to settings",
+        )
+        PlayerMenuScrollColumn(horizontalPadding = 12.dp) {
+            PlayerSectionHeader("Current stream")
+            val rows = stats.mobileStatsRows()
+            PlayerGroup {
+                if (rows.isEmpty()) {
+                    StatsRow(label = "Waiting for player data", value = "", separator = false)
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        rows.forEach { (label, value) ->
-                            StatsRow(label = label, value = value)
-                        }
+                    rows.forEachIndexed { index, (label, value) ->
+                        StatsRow(label = label, value = value, separator = index > 0)
                     }
                 }
                 if (!stats.events.isEmpty) {
@@ -152,6 +151,7 @@ fun PlaybackStatsSheet(
                     }
                 }
             }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
@@ -175,24 +175,32 @@ private fun StatsBlockRow(label: String, value: String) {
 }
 
 @Composable
-private fun StatsRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+private fun StatsRow(label: String, value: String, separator: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .playerGroupSeparator(separator)
+            .heightIn(min = 40.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.62f),
-            fontSize = 14.sp,
+            style = PlayerType.RowDetail.copy(fontSize = PlayerType.Value.fontSize),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = value,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(modifier = Modifier.weight(1.4f)) {
+            Text(
+                text = value,
+                style = PlayerType.Value.copy(color = PlayerChrome.Paper),
+                textAlign = TextAlign.End,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

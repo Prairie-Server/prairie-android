@@ -249,9 +249,7 @@ fun PlaybackEpisodesSection(
             value = stringResource(introSkipModeLabel(introSkipMode)),
             options = introSkipOptions.map { it.second },
             overridden = overridden(PlaybackSettingsKeys.IntroSkipMode),
-            onOptionSelected = { label ->
                 introSkipOptions.firstOrNull { it.second == label }?.let { onIntroSkipModeChanged(it.first) }
-            },
             onUseProfileSetting = { onUseProfileSetting(PlaybackSettingsKeys.IntroSkipMode) },
         )
 

@@ -601,7 +601,6 @@ fun SettingsRow(
         onDismiss = { confirmSignOut = false },
     )
 }
-
 /**
  * The overview search (Apple `IOSSettingsOverview.matches`): a row shows when
  * any of its keywords contains the trimmed query, case-insensitively. An
@@ -609,7 +608,6 @@ fun SettingsRow(
  */
 private class SettingsSearch(query: String) {
     private val needle = query.trim()
-
     fun matches(vararg terms: String): Boolean =
         needle.isEmpty() || terms.any { it.contains(needle, ignoreCase = true) }
 }

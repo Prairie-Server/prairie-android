@@ -5,7 +5,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import org.prairieserver.prairie.android.ui.theme.PrairieDestructive
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Inbox
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SwitchAccount
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.unit.dp
+import org.koin.compose.koinInject
+import org.prairieserver.prairie.android.ui.screens.profiles.ProfileAvatar
+import org.prairieserver.prairie.common.ui.components.avatarRef
+import org.prairieserver.prairie.common.ui.marquee.ServerBranding
+import org.prairieserver.prairie.model.profile.Profile
+import org.prairieserver.prairie.network.ServerRegistry
 
 /**
  * The profile-avatar dropdown, in one place.
@@ -18,8 +32,8 @@ import org.prairieserver.prairie.android.ui.theme.PrairieDestructive
  * this.
  *
  * Item order and gating are unchanged. A null [onRequestsClick] is a server
- * with `requests_enabled` off, and a null [onWatchTogetherClick] is the
- * client-side Watch Together gate; neither is ever shown unconditionally, and
+ * with `requests_enabled` off, and a null [onWatchPartyClick] is the
+ * Settings → Experimental → Watch Party gate; neither is ever shown unconditionally, and
  * nothing new was added. Reading/ebooks are phone-only and reached from
  * Libraries, and Requests keeps its two entry points (this menu and search).
  *
@@ -38,8 +52,13 @@ fun ProfileMenu(
     onWatchTogetherClick: (() -> Unit)? = null,
     // Prairie: Live TV, provided by MainScreen via LocalLiveTvMenuAction.
     onLiveTvClick: (() -> Unit)? = LocalLiveTvMenuAction.current,
+    onWatchPartyClick: (() -> Unit)? = null,
+    // Who is signed in, for the header. Null hides the header.
+    activeProfile: Profile? = null,
 ) {
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+    val serverRegistry: ServerRegistry = koinInject()
+    val activeServer by serverRegistry.activeEntry.collectAsState()
 
     // Whether anything sits above the account actions.
     //
@@ -52,14 +71,28 @@ fun ProfileMenu(
     // disabled opened onto a stray rule above its first item.
     val hasFeatureGroup =
         onRequestsClick != null || onLiveTvClick != null || onWatchTogetherClick != null
+    val hasFeatureGroup = onRequestsClick != null || onWatchPartyClick != null
 
     PrairieDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
     ) {
+        if (activeProfile != null) {
+            PrairieMenuHeader(
+                title = activeProfile.name,
+                detail = activeServer?.let { server ->
+                    listOf(server.displayName, ServerBranding.hostLabel(server.url)).distinct().joinToString(" · ")
+                },
+                leading = {
+                    ProfileAvatar(avatar = activeProfile.avatarRef(), name = activeProfile.name, size = 40.dp)
+                },
+            )
+            PrairieMenuDivider()
+        }
         if (onRequestsClick != null) {
             PrairieMenuItem(
                 label = "Requests",
+                icon = Icons.Rounded.Inbox,
                 onClick = {
                     onDismissRequest()
                     onRequestsClick()
@@ -76,16 +109,19 @@ fun ProfileMenu(
             )
         }
         if (onWatchTogetherClick != null) {
+        if (onWatchPartyClick != null) {
             PrairieMenuItem(
-                label = "Watch together",
+                label = "Watch Party",
+                icon = Icons.Rounded.Groups,
                 onClick = {
                     onDismissRequest()
-                    onWatchTogetherClick()
+                    onWatchPartyClick()
                 },
             )
         }
         PrairieMenuItem(
             label = "Settings",
+            icon = Icons.Rounded.Settings,
             showDivider = hasFeatureGroup,
             onClick = {
                 onDismissRequest()
@@ -94,6 +130,7 @@ fun ProfileMenu(
         )
         PrairieMenuItem(
             label = "Switch profile",
+            icon = Icons.Rounded.SwitchAccount,
             onClick = {
                 onDismissRequest()
                 onSwitchProfileClick()
@@ -101,6 +138,7 @@ fun ProfileMenu(
         )
         PrairieMenuItem(
             label = "Switch server",
+            icon = Icons.Rounded.Dns,
             onClick = {
                 onDismissRequest()
                 onSwitchServerClick()
@@ -108,7 +146,9 @@ fun ProfileMenu(
         )
         PrairieMenuItem(
             label = "Sign out",
-            labelColor = PrairieDestructive,
+            icon = Icons.AutoMirrored.Rounded.Logout,
+            destructive = true,
+            showDivider = true,
             onClick = {
                 onDismissRequest()
                 confirmSignOut = true

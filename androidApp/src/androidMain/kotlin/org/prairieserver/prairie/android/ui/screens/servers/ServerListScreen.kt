@@ -1,5 +1,11 @@
 package org.prairieserver.prairie.android.ui.screens.servers
 
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
+import org.prairieserver.prairie.android.ui.components.PrairieDialogActionStyle
+import org.prairieserver.prairie.android.ui.components.PrairieDialogAction
+import org.prairieserver.prairie.android.ui.components.PrairieDialog
+import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,7 +45,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -266,20 +271,13 @@ fun ServerListScreen(
     }
 
     removeTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { removeTarget = null },
-            title = { Text("Remove this server?") },
-            text = {
-                Text(
-                    "Sign-in credentials for ${target.displayName} will be " +
-                        "forgotten on this device.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.onRemove(target.id)
-                    removeTarget = null
-                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+        PrairieConfirmDialog(
+            title = "Remove this server?",
+            body = "Sign-in credentials for ${target.displayName} will be forgotten on this device.",
+            confirmLabel = "Remove",
+            onConfirm = {
+                viewModel.onRemove(target.id)
+                removeTarget = null
             },
             dismissButton = {
                 TextButton(onClick = { removeTarget = null }) { Icon(
@@ -291,6 +289,7 @@ fun ServerListScreen(
                     Text("Cancel") }
             },
             containerColor = MaterialTheme.colorScheme.primaryContainer,
+            onDismiss = { removeTarget = null },
         )
     }
 }
@@ -465,7 +464,6 @@ private fun ServerRow(
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                ) {
                     DropdownMenuItem(
                         text = { Text("Rename") },
                         onClick = {
@@ -473,22 +471,44 @@ private fun ServerRow(
                             onRename()
                         },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                    )
-                    DropdownMenuItem(
                         text = { Text("Remove Server") },
-                        onClick = {
-                            menuExpanded = false
                             onRemove()
-                        },
                         leadingIcon = {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.error,
                             )
-                        },
-                    )
-                }
+        Box {
+            IconButton(
+                enabled = !isPending,
+                onClick = { menuExpanded = true },
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Server actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            PrairieDropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                PrairieDropdownMenuItem(
+                    text = { Text("Rename") },
+                    onClick = {
+                        menuExpanded = false
+                        onRename()
+                    },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    text = { Text("Remove Server") },
+                        onRemove()
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
             }
         }
     }
@@ -548,31 +568,12 @@ private fun RenameDialog(
 ) {
     var input by remember { mutableStateOf(entry.userOverrideName ?: entry.fetchedName.orEmpty()) }
     val hasOverride = entry.userOverrideName != null
-    AlertDialog(
+    PrairieDialog(
+        title = "Rename server",
+        message = "Override the server-provided name with a label just for this device.",
         onDismissRequest = onDismiss,
-        title = { Text("Rename server") },
-        text = {
-            Column {
-                Text(
-                    text = "Override the server-provided name with a label just " +
-                        "for this device.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(input) }) { Text("Save") }
-        },
-        dismissButton = {
+        actions = buildList {
+            add(PrairieDialogAction("Save", { onConfirm(input) }, PrairieDialogActionStyle.Primary))
             if (hasOverride) {
                 TextButton(onClick = { onConfirm("") }) {
                     Text(
@@ -585,11 +586,19 @@ private fun RenameDialog(
                         imageVector = Icons.Default.Close,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
-                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel") }
+                add(PrairieDialogAction("Reset to server-provided name", { onConfirm("") }))
             }
+            add(PrairieDialogAction("Cancel", onDismiss))
         },
-        containerColor = MaterialTheme.colorScheme.primaryContainer,
-    )
+    ) {
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            label = { Text("Name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }

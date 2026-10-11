@@ -1350,11 +1350,8 @@ private fun TvPlaybackSettingsPane(
                     checked = state.autoPlayNextPreview,
                     onCheckedChange = onAutoPlayNextPreviewChanged,
                     focusRequester = autoPlayNextPreviewFocus,
-                )
                 if (overridden(PlaybackSettingsKeys.AutoPlayNextPreview)) {
-                    UseProfileSettingRow(
                         setting = "Preview Next Episode",
-                        onClick = {
                             autoPlayNextPreviewFocus.requestFocus()
                             onUseProfileSetting(PlaybackSettingsKeys.AutoPlayNextPreview)
                         },
@@ -2282,8 +2279,6 @@ private fun TvAppUpdateStatusRows() {
                 label = "View update",
                 onClick = { runCatching { uriHandler.openUri(url) } },
             )
-        }
-    }
 }
 
 private const val SubtitlePreviewText = "Subtitles will look like this"
@@ -2665,13 +2660,11 @@ private val RowHeight = 38.dp
 
 /** Rail category rows carry a title over a description (tvOS rail rows). */
 private val RailRowHeight = 50.dp
-
 /**
  * The one settings-surface ground color: black, like the Apple apps'
  * `prairieBackground`. Shared so no screen re-hardcodes it.
  */
 internal val SettingsBackground = Color(0xFF000000)
-
 /** Graphite tile behind the pane header glyph (Apple `prairieIconTile`). */
 private val PaneHeaderTile = Color(0xFF3A3A3C)
 

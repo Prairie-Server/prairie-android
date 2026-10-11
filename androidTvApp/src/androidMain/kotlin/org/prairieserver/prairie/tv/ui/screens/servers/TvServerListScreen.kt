@@ -50,6 +50,7 @@ import androidx.tv.material3.Text
 import org.prairieserver.prairie.discovery.DiscoveryHit
 import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
+import org.prairieserver.prairie.tv.ui.screens.settings.SettingsBackground
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import org.prairieserver.prairie.tv.ui.components.TvDialogOption
 import org.prairieserver.prairie.tv.ui.components.TvOptionDialog
@@ -133,7 +134,7 @@ fun TvServerListScreen(
         modifier = Modifier
             .fillMaxSize()
             .then(contentInitialFocus)
-            .background(ServerSettingsBackground)
+            .background(SettingsBackground)
             .padding(start = 44.dp, top = Spacing.safeArea, end = 44.dp, bottom = Spacing.xxxl),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
@@ -323,55 +324,24 @@ private fun ScanTile(
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = InterFamily,
                 color = foreground,
-            )
         }
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
 private fun DiscoveredRow(
     hit: DiscoveryHit,
-    enabled: Boolean,
     onSelect: () -> Unit,
-) {
     val interactionSource = remember(hit.url) { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
     val foreground = if (isFocused) FocusedContent else Color.White
-    Card(
         onClick = { if (enabled) onSelect() },
-        interactionSource = interactionSource,
-        colors = CardDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.055f),
-            focusedContainerColor = FocusedContainer,
-            focusedContentColor = FocusedContent,
-        ),
-        shape = CardDefaults.shape(shape = ServerRowShape),
-        scale = CardDefaults.scale(focusedScale = 1f),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Text(
                 text = hit.serverName.trim().ifBlank { hit.url },
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = InterFamily,
-                color = foreground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-            )
             Spacer(Modifier.height(4.dp))
-            Text(
                 text = "Found · ${hit.url}",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = InterFamily,
                 color = foreground.copy(alpha = if (isFocused) 0.68f else 0.62f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
 private val ServerSettingsBackground = Color(0xFF17181A)
 private val ServerListMaxWidth = 620.dp
 private val ServerRowShape = RoundedCornerShape(8.dp)

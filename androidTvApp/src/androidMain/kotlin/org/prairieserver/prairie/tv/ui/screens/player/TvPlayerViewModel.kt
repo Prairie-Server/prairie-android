@@ -4455,10 +4455,8 @@ class TvPlayerViewModel(
         }
     }
 
-    /**
      * A `markers_updated` event. The server also sends a file's update to
      * sessions that requested that file but play another, so check the file.
-     */
     fun applyMarkersUpdate(update: PlaybackMarkersUpdate) {
         if (update.fileId != null && update.fileId != _uiState.value.mediaFileId) return
         applyUpdatedMarkers(update.intro, update.credits, update.recap, update.preview)
@@ -5633,6 +5631,7 @@ class TvPlayerViewModel(
                 subtitleTransactions.selectQuality(v3Preference)
             }
         }
+        return true
     }
 
     /**

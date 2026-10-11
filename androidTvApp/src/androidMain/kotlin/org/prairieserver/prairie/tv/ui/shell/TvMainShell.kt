@@ -1430,7 +1430,6 @@ fun TvMainShell(
                             type = NavType.StringType
                             nullable = true
                             defaultValue = ""
-                        },
                     ),
                 ) { entry ->
                     TvLiveTvPlayerScreen(
@@ -1439,8 +1438,6 @@ fun TvMainShell(
                         channelName = entry.arguments
                             ?.getString(TvMainRoute.LiveTvPlayer.ARG_NAME).orEmpty(),
                         onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
-                    )
-                }
                 shellComposable(TvMainRoute.Requests.route) {
                     TvRequestsPage(
                         onOpenLibraryItem = onOpenItemDetail,
@@ -1448,14 +1445,10 @@ fun TvMainShell(
                         onInitialContentFocus = {
                             focusState.closeProfileMenuForContent()
                             requestsFocusHandoffPending = false
-                        },
                         onFocusHandoffFailed = {
-                            requestsFocusHandoffPending = false
                             focusState.requestMenuFocus(
                                 target = TvTopMenuPanel.Root(TvRootDestination.Requests),
                                 suppressDwellPreview = true,
-                            )
-                        },
                         focusRequest = requestsEntryRequest,
                     )
                 }

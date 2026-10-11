@@ -1,30 +1,19 @@
 package org.prairieserver.prairie.android.ui.components.aurora
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,96 +25,31 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The Aurora first-run chrome — palette, eyebrow, glass panel, cream primary
- * button, ghost button, text field, segment, field/error labels — ported from
- * prairie-apple's `AuroraStyle.swift` + `AuroraTextField.swift`, scaled for the
- * phone (iOS points ≈ Android dp 1:1). A warm, cinematic skin (gold accent,
- * plum-night) layered over the onboarding screens.
+ * The Aurora chrome — palette, glass panel, cream primary button and ghost
+ * button — used by the onboarding tour, ported from prairie-apple's Aurora
+ * styles and scaled for the phone (iOS points ≈ Android dp 1:1). The other
+ * first-run screens use the Marquee components instead.
  */
 
 // MARK: palette
 val AuroraInk = Color(0xFFF3EFE9)
 val AuroraAccent = Color(0xFFF3D3A0)
 val AuroraInkSecondary = AuroraInk.copy(alpha = 0.62f)
-val AuroraInkTertiary = AuroraInk.copy(alpha = 0.40f)
 private val AuroraGlassTint = Color(0xFF171019)
 private val AuroraCreamTop = Color(0xFFFDF7EC)
 private val AuroraCreamBottom = Color(0xFFF1E3CD)
 private val AuroraCreamInk = Color(0xFF20160A)
-private val AuroraError = Color(0xFFEF5350)
 
 // MARK: shared control metrics (iOS AuroraControl)
 internal val AuroraControlHeight = 52.dp
 internal val AuroraControlCorner = 14.dp
-private val AuroraActiveFill = Color(0xFFF4EEE2)
-private val AuroraActiveInk = Color(0xFF1A1206)
-private val AuroraActivePlaceholder = Color(0xFF4A4035)
-
-/** Gold-hairline + mono-caps step label, e.g. "STEP 01 — CONNECT". */
-@Composable
-fun AuroraEyebrow(text: String, modifier: Modifier = Modifier, centered: Boolean = false) {
-    Row(
-        modifier = if (centered) modifier.fillMaxWidth() else modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (centered) Arrangement.Center else Arrangement.Start,
-    ) {
-        Box(
-            modifier = Modifier
-                .width(46.dp)
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(listOf(AuroraAccent, AuroraAccent.copy(alpha = 0f))),
-                ),
-        )
-        Spacer(Modifier.width(16.dp))
-        Text(
-            text = text.uppercase(),
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 17.sp,
-            letterSpacing = 3.5.sp,
-            color = AuroraAccent,
-        )
-    }
-}
-
-/** Mono-caps field label (e.g. "SERVER ADDRESS"). */
-@Composable
-fun AuroraFieldLabel(text: String, modifier: Modifier = Modifier) {
-    Text(
-        modifier = modifier,
-        text = text.uppercase(),
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 12.sp,
-        letterSpacing = 1.6.sp,
-        color = AuroraInkTertiary,
-    )
-}
-
-/** Inline error row. */
-@Composable
-fun AuroraErrorLabel(text: String, modifier: Modifier = Modifier) {
-    Text(
-        modifier = modifier.fillMaxWidth(),
-        text = text,
-        fontSize = 13.sp,
-        color = AuroraError,
-    )
-}
 
 /**
  * Liquid-glass panel chrome (translucent plum tint + gradient hairline + top
@@ -259,7 +183,6 @@ fun AuroraTextField(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val shape = RoundedCornerShape(AuroraControlCorner)
-
     Column(modifier = modifier.fillMaxWidth()) {
         AuroraFieldLabel(label)
         Spacer(Modifier.height(8.dp))
@@ -278,8 +201,6 @@ fun AuroraTextField(
                 .border(
                     width = if (isFocused) 2.dp else 1.5.dp,
                     color = if (isFocused) AuroraAccent else Color.White.copy(alpha = 0.16f),
-                    shape = shape,
-                )
                 .heightIn(min = AuroraControlHeight)
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart,
@@ -314,21 +235,15 @@ fun AuroraTextField(
                 if (trailing != null) {
                     Spacer(Modifier.width(10.dp))
                     trailing()
-                }
             }
         }
     }
 }
-
 /** Equal-width, single-line segmented option chip (Aurora). */
-@Composable
 fun AuroraSegment(
     title: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(AuroraControlCorner)
     val fill = if (isSelected) AuroraAccent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.06f)
     val stroke = if (isSelected) AuroraAccent.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.14f)
     val textColor = if (isSelected) AuroraInk else AuroraInkSecondary
@@ -348,5 +263,3 @@ fun AuroraSegment(
             fontSize = 16.sp,
             maxLines = 1,
         )
-    }
-}

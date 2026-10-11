@@ -3747,15 +3747,11 @@ class PlayerViewModel(
         if (state.mediaFileId == previousFileId) return
         applyUpdatedMarkers(version?.intro, version?.credits, version?.recap, version?.preview)
         state.sessionId?.let(::reconcileMarkers)
-    }
-
-    /**
      * Adopt the playing file's marker ranges (a `markers_updated` event or a
      * reconcile read). The intro auto-skip observer and the credits-based F2
      * trigger read these from UiState, so updating them takes effect
      * immediately. Passing `null` clears a marker the server says no longer
      * applies.
-     */
     private fun applyUpdatedMarkers(intro: TimeRange?, credits: TimeRange?, recap: TimeRange?, preview: TimeRange?) {
         markerReconciliationFence.invalidate()
         _uiState.update { it.copy(intro = intro, credits = credits, recap = recap, preview = preview) }
