@@ -75,9 +75,9 @@ import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
 import org.prairieserver.prairie.tv.cast.RemotePlaybackIdentityManager
 import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.tv.profiles.TvActiveProfileReset
-import org.prairieserver.prairie.tv.profiles.TvProfileAwayTracker
+import org.prairieserver.prairie.common.profiles.ProfileAwayTracker
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -477,24 +477,19 @@ fun TvAppNavigation(
     val titleArtStore: TitleArtStore = koinInject()
     val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
-    val siloCastReceiver: TvPrairieCastReceiver = koinInject()
     val prairieCastReceiver: TvPrairieCastReceiver = koinInject()
     val watchPartyRepository: WatchTogetherRepository = koinInject()
     val diagnosticsViewModel = koinViewModel<TvDiagnosticsViewModel>()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     val pendingDeepLink: MutableStateFlow<Uri?> =
         koinInject(qualifier = named("pendingDeepLink"))
-    val siloCastStandby by siloCastReceiver.standbyState.collectAsState()
-
-    LaunchedEffect(siloCastReceiver) {
-        siloCastReceiver.launchRequests.collect { request ->
-            val playback = request.playback
     val prairieCastStandby by prairieCastReceiver.standbyState.collectAsState()
-    val profileAwayTracker: TvProfileAwayTracker = koinInject()
-    val profileLaunchPreferences: TvProfileLaunchPreferences = koinInject()
+    val profileAwayTracker: ProfileAwayTracker = koinInject()
+    val profileLaunchPreferences: ProfileLaunchPreferences = koinInject()
     val activeProfileReset: TvActiveProfileReset = koinInject()
     val remotePlaybackIdentityManager: RemotePlaybackIdentityManager = koinInject()
     val playbackLifecycle: PlaybackSessionLifecycle = koinInject()
+
     // Android can restore Prairie's previous back stack over the start route
     // MainTvActivity chose: after a configuration change while Prairie was away,
     // or after its process was killed in the background. When Profile
@@ -513,6 +508,7 @@ fun TvAppNavigation(
             }
         }
     }
+
     // Profile Selection's return rule (prairie-apple `applyProfileReturnPolicy`):
     // when Prairie comes back from the background and the setting asks, Who's
     // Watching replaces whatever was on screen, as Switch Profile does.
@@ -535,6 +531,7 @@ fun TvAppNavigation(
             if (route == null || !showsProfileScreens) {
                 profileAwayTracker.onSelectionHandled()
                 return@collect
+            }
             // A phone-launched title's temporary identity is not this TV's
             // profile to clear. End it first, as tvOS does, but in
             // TvPrairieCastReceiver.stop()'s order and with its guard: the
@@ -550,18 +547,31 @@ fun TvAppNavigation(
                     profileAwayTracker.onSelectionHandled()
                     return@collect
                 }
+            }
             // Re-check after the wait, as prairie-apple's return policy does.
             if (!profileLaunchPreferences.requiresSelectionAfterBackground()) {
+                profileAwayTracker.onSelectionHandled()
+                return@collect
+            }
             // Leave the profile's screens before clearing its state (see
             // onSwitchProfile). MainTvActivity.onStop already flushed pending
             // device-setting writes under this profile.
+            navController.navigate(TvRoute.ProfileSelection.route) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
             activeProfileReset.clearActiveProfile()
             // MainTvActivity covers the screen while the request is up; lift
             // it once the previous profile's screens have faded out.
             withTimeoutOrNull(PROFILE_COVER_MAX_MS) {
                 navController.visibleEntries.first { entries ->
                     entries.all { it.destination.route in preMainAuthRoutes }
+                }
+            }
             profileAwayTracker.onSelectionHandled()
+        }
+    }
+
     LaunchedEffect(prairieCastReceiver) {
         prairieCastReceiver.launchRequests.collect { launch ->
             // An expired launch, or one whose identity changed, never opens.
@@ -1835,12 +1845,11 @@ fun TvAppNavigation(
         Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth(),
     )
 
-    siloCastStandby?.let { state ->
     org.prairieserver.prairie.tv.ui.screens.profiles.TvHouseholdReverifyHost(profileRepository)
     prairieCastStandby?.let { state ->
         TvPrairieCastStandbyView(
             state = state,
-            onDisconnect = siloCastReceiver::disconnectRemoteControl,
+            onDisconnect = prairieCastReceiver::disconnectRemoteControl,
         )
     }
     diagnosticsState.prompt

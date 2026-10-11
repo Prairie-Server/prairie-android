@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -95,6 +96,7 @@ fun SettingsScreen(
     onOpenSubtitles: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    onOpenProfileSelection: () -> Unit = {},
     onNavigateToServers: () -> Unit = {},
     onPairDevice: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
@@ -120,6 +122,9 @@ fun SettingsScreen(
     val watchPartyExperiment: org.prairieserver.prairie.common.watchparty.WatchPartyExperiment =
         org.koin.compose.koinInject()
     val watchPartyEnabled by watchPartyExperiment.enabled.collectAsState()
+    val profileLaunchPreferences: org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences =
+        org.koin.compose.koinInject()
+    val profileLaunchState by profileLaunchPreferences.state.collectAsState()
 
     LaunchedEffect(state.loggedOut) {
         if (state.loggedOut) {
@@ -140,6 +145,9 @@ fun SettingsScreen(
     )
     val matchesNotifications = state.notificationsAvailable && search.matches(
         "notifications", "alerts", "favorites", "watchlist", "continue watching", "next up",
+    )
+    val matchesProfileSelection = search.matches(
+        "profile selection", "profiles", "who's watching", "launch", "pin",
     )
     val matchesPlayback = search.matches(
         "playback", "quality", "audio", "dolby vision", "picture-in-picture", "episodes", "next up",
@@ -165,7 +173,7 @@ fun SettingsScreen(
     val matchesAbout = search.matches("about", "version", versionLabel, "privacy", "policy", "information")
     val matchesSignOut = search.matches("sign out", "account")
 
-    val hasResults = matchesInterface || matchesNotifications || matchesPlayback || matchesSubtitles ||
+    val hasResults = matchesInterface || matchesNotifications || matchesProfileSelection || matchesPlayback || matchesSubtitles ||
         matchesDownloads || matchesWatchlist || matchesFavorites || matchesHistory || matchesCollections ||
         showDiagnostics || matchesServer || matchesPairDevice || matchesExperimental ||
         matchesAbout || matchesSignOut || matchesSignIn
@@ -228,7 +236,7 @@ fun SettingsScreen(
                 }
             }
 
-            if (matchesInterface || matchesNotifications) {
+            if (matchesInterface || matchesNotifications || matchesProfileSelection) {
                 item(key = "preferences") {
                     SettingsSection(title = "Preferences") {
                         if (matchesInterface) {
@@ -247,6 +255,14 @@ fun SettingsScreen(
                                 icon = Icons.Filled.Notifications,
                                 value = if (state.notificationsEnabled) "On" else "Off",
                                 onClick = onOpenNotifications,
+                            )
+                        }
+                        if (matchesProfileSelection) {
+                            SettingsNavigationRow(
+                                label = "Profile Selection",
+                                icon = Icons.Filled.SwitchAccount,
+                                value = profileLaunchState.behavior.title,
+                                onClick = onOpenProfileSelection,
                             )
                         }
                     }

@@ -1,6 +1,7 @@
-package org.prairieserver.prairie.tv.data.preferences
+package org.prairieserver.prairie.common.profiles
 
 import android.content.SharedPreferences
+import org.prairieserver.prairie.common.player.ActivePlayerHolder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -12,7 +13,7 @@ import kotlin.test.assertTrue
  * `ProfileLaunchPolicyTests`: when Who's Watching is required, and when the
  * launcher's Watch Next row may show the active profile.
  */
-class TvProfileLaunchPreferencesTest {
+class ProfileLaunchPreferencesTest {
 
     private val hour = 60 * 60 * 1000L
     private val start = 1_000_000_000L
@@ -101,23 +102,104 @@ class TvProfileLaunchPreferencesTest {
     fun `the choice and the away interval survive a process restart`() {
         val prefs = InMemoryPrefs()
         var now = start
-        val first = TvProfileLaunchPreferences(prefs) { now }
+        val first = ProfileLaunchPreferences(prefs) { now }
         first.setBehavior(ProfileLaunchBehavior.AfterOneHour)
         first.markBackgrounded()
 
         now = start + hour
-        val restarted = TvProfileLaunchPreferences(prefs) { now }
+        val restarted = ProfileLaunchPreferences(prefs) { now }
         assertEquals(ProfileLaunchBehavior.AfterOneHour, restarted.state.value.behavior)
         assertEquals(start, restarted.state.value.backgroundedAtMs)
         assertTrue(restarted.requiresSelectionAtLaunch())
 
         restarted.clearBackgroundedAt()
-        assertFalse(TvProfileLaunchPreferences(prefs) { now }.requiresSelectionAtLaunch())
+        assertFalse(ProfileLaunchPreferences(prefs) { now }.requiresSelectionAtLaunch())
+    }
+
+    @Test
+    fun `a new TV asks who's watching and offers to remember the first profile`() {
+        val prefs = InMemoryPrefs()
+        val store = ProfileLaunchPreferences(prefs) { start }
+        store.settleFirstLaunch(hasRememberedProfile = false)
+
+        assertEquals(ProfileLaunchBehavior.EveryTime, store.state.value.behavior)
+        assertTrue(store.isRememberOfferPending)
+        assertTrue(store.requiresSelectionAtLaunch())
+        // Later launches keep what was saved.
+        val next = ProfileLaunchPreferences(prefs) { start }
+        next.settleFirstLaunch(hasRememberedProfile = true)
+        assertEquals(ProfileLaunchBehavior.EveryTime, next.state.value.behavior)
+        assertTrue(next.isRememberOfferPending)
+    }
+
+    @Test
+    fun `a TV that already opens a profile keeps Automatic and gets no offer`() {
+        val prefs = InMemoryPrefs()
+        ProfileLaunchPreferences(prefs) { start }.settleFirstLaunch(hasRememberedProfile = true)
+
+        val restarted = ProfileLaunchPreferences(prefs) { start }
+        assertEquals(ProfileLaunchBehavior.Automatic, restarted.state.value.behavior)
+        assertFalse(restarted.isRememberOfferPending)
+        assertFalse(restarted.requiresSelectionAtLaunch())
+    }
+
+    @Test
+    fun `the offer is answered once and the answer is kept`() {
+        for (remember in listOf(true, false)) {
+            val prefs = InMemoryPrefs()
+            ProfileLaunchPreferences(prefs) { start }.apply {
+                settleFirstLaunch(hasRememberedProfile = false)
+                answerRememberOffer(remember)
+            }
+            val restarted = ProfileLaunchPreferences(prefs) { start }
+            assertFalse(restarted.isRememberOfferPending)
+            assertEquals(
+                if (remember) ProfileLaunchBehavior.Automatic else ProfileLaunchBehavior.EveryTime,
+                restarted.state.value.behavior,
+            )
+        }
+    }
+
+    @Test
+    fun `choosing in Settings ends the offer`() {
+        val prefs = InMemoryPrefs()
+        val store = ProfileLaunchPreferences(prefs) { start }
+        store.settleFirstLaunch(hasRememberedProfile = false)
+        store.setBehavior(ProfileLaunchBehavior.AfterOneHour)
+        assertFalse(ProfileLaunchPreferences(prefs) { start }.isRememberOfferPending)
+    }
+
+    @Test
+    fun `Cast that stops while Prairie is hidden starts the away clock, so Every Time asks`() {
+        val store = ProfileLaunchPreferences(InMemoryPrefs()) { start }
+        store.setBehavior(ProfileLaunchBehavior.EveryTime)
+        var casting = true
+        val tracker = ProfileAwayTracker(store, ActivePlayerHolder(), isCasting = { casting })
+
+        tracker.onBackground()
+        assertNull(store.state.value.backgroundedAtMs)
+
+        casting = false
+        tracker.onRemotePlaybackChanged()
+        assertEquals(start, store.state.value.backgroundedAtMs)
+
+        tracker.onForeground()
+        assertTrue(tracker.selectionRequired.value)
+    }
+
+    @Test
+    fun `a Cast change while Prairie is in use starts no away clock`() {
+        val store = ProfileLaunchPreferences(InMemoryPrefs()) { start }
+        store.setBehavior(ProfileLaunchBehavior.EveryTime)
+        val tracker = ProfileAwayTracker(store, ActivePlayerHolder(), isCasting = { false })
+
+        tracker.onRemotePlaybackChanged()
+        assertNull(store.state.value.backgroundedAtMs)
     }
 }
 
-/** Just enough SharedPreferences for the store: strings and longs. */
-private class InMemoryPrefs : SharedPreferences {
+/** Just enough SharedPreferences for the store: strings, longs and booleans. */
+internal class InMemoryPrefs : SharedPreferences {
     private val values = mutableMapOf<String, Any?>()
 
     override fun getAll(): MutableMap<String, *> = values.toMutableMap()
@@ -126,7 +208,7 @@ private class InMemoryPrefs : SharedPreferences {
     override fun getInt(key: String?, defValue: Int): Int = defValue
     override fun getLong(key: String?, defValue: Long): Long = values[key] as Long? ?: defValue
     override fun getFloat(key: String?, defValue: Float): Float = defValue
-    override fun getBoolean(key: String?, defValue: Boolean): Boolean = defValue
+    override fun getBoolean(key: String?, defValue: Boolean): Boolean = values[key] as Boolean? ?: defValue
     override fun contains(key: String?): Boolean = key in values
     override fun edit(): SharedPreferences.Editor = Editor()
     override fun registerOnSharedPreferenceChangeListener(l: SharedPreferences.OnSharedPreferenceChangeListener?) {}
@@ -154,7 +236,10 @@ private class InMemoryPrefs : SharedPreferences {
         override fun putStringSet(key: String, values: MutableSet<String>?): SharedPreferences.Editor = this
         override fun putInt(key: String, value: Int): SharedPreferences.Editor = this
         override fun putFloat(key: String, value: Float): SharedPreferences.Editor = this
-        override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor = this
+        override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor {
+            pending[key] = value
+            return this
+        }
         override fun clear(): SharedPreferences.Editor = this
         override fun commit(): Boolean {
             apply()

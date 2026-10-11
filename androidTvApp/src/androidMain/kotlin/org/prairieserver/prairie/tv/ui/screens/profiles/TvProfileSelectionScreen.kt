@@ -327,6 +327,30 @@ fun TvProfileSelectionScreen(
         )
     }
 
+    // A new TV offers to open the first profile picked automatically.
+    val rememberOffer = state.rememberOffer
+    if (rememberOffer != null) {
+        TvOptionDialog(
+            title = "Open ${rememberOffer.name} automatically?",
+            options = listOf(
+                TvDialogOption(
+                    key = "remember",
+                    title = "Remember",
+                    subtitle = "Open ${rememberOffer.name} when Prairie starts on this TV.",
+                    onClick = { viewModel.answerRememberOffer(remember = true) },
+                ),
+                TvDialogOption(
+                    key = "ask",
+                    title = "Ask every time",
+                    subtitle = "Show Who's watching when Prairie starts. Change this in Settings > General > Profile Selection.",
+                    onClick = { viewModel.answerRememberOffer(remember = false) },
+                ),
+            ),
+            onDismiss = { viewModel.answerRememberOffer(remember = false) },
+            initialFocusKey = "remember",
+        )
+    }
+
     // Delete confirmation — modeled as a two-option dialog (TV-native).
     val deleteCandidate = state.deleteCandidate
     if (deleteCandidate != null) {

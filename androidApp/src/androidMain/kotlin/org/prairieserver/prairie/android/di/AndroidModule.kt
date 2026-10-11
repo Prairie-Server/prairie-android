@@ -2,6 +2,11 @@
 
 package org.prairieserver.prairie.android.di
 
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import org.prairieserver.prairie.common.downloads.DownloadEnqueuer
 import org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorFactory
 import org.prairieserver.prairie.common.downloads.DownloadSubscriptionWorker
@@ -91,6 +96,7 @@ import org.prairieserver.prairie.android.cast.SharedPrefsPrairieCastLastTargetSt
 import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.cast.PrairieCastLastTargetStore
 import org.prairieserver.prairie.android.cast.PrairieCastSessionManager
+import org.prairieserver.prairie.android.cast.PrairieCastState
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.core.module.dsl.viewModel
@@ -537,6 +543,38 @@ val androidModule = module {
     single {
         org.prairieserver.prairie.android.auth.ProfileSwitchTeardown(get(), get(), get(), get(), get(), get(), get())
     }
+    // Profile Selection (Apple Settings → General → Profile Selection): the
+    // choice kept on this device, the tracker MainActivity drives from
+    // onStop/onStart, and the reset that drops the active profile when it asks.
+    single {
+        org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences(
+            androidContext(),
+            org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences.PHONE_PREFS_NAME,
+        )
+    }
+    single {
+        val cast = get<PrairieCastSessionManager>()
+        // Casting counts as use only while the receiver plays (a rebuffer
+        // included): a session left connected after a pause or the end of a
+        // title does not hold the profile.
+        fun PrairieCastState.castPlaying() = isConnected && isPlaybackActive
+        org.prairieserver.prairie.common.profiles.ProfileAwayTracker(
+            get(),
+            get(),
+            isCasting = { cast.castState.value.castPlaying() },
+        ).also { tracker ->
+            // Cast playback that stops or disconnects while Prairie is hidden
+            // starts the away clock then, as a local player's stop does.
+            cast.castState.map { it.castPlaying() }.distinctUntilChanged().drop(1)
+                .onEach { tracker.onRemotePlaybackChanged() }
+                .launchIn(
+                    kotlinx.coroutines.CoroutineScope(
+                        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate,
+                    ),
+                )
+        }
+    }
+    single { org.prairieserver.prairie.android.auth.ActiveProfileReset(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
@@ -556,7 +594,7 @@ val androidModule = module {
     viewModel { ProfileSelectionViewModel(get(), get(), profileVerificationRecovery = getOrNull()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }
-    viewModel { ServerListViewModel(get(), get(), get(), get()) }
+    viewModel { ServerListViewModel(get(), get(), get(), get(), get()) }
     viewModel { params ->
         val args = params.get<Pair<String?, String?>>()
         val authRepository = get<org.prairieserver.prairie.repository.AuthRepository>()

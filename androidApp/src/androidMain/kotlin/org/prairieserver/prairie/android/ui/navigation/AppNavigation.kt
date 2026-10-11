@@ -15,7 +15,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.prairieserver.prairie.android.auth.ActiveProfileReset
+import org.prairieserver.prairie.android.profiles.ProfileLaunchAction
+import org.prairieserver.prairie.android.profiles.profileLaunchAction
+import org.prairieserver.prairie.common.downloads.DownloadStorage
+import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
+import org.prairieserver.prairie.common.network.ServerReachabilityStatus
+import org.prairieserver.prairie.common.profiles.ProfileAwayTracker
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.model.profile.ActiveProfileStore
 import org.prairieserver.prairie.android.ui.components.rememberVideoSeekIntervals
 import org.prairieserver.prairie.android.cast.GOOGLE_CAST_LEGACY_SEEK_INTERVALS
@@ -111,6 +125,7 @@ import org.prairieserver.prairie.android.ui.screens.servers.ServerSwitchDestinat
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsDownloadsScreen
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsInterfaceScreen
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsNotificationsScreen
+import org.prairieserver.prairie.android.ui.screens.settings.SettingsProfileSelectionScreen
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsPlaybackScreen
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsScreen
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsSubtitlesScreen
@@ -169,6 +184,12 @@ private val ProfilePromptDeferredRoutes: Set<String> = setOf(
 
 /** Page-to-page cross-fade duration (ms). Snappier than Compose Nav's 700ms default. */
 private const val PageFadeDurationMs = 200
+
+/** Longest the Profile Selection cover stays up while Who's Watching replaces the previous profile's screens. */
+private const val PROFILE_COVER_MAX_MS = 2_000L
+
+/** Screens that show no profile: sign-in, server setup, and the profile picker itself. */
+private val ProfileFreeRoutes: Set<String> get() = MarqueeRoutes + ProfilePromptPickerRoutes + Route.ServerList.route
 
 internal class PlayerTargetProviderRegistration(
     val backStackEntryId: String,
@@ -378,6 +399,114 @@ fun AppNavigation(
             }
     }
 
+    // Android can restore Prairie's previous back stack over the start route
+    // MainActivity chose: after its process was killed in the background.
+    // When Profile Selection has already cleared the profile at launch, that
+    // brings back the previous profile's screens with no profile behind them,
+    // so go to Who's Watching instead. Look beneath the top too: Manage
+    // Servers over Home would otherwise let Back reach Home with no profile
+    // chosen, and every stack of profile screens has a tab at its root.
+    LaunchedEffect(navController) {
+        val restoredRoute = navController.currentBackStackEntryFlow.first().destination.route
+        val restoresProfileScreens = (restoredRoute != null && restoredRoute !in ProfileFreeRoutes) ||
+            Tab.entries.any { tab -> runCatching { navController.getBackStackEntry(tab.route) }.isSuccess }
+        if (startDestination == Route.ProfileSelection.route &&
+            restoresProfileScreens &&
+            !tokenManager.getAccessToken().isNullOrBlank() &&
+            tokenManager.getProfileId().isNullOrBlank()
+        ) {
+            navController.navigate(Route.ProfileSelection.route) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // Profile Selection's return rule (prairie-apple `applyProfileReturnPolicy`):
+    // when Prairie comes back from the background and the setting asks, Who's
+    // Watching replaces whatever was on screen. Playback that kept going in
+    // the background never raises the request (see ProfileAwayTracker).
+    val profileAwayTracker: ProfileAwayTracker = koinInject()
+    val profileLaunchPreferences: ProfileLaunchPreferences = koinInject()
+    val activeProfileReset: ActiveProfileReset = koinInject()
+    val downloadStorage: DownloadStorage = koinInject()
+    val reachabilityMonitor: ServerReachabilityMonitor = koinInject()
+    LaunchedEffect(profileAwayTracker) {
+        kotlinx.coroutines.flow.combine(
+            profileAwayTracker.selectionRequired,
+            navController.currentBackStackEntryFlow,
+        ) { required, entry -> required to entry.destination.route }.collect { (required, route) ->
+            if (!required) return@collect
+            // Nothing to replace when signed out, or when no profile is in
+            // use and none of its screens are showing (already choosing a
+            // profile, or adding a server).
+            val profileId = tokenManager.getProfileId()
+            if (route == null ||
+                tokenManager.getAccessToken().isNullOrBlank() ||
+                (profileId.isNullOrBlank() && route in ProfileFreeRoutes)
+            ) {
+                profileAwayTracker.onSelectionHandled()
+                return@collect
+            }
+            val serverId = serverRegistry.activeEntry.value?.id
+            val offlineWithDownloads = withContext(Dispatchers.IO) {
+                hasLocalDownloadsForScope(downloadStorage, serverId, profileId) &&
+                    !reachabilityMonitor.retryNow().canUseServer
+            }
+            // Re-check after the wait, as prairie-apple's return policy does.
+            val action = profileLaunchAction(
+                requiresSelection = profileLaunchPreferences.requiresSelectionAfterBackground(),
+                startsOfflineOnDownloads = offlineWithDownloads,
+            )
+            if (action != ProfileLaunchAction.AskWhoIsWatching) {
+                profileAwayTracker.onSelectionHandled()
+                return@collect
+            }
+            // Leave the profile's screens before clearing its state, as
+            // Switch Profile does. The reset pushes pending device-setting
+            // writes under this profile before it drops it.
+            navController.navigate(Route.ProfileSelection.route) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+            activeProfileReset.clearActiveProfile()
+            // MainActivity covers the screen while the request is up; lift
+            // it once the previous profile's screens have faded out.
+            withTimeoutOrNull(PROFILE_COVER_MAX_MS) {
+                navController.visibleEntries.first { entries ->
+                    entries.all { it.destination.route in ProfileFreeRoutes }
+                }
+            }
+            profileAwayTracker.onSelectionHandled()
+        }
+    }
+
+    // The offline exception above keeps a profile for its downloads while the
+    // server cannot be reached, with the away interval still recorded. Ask
+    // once the server answers again, without waiting for the next return.
+    // Playback and reading keep going until the user leaves them, as the
+    // profile-verification prompt waits.
+    LaunchedEffect(reachabilityMonitor) {
+        kotlinx.coroutines.flow.combine(
+            reachabilityMonitor.state.map { it.status == ServerReachabilityStatus.Reachable }.distinctUntilChanged(),
+            navController.currentBackStackEntryFlow,
+        ) { reachable, entry -> reachable to entry.destination.route }.collect { (reachable, route) ->
+            if (!reachable || route == null || route in ProfilePromptDeferredRoutes || route in ProfileFreeRoutes) {
+                return@collect
+            }
+            // In use with a profile, a recorded interval that requires
+            // selection is only left behind by that exception: every other
+            // path ends the interval or asks.
+            if (profileAwayTracker.selectionRequired.value ||
+                !profileLaunchPreferences.requiresSelectionAfterBackground() ||
+                tokenManager.getProfileId().isNullOrBlank()
+            ) {
+                return@collect
+            }
+            profileAwayTracker.requestSelection()
+        }
+    }
+
     fun navigateExternalRoute(route: String) {
         // An external link to a TAB (prairie://downloads) must switch tabs,
         // not push a second copy of that tab. A duplicate tab entry also
@@ -453,8 +582,17 @@ fun AppNavigation(
     LaunchedEffect(pendingExternalRoute?.generation) {
         consumeExternalRouteOnce(
             pendingExternalRoute = pendingExternalRoute,
-            currentDestinationRoutes = navController.currentBackStackEntryFlow
-                .map { entry -> entry.destination.route },
+            // While Profile Selection is replacing the previous profile's
+            // screens, those screens are not a place to deliver a link: it
+            // would open (or start playing) under the profile being cleared,
+            // then be wiped. Wait until the request is handled; Who's
+            // Watching then holds the link as it does at launch.
+            currentDestinationRoutes = kotlinx.coroutines.flow.combine(
+                navController.currentBackStackEntryFlow,
+                profileAwayTracker.selectionRequired,
+            ) { entry, selectionRequired -> entry.destination.route to selectionRequired }
+                .filter { (_, selectionRequired) -> !selectionRequired }
+                .map { (route, _) -> route },
             isAlreadyAtRoute = { route ->
                 navController.isDisplayingExactPlayerRoute(
                     route = route,
@@ -819,6 +957,12 @@ fun AppNavigation(
                             onSwitch = {
                                 pairingScope.launch {
                                     authRepository.switchToServer(resolved.entry.id)
+                                    // Profile Selection covers this switch as
+                                    // it does the server list's: a saved
+                                    // profile there needs choosing (and its
+                                    // PIN) again, which routes through the
+                                    // picker below.
+                                    activeProfileReset.clearIfSelectionRequired()
                                     // Re-queue ONLY if the target server will send
                                     // the user through auth: that flow ends at
                                     // profile selection, whose popUpTo(0) wipes this
@@ -975,6 +1119,9 @@ fun AppNavigation(
             }
             ProfileSelectionScreen(
                 onNavigateToHome = {
+                    // A chosen profile ends any away interval (prairie-apple
+                    // `remember`).
+                    profileLaunchPreferences.clearBackgroundedAt()
                     // The switch-profile paths dropped the per-profile card
                     // and seek-interval caches; re-hydrate for the profile just picked. The
                     // providers above the graph only re-run when the profile id
@@ -1114,6 +1261,7 @@ fun AppNavigation(
                 onOpenSubtitles = { navController.navigate(Route.SettingsSubtitles.route) },
                 onOpenDownloads = { navController.navigate(Route.SettingsDownloads.route) },
                 onOpenNotifications = { navController.navigate(Route.SettingsNotifications.route) },
+                onOpenProfileSelection = { navController.navigate(Route.SettingsProfileSelection.route) },
                 onNavigateToServers = {
                     navController.navigate(Route.ServerList.route)
                 },
@@ -1170,6 +1318,9 @@ fun AppNavigation(
                 viewModel = koinViewModel(viewModelStoreOwner = settingsOwner(navController, entry)),
                 onBackClick = { navController.popBackStack() },
             )
+        }
+        composable(Route.SettingsProfileSelection.route) {
+            SettingsProfileSelectionScreen(onBackClick = { navController.popBackStack() })
         }
         composable(Route.Diagnostics.route) {
             DiagnosticsSettingsScreen(

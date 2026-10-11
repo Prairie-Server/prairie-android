@@ -1,4 +1,4 @@
-package org.prairieserver.prairie.tv.data.preferences
+package org.prairieserver.prairie.common.profiles
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -8,44 +8,50 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * When this Android TV asks "Who's watching?" instead of reopening the last
- * profile. Mirrors prairie-apple `ProfileLaunchBehavior` (tvOS General → PROFILE
- * AT LAUNCH → Profile Selection), including its titles and descriptions.
+ * When this device asks "Who's watching?" instead of reopening the last
+ * profile. Mirrors prairie-apple `ProfileLaunchBehavior` (General → Profile
+ * Selection), including its titles and descriptions. Shared by the phone and
+ * TV apps; each keeps its own choice on the device.
  */
 enum class ProfileLaunchBehavior(
     /** Stored value. Same strings as prairie-apple's raw values. */
     val raw: String,
     val title: String,
-    val description: String,
+    private val describe: (device: String) -> String,
     /** How long Prairie can be away before the picker shows again; null for the untimed choices. */
     val awayTimeoutMs: Long?,
 ) {
     Automatic(
         raw = "automatic",
         title = "Automatic",
-        description = "Use the last profile selected on this Android TV. " +
-            "A protected profile can reopen without asking for its PIN.",
+        describe = { device ->
+            "Use the last profile selected on $device. " +
+                "A protected profile can reopen without asking for its PIN."
+        },
         awayTimeoutMs = null,
     ),
     EveryTime(
         raw = "askEveryLaunch",
         title = "Every Time",
-        description = "Show Who's Watching whenever you return to Prairie.",
+        describe = { "Show Who's Watching whenever you return to Prairie." },
         awayTimeoutMs = null,
     ),
     AfterOneHour(
         raw = "afterOneHour",
         title = "After 1 Hour",
-        description = "Show Who's Watching when you've been away from Prairie for 1 hour.",
+        describe = { "Show Who's Watching when you've been away from Prairie for 1 hour." },
         awayTimeoutMs = 60 * 60 * 1000L,
     ),
     AfterTwelveHours(
         raw = "afterTwelveHours",
         title = "After 12 Hours",
-        description = "Show Who's Watching when you've been away from Prairie for 12 hours.",
+        describe = { "Show Who's Watching when you've been away from Prairie for 12 hours." },
         awayTimeoutMs = 12 * 60 * 60 * 1000L,
     ),
     ;
+
+    /** The choice's description, naming [device] (for example "this Android TV") where it matters. */
+    fun description(device: String): String = describe(device)
 
     companion object {
         /** Unknown or missing values fall back to today's behavior. */
@@ -62,6 +68,12 @@ data class ProfileLaunchState(
     val behavior: ProfileLaunchBehavior = ProfileLaunchBehavior.Automatic,
     /** Epoch ms when Prairie last went to the background unused; null while in use. */
     val backgroundedAtMs: Long? = null,
+    /**
+     * Android TV only: a new TV offers the first profile picked on it as the
+     * one to open automatically. True until that offer is answered or a choice is made in
+     * Settings.
+     */
+    val rememberOfferPending: Boolean = false,
 ) {
     /**
      * Cold start. Every Time asks even when the previous process never
@@ -78,7 +90,7 @@ data class ProfileLaunchState(
     }
 
     /**
-     * Whether the launcher's Watch Next row may show the active profile's
+     * Android TV only. Whether the launcher's Watch Next row may show the active profile's
      * titles. prairie-apple `TopShelfProfilePolicy`: never with Every Time, and
      * not once a timed choice has expired.
      */
@@ -93,11 +105,33 @@ data class ProfileLaunchState(
             return since + timeout
         }
 
-    /** Automatic never keeps an away interval. */
+    /** Automatic never keeps an away interval. Choosing a behavior answers the offer. */
     fun withBehavior(behavior: ProfileLaunchBehavior): ProfileLaunchState = copy(
         behavior = behavior,
         backgroundedAtMs = if (behavior == ProfileLaunchBehavior.Automatic) null else backgroundedAtMs,
+        rememberOfferPending = false,
     )
+
+    /** The answer to the offer: remember opens the picked profile automatically from now on. */
+    fun answeringRememberOffer(remember: Boolean): ProfileLaunchState = when {
+        !rememberOfferPending -> this
+        remember -> withBehavior(ProfileLaunchBehavior.Automatic)
+        else -> copy(rememberOfferPending = false)
+    }
+
+    companion object {
+        /**
+         * Android TV only. The state of a TV with no saved choice. A new TV asks who's watching
+         * and offers to remember the first profile picked; a TV that already
+         * remembers a profile (it predates this setting) keeps opening it.
+         */
+        fun firstLaunch(hasRememberedProfile: Boolean): ProfileLaunchState =
+            if (hasRememberedProfile) {
+                ProfileLaunchState(behavior = ProfileLaunchBehavior.Automatic)
+            } else {
+                ProfileLaunchState(behavior = ProfileLaunchBehavior.EveryTime, rememberOfferPending = true)
+            }
+    }
 
     fun markedBackgrounded(atMs: Long): ProfileLaunchState =
         if (behavior == ProfileLaunchBehavior.Automatic) copy(backgroundedAtMs = null) else copy(backgroundedAtMs = atMs)
@@ -105,7 +139,7 @@ data class ProfileLaunchState(
     private fun hasExpiredAwayInterval(nowMs: Long): Boolean {
         val since = backgroundedAtMs ?: return false
         val timeout = behavior.awayTimeoutMs ?: return false
-        // A clock behind the recorded start (a TV that booted before its time
+        // A clock behind the recorded start (a device that booted before its time
         // synced, or a manual change) cannot show how long Prairie was away, so
         // ask rather than keep the profile open indefinitely.
         if (nowMs < since) return true
@@ -115,19 +149,24 @@ data class ProfileLaunchState(
 
 /**
  * Device-wide Profile Selection setting. It is never sent to the server, so a
- * choice on this TV leaves every other device alone (prairie-apple
+ * choice on this device leaves every other device alone (prairie-apple
  * profile-launch design §12). It survives sign-out; the profile itself does
  * not.
  *
  * Backed by SharedPreferences rather than DataStore: `onStop` writes the away
  * marker and `onStart` reads it straight after, and SharedPreferences makes
  * that write visible synchronously.
+ *
+ * The phone and TV apps each pass their own file name. The TV's is
+ * [TV_PREFS_NAME], unchanged from when this lived in the TV app, so choices
+ * made there survive the move.
  */
-class TvProfileLaunchPreferences(
+class ProfileLaunchPreferences(
     private val prefs: SharedPreferences,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    constructor(context: Context) : this(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
+    constructor(context: Context, prefsName: String) :
+        this(context.getSharedPreferences(prefsName, Context.MODE_PRIVATE))
 
     private val _state = MutableStateFlow(read())
     val state: StateFlow<ProfileLaunchState> = _state.asStateFlow()
@@ -140,6 +179,22 @@ class TvProfileLaunchPreferences(
 
     fun setBehavior(behavior: ProfileLaunchBehavior) = update { it.withBehavior(behavior) }
 
+    /**
+     * Android TV only. Saves the starting choice the first time this TV runs
+     * Prairie; later launches keep what is saved. [hasRememberedProfile] says
+     * whether the TV already opens a profile from an earlier version. The
+     * phone never calls this, so it starts at Automatic with no offer.
+     */
+    @Synchronized
+    fun settleFirstLaunch(hasRememberedProfile: Boolean) {
+        if (prefs.contains(KEY_BEHAVIOR)) return
+        write(ProfileLaunchState.firstLaunch(hasRememberedProfile))
+    }
+
+    val isRememberOfferPending: Boolean get() = state.value.rememberOfferPending
+
+    fun answerRememberOffer(remember: Boolean) = update { it.answeringRememberOffer(remember) }
+
     /** Start the away clock. A no-op under Automatic. */
     fun markBackgrounded() = update { it.markedBackgrounded(clock()) }
 
@@ -150,10 +205,15 @@ class TvProfileLaunchPreferences(
     private fun update(change: (ProfileLaunchState) -> ProfileLaunchState) {
         val next = change(_state.value)
         if (next == _state.value) return
+        write(next)
+    }
+
+    private fun write(next: ProfileLaunchState) {
         prefs.edit {
             putString(KEY_BEHAVIOR, next.behavior.raw)
             val at = next.backgroundedAtMs
             if (at == null) remove(KEY_BACKGROUNDED_AT) else putLong(KEY_BACKGROUNDED_AT, at)
+            if (next.rememberOfferPending) putBoolean(KEY_REMEMBER_OFFER, true) else remove(KEY_REMEMBER_OFFER)
         }
         _state.value = next
     }
@@ -161,11 +221,18 @@ class TvProfileLaunchPreferences(
     private fun read(): ProfileLaunchState = ProfileLaunchState(
         behavior = ProfileLaunchBehavior.fromRaw(prefs.getString(KEY_BEHAVIOR, null)),
         backgroundedAtMs = if (prefs.contains(KEY_BACKGROUNDED_AT)) prefs.getLong(KEY_BACKGROUNDED_AT, 0L) else null,
+        rememberOfferPending = prefs.getBoolean(KEY_REMEMBER_OFFER, false),
     )
 
-    private companion object {
-        const val PREFS_NAME = "prairie_tv_profile_launch"
-        const val KEY_BEHAVIOR = "behavior"
-        const val KEY_BACKGROUNDED_AT = "backgrounded_at_ms"
+    companion object {
+        /** The Android TV app's file. */
+        const val TV_PREFS_NAME = "prairie_tv_profile_launch"
+
+        /** The phone and tablet app's file. */
+        const val PHONE_PREFS_NAME = "prairie_profile_launch"
+
+        private const val KEY_BEHAVIOR = "behavior"
+        private const val KEY_BACKGROUNDED_AT = "backgrounded_at_ms"
+        private const val KEY_REMEMBER_OFFER = "remember_offer_pending"
     }
 }

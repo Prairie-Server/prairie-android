@@ -1,33 +1,38 @@
-package org.prairieserver.prairie.tv.profiles
+package org.prairieserver.prairie.common.profiles
 
 import androidx.media3.common.Player
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.prairieserver.prairie.common.player.ActivePlayerHolder
-import org.prairieserver.prairie.tv.data.preferences.ProfileLaunchBehavior
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
-import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
 
 /**
  * Applies the Profile Selection setting when Prairie leaves and returns to the
  * foreground. Mirrors prairie-apple ContentView's `markProfileAwayStartIfNeeded`
- * and `handleReturnFromBackgroundIfNeeded`.
+ * and `handleReturnFromBackgroundIfNeeded`. Shared by the phone and TV apps.
  *
- * Main thread only: [org.prairieserver.prairie.tv.MainTvActivity] calls it from
- * onStop/onStart, and it reads the shared Media3 player, which lives on the
- * main looper.
+ * Main thread only: the app's main Activity calls it from onStop/onStart, and
+ * it reads the shared Media3 player, which lives on the main looper.
+ *
+ * @param onLeave runs each time Prairie leaves the foreground, with the current
+ *   state (the TV empties its Watch Next row under Every Time).
+ * @param onAwayIntervalStarted runs with the time a timed away interval runs
+ *   out, once it starts (the TV schedules its Watch Next expiry check).
+ * @param isCasting whether this device is playing to another screen (the
+ *   phone's Cast session); that is still use of the profile.
  */
-class TvProfileAwayTracker(
-    private val preferences: TvProfileLaunchPreferences,
+class ProfileAwayTracker(
+    private val preferences: ProfileLaunchPreferences,
     private val activePlayerHolder: ActivePlayerHolder,
-    private val watchNextSeeder: WatchNextSeeder,
+    private val onLeave: (ProfileLaunchState) -> Unit = {},
+    private val onAwayIntervalStarted: (expiresAtMs: Long) -> Unit = {},
+    private val isCasting: () -> Boolean = { false },
 ) {
     private val _selectionRequired = MutableStateFlow(false)
 
     /**
      * Raised when a return to Prairie must show Who's Watching. While it is up,
-     * MainTvActivity covers the screen; the navigation graph performs the
+     * the main Activity covers the screen; the navigation graph performs the
      * switch and then calls [onSelectionHandled].
      */
     val selectionRequired: StateFlow<Boolean> = _selectionRequired.asStateFlow()
@@ -48,9 +53,7 @@ class TvProfileAwayTracker(
 
     fun onBackground() {
         returningFromBackground = true
-        // Every Time keeps the launcher's Watch Next row empty whenever Prairie
-        // is not on screen (prairie-apple Top Shelf parity).
-        if (preferences.state.value.behavior == ProfileLaunchBehavior.EveryTime) watchNextSeeder.clear()
+        onLeave(preferences.state.value)
         markAwayStart()
         watchedPlayer?.removeListener(playbackListener)
         watchedPlayer = activePlayerHolder.player.value?.also { it.addListener(playbackListener) }
@@ -59,7 +62,7 @@ class TvProfileAwayTracker(
     fun onForeground() {
         watchedPlayer?.removeListener(playbackListener)
         watchedPlayer = null
-        // The first start of a process is a launch, which MainTvActivity's
+        // The first start of a process is a launch, which the main Activity's
         // start-route resolution handles.
         if (!returningFromBackground) return
         returningFromBackground = false
@@ -75,12 +78,32 @@ class TvProfileAwayTracker(
     }
 
     /**
-     * An audiobook still playing in the background is still use of the
-     * profile, as on Apple. Video never qualifies: the TV player stops when
-     * Prairie is hidden. Uses play intent rather than `isPlaying` so a rebuffer
-     * mid-book does not count as leaving.
+     * Ask now, while Prairie is in the foreground: the phone uses it once the
+     * server is reachable again after it kept a profile offline for its
+     * downloads. The navigation graph handles it as it does a return.
      */
-    private fun keepsProfileActive(): Boolean {
+    fun requestSelection() {
+        _selectionRequired.value = true
+    }
+
+    /**
+     * Playback on another screen (the phone's Cast session) started or
+     * stopped. While Prairie is hidden this moves the away clock, as a local
+     * player's events do; no local player hears about it.
+     */
+    fun onRemotePlaybackChanged() {
+        if (returningFromBackground) markAwayStart()
+    }
+
+    /**
+     * Playback that keeps going while Prairie is hidden (an audiobook, or video
+     * in background play or picture-in-picture) is still use of the profile,
+     * as on Apple. The TV player stops video when Prairie is hidden, so there
+     * only audio qualifies. Uses play intent rather than `isPlaying` so a
+     * rebuffer does not count as leaving.
+     */
+    fun keepsProfileActive(): Boolean {
+        if (isCasting()) return true
         val player = activePlayerHolder.player.value ?: return false
         return player.playWhenReady &&
             player.playbackState != Player.STATE_IDLE &&
@@ -96,8 +119,7 @@ class TvProfileAwayTracker(
         // pause) must not restart a clock that is already running.
         if (preferences.state.value.backgroundedAtMs != null) return
         preferences.markBackgrounded()
-        // The timed choices keep the Watch Next row until the interval runs
-        // out, then a check removes it. Automatic records no interval.
-        preferences.state.value.awayExpiresAtMs?.let(watchNextSeeder::scheduleProfileExpiryCheck)
+        // Automatic records no interval, and the untimed Every Time has no expiry.
+        preferences.state.value.awayExpiresAtMs?.let(onAwayIntervalStarted)
     }
 }

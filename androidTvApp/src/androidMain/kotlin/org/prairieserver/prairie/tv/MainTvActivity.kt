@@ -56,10 +56,10 @@ import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
 import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
-import org.prairieserver.prairie.tv.data.preferences.ProfileLaunchBehavior
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.tv.profiles.TvActiveProfileReset
-import org.prairieserver.prairie.tv.profiles.TvProfileAwayTracker
+import org.prairieserver.prairie.common.profiles.ProfileAwayTracker
 import org.prairieserver.prairie.tv.ui.navigation.TvAppNavigation
 import org.prairieserver.prairie.tv.ui.navigation.TvRoute
 import org.prairieserver.prairie.tv.ui.screens.player.TvPlayerRemoteKeyBridge
@@ -135,7 +135,7 @@ class MainTvActivity : ComponentActivity() {
         // equivalent short of blocking screenshots altogether).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             lifecycleScope.launch {
-                get<TvProfileLaunchPreferences>(TvProfileLaunchPreferences::class.java).state
+                get<ProfileLaunchPreferences>(ProfileLaunchPreferences::class.java).state
                     .map { it.behavior == ProfileLaunchBehavior.Automatic }
                     .distinctUntilChanged()
                     .collect { automatic -> setRecentsScreenshotEnabled(automatic) }
@@ -179,7 +179,7 @@ class MainTvActivity : ComponentActivity() {
             // Profile Selection: from the moment Prairie returns and the setting
             // asks, cover the previous profile's screens until Who's Watching
             // has replaced them (TvAppNavigation lifts the request).
-            val profileAwayTracker = remember { get<TvProfileAwayTracker>(TvProfileAwayTracker::class.java) }
+            val profileAwayTracker = remember { get<ProfileAwayTracker>(ProfileAwayTracker::class.java) }
             val profileCoverVisible by profileAwayTracker.selectionRequired.collectAsState()
 
             PrairieTvTheme {
@@ -268,7 +268,7 @@ class MainTvActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         DiagnosticsLifecycleLogger.state("foreground")
-        get<TvProfileAwayTracker>(TvProfileAwayTracker::class.java).onForeground()
+        get<ProfileAwayTracker>(ProfileAwayTracker::class.java).onForeground()
         val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.startForeground()
@@ -339,7 +339,7 @@ class MainTvActivity : ComponentActivity() {
         super.onStop()
         // A configuration-change recreation is not leaving Prairie.
         if (!isChangingConfigurations) {
-            get<TvProfileAwayTracker>(TvProfileAwayTracker::class.java).onBackground()
+            get<ProfileAwayTracker>(ProfileAwayTracker::class.java).onBackground()
         }
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.stopForeground()
@@ -359,6 +359,18 @@ class MainTvActivity : ComponentActivity() {
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
         val processStart = !hasResolvedLaunchProfile
+        // An unreadable registry hides which servers remember a profile, so
+        // settle on a later launch rather than mistake this TV for a new one.
+        if (processStart && !registry.stateLoadFailed) {
+            // The setting is device-wide, so a profile saved for any server
+            // makes this an existing TV, not just one on the active server.
+            val hasRememberedProfile = registry.entries.value.any { !it.profileId.isNullOrBlank() } ||
+                !tokenManager.getProfileId().isNullOrBlank()
+            get<ProfileLaunchPreferences>(ProfileLaunchPreferences::class.java)
+                .settleFirstLaunch(hasRememberedProfile = hasRememberedProfile)
+        }
+        // Only once settled: an Activity recreated while this was suspended
+        // must still settle.
         hasResolvedLaunchProfile = true
 
         val activeEntry = registry.activeEntry.value
@@ -407,11 +419,11 @@ class MainTvActivity : ComponentActivity() {
         // return rule the away tracker evaluated in onStart. Either way the
         // profile is cleared here, before the picker loads, and losing its PIN
         // proof makes a protected profile ask for its PIN again.
-        val launchPreferences = get<TvProfileLaunchPreferences>(TvProfileLaunchPreferences::class.java)
+        val launchPreferences = get<ProfileLaunchPreferences>(ProfileLaunchPreferences::class.java)
         val requiresSelection = if (processStart) {
             launchPreferences.requiresSelectionAtLaunch()
         } else {
-            get<TvProfileAwayTracker>(TvProfileAwayTracker::class.java).selectionRequired.value
+            get<ProfileAwayTracker>(ProfileAwayTracker::class.java).selectionRequired.value
         }
         if (requiresSelection) {
             get<TvActiveProfileReset>(TvActiveProfileReset::class.java).clearActiveProfile()

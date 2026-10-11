@@ -2,6 +2,12 @@ package org.prairieserver.prairie.tv.ui.screens.profiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import org.prairieserver.prairie.common.ui.marquee.SignInHandoff
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.profile.authorizedProfileToken
 import org.prairieserver.prairie.model.profile.householdPrimary
@@ -12,12 +18,7 @@ import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileCommitResult
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.ProfileVerificationRecovery
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import org.prairieserver.prairie.common.ui.marquee.SignInHandoff
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 
 data class TvProfileSelectionUiState(
     val profiles: List<Profile> = emptyList(),
@@ -42,6 +43,8 @@ data class TvProfileSelectionUiState(
     val accountName: String? = null,
     /** A one-profile household is being opened straight after sign-in; the picker stays hidden. */
     val openingOnlyProfile: Boolean = false,
+    /** The profile just picked on a new TV, while the TV asks whether to open it automatically. */
+    val rememberOffer: Profile? = null,
 )
 
 /**
@@ -54,6 +57,7 @@ class TvProfileSelectionViewModel(
     private val authRepository: AuthRepository? = null,
     private val consumeSkipsSingleProfile: () -> Boolean = SignInHandoff::consumeSkipsSingleProfilePicker,
     private val profileVerificationRecovery: ProfileVerificationRecovery? = null,
+    private val launchPreferences: ProfileLaunchPreferences? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvProfileSelectionUiState())
@@ -89,8 +93,22 @@ class TvProfileSelectionViewModel(
     private fun reloadWhenStaleProfileCleared() {
         val recovery = profileVerificationRecovery ?: return
         viewModelScope.launch {
-            recovery.profileCleared.collect { loadProfiles() }
+            recovery.profileCleared.collect {
+                dropStaleRememberOffer()
+                loadProfiles()
+            }
         }
+    }
+
+    /**
+     * Closes an open remember offer whose profile is no longer the active one
+     * (cleared by recovery, or another identity took over). An offer from a
+     * commit that landed after this check began stays.
+     */
+    private suspend fun dropStaleRememberOffer() {
+        val offer = _uiState.value.rememberOffer ?: return
+        if (profileRepository.getActiveProfileId() == offer.id) return
+        _uiState.update { if (it.rememberOffer == offer) it.copy(rememberOffer = null) else it }
     }
 
     /** Cancel on a re-prompt for the primary's PIN ends the session; manage mode goes with it. */
@@ -162,6 +180,9 @@ class TvProfileSelectionViewModel(
                         deleteCandidate = null,
                     )
                 }
+                // A pick committed while this load was in flight also moves
+                // the identity; its offer is still current.
+                dropStaleRememberOffer()
                 return@launch
             }
             when (val result = listed) {
@@ -403,6 +424,27 @@ class TvProfileSelectionViewModel(
                 loadProfiles()
                 return@launch
             }
+            if (result == ProfileCommitResult.Committed && launchPreferences?.isRememberOfferPending == true) {
+                // A new TV: ask whether to open this profile automatically before Home.
+                _uiState.update { it.copy(rememberOffer = profile) }
+                return@launch
+            }
+            _uiState.update { it.copy(selectedProfileId = profile.id) }
+        }
+    }
+
+    /**
+     * Answers the new TV's offer and continues into the picked profile. The
+     * dialog can stay up indefinitely, so an answer for a profile that is no
+     * longer the active one (cleared by recovery meanwhile) neither saves nor
+     * navigates; the offer stays pending for the next pick.
+     */
+    fun answerRememberOffer(remember: Boolean) {
+        val profile = _uiState.value.rememberOffer ?: return
+        _uiState.update { it.copy(rememberOffer = null) }
+        viewModelScope.launch {
+            if (profileRepository.getActiveProfileId() != profile.id) return@launch
+            launchPreferences?.answerRememberOffer(remember)
             _uiState.update { it.copy(selectedProfileId = profile.id) }
         }
     }

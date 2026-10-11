@@ -64,9 +64,10 @@ import org.prairieserver.prairie.tv.ui.screens.player.TvVideoPlaybackStarter
 import org.prairieserver.prairie.tv.ui.screens.profiles.TvProfileSelectionViewModel
 import org.prairieserver.prairie.tv.ui.screens.search.TvSearchViewModel
 import org.prairieserver.prairie.tv.data.preferences.TvLibraryScopeStore
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.tv.profiles.TvActiveProfileReset
-import org.prairieserver.prairie.tv.profiles.TvProfileAwayTracker
+import org.prairieserver.prairie.common.profiles.ProfileAwayTracker
 import org.prairieserver.prairie.tv.watchnext.WatchNextRepository
 import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
 import android.net.Uri
@@ -334,8 +335,22 @@ val androidTvModule = module {
     // Profile Selection (tvOS General → PROFILE AT LAUNCH): the device-wide
     // choice, the tracker MainTvActivity drives from onStop/onStart, and the
     // reset every path uses to drop the active profile.
-    single { TvProfileLaunchPreferences(androidContext()) }
-    single { TvProfileAwayTracker(get(), get(), get()) }
+    single { ProfileLaunchPreferences(androidContext(), ProfileLaunchPreferences.TV_PREFS_NAME) }
+    single {
+        val watchNextSeeder = get<WatchNextSeeder>()
+        ProfileAwayTracker(
+            preferences = get(),
+            activePlayerHolder = get(),
+            // Every Time keeps the launcher's Watch Next row empty whenever
+            // Prairie is not on screen (prairie-apple Top Shelf parity).
+            onLeave = { state ->
+                if (state.behavior == ProfileLaunchBehavior.EveryTime) watchNextSeeder.clear()
+            },
+            // The timed choices keep the Watch Next row until the interval
+            // runs out, then a check removes it.
+            onAwayIntervalStarted = watchNextSeeder::scheduleProfileExpiryCheck,
+        )
+    }
     single { TvActiveProfileReset(get(), get(), get(), get(), get(), get(), get(), get()) }
 
     // Deep-link bridge between MainTvActivity (producer) and TvAppNavigation
@@ -444,7 +459,9 @@ val androidTvModule = module {
             advertisesSignIn = BuildConfig.DEBUG,
         )
     }
-    viewModel { TvProfileSelectionViewModel(get(), get(), profileVerificationRecovery = getOrNull()) }
+    viewModel {
+        TvProfileSelectionViewModel(get(), get(), profileVerificationRecovery = getOrNull(), launchPreferences = get())
+    }
     viewModel { org.prairieserver.prairie.tv.ui.screens.profiles.TvCreateProfileViewModel(get()) }
     viewModel { params ->
         org.prairieserver.prairie.tv.ui.screens.profiles.TvEditProfileViewModel(

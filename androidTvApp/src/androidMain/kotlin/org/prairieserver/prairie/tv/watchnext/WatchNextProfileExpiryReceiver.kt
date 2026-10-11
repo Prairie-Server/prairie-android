@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import org.koin.core.context.GlobalContext
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 
 /**
  * Keeps the launcher's Watch Next row in line with Profile Selection while
@@ -26,7 +26,7 @@ class WatchNextProfileExpiryReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in HANDLED_ACTIONS) return
         val koin = GlobalContext.get()
-        val preferences = koin.get<TvProfileLaunchPreferences>()
+        val preferences = koin.get<ProfileLaunchPreferences>()
         val seeder = koin.get<WatchNextSeeder>()
         // This runs on the main thread, as choosing a profile does, so a
         // choice cannot land between this check and the wipe, and the seed

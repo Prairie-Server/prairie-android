@@ -32,10 +32,10 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
-import org.prairieserver.prairie.tv.data.preferences.ProfileLaunchBehavior
+import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
 import org.prairieserver.prairie.tv.data.preferences.SubtitleMode
 import org.prairieserver.prairie.tv.data.preferences.SubtitleSize
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,7 +73,7 @@ class TvSettingsViewModel(
     private val seekIntervalStore: SeekIntervalStore? = null,
     private val episodeSpoilerStore: EpisodeSpoilerStore? = null,
     audiobookSettingsStore: AudiobookSettingsStore? = null,
-    private val profileLaunchPreferences: TvProfileLaunchPreferences? = null,
+    private val profileLaunchPreferences: ProfileLaunchPreferences? = null,
     private val watchNextSeeder: WatchNextSeeder? = null,
 ) : ViewModel() {
 

@@ -13,7 +13,7 @@ import org.prairieserver.prairie.common.diagnostics.HostedDiagnosticsDeletionWor
 import org.prairieserver.prairie.common.diagnostics.HostedDiagnosticsReportDeleter
 import org.prairieserver.prairie.common.diagnostics.PendingReportStore
 import org.prairieserver.prairie.repository.SectionRepository
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.koin.core.context.GlobalContext
 import org.prairieserver.prairie.network.TokenManager
 
@@ -51,7 +51,7 @@ class TvWorkerFactory : WorkerFactory() {
                     repository = koin.get<WatchNextRepository>(),
                     spoilerStore = koin.get(),
                     catalogRepository = koin.get(),
-                    allowsWatchNext = koin.get<TvProfileLaunchPreferences>()::allowsWatchNext,
+                    allowsWatchNext = koin.get<ProfileLaunchPreferences>()::allowsWatchNext,
                     hasTemporaryScope = koin.get<TokenManager>()::hasTemporaryScope,
                 )
             }

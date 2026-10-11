@@ -25,6 +25,8 @@ import org.prairieserver.prairie.android.ui.screens.home.HomeSectionsEditor
 import org.prairieserver.prairie.android.ui.theme.SettingsDimens
 import org.prairieserver.prairie.android.ui.theme.PrairieSettingsBackground
 import org.prairieserver.prairie.android.ui.util.formatBytes
+import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.common.settings.TitleArtStore
 import org.prairieserver.prairie.common.settings.UseProfileSettingsCopy
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
@@ -388,6 +390,38 @@ fun SettingsNotificationsScreen(viewModel: SettingsViewModel, onBackClick: () ->
                         label = "Next Up",
                         checked = state.notifyNextUp,
                         onCheckedChange = viewModel::setNotifyNextUp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** How Profile Selection's descriptions name this device. */
+internal const val PROFILE_LAUNCH_DEVICE = "this device"
+
+/**
+ * Profile Selection (Apple Settings → General → Profile Selection): whether
+ * Prairie reopens the last profile or asks who's watching. The choice is kept on
+ * this phone or tablet only and never sent to the server.
+ */
+@Composable
+fun SettingsProfileSelectionScreen(onBackClick: () -> Unit) {
+    val preferences: ProfileLaunchPreferences = koinInject()
+    val launchState by preferences.state.collectAsState()
+
+    SettingsPageScaffold(title = "Profile Selection", onBackClick = onBackClick) {
+        item(key = "profile-selection") {
+            SettingsSection(
+                title = null,
+                footer = "Choose when Prairie asks who's watching. This applies only to this device.",
+            ) {
+                ProfileLaunchBehavior.entries.forEach { behavior ->
+                    SettingsChoiceRow(
+                        label = behavior.title,
+                        description = behavior.description(PROFILE_LAUNCH_DEVICE),
+                        selected = behavior == launchState.behavior,
+                        onSelect = { preferences.setBehavior(behavior) },
                     )
                 }
             }

@@ -117,6 +117,7 @@ sealed class Route(val route: String) {
     data object SettingsSubtitles : Route("settings/subtitles")
     data object SettingsDownloads : Route("settings/downloads")
     data object SettingsNotifications : Route("settings/notifications")
+    data object SettingsProfileSelection : Route("settings/profile_selection")
     data object Diagnostics : Route("settings/diagnostics")
     data class DiagnosticsReport(val reportId: String) :
         Route("settings/diagnostics/report/${Uri.encode(reportId)}") {

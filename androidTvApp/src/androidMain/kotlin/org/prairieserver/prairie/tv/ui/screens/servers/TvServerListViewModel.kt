@@ -13,7 +13,7 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import org.prairieserver.prairie.tv.data.preferences.TvProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.tv.profiles.TvActiveProfileReset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,7 +51,7 @@ class TvServerListViewModel(
     private val tokenManager: TokenManager,
     private val authRepository: AuthRepository,
     private val lanDiscovery: LanDiscovery,
-    private val profileLaunchPreferences: TvProfileLaunchPreferences,
+    private val profileLaunchPreferences: ProfileLaunchPreferences,
     private val activeProfileReset: TvActiveProfileReset,
 ) : ViewModel() {
 
