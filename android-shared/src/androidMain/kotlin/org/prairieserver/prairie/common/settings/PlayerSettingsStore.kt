@@ -56,19 +56,6 @@ interface PlayerSettingsStore {
         get() = introSkipModeFlow.map { it == IntroSkipMode.ALWAYS }
     val autoSkipCreditsFlow: Flow<Boolean>
     val autoPlayNextFlow: Flow<Boolean>
-    /**
-     * Skip "previously on" recaps automatically — `playback.auto_skip_recap`.
-     * Defaulted (off) rather than abstract so the existing player-test fakes
-     * keep compiling; the real store overrides it with the scoped read.
-     */
-    val autoSkipRecapFlow: Flow<Boolean>
-        get() = flowOf(false)
-    /**
-     * Preview the next episode while credits play — `playback.auto_play_next_preview`.
-     * Defaulted for the same reason as [autoSkipRecapFlow].
-     */
-    val autoPlayNextPreviewFlow: Flow<Boolean>
-        get() = flowOf(false)
     val hdrEnabledFlow: Flow<Boolean>
     val dvProfile7HDR10FallbackFlow: Flow<Boolean>
     val dolbyVisionEnabledFlow: Flow<Boolean>
@@ -178,8 +165,6 @@ interface PlayerSettingsStore {
         setIntroSkipMode(IntroSkipMode.fromLegacyBoolean(value))
     suspend fun setAutoSkipCredits(value: Boolean)
     suspend fun setAutoPlayNext(value: Boolean)
-    suspend fun setAutoSkipRecap(value: Boolean) = Unit
-    suspend fun setAutoPlayNextPreview(value: Boolean) = Unit
     suspend fun setHdrEnabled(value: Boolean)
     suspend fun setDvProfile7HDR10Fallback(value: Boolean)
     suspend fun setDolbyVisionEnabled(value: Boolean)
