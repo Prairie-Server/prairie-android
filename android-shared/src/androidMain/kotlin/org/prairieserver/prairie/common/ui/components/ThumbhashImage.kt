@@ -195,13 +195,14 @@ fun ThumbhashImage(
         } else {
             onError?.invoke()
         }
+    }
 
     val model = remember(current, decodeSizePx, crossfadeMillis, cacheKey) {
     // A failed load keeps the ThumbHash; only without one does a poster fall
     // back to the default artwork.
     var failed by remember(url) { mutableStateOf(false) }
     val failedArtwork = defaultArtwork?.takeIf { failed && !hasUsableThumbhash }
-    val model = remember(url, decodeSizePx, crossfadeMillis, cacheKey) {
+
         ImageRequest.Builder(context)
             .data(current)
             .apply {
@@ -233,11 +234,10 @@ fun ThumbhashImage(
             error = placeholder,
             colorFilter = colorFilter,
             onSuccess = { onSuccess?.invoke() },
-            onError = { onLoadError() },
-            onError = {
-                failed = true
-                onError?.invoke()
-            },
+                onError = {
+                    failed = true
+                    onLoadError()
+                },
             modifier = when {
                 transparent || placeholder != null -> modifier
                 else -> modifier.background(DefaultPlaceholderColor)
@@ -315,11 +315,10 @@ fun ThumbhashImage(
                     presentFullImage()
                 }
             },
-            onError = { onLoadError() },
-            onError = {
-                failed = true
-                onError?.invoke()
-            },
+                onError = {
+                    failed = true
+                    onLoadError()
+                },
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
