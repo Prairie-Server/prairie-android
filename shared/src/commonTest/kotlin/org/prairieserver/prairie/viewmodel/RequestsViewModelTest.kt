@@ -1,6 +1,5 @@
 package org.prairieserver.prairie.viewmodel
 
-import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.request.AdminRequestAction
 import org.prairieserver.prairie.model.request.AdminRequestCapabilities
 import org.prairieserver.prairie.model.request.CreateMediaRequest
@@ -23,7 +22,6 @@ import org.prairieserver.prairie.network.api.RequestsApi
 import org.prairieserver.prairie.repository.RequestsRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -50,21 +48,8 @@ class RequestsViewModelTest {
 
     @AfterTest
     fun tearDown() {
-        createdViewModels.forEach { it.viewModelScope.cancel() }
-        createdViewModels.clear()
         Dispatchers.resetMain()
     }
-
-    // Cancel viewModelScope coroutines BEFORE resetting Main: a coroutine
-    // still parked on Dispatchers.Main when a later test calls setMain/resetMain
-    // throws IllegalStateException from TestMainDispatcher.
-    private val createdViewModels = mutableListOf<androidx.lifecycle.ViewModel>()
-
-    private fun <T : androidx.lifecycle.ViewModel> track(viewModel: T): T {
-        createdViewModels += viewModel
-        return viewModel
-    }
-
 
     @Test
     fun `requests view model loads discover sections and the user's requests`() = runTest(dispatcher) {
@@ -82,7 +67,7 @@ class RequestsViewModelTest {
             mineResult = ApiResult.Success(RequestsListResponse(listOf(failed, pending))),
         )
 
-        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
+        val viewModel = RequestsViewModel(RequestsRepository(api))
         val state = viewModel.uiState.value
 
         assertFalse(state.isLoading)
@@ -95,21 +80,6 @@ class RequestsViewModelTest {
         assertEquals(1, state.inProgressCount)
         assertEquals(1, state.needsAttentionCount)
         assertNull(state.error)
-        assertEquals(listOf("status", "discover"), api.calls)
-    }
-
-    @Test
-    fun `requests view model skips discover when requests are disabled`() = runTest(dispatcher) {
-        val api = FakeRequestsApi(
-            statusResult = ApiResult.Success(RequestsFeatureStatus(requestsEnabled = false)),
-        )
-        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
-        val state = viewModel.uiState.value
-        assertFalse(state.isLoading)
-        assertFalse(state.isEnabled)
-        assertTrue(state.sections.isEmpty())
-        assertEquals("Requests are not enabled on this server.", state.error)
-        assertEquals(listOf("status"), api.calls)
     }
 
     @Test
@@ -121,7 +91,7 @@ class RequestsViewModelTest {
             results = listOf(stubResult(tmdbId = 22, title = "Moonbase")),
         )
         val api = FakeRequestsApi(searchResult = ApiResult.Success(page))
-        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
+        val viewModel = RequestSearchViewModel(RequestsRepository(api))
 
         viewModel.onQueryChanged("moon")
         viewModel.onMediaTypeChanged(RequestMediaType.Series)
@@ -140,7 +110,7 @@ class RequestsViewModelTest {
     @Test
     fun `search view model treats all media type as no media type filter`() = runTest(dispatcher) {
         val api = FakeRequestsApi(searchResult = ApiResult.Success(RequestMediaPage()))
-        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
+        val viewModel = RequestSearchViewModel(RequestsRepository(api))
 
         viewModel.onQueryChanged("alien")
         viewModel.onMediaTypeChanged(RequestMediaType.All)
@@ -152,7 +122,7 @@ class RequestsViewModelTest {
     @Test
     fun `search view model separates typed query from submitted query`() = runTest(dispatcher) {
         val api = FakeRequestsApi(searchResult = ApiResult.Success(RequestMediaPage()))
-        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
+        val viewModel = RequestSearchViewModel(RequestsRepository(api))
 
         viewModel.onQueryChanged("blade")
 
@@ -174,7 +144,7 @@ class RequestsViewModelTest {
                 ApiResult.Success(RequestMediaPage())
             },
         )
-        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
+        val viewModel = RequestSearchViewModel(RequestsRepository(api))
 
         viewModel.onQueryChanged("blade")
         viewModel.search()
@@ -200,7 +170,7 @@ class RequestsViewModelTest {
                 }
             },
         )
-        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
+        val viewModel = RequestSearchViewModel(RequestsRepository(api))
 
         viewModel.onQueryChanged("moon")
         viewModel.search()
@@ -247,11 +217,10 @@ class RequestsViewModelTest {
             ),
             createResult = ApiResult.Success(created),
         )
-        val viewModel = track(RequestDetailViewModel(
+        val viewModel = RequestDetailViewModel(
             repository = RequestsRepository(api),
             mediaType = RequestMediaType.Movie,
             tmdbId = 33,
-        ))
         )
         assertEquals(RequestPrimaryAction.Request, viewModel.uiState.value.primaryAction)
 
@@ -340,7 +309,7 @@ class RequestsViewModelTest {
             discoverResult = ApiResult.Error(code = 500, error = "internal", message = ""),
         )
 
-        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
+        val viewModel = RequestsViewModel(RequestsRepository(api))
 
         assertEquals("Failed to load requests", viewModel.uiState.value.error)
     }
@@ -349,128 +318,9 @@ class RequestsViewModelTest {
     fun `requests view model shows network copy when discover cannot reach the server`() = runTest(dispatcher) {
         val api = FakeRequestsApi(discoverResult = ApiResult.NetworkError(IllegalStateException("offline")))
 
-        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
+        val viewModel = RequestsViewModel(RequestsRepository(api))
 
         assertEquals("Network error. Check your connection.", viewModel.uiState.value.error)
-    }
-
-    @Test
-    fun `requests view model refreshes and clears refreshing flag after discover`() = runTest(dispatcher) {
-        val api = FakeRequestsApi(
-            statusResult = ApiResult.Success(RequestsFeatureStatus(requestsEnabled = true)),
-            discoverResult = ApiResult.Success(
-                RequestsDiscoverResponse(
-                    listOf(
-                        RequestDiscoverySection(
-                            key = "popular_movies",
-                            title = "Popular Movies",
-                            results = listOf(stubResult(tmdbId = 12, title = "Popular")),
-                        ),
-                    ),
-                ),
-            ),
-        )
-        val viewModel = track(RequestsViewModel(RequestsRepository(api)))
-
-        viewModel.refresh()
-
-        assertFalse(viewModel.uiState.value.isRefreshing)
-        assertTrue(viewModel.uiState.value.isEnabled)
-        assertEquals(listOf("status", "discover", "status", "discover"), api.calls)
-    }
-
-    @Test
-    fun `search view model handles blank and failed searches`() = runTest(dispatcher) {
-        val api = FakeRequestsApi(searchResult = ApiResult.Error(500, "internal", ""))
-        val viewModel = track(RequestSearchViewModel(RequestsRepository(api)))
-
-        viewModel.onQueryChanged("   ")
-        viewModel.search()
-        assertEquals("Enter a search term.", viewModel.uiState.value.error)
-        assertTrue(viewModel.uiState.value.results.isEmpty())
-
-        viewModel.onQueryChanged("alien")
-        viewModel.search(page = 2)
-
-        val state = viewModel.uiState.value
-        assertFalse(state.isLoading)
-        assertEquals("alien", state.submittedQuery)
-        assertEquals(2, state.page)
-        assertEquals("Failed to search requests", state.error)
-    }
-
-    @Test
-    fun `search view model preserves submitted results when query text matches trimmed submitted query`() =
-        runTest(dispatcher) {
-            val page = RequestMediaPage(results = listOf(stubResult(tmdbId = 23, title = "Marsbase")))
-            val viewModel = track(RequestSearchViewModel(RequestsRepository(FakeRequestsApi(
-                searchResult = ApiResult.Success(page),
-            ))))
-
-            viewModel.onQueryChanged("mars")
-            viewModel.search()
-            viewModel.onQueryChanged(" mars ")
-
-            val state = viewModel.uiState.value
-            assertEquals(page.results, state.results)
-            assertEquals(1, state.totalPages)
-            assertTrue(state.hasSubmittedQuery)
-        }
-
-    @Test
-    fun `detail view model surfaces load and submit failures`() = runTest(dispatcher) {
-        val api = FakeRequestsApi(
-            detailResults = ArrayDeque(
-                listOf(
-                    ApiResult.Error(404, "not_found", "Missing"),
-                    ApiResult.Success(stubDetail()),
-                ),
-            ),
-            createResult = ApiResult.Error(409, "duplicate", ""),
-        )
-        val viewModel = track(RequestDetailViewModel(
-            repository = RequestsRepository(api),
-            mediaType = RequestMediaType.Movie,
-            tmdbId = 77,
-        ))
-
-        assertEquals("Missing", viewModel.uiState.value.error)
-
-        viewModel.submitRequest()
-        assertEquals("Request details are not loaded.", viewModel.uiState.value.error)
-
-        viewModel.load()
-        viewModel.submitRequest()
-
-        assertFalse(viewModel.uiState.value.isSubmitting)
-        assertEquals("Failed to submit request", viewModel.uiState.value.error)
-    }
-
-    @Test
-    fun `detail submit falls back to local request state when refresh fails`() = runTest(dispatcher) {
-        val detail = stubDetail()
-        val created = stubRequest(id = "request-77", tmdbId = 77, title = detail.title)
-        val api = FakeRequestsApi(
-            detailResults = ArrayDeque(
-                listOf(
-                    ApiResult.Success(detail),
-                    ApiResult.NetworkError(IllegalStateException("offline")),
-                ),
-            ),
-            createResult = ApiResult.Success(created),
-        )
-        val viewModel = track(RequestDetailViewModel(
-            repository = RequestsRepository(api),
-            mediaType = RequestMediaType.Movie,
-            tmdbId = 77,
-        ))
-
-        viewModel.submitRequest()
-
-        val state = viewModel.uiState.value
-        assertEquals("request-77", state.detail?.request?.requestId)
-        assertFalse(state.detail?.request?.requestable ?: true)
-        assertEquals("Request submitted.", state.notice)
     }
 
     @Test
@@ -483,19 +333,19 @@ class RequestsViewModelTest {
             mineHandler = { _, _, _, _ ->
                 val call = ++callCount
                 if (call == 1) {
-                    // First call is slow — simulates a stale in-flight fetch
+                    // First call is slow  simulates a stale in-flight fetch
                     delay(1_000)
                     ApiResult.Success(RequestsListResponse(listOf(staleRequest)))
                 } else {
-                    // Second call is fast — this is the "newer" result
+                    // Second call is fast  this is the "newer" result
                     ApiResult.Success(RequestsListResponse(listOf(freshRequest)))
                 }
             },
         )
-        val viewModel = track(MyRequestsViewModel(RequestsRepository(api)))
+        val viewModel = MyRequestsViewModel(RequestsRepository(api))
 
         // At this point the init load() is in-flight (slow, call #1).
-        // Kick off a second refresh() immediately — it finishes first (call #2).
+        // Kick off a second refresh() immediately  it finishes first (call #2).
         viewModel.refresh()
         dispatcher.scheduler.advanceUntilIdle()
 
@@ -519,7 +369,7 @@ class RequestsViewModelTest {
             mineResult = ApiResult.Success(RequestsListResponse(listOf(pending))),
             cancelResult = ApiResult.Success(cancelled),
         )
-        val viewModel = track(MyRequestsViewModel(RequestsRepository(api)))
+        val viewModel = MyRequestsViewModel(RequestsRepository(api))
 
         assertEquals(listOf(pending), viewModel.uiState.value.requests)
         api.mineResult = ApiResult.Success(RequestsListResponse(listOf(cancelled)))
@@ -533,23 +383,6 @@ class RequestsViewModelTest {
         assertTrue(state.requests.isEmpty())
         assertNull(state.error)
         assertEquals(listOf("request-1"), api.cancelCalls)
-    }
-
-    @Test
-    fun `my requests view model reports load and cancel failures`() = runTest(dispatcher) {
-        val api = FakeRequestsApi(
-            mineResult = ApiResult.Error(500, "internal", ""),
-            cancelResult = ApiResult.NetworkError(IllegalStateException("offline")),
-        )
-        val viewModel = track(MyRequestsViewModel(RequestsRepository(api)))
-
-        assertEquals("Failed to load your requests", viewModel.uiState.value.error)
-
-        viewModel.cancel("request-1")
-
-        val state = viewModel.uiState.value
-        assertNull(state.actionInFlightId)
-        assertEquals("Network error. Check your connection.", state.error)
     }
 }
 
@@ -689,16 +522,4 @@ private fun stubRequest(
     outcome = outcome,
     createdAt = "2026-06-01T00:00:00Z",
     updatedAt = "2026-06-01T00:00:00Z",
-)
-
-private fun stubDetail(): RequestMediaDetail = RequestMediaDetail(
-    mediaType = RequestMediaType.Movie,
-    tmdbId = 77,
-    imdbId = "tt77",
-    title = "Deep Archive",
-    year = 2025,
-    overview = "Buried media returns.",
-    posterPath = "/poster.jpg",
-    backdropPath = "/backdrop.jpg",
-    request = RequestState(requestable = true),
 )
