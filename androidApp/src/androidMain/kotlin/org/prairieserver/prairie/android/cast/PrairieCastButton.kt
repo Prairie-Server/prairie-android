@@ -171,9 +171,18 @@ fun PrairieCastButton(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Close") }
                 }
+            },
             dismissButton = {
+                if (castState.isConnected) {
+                    TextButton(onClick = { showPicker = false }) { Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Close") }
+                }
+            },
         )
-            }
-        }
     }
 }
