@@ -5,9 +5,11 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -46,8 +48,8 @@ class CollectionsViewModelLoadOrderTest {
                 )
             },
         )
+        val viewModel = CollectionsViewModel(CollectionRepository(CollectionApi(client, ApiV2Gate.Unrestricted)))
         try {
-            val viewModel = CollectionsViewModel(CollectionRepository(CollectionApi(client, ApiV2Gate.Unrestricted)))
             withContext(Dispatchers.Default) { firstEntered.await() }
 
             // An access change refreshes while the initial load still waits on
@@ -61,6 +63,10 @@ class CollectionsViewModelLoadOrderTest {
 
             assertEquals(listOf("after"), viewModel.uiState.value.collections.map { it.id })
         } finally {
+            // Cancel the VM's scope before Main is reset so a load still in
+            // flight cannot resume on a missing Main and leak an uncaught
+            // exception into whichever test runs next.
+            viewModel.viewModelScope.cancel()
             client.close()
             Dispatchers.resetMain()
         }
