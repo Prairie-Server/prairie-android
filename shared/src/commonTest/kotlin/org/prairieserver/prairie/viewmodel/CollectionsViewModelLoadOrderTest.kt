@@ -9,7 +9,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -63,10 +64,11 @@ class CollectionsViewModelLoadOrderTest {
 
             assertEquals(listOf("after"), viewModel.uiState.value.collections.map { it.id })
         } finally {
-            // Cancel the VM's scope before Main is reset so a load still in
-            // flight cannot resume on a missing Main and leak an uncaught
-            // exception into whichever test runs next.
-            viewModel.viewModelScope.cancel()
+            // Cancel AND join the VM's scope before Main is reset: a plain cancel()
+            // lets an in-flight Ktor call resume on a missing Main and leak an
+            // uncaught exception into whichever test runs next.
+            releaseFirst.complete(Unit)
+            viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
             client.close()
             Dispatchers.resetMain()
         }
