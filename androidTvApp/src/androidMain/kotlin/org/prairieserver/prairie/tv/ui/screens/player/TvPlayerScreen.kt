@@ -2737,12 +2737,12 @@ private fun TvPrairieCastPlayerRegistration(
                 )
             },
             setVideoGravity = { value ->
-                viewModel.onVideoFillModeChanged(value.toPrairieCastVideoFillMode())
+                viewModel.onVideoFillModeChanged(value.toSiloCastVideoFillMode())
             },
             setSubtitleSyncMs = viewModel::onSubtitleDelayChanged,
             setSubtitlePosition = { value ->
                 viewModel.onSetSubtitleAppearance(
-                    latestPrairieCastSubtitleAppearance.copy(position = value.toPrairieCastSubtitlePosition()),
+                    latestPrairieCastSubtitleAppearance.copy(position = value.toSiloCastSubtitlePosition()),
                 )
             },
             setVolume = { volume ->

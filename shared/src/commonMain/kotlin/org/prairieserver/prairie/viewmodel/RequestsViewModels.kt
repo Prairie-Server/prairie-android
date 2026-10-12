@@ -35,6 +35,7 @@ data class RequestsUiState(
     /** The first load, with nothing to show yet. */
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
+    val isEnabled: Boolean = false,
     val hasLoaded: Boolean = false,
     val sections: List<RequestDiscoverySection> = emptyList(),
     /** The signed-in user's requests, needs-attention first, newest first within each group. */
@@ -116,6 +117,30 @@ class RequestsViewModel(
     suspend fun fetch(): Boolean {
         val generation = ++loadGeneration
         _uiState.update { it.copy(isLoading = it.sections.isEmpty() && it.myRequests.isEmpty(), error = null) }
+        // The hub reads the feature status first: a server with requests off shows nothing.
+        when (val status = repository.status()) {
+            is ApiResult.Success -> if (!status.data.requestsEnabled) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isEnabled = false,
+                        sections = emptyList(),
+                        error = "Requests are not enabled on this server.",
+                    )
+                }
+                return false
+            }
+            is ApiResult.Error, is ApiResult.NetworkError -> {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isEnabled = false,
+                        error = status.errorMessage("Failed to load request status"),
+                    )
+                }
+                return false
+            }
+        }
         // The admin queue can take many pages; it fills its card when it lands.
         val approvals = viewModelScope.launch { loadPendingApprovals() }
         val discover = viewModelScope.async { repository.discover() }
@@ -129,6 +154,7 @@ class RequestsViewModel(
             _uiState.update {
                 it.copy(
                     isLoading = false,
+                    isEnabled = true,
                     hasLoaded = true,
                     sections = mergeDiscoverCarousels((sections as ApiResult.Success).data.sections),
                     myRequests = ordered,
@@ -143,6 +169,7 @@ class RequestsViewModel(
                 // error when there is nothing to show instead.
                 it.copy(
                     isLoading = false,
+                    isEnabled = true,
                     hasLoaded = true,
                     error = failure.errorMessage("Failed to load requests")
                         .takeIf { _ -> it.sections.isEmpty() && it.myRequests.isEmpty() },
@@ -377,6 +404,7 @@ data class MyRequestsUiState(
     val buckets: List<Pair<MyRequestsBucket, List<MediaRequest>>> = emptyList(),
     /** The request being cancelled; its row dims and takes no taps. */
     val cancellingId: String? = null,
+    val actionInFlightId: String? = null,
     /** Requests whose cancel was sent without a usable answer; held until the request changes, or the hold lapses. */
     val unconfirmedCancelIds: Set<String> = emptySet(),
     /** Inline message for a failed cancel; cleared on the next action. */
@@ -494,6 +522,32 @@ class MyRequestsViewModel(
                 }
                 else -> _uiState.update {
                     it.copy(cancellingId = null, actionErrorMessage = RequestActionCopy.failure(result, "Couldn't cancel the request"))
+                }
+            }
+        }
+    }
+
+    /** Cancels by id, as the fork's surface does: the row is re-bucketed from the list. */
+    fun cancel(id: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(actionInFlightId = id, error = null) }
+            when (val result = repository.cancel(id)) {
+                is ApiResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            buckets = MyRequestsBucket.bucket(repository.mine.value),
+                            actionInFlightId = null,
+                            error = null,
+                        )
+                    }
+                }
+                is ApiResult.Error, is ApiResult.NetworkError -> {
+                    _uiState.update {
+                        it.copy(
+                            actionInFlightId = null,
+                            error = result.errorMessage("Failed to cancel request"),
+                        )
+                    }
                 }
             }
         }

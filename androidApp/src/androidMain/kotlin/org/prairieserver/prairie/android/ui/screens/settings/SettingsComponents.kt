@@ -35,7 +35,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -108,6 +111,42 @@ fun Modifier.settingsRowDivider(
     }
 
 /**
+ * Per-card row counter backing the "no divider above the first row" rule.
+ *
+ * Rows claim a slot on first composition and remember it, so the index is
+ * stable across recomposition and follows source order within the card. A card
+ * whose *first* row is conditional would need [SettingsRow]'s `showDivider`
+ * override — no section does that today, since every card's opening row is
+ * unconditional.
+ */
+@Stable
+internal class SettingsSectionSlots {
+    private var next = 0
+
+    fun claim(): Int = next++
+}
+
+internal val LocalSettingsSectionSlots = staticCompositionLocalOf<SettingsSectionSlots?> { null }
+
+/** True for the first row composed into the enclosing [SettingsSectionCard]. */
+@Composable
+private fun isFirstSettingsRow(): Boolean {
+    val slots = LocalSettingsSectionSlots.current ?: return true
+    return remember(slots) { slots.claim() } == 0
+}
+
+/**
+ * Claims a row slot for a card child that is not a [SettingsRow] — the account
+ * header, a prose pane — and reports whether it should draw a hairline above
+ * itself. A custom child that skips this is invisible to the divider rule, and
+ * the row after it would wrongly believe it is the card's first.
+ *
+ * Pair with [settingsRowDivider].
+ */
+@Composable
+fun settingsRowDividerVisible(): Boolean = !isFirstSettingsRow()
+
+/**
  * A settings group: a title-case header above the grouped rows and an
  * optional footer below them, as in the Apple apps' inset-grouped lists.
  */
@@ -143,20 +182,23 @@ fun SettingsSectionCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(SettingsDimens.groupRadius))
-            .background(PrairieGroupedCell)
-            .drawWithContent {
-                drawContent()
-                drawRect(
-                    color = PrairieGroupedCell,
-                    size = Size(size.width, ceil(SettingsDimens.separatorThickness.toPx())),
-                )
-            },
-        content = content,
-    )
+    val slots = remember { SettingsSectionSlots() }
+    CompositionLocalProvider(LocalSettingsSectionSlots provides slots) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(SettingsDimens.groupRadius))
+                .background(PrairieGroupedCell)
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        color = PrairieGroupedCell,
+                        size = Size(size.width, ceil(SettingsDimens.separatorThickness.toPx())),
+                    )
+                },
+            content = content,
+        )
+    }
 }
 
 /** Section header: title case, semibold, secondary, aligned with the row text. */

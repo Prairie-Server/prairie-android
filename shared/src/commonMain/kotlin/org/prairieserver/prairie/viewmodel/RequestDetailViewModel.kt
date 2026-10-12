@@ -83,6 +83,7 @@ data class RequestDetailUiState(
     val submittedCount: Int = 0,
     /** Bumped on every accepted admin decision, for the success haptic. */
     val moderatedCount: Int = 0,
+    val notice: String? = null,
 ) {
     val primaryAction: RequestPrimaryAction
         get() {
@@ -297,7 +298,10 @@ class RequestDetailViewModel(
     }
 
     fun load() {
-        viewModelScope.launch { fetch() }
+        viewModelScope.launch {
+            _uiState.update { it.copy(notice = null) }
+            fetch()
+        }
     }
 
     /**
@@ -392,7 +396,7 @@ class RequestDetailViewModel(
         val state = _uiState.value
         val detail = state.detail ?: return
         if (state.isSubmitting || state.primaryAction != RequestPrimaryAction.Request) return
-        _uiState.update { it.copy(isSubmitting = true, actionErrorMessage = null) }
+        _uiState.update { it.copy(isSubmitting = true, actionErrorMessage = null, notice = null) }
         viewModelScope.launch {
             val result = repository.create(detail.toCreateMediaRequest())
             when {
@@ -404,7 +408,7 @@ class RequestDetailViewModel(
                     // guess. Still submitting meanwhile, so this page's own
                     // broadcast doesn't trigger a second read.
                     fetch()
-                    _uiState.update { it.copy(isSubmitting = false) }
+                    _uiState.update { it.copy(isSubmitting = false, notice = "Request submitted.") }
                 }
                 RequestMutationFailure.isUncertain(result) -> {
                     // Never resend: hold the action until a read shows the

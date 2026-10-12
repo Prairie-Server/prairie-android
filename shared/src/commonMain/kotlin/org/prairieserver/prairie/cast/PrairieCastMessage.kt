@@ -287,6 +287,7 @@ data class PrairieCastControlCommand(
         const val SetPlaybackSpeed = "set_playback_speed"
         const val SetQuality = "set_quality"
         const val SetVideoGravity = "set_video_gravity"
+        const val SetHdrEnabled = "set_hdr_enabled"
         const val SetSubtitleSyncMs = "set_subtitle_sync_ms"
         const val SetSubtitlePosition = "set_subtitle_position"
         const val SetVolume = "set_volume"
@@ -324,6 +325,9 @@ data class PrairieCastControlCommand(
 
         fun setVideoGravity(value: String): PrairieCastControlCommand =
             PrairieCastControlCommand(name = SetVideoGravity, value = value)
+
+        fun setHdrEnabled(enabled: Boolean): PrairieCastControlCommand =
+            PrairieCastControlCommand(name = SetHdrEnabled, enabled = enabled)
 
         fun setSubtitleSyncMs(milliseconds: Int): PrairieCastControlCommand =
             PrairieCastControlCommand(name = SetSubtitleSyncMs, milliseconds = milliseconds)

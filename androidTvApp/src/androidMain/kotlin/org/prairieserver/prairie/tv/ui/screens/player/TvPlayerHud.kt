@@ -106,6 +106,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
@@ -154,6 +155,8 @@ private val HudRowPadding = 10.dp
 private val HudCheckColumn = 20.dp
 private val HudPaneColumnGap = 26.dp
 private val HudSectionGap = 12.dp
+private val HudBodyTextSize = 16.sp
+private val HudBodyLineHeight = 20.sp
 
 /** The left column of a two-column pane takes 330 of 736dp, as in the mockup. */
 private const val HudLeftColumnWeight = 33f

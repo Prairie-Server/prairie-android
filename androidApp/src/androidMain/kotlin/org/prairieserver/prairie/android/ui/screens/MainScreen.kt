@@ -66,9 +66,11 @@ import org.prairieserver.prairie.android.ui.screens.recommendations.ForYouList
 import org.prairieserver.prairie.android.ui.screens.recommendations.RecommendationsScreen
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.android.ui.screens.recommendations.headerTitle
+import org.prairieserver.prairie.android.ui.screens.watchtogether.WatchTogetherMenuEntrySheet
 import org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartySoloGuardDialog
 import org.prairieserver.prairie.android.ui.screens.watchparty.rememberWatchPartySoloGuard
 import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
+import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.prairieserver.prairie.model.feature.WatchPartyExposure
 import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.MediaModeCapabilities
@@ -105,13 +107,14 @@ fun MainScreen(
     val siloCastController: PrairieCastController = koinInject()
     val siloCastState by siloCastController.state.collectAsState()
     var showPrairieCastTargetPicker by rememberSaveable { mutableStateOf(false) }
+    var showWatchTogetherEntry by rememberSaveable { mutableStateOf(false) }
     val watchPartyExposure: WatchPartyExposure = koinInject()
     val watchPartyEnabled by watchPartyExposure.enabled.collectAsState()
     // D5: quick play from these tabs asks to leave a Watch Party first.
     val soloGuard = rememberWatchPartySoloGuard()
 
     fun startVideo(contentId: String, fileId: Int?, resumePositionSeconds: Double?) {
-        val launchedRemotely = prairieCastController.launchOnConnectedTarget(
+        val launchedRemotely = siloCastController.launchOnConnectedTarget(
             PrairieCastPlaybackRequest(
                 contentId = contentId,
                 fileId = fileId,
@@ -632,6 +635,17 @@ fun MainScreen(
                 PrairieCastTargetPickerSheet(
                     onDismiss = { showPrairieCastTargetPicker = false },
                     controller = siloCastController,
+                )
+            }
+
+            if (showWatchTogetherEntry) {
+                WatchTogetherMenuEntrySheet(
+                    onNavigate = { route ->
+                        navController.navigate(route) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onDismiss = { showWatchTogetherEntry = false },
                 )
             }
 

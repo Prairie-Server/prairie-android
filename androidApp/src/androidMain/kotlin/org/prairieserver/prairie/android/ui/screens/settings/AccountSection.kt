@@ -36,6 +36,9 @@ import org.prairieserver.prairie.android.ui.theme.PrairieMutedText
 import org.prairieserver.prairie.android.ui.theme.Spacing
 import org.prairieserver.prairie.model.auth.User
 
+/** Account header avatar icon — iOS ProfileAvatarView icon size 30. */
+private const val avatarIconSize = 30.dp
+
 /**
  * Settings section showing user account info, device pairing, and sign out.
  *
@@ -97,7 +100,7 @@ fun AccountSection(
                         imageVector = Icons.Default.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(SettingsDimens.avatarIconSize),
+                        modifier = Modifier.size(avatarIconSize),
                     )
                 }
 
