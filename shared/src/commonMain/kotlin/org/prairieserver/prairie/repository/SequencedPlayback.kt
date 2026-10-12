@@ -12,6 +12,8 @@ import org.prairieserver.prairie.model.playback.PlaybackReplanRequestV3
 import org.prairieserver.prairie.model.playback.PlaybackRouteEventV3
 import org.prairieserver.prairie.network.*
 import org.prairieserver.prairie.network.apiv2.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** Atomic durable writes must complete before returning; failure prevents dispatch. No credentials. */
 interface PlaybackJournalStore {
@@ -79,6 +81,9 @@ class SequencedPlayback(
     private val auxiliaryHeaders = mutableMapOf<String, ProxyAuxiliaryRequestHeaders>()
     private val scopes = mutableMapOf<String, AuthScopeSnapshot>()
     @kotlin.concurrent.Volatile private var sessions: Set<String> = emptySet()
+    private val _pending = MutableStateFlow<List<String>>(emptyList())
+    val pending = _pending.asStateFlow()
+
     fun owns(sessionId: String): Boolean = sessionId in sessions
 
     private suspend fun load(): List<PlaybackJournalEntry> {
@@ -98,6 +103,8 @@ class SequencedPlayback(
     private fun publish() {
         liveAttempts = entries.orEmpty().filter { !it.terminal && it.stop == null }.map { it.attemptId }.toSet()
         sessions = entries.orEmpty().mapNotNull { it.sessionId }.toSet()
+        _pending.value = entries.orEmpty().filter { it.needsRecovery() }
+            .map { it.attemptId }
     }
     private suspend fun save(entry: PlaybackJournalEntry) {
         val (temporary, durable) = (load().filterNot { it.attemptId == entry.attemptId } + entry).partition { it.isTemporary }
