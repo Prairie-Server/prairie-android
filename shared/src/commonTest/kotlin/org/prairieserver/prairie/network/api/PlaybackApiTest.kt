@@ -62,7 +62,7 @@ class PlaybackApiTest {
         ).getQualityLadder()
 
         assertEquals(HttpMethod.Get, captured.method)
-        assertEquals("/api/v1/playback/quality-ladder", captured.path)
+        assertEquals("/api/v2/playback/quality-ladder", captured.path)
         assertTrue(captured.query.isEmpty())
         val success = assertIs<ApiResult.Success<QualityLadderResponse>>(result)
         assertEquals(1, success.data.rungs.size)
@@ -80,7 +80,7 @@ class PlaybackApiTest {
         api(captured).getQualityLadder(sourceHeight = 2160)
 
         assertEquals(HttpMethod.Get, captured.method)
-        assertEquals("/api/v1/playback/quality-ladder", captured.path)
+        assertEquals("/api/v2/playback/quality-ladder", captured.path)
         assertEquals("2160", captured.query["source_height"])
     }
 }

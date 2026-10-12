@@ -149,7 +149,7 @@ fun PlayerOverlay(
         playbackQualityMenu(state.playbackPlan?.availableQualities.orEmpty())
     }
     // Prairie: when the plan lists no qualities, fall back to the Prairie
-    // quality ladder (QualityLadder, GET /api/v1/playback/quality-ladder) the
+    // quality ladder (QualityLadder, GET /api/v2/playback/quality-ladder) the
     // view model builds per file. Its picks restart the session through
     // onSelectQuality (PlayerViewModel.switchQuality). Not offered offline
     // (no session) or in a party, which plays exactly the room's stream.

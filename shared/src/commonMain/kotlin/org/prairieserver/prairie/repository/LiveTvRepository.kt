@@ -10,7 +10,6 @@ import org.prairieserver.prairie.model.livetv.LiveTvProgram
 import org.prairieserver.prairie.model.livetv.LiveTvRecording
 import org.prairieserver.prairie.model.livetv.LiveTvRecordingsResponse
 import org.prairieserver.prairie.model.livetv.LiveTvScheduleRecordingRequest
-import org.prairieserver.prairie.model.livetv.LiveTvSession
 import org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.LiveTvApi
@@ -40,7 +39,7 @@ class LiveTvRepository(private val api: LiveTvApi) {
     suspend fun startSession(channelId: String): ApiResult<LiveTvSessionStartResponse> =
         api.startSession(channelId)
 
-    suspend fun releaseSession(sessionId: String): ApiResult<LiveTvSession> =
+    suspend fun releaseSession(sessionId: String): ApiResult<Unit> =
         api.releaseSession(sessionId)
 
     suspend fun recordings(status: String? = null): ApiResult<LiveTvRecordingsResponse> =

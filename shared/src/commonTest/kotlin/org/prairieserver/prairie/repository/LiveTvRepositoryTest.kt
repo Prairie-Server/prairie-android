@@ -5,7 +5,6 @@ import org.prairieserver.prairie.model.livetv.LiveTvChannel
 import org.prairieserver.prairie.model.livetv.LiveTvChannelsResponse
 import org.prairieserver.prairie.model.livetv.LiveTvGuideResponse
 import org.prairieserver.prairie.model.livetv.LiveTvProgram
-import org.prairieserver.prairie.model.livetv.LiveTvSession
 import org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.LiveTvApi
@@ -52,9 +51,9 @@ class LiveTvRepositoryTest {
     fun startAndReleasePassThrough() = runTest {
         val api = FakeLiveTvApi(
             startResult = ApiResult.Success(
-                LiveTvSessionStartResponse(sessionId = "s1", hlsUrl = "/live.m3u8"),
+                LiveTvSessionStartResponse(sessionId = "s1", streamUrl = "/live.m3u8"),
             ),
-            releaseResult = ApiResult.Success(LiveTvSession(id = "s1", status = "released")),
+            releaseResult = ApiResult.Success(Unit),
         )
         val repo = LiveTvRepository(api)
 
@@ -62,8 +61,7 @@ class LiveTvRepositoryTest {
         assertEquals("s1", started.data.sessionId)
         assertEquals(1, api.startCalls)
 
-        val released = assertIs<ApiResult.Success<LiveTvSession>>(repo.releaseSession("s1"))
-        assertEquals("released", released.data.status)
+        assertIs<ApiResult.Success<Unit>>(repo.releaseSession("s1"))
         assertEquals(listOf("s1"), api.releaseCalls)
     }
 
@@ -106,7 +104,7 @@ internal class FakeLiveTvApi(
         ApiResult.NetworkError(IllegalStateException("unused")),
     var startResult: ApiResult<LiveTvSessionStartResponse> =
         ApiResult.NetworkError(IllegalStateException("unused")),
-    var releaseResult: ApiResult<LiveTvSession> =
+    var releaseResult: ApiResult<Unit> =
         ApiResult.NetworkError(IllegalStateException("unused")),
 ) : LiveTvApi {
     var startCalls = 0
@@ -127,7 +125,7 @@ internal class FakeLiveTvApi(
         return startResult
     }
 
-    override suspend fun releaseSession(sessionId: String): ApiResult<LiveTvSession> {
+    override suspend fun releaseSession(sessionId: String): ApiResult<Unit> {
         releaseCalls += sessionId
         return releaseResult
     }

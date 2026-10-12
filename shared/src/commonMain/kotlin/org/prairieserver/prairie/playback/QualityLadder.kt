@@ -17,7 +17,7 @@ data class QualityLadderRung(
     @SerialName("bitrate_kbps") val bitrateKbps: Int,
 )
 
-/** Picker payload from `GET /api/v1/playback/quality-ladder`. */
+/** Picker payload from `GET /api/v2/playback/quality-ladder`. */
 @Serializable
 data class QualityLadderResponse(
     val rungs: List<QualityLadderRung> = emptyList(),

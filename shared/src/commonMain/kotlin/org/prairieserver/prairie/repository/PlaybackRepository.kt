@@ -11,7 +11,7 @@ import org.prairieserver.prairie.playback.QualityLadderResponse
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 
 /**
- * [transcodeApi] carries the Prairie-only v1 quality-ladder route; it is
+ * [transcodeApi] carries the Prairie-only quality-ladder route (v2); it is
  * optional so upstream call sites that only drive [SequencedPlayback] keep working.
  */
 class PlaybackRepository(

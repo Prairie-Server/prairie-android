@@ -13,7 +13,6 @@ import org.prairieserver.prairie.model.livetv.LiveTvChannel
 import org.prairieserver.prairie.model.livetv.LiveTvChannelsResponse
 import org.prairieserver.prairie.model.livetv.LiveTvGuideResponse
 import org.prairieserver.prairie.model.livetv.LiveTvProgram
-import org.prairieserver.prairie.model.livetv.LiveTvSession
 import org.prairieserver.prairie.model.livetv.LiveTvSessionStartResponse
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.FakeLiveTvApi
@@ -110,11 +109,11 @@ class LiveTvViewModelTest {
             startResult = ApiResult.Success(
                 LiveTvSessionStartResponse(
                     sessionId = "s1",
-                    hlsUrl = "/api/v1/livetv/live-hls/s1/index.m3u8",
+                    streamUrl = "/api/v1/livetv/live-hls/s1/index.m3u8",
                     transport = "hls",
                 ),
             ),
-            releaseResult = ApiResult.Success(LiveTvSession(id = "s1", status = "released")),
+            releaseResult = ApiResult.Success(Unit),
         )
         val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
 
@@ -137,9 +136,9 @@ class LiveTvViewModelTest {
     fun playerRejectsBlankStreamUrlAndReleasesSession() = runTest {
         val api = FakeLiveTvApi(
             startResult = ApiResult.Success(
-                LiveTvSessionStartResponse(sessionId = "s1", hlsUrl = "", streamUrl = ""),
+                LiveTvSessionStartResponse(sessionId = "s1", streamUrl = ""),
             ),
-            releaseResult = ApiResult.Success(LiveTvSession(id = "s1", status = "released")),
+            releaseResult = ApiResult.Success(Unit),
         )
         val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
         viewModel.start("ch-1")
