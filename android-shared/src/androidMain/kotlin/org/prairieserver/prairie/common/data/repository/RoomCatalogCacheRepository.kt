@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.common.data.repository
 
+import org.prairieserver.prairie.repository.port.CatalogCacheScope
+
 import org.prairieserver.prairie.common.data.db.PrairieDatabase
 import org.prairieserver.prairie.common.data.db.entity.CatalogCacheEntity
 import org.prairieserver.prairie.model.catalog.CatalogResponse
@@ -30,6 +32,15 @@ class RoomCatalogCacheRepository(
 
     private val dao = db.catalogCacheDao()
     private val json = Json { ignoreUnknownKeys = true }
+
+    override suspend fun invalidateDetailMetadata(scope: CatalogCacheScope?) {
+        val owner = scope ?: run {
+            val snapshot = snapshotProvider() ?: return
+            val profile = snapshot.profileId ?: return
+            CatalogCacheScope(snapshot.serverId, profile)
+        }
+        dao.deleteDetailMetadata(owner.serverId, owner.profileId)
+    }
 
     override suspend fun cacheLibraries(libraries: List<UserLibrary>) =
         cacheLibraries(libraries, currentWriteLease())

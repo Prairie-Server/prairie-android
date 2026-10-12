@@ -50,6 +50,7 @@ import androidx.tv.material3.Text
 import org.prairieserver.prairie.discovery.DiscoveryHit
 import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
+import org.prairieserver.prairie.tv.ui.screens.settings.SettingsBackground
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import org.prairieserver.prairie.tv.ui.components.TvDialogOption
 import org.prairieserver.prairie.tv.ui.components.TvOptionDialog
@@ -133,7 +134,7 @@ fun TvServerListScreen(
         modifier = Modifier
             .fillMaxSize()
             .then(contentInitialFocus)
-            .background(ServerSettingsBackground)
+            .background(SettingsBackground)
             .padding(start = 44.dp, top = Spacing.safeArea, end = 44.dp, bottom = Spacing.xxxl),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
@@ -371,8 +372,6 @@ private fun DiscoveredRow(
         }
     }
 }
-
-private val ServerSettingsBackground = Color(0xFF17181A)
 private val ServerListMaxWidth = 620.dp
 private val ServerRowShape = RoundedCornerShape(8.dp)
 

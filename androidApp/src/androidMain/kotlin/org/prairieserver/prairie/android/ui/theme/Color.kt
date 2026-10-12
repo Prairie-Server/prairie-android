@@ -55,8 +55,34 @@ val PrairieOpaqueControlBorder = Color.White.copy(alpha = 0.46f)
 // settings values, and they fill M3's `surfaceContainer*` ladder — which
 // `darkColorScheme` otherwise leaves on its purple-tinted baseline.
 
-/** Lifted page ground for form-shaped screens. Web `--background`. */
-val PrairieSettingsBackground = Color(0xFF141417)
+/**
+ * Settings page ground. Pure black, like the Apple apps' Settings backdrop
+ * (`prairieBackground`), so the grouped cells read as an inset list.
+ */
+val PrairieSettingsBackground = Color(0xFF000000)
+
+// --- Settings grouped list (Apple Settings parity) ---
+//
+// The Apple apps draw Settings as a native inset-grouped list in Apple's
+// dark-mode grouped palette (prairie-apple `Colors.swift`). Settings uses these
+// rather than the web card values above so both phones show the same list;
+// its text uses the chrome's `PrairieOnSurface` / `PrairieSecondaryText`, which are
+// already Apple's `prairieOnSurface` / `prairieSecondaryText`.
+
+/** Grouped row background. Apple `prairieGroupedCell`. */
+val PrairieGroupedCell = Color(0xFF1C1C1E)
+
+/** Graphite tile behind an overview row's glyph. Apple `prairieIconTile`. */
+val PrairieIconTile = Color(0xFF3A3A3C)
+
+/** Switch track while on. Apple `prairieSwitchOn`, the system dark-mode green. */
+val PrairieSwitchOn = Color(0xFF30D158)
+
+/** Switch track while off, Apple's dark grouped-cell switch fill. */
+val PrairieSwitchOff = Color(0xFF39393D)
+
+/** Hairline between grouped rows, Apple's dark-mode separator. */
+val PrairieGroupedSeparator = Color(0xFF38383A)
 
 /** Grouped card surface. Web `--card`. */
 val PrairieSurfaceContainer = Color(0xFF1C1C20)

@@ -14,6 +14,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.prairieserver.prairie.model.auth.RefreshRequest
 import org.prairieserver.prairie.model.auth.RefreshResponse
+import org.prairieserver.prairie.network.apiv2.Problem
+import io.ktor.client.statement.bodyAsText
 
 /**
  * How close to expiry an access token may get before a request refreshes it
@@ -52,6 +54,12 @@ internal enum class RefreshOutcome {
      * concurrent traffic amplifies the outage it is already suffering.
      */
     FailedTransient,
+
+    /**
+     * A [FailedTransient] the server explained: 503 `provider_unavailable`,
+     * the sign-in provider couldn't re-check the session. The session stays.
+     */
+    ProviderUnavailable,
 }
 
 /**
@@ -65,6 +73,12 @@ class PrairieAuthConfig {
     var deviceMetadataProvider: DeviceMetadataProvider? = null
     var diagnosticsObserver: NetworkDiagnosticsObserver? = null
     var cleartextOriginConsent: CleartextOriginConsent? = null
+
+    /**
+     * Receives stale-profile refusals the v2 error decoder sees on this
+     * client. Null leaves them as ordinary errors.
+     */
+    var accessChangeSignals: AccessChangeSignals? = null
 }
 
 /**
@@ -88,6 +102,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
     val deviceMetadataProvider = pluginConfig.deviceMetadataProvider
     val diagnosticsObserver = pluginConfig.diagnosticsObserver
     val cleartextOriginConsent = pluginConfig.cleartextOriginConsent
+    pluginConfig.accessChangeSignals?.let { client.attributes.put(AccessChangeSignalsKey, it) }
 
     val refreshMutex = Mutex()
 
@@ -242,6 +257,11 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 if (!refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
                     // Gateway/proxy/server failure: the credentials may well
                     // still be good, so the caller may spend them as before.
+                    if (refreshResponse.status == HttpStatusCode.ServiceUnavailable &&
+                        isProviderUnavailableProblem(runCatching { refreshResponse.bodyAsText() }.getOrNull())
+                    ) {
+                        return@withLock RefreshOutcome.ProviderUnavailable
+                    }
                     return@withLock RefreshOutcome.FailedTransient
                 }
                 run {
@@ -284,6 +304,83 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             RefreshOutcome.FailedTransient
         }
     }
+
+    /**
+     * One refresh of a pinned (background or other-server) [pinnedScope],
+     * serialised on [refreshMutex]. Never invalidates the active UI session: a
+     * rejected refresh token is only remembered so it isn't spent again. Tells
+     * a refresh the server refused with 503
+     * `provider_unavailable` (the provider re-check couldn't reach the
+     * provider under `fail_closed`) apart from any other failure: the session
+     * is still valid and the caller can say so.
+     *
+     * @return [PinnedRefresh.Refreshed] when [pinnedScope] now holds a token
+     * other than [sentAuth].
+     */
+    suspend fun refreshPinnedScope(pinnedScope: AuthScopeSnapshot, sentAuth: String?): PinnedRefresh {
+        val pinnedGeneration = pinnedScope.credentialGenerationId
+        return refreshMutex.withLock {
+            // Another path may have refreshed this scope while we waited.
+            val current = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
+            if (current != null && current != sentAuth) {
+                return@withLock PinnedRefresh.Refreshed
+            }
+            val refreshToken = tokenManager.getRefreshTokenForScope(pinnedScope)
+            if (refreshToken.isNullOrBlank() || pinnedScope.serverUrl.isBlank() ||
+                refreshToken in rejectedPinnedRefreshTokens.value
+            ) {
+                return@withLock PinnedRefresh.Failed
+            }
+            try {
+                diagnosticsObserver.safeAuthRefresh("started")
+                val refreshResponse = client.post("${pinnedScope.serverUrl}/api/v2/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RefreshRequest(refreshToken))
+                }
+                if (refreshResponse.status == HttpStatusCode.OK) {
+                    diagnosticsObserver.safeAuthRefresh("succeeded")
+                    val tokens = refreshResponse.body<RefreshResponse>()
+                    tokenManager.saveTokensForScope(
+                        scope = pinnedScope,
+                        accessToken = tokens.accessToken,
+                        refreshToken = tokens.refreshToken,
+                        expiresIn = tokens.expiresIn,
+                    )
+                    // A temporary credential generation may have ended while
+                    // refresh was in flight. Its token manager deliberately
+                    // drops that stale response instead of falling through to
+                    // the saved account, so retry only when the exact scope now
+                    // exposes the rotated token.
+                    val after = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
+                    if (after != null && after != sentAuth) PinnedRefresh.Refreshed else PinnedRefresh.Failed
+                } else {
+                    diagnosticsObserver.safeAuthRefresh("failed")
+                    if (refreshResponse.status == HttpStatusCode.ServiceUnavailable &&
+                        isProviderUnavailableProblem(runCatching { refreshResponse.bodyAsText() }.getOrNull())
+                    ) {
+                        return@withLock PinnedRefresh.ProviderUnavailable
+                    }
+                    if (refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
+                        if (pinnedGeneration != null) {
+                            deadCredentialGenerations.update { it + pinnedGeneration }
+                        } else {
+                            rejectedPinnedRefreshTokens.update { it + refreshToken }
+                        }
+                    }
+                    // Don't invalidate the active session for a background scope.
+                    // Re-check in case a concurrent path refreshed it in flight.
+                    val after = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
+                    if (after != null && after != sentAuth) PinnedRefresh.Refreshed else PinnedRefresh.Failed
+                }
+            } catch (e: Throwable) {
+                diagnosticsObserver.safeAuthRefresh("failed")
+                PinnedRefresh.Failed
+            }
+        }
+    }
+
+    suspend fun refreshPinnedScopeOnce(pinnedScope: AuthScopeSnapshot, sentAuth: String?): Boolean =
+        refreshPinnedScope(pinnedScope, sentAuth) == PinnedRefresh.Refreshed
 
     onRequest { request, _ ->
         val skipAuth = request.attributes.getOrNull(SkipPrairieAuthAttributeKey) == true
@@ -460,14 +557,53 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
             request.removePrairieCredentialHeaders()
             return@on proceed(request)
         }
-        if (request.attributes.getOrNull(SingleAttemptAttributeKey) == true) return@on proceed(request)
+        val singleAttempt = request.attributes.getOrNull(SingleAttemptAttributeKey) == true
+        if (singleAttempt && pinnedScope == null) return@on proceed(request)
         if (pinnedScope != null) {
-            val sentAuth = request.headers[HttpHeaders.Authorization]
+            var sentAuth = request.headers[HttpHeaders.Authorization]
+            val pinnedGeneration = pinnedScope.credentialGenerationId
+            // Refresh first when the caller asked for a fresh bearer (an approver
+            // about to approve a TV, a single-use link confirmation) and this
+            // scope's token is expiring. Same refresh as the 401 path below, so
+            // a rotation can't race it. This runs for single-attempt requests
+            // too: it happens before the one request is sent, not as a retry.
+            if (
+                request.attributes.getOrNull(FreshPrairieAuthAttributeKey) == true &&
+                sentAuth != null &&
+                (pinnedGeneration == null || pinnedGeneration !in deadCredentialGenerations.value) &&
+                tokenManager.accessTokenExpiresWithin(pinnedScope, PROACTIVE_REFRESH_MARGIN_MS)
+            ) {
+                diagnosticsObserver.safeAuthRefresh("required")
+                when (refreshPinnedScope(pinnedScope, sentAuth)) {
+                    PinnedRefresh.Refreshed ->
+                        tokenManager.getAccessTokenForScope(pinnedScope)?.let { newToken ->
+                            request.headers.remove(HttpHeaders.Authorization)
+                            request.header(HttpHeaders.Authorization, "Bearer $newToken")
+                            sentAuth = "Bearer $newToken"
+                        }
+                    // The provider couldn't re-check the session. It stays valid,
+                    // but an expired bearer would only come back 401 and read as
+                    // "sign in again": fail the call with the reason instead.
+                    PinnedRefresh.ProviderUnavailable ->
+                        if (tokenManager.accessTokenExpiresWithin(pinnedScope, 0L)) {
+                            request.removePrairieCredentialHeaders()
+                            throw PrairieAuthUnavailableException(PrairieAuthUnavailableException.PROVIDER_UNAVAILABLE)
+                        }
+                    // The scope may have been signed out or replaced meanwhile:
+                    // send the captured bearer only while the scope still holds it.
+                    PinnedRefresh.Failed ->
+                        if (tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" } != sentAuth) {
+                            request.removePrairieCredentialHeaders()
+                            throw PrairieAuthUnavailableException(PrairieAuthUnavailableException.CREDENTIALS_REPUDIATED)
+                        }
+                }
+            }
+            // Exactly one request: a single-attempt call never replays after a 401.
+            if (singleAttempt) return@on proceed(request)
             val originalCall = proceed(request)
             if (originalCall.response.status != HttpStatusCode.Unauthorized) {
                 return@on originalCall
             }
-            val pinnedGeneration = pinnedScope.credentialGenerationId
             if (pinnedGeneration != null && pinnedGeneration in deadCredentialGenerations.value) {
                 // Already-rejected temporary credentials: surface the 401 instead of
                 // re-refreshing them for every pinned op (progress ticks, teardown).
@@ -479,59 +615,7 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                 return@on originalCall
             }
             diagnosticsObserver.safeAuthRefresh("required")
-            val refreshed = refreshMutex.withLock {
-                // Another path may have refreshed this scope while we waited.
-                val current = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
-                if (current != null && current != sentAuth) {
-                    return@withLock true
-                }
-                val refreshToken = tokenManager.getRefreshTokenForScope(pinnedScope)
-                if (refreshToken.isNullOrBlank() || pinnedScope.serverUrl.isBlank() ||
-                    refreshToken in rejectedPinnedRefreshTokens.value
-                ) {
-                    return@withLock false
-                }
-                try {
-                    diagnosticsObserver.safeAuthRefresh("started")
-                    val refreshResponse = client.post("${pinnedScope.serverUrl}/api/v2/auth/refresh") {
-                        contentType(ContentType.Application.Json)
-                        setBody(RefreshRequest(refreshToken))
-                    }
-                    if (refreshResponse.status == HttpStatusCode.OK) {
-                        diagnosticsObserver.safeAuthRefresh("succeeded")
-                        val tokens = refreshResponse.body<RefreshResponse>()
-                        tokenManager.saveTokensForScope(
-                            scope = pinnedScope,
-                            accessToken = tokens.accessToken,
-                            refreshToken = tokens.refreshToken,
-                            expiresIn = tokens.expiresIn,
-                        )
-                        // A temporary credential generation may have ended while
-                        // refresh was in flight. Its token manager deliberately
-                        // drops that stale response instead of falling through to
-                        // the saved account, so retry only when the exact scope now
-                        // exposes the rotated token.
-                        val after = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
-                        after != null && after != sentAuth
-                    } else {
-                        diagnosticsObserver.safeAuthRefresh("failed")
-                        if (refreshResponse.status.shouldInvalidateSessionAfterRefreshFailure()) {
-                            if (pinnedGeneration != null) {
-                                deadCredentialGenerations.update { it + pinnedGeneration }
-                            } else {
-                                rejectedPinnedRefreshTokens.update { it + refreshToken }
-                            }
-                        }
-                        // Don't invalidate the active session for a background scope.
-                        // Re-check in case a concurrent path refreshed it in flight.
-                        val after = tokenManager.getAccessTokenForScope(pinnedScope)?.let { "Bearer $it" }
-                        after != null && after != sentAuth
-                    }
-                } catch (e: Throwable) {
-                    diagnosticsObserver.safeAuthRefresh("failed")
-                    false
-                }
-            }
+            val refreshed = refreshPinnedScopeOnce(pinnedScope, sentAuth)
             return@on if (refreshed) {
                 tokenManager.getAccessTokenForScope(pinnedScope)?.let { newToken ->
                     request.headers.remove(HttpHeaders.Authorization)
@@ -622,10 +706,22 @@ val PrairieAuthPlugin = createClientPlugin("PrairieAuthPlugin", ::PrairieAuthCon
                     )
                 }
 
+                // The provider couldn't re-check the session. It stays valid,
+                // but a request that needs a fresh bearer would only come
+                // back 401 on an expired one and read as "sign in again":
+                // fail it with the reason instead, as the pinned path does.
+                RefreshOutcome.ProviderUnavailable ->
+                    if (request.attributes.getOrNull(FreshPrairieAuthAttributeKey) == true &&
+                        tokenManager.accessTokenExpiresWithin(0L)
+                    ) {
+                        request.removePrairieCredentialHeaders()
+                        throw PrairieAuthUnavailableException(PrairieAuthUnavailableException.PROVIDER_UNAVAILABLE)
+                    }
+
                 RefreshOutcome.NotAttempted, RefreshOutcome.FailedTransient -> Unit
             }
             proactiveRefreshFailedTransiently =
-                earlyOutcome == RefreshOutcome.FailedTransient
+                earlyOutcome == RefreshOutcome.FailedTransient || earlyOutcome == RefreshOutcome.ProviderUnavailable
 
             // This request's bearer was captured BEFORE the refresh mutex was
             // waited on. In that window another coroutine can have signed out,
@@ -780,6 +876,25 @@ private fun HttpRequestBuilder.applyProfileHeaders(
  */
 private suspend fun TokenManager.temporaryGenerationId(): String? =
     snapshotCurrentScope()?.credentialGenerationId
+
+/** How one pinned-scope refresh ended. */
+enum class PinnedRefresh {
+    /** The scope now holds a new token. */
+    Refreshed,
+
+    /** 503 `provider_unavailable`: the session is kept, try again later. */
+    ProviderUnavailable,
+
+    /** Anything else; the caller spends what it has. */
+    Failed,
+}
+
+/** Whether [body] is the v2 problem `provider_unavailable`. */
+internal fun isProviderUnavailableProblem(body: String?): Boolean {
+    if (body.isNullOrBlank()) return false
+    val problem = runCatching { PrairieJson.decodeFromString(Problem.serializer(), body) }.getOrNull() ?: return false
+    return problem.code == PrairieAuthUnavailableException.PROVIDER_UNAVAILABLE_PROBLEM
+}
 
 private fun HttpStatusCode.shouldInvalidateSessionAfterRefreshFailure(): Boolean =
     this == HttpStatusCode.BadRequest ||

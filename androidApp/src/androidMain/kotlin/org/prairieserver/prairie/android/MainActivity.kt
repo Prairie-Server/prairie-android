@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
@@ -29,11 +30,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.lifecycleScope
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsLifecycleLogger
 import org.prairieserver.prairie.android.downloads.LEGACY_PUBLIC_DOWNLOAD_PERMISSION
 import org.prairieserver.prairie.android.downloads.hasLegacyPublicDownloadPermission
+import org.prairieserver.prairie.android.auth.ActiveProfileReset
 import org.prairieserver.prairie.android.cast.PrairieCastController
+import org.prairieserver.prairie.android.profiles.ProfileLaunchAction
+import org.prairieserver.prairie.android.profiles.profileLaunchAction
 import org.prairieserver.prairie.android.push.PushNotificationPresenter
 import org.prairieserver.prairie.android.ui.navigation.AppNavigation
 import org.prairieserver.prairie.android.ui.navigation.ExternalRouteRequest
@@ -48,10 +53,17 @@ import org.prairieserver.prairie.android.ui.navigation.hasLocalDownloadsForScope
 import org.prairieserver.prairie.android.ui.navigation.inviteClaimRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.notificationNavigationRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.shouldStartOnDownloads
+import org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartyHandoff
+import org.prairieserver.prairie.android.ui.screens.watchparty.watchPartyAppLinkOrNull
+import org.prairieserver.prairie.android.ui.screens.watchparty.watchPartyInviteRoute
+import org.prairieserver.prairie.common.watchparty.WatchPartyExperiment
 import org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourLocalCache
 import org.prairieserver.prairie.android.ui.theme.PrairieTheme
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
+import org.prairieserver.prairie.common.profiles.ProfileAwayTracker
+import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureSurface
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.ServerDrivenConfigRefresher
@@ -69,6 +81,8 @@ import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.java.KoinJavaComponent.get
@@ -82,6 +96,12 @@ class MainActivity : ComponentActivity() {
         // start. Mirrors the TV-side flag in MainTvActivity.
         @Volatile
         private var hasShownColdSplash = false
+
+        // Profile Selection's launch rule applies once per process; a later
+        // Activity in the same process (Back left Prairie, then it was reopened)
+        // follows the return rule instead. Mirrors MainTvActivity.
+        @Volatile
+        private var hasResolvedLaunchProfile = false
 
         /**
          * Set on the launch Intent once its external route has been delivered.
@@ -134,10 +154,28 @@ class MainActivity : ComponentActivity() {
         maybeRequestNotificationPermission()
         maybeRequestLegacyPublicDownloadPermission()
 
+        // Recents and a warm return to Prairie show a snapshot of its last screen.
+        // When Profile Selection asks, that is the previous viewer's profile,
+        // so keep no snapshot then (Android 13+; earlier versions have no
+        // equivalent short of blocking screenshots altogether).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            lifecycleScope.launch {
+                get<ProfileLaunchPreferences>(ProfileLaunchPreferences::class.java).state
+                    .map { it.behavior == ProfileLaunchBehavior.Automatic }
+                    .distinctUntilChanged()
+                    .collect { automatic -> setRecentsScreenshotEnabled(automatic) }
+            }
+        }
+
         setContent {
             var startRoute by remember { mutableStateOf<String?>(null) }
             val pendingExternalRoute by pendingExternalRouteRequests.collectAsState()
             var splashPlaybackComplete by remember { mutableStateOf(hasShownColdSplash) }
+            // Profile Selection: from the moment Prairie returns and the setting
+            // asks, cover the previous profile's screens until Who's Watching
+            // has replaced them (AppNavigation lifts the request).
+            val profileAwayTracker = remember { get<ProfileAwayTracker>(ProfileAwayTracker::class.java) }
+            val profileCoverVisible by profileAwayTracker.selectionRequired.collectAsState()
 
             LaunchedEffect(Unit) {
                 val route = resolveStartDestination()
@@ -184,36 +222,54 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     } else {
-                        AppNavigation(
-                            startDestination = resolvedRoute,
-                            pendingExternalRoute = pendingExternalRoute,
-                            onRequeueExternalRoute = { route ->
-                                // A fresh request: clear the consumed marker so
-                                // this re-delivery is not mistaken for the
-                                // already-followed original.
-                                consumedExternalRoute = null
-                                intent?.removeExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED)
-                                pendingExternalRouteRequests.value =
-                                    externalRouteRequestFactory.create(route)
-                            },
-                            onExternalRouteConsumed = { consumedRequest ->
-                                // Record the delivery in two places. The Intent
-                                // extra covers in-process Activity recreation,
-                                // which re-parses the retained Intent in
-                                // onCreate and would otherwise yank the user
-                                // back to a link they already followed. It is
-                                // process-local, so the saved-state route below
-                                // is what covers process death.
-                                intent?.putExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, true)
-                                consumedExternalRoute = consumedRequest.route
-                                pendingExternalRouteRequests.update { pendingRequest ->
-                                    clearConsumedExternalRouteRequest(
-                                        pendingRequest = pendingRequest,
-                                        consumedRequest = consumedRequest,
-                                    )
-                                }
-                            },
-                        )
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AppNavigation(
+                                startDestination = resolvedRoute,
+                                pendingExternalRoute = pendingExternalRoute,
+                                onRequeueExternalRoute = { route ->
+                                    // A fresh request: clear the consumed marker so
+                                    // this re-delivery is not mistaken for the
+                                    // already-followed original.
+                                    consumedExternalRoute = null
+                                    intent?.removeExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED)
+                                    pendingExternalRouteRequests.value =
+                                        externalRouteRequestFactory.create(route)
+                                },
+                                onExternalRouteConsumed = { consumedRequest ->
+                                    // Record the delivery in two places. The Intent
+                                    // extra covers in-process Activity recreation,
+                                    // which re-parses the retained Intent in
+                                    // onCreate and would otherwise yank the user
+                                    // back to a link they already followed. It is
+                                    // process-local, so the saved-state route below
+                                    // is what covers process death.
+                                    intent?.putExtra(EXTRA_EXTERNAL_ROUTE_CONSUMED, true)
+                                    consumedExternalRoute = consumedRequest.route
+                                    pendingExternalRouteRequests.update { pendingRequest ->
+                                        clearConsumedExternalRouteRequest(
+                                            pendingRequest = pendingRequest,
+                                            consumedRequest = consumedRequest,
+                                        )
+                                    }
+                                },
+                            )
+                            if (profileCoverVisible) {
+                                // Swallows touches too, so nothing on the previous
+                                // profile's screens can be tapped meanwhile.
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black)
+                                        .pointerInput(Unit) {
+                                            awaitPointerEventScope {
+                                                while (true) {
+                                                    awaitPointerEvent().changes.forEach { it.consume() }
+                                                }
+                                            }
+                                        },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -247,6 +303,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         DiagnosticsLifecycleLogger.state("foreground")
+        get<ProfileAwayTracker>(ProfileAwayTracker::class.java).onForeground()
         val refresher = get<ServerDrivenConfigRefresher>(ServerDrivenConfigRefresher::class.java)
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.startForeground()
@@ -278,6 +335,10 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         DiagnosticsLifecycleLogger.state("background")
         super.onStop()
+        // A configuration-change recreation is not leaving Prairie.
+        if (!isChangingConfigurations) {
+            get<ProfileAwayTracker>(ProfileAwayTracker::class.java).onBackground()
+        }
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.stopForeground()
         val store = get<PlayerSettingsStore>(PlayerSettingsStore::class.java)
@@ -346,8 +407,15 @@ class MainActivity : ComponentActivity() {
         val notificationRoute = notification?.first
         val contentRoute = contentDeepLinkRouteOrNull(intent?.dataString)
         val inviteRoute = inviteClaimRouteOrNull(intent?.dataString)
+        // A Watch Party invitation (prairie://watch-party). Ignored while Watch
+        // Party is turned off (D1). The join token stays in memory in
+        // WatchPartyHandoff; the route, and the consumed-route marker saved
+        // across process death, carry only an opaque id derived from it.
+        val partyLink = watchPartyAppLinkOrNull(intent?.dataString)
+            ?.takeIf { get<WatchPartyExperiment>(WatchPartyExperiment::class.java).enabled.value }
+        val partyRoute = partyLink?.let(::watchPartyInviteRoute)
 
-        val route = notificationRoute ?: contentRoute ?: deviceRoute ?: inviteRoute ?: return
+        val route = notificationRoute ?: contentRoute ?: deviceRoute ?: inviteRoute ?: partyRoute ?: return
         if (route == consumedExternalRoute) return
 
         val scope = when {
@@ -358,12 +426,20 @@ class MainActivity : ComponentActivity() {
             // produced it, and that requires a complete identity.
             route === notificationRoute -> checkNotNull(notification).second
             route === contentRoute -> currentIdentityScope()
+            // Like an invite claim, a party invitation names its own server
+            // and usually arrives before sign-in or profile selection, so it
+            // must NOT be pinned to the identity at arrival: signing in moves
+            // the identity generation and would drop it. The hub joins only
+            // when the invitation's server is the active one, under whoever is
+            // signed in by then; a newer link still replaces it.
             // An invite claim carries its own target server and is designed to
-            // work before authentication, so it must NOT be pinned to the
-            // current identity.
+            // work before authentication, so it must NOT be pinned either.
             else -> ExternalRouteScope.Unscoped
         }
 
+        if (route === partyRoute && partyLink != null) {
+            get<WatchPartyHandoff>(WatchPartyHandoff::class.java).offerInvite(partyLink)
+        }
         pendingExternalRouteRequests.value =
             externalRouteRequestFactory.create(route = route, scope = scope)
     }
@@ -424,6 +500,7 @@ class MainActivity : ComponentActivity() {
     private suspend fun resolveStartDestination(): String {
         val registry = get<ServerRegistry>(ServerRegistry::class.java)
         val tokenManager = get<TokenManager>(TokenManager::class.java)
+        val processStart = !hasResolvedLaunchProfile
 
         // NOTE: a device link is deliberately NOT returned as the start
         // destination. It used to be, which put Pair Device at the root of a
@@ -470,6 +547,22 @@ class MainActivity : ComponentActivity() {
         val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
         if (profileId.isNullOrBlank()) return Route.ProfileSelection.route
 
+        // Profile Selection (prairie-apple `ProfileLaunchState.resolution`). A
+        // process start applies the launch rule: Every Time, or a timed choice
+        // whose away interval ran out while Prairie was closed. A later Activity
+        // in this process follows the return rule the away tracker evaluated
+        // in onStart. Applied below, after the offline check.
+        val launchPreferences = get<ProfileLaunchPreferences>(ProfileLaunchPreferences::class.java)
+        val profileAwayTracker = get<ProfileAwayTracker>(ProfileAwayTracker::class.java)
+        val requiresSelection = if (processStart) {
+            // A process the playback service started (Android's media
+            // resumption) can already be playing this profile's audiobook;
+            // that is use of the profile, as on a return.
+            launchPreferences.requiresSelectionAtLaunch() && !profileAwayTracker.keepsProfileActive()
+        } else {
+            profileAwayTracker.selectionRequired.value
+        }
+
         // Offline-with-downloads fast path: if local media exists and either
         // the device has no network OR the configured Silo server fails the
         // authoritative health probe, land directly on Downloads instead of
@@ -488,15 +581,32 @@ class MainActivity : ComponentActivity() {
         } else {
             online
         }
-        if (
-            shouldStartOnDownloads(
-                hasLocalDownloads = hasDownloads,
-                isDeviceOnline = online,
-                canUseServer = canUseServer,
-            )
+        val startsOnDownloads = shouldStartOnDownloads(
+            hasLocalDownloads = hasDownloads,
+            isDeviceOnline = online,
+            canUseServer = canUseServer,
+        )
+        when (
+            profileLaunchAction(requiresSelection = requiresSelection, startsOfflineOnDownloads = startsOnDownloads)
         ) {
-            return Route.Downloads.route
+            ProfileLaunchAction.AskWhoIsWatching -> {
+                // Cleared before the picker loads; losing its PIN proof makes
+                // a protected profile ask for its PIN again.
+                get<ActiveProfileReset>(ActiveProfileReset::class.java).clearActiveProfile()
+                hasResolvedLaunchProfile = true
+                return Route.ProfileSelection.route
+            }
+            // The away interval stays recorded, so Prairie asks once the server
+            // can be reached again (AppNavigation watches for it). Every Time
+            // can ask with none recorded, so start one.
+            ProfileLaunchAction.KeepProfileOffline ->
+                if (launchPreferences.state.value.backgroundedAtMs == null) launchPreferences.markBackgrounded()
+            ProfileLaunchAction.KeepProfile -> if (processStart) launchPreferences.clearBackgroundedAt()
         }
+        // Only once applied, as on the TV: an Activity recreated while this
+        // was suspended must still apply the launch rule.
+        hasResolvedLaunchProfile = true
+        if (startsOnDownloads) return Route.Downloads.route
 
         // A warm start would otherwise bypass the tour gate entirely (e.g.
         // process death mid-tour). Once completion is confirmed the local

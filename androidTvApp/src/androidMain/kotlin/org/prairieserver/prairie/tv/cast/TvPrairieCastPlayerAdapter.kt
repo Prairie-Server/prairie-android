@@ -13,12 +13,17 @@ class TvPrairieCastPlayerAdapter(
     private val setPlaybackSpeed: (Double) -> Unit,
     private val setQuality: (String) -> Unit,
     private val setVideoGravity: (String) -> Unit,
-    private val setHdrEnabled: (Boolean) -> Unit,
     private val setSubtitleSyncMs: (Int) -> Unit,
     private val setSubtitlePosition: (String) -> Unit,
     private val setVolume: (Double) -> Unit,
     private val setMuted: (Boolean) -> Unit,
     private val playNext: () -> Unit,
+    /**
+     * Non-null when a phone's launch must not replace this player (a Watch
+     * Party is playing): the reason, sent back to the phone as an error.
+     * Called off the main thread.
+     */
+    val launchRefusal: () -> String? = { null },
 ) {
     fun handle(command: PrairieCastControlCommand) {
         // Field mapping follows Apple's PrairieControlCommand exactly: seek uses
@@ -35,7 +40,6 @@ class TvPrairieCastPlayerAdapter(
             PrairieCastControlCommand.SetQuality -> command.value?.let(setQuality)
             PrairieCastControlCommand.SetPlaybackSpeed -> command.speed?.let(setPlaybackSpeed)
             PrairieCastControlCommand.SetVideoGravity -> command.value?.let(setVideoGravity)
-            PrairieCastControlCommand.SetHdrEnabled -> command.enabled?.let(setHdrEnabled)
             PrairieCastControlCommand.SetSubtitleSyncMs -> command.milliseconds?.let(setSubtitleSyncMs)
             PrairieCastControlCommand.SetSubtitlePosition -> command.value?.let(setSubtitlePosition)
             PrairieCastControlCommand.SetVolume -> command.volume?.let(setVolume)

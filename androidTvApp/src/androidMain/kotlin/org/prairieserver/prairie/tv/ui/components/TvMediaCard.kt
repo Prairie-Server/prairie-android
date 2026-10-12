@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.components
 
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -69,6 +71,7 @@ import org.prairieserver.prairie.tv.ui.util.tvArtworkAspectRatioForMediaType
 @Composable
 fun TvMediaCard(
     title: String,
+    hideArtwork: Boolean = false,
     posterUrl: String?,
     posterThumbhash: String?,
     onClick: () -> Unit,
@@ -141,12 +144,14 @@ fun TvMediaCard(
             },
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                ThumbhashImage(
+                SpoilerImage(
+                    hidden = hideArtwork,
                     url = posterUrl,
                     thumbhash = posterThumbhash,
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    defaultArtwork = DefaultArtworkKind.forItemType(mediaType),
                 )
 
                 // Card-overlay badge layer. Over the poster, under the

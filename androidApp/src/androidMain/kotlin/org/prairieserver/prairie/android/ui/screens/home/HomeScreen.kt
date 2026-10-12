@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.android.ui.screens.home
 
+import org.prairieserver.prairie.domain.settings.CatalogLanguageRevision
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,8 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SettingsRemote
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -69,8 +70,6 @@ import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.components.MediaRowSkeleton
 import org.prairieserver.prairie.android.ui.components.ProfileMenu
 import org.prairieserver.prairie.android.ui.components.rememberShimmerProgress
-import org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingViewModel
-import org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingBottomOverlay
 import org.prairieserver.prairie.android.ui.screens.profiles.ProfileAvatar
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsHomeContentState
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsHomeLogger
@@ -78,8 +77,6 @@ import org.prairieserver.prairie.common.diagnostics.DiagnosticsHomeScrollRegion
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsListLogger
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSnapshot
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSurface
-import org.prairieserver.prairie.common.pairing.CompanionPairingStatus
-import org.prairieserver.prairie.common.pairing.CompanionPairingTarget
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.common.ui.components.avatarRef
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
@@ -131,7 +128,7 @@ fun HomeScreen(
     onRemoteDisconnectClick: () -> Unit,
     isRemoteControlActive: Boolean,
     onRequestsClick: (() -> Unit)?,
-    onWatchTogetherClick: (() -> Unit)?,
+    onWatchPartyClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -144,13 +141,6 @@ fun HomeScreen(
     val serverRegistry: ServerRegistry = koinInject()
     val activeServerId by serverRegistry.activeServerId.collectAsState()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
-    val companionPairingViewModel = koinViewModel<CompanionPairingViewModel>()
-    val companionTargets by companionPairingViewModel.targets.collectAsState()
-    val companionStatus by companionPairingViewModel.status.collectAsState()
-    val companionApproval by companionPairingViewModel.pendingApproval.collectAsState()
-    val companionServerChoices by companionPairingViewModel.serverChoices.collectAsState()
-    var presentedPairingTarget by remember { mutableStateOf<CompanionPairingTarget?>(null) }
-    var dismissedPairingSessions by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val sections = state.sections
     val profileScopeId = activeEntry?.profileId ?: activeProfile?.id
     val populatedServerSections = remember(sections) { sections.filter { it.items.isNotEmpty() } }
@@ -166,6 +156,8 @@ fun HomeScreen(
     }
     val context = LocalContext.current
     val catalogRepository: CatalogRepository = koinInject()
+    val catalogLanguage: CatalogLanguageRevision = koinInject()
+    val languageRevision by catalogLanguage.revision.collectAsState()
     val heroHandoff = LocalHeroSourceHandoff.current
     val continueWatchingWarmTargets = remember(regularSections) {
         regularSections
@@ -193,10 +185,10 @@ fun HomeScreen(
             .take(4)
             .toList()
     }
-    var warmedSeriesArtwork by remember(activeServerId, profileScopeId) {
+    var warmedSeriesArtwork by remember(activeServerId, profileScopeId, languageRevision) {
         mutableStateOf<Map<String, WarmedSeriesArtwork>>(emptyMap())
     }
-    LaunchedEffect(activeServerId, profileScopeId, continueWatchingWarmTargets) {
+    LaunchedEffect(activeServerId, profileScopeId, languageRevision, continueWatchingWarmTargets) {
         // Warm each Continue Watching destination in row order. Within one
         // title, its parent detail, exact episode and selector data run in
         // parallel. CatalogRepository keeps these calls alive/single-flight if
@@ -318,23 +310,6 @@ fun HomeScreen(
                     rawSectionType = visibleRowOrdinal?.let { currentSections[it].sectionType },
                 )
             }
-    }
-    LaunchedEffect(companionTargets, companionStatus, dismissedPairingSessions) {
-        if (companionStatus is CompanionPairingStatus.Idle) {
-            val presented = presentedPairingTarget
-            if (presented == null) {
-                presentedPairingTarget = companionTargets.firstOrNull {
-                    it.dismissalKey !in dismissedPairingSessions
-                }
-            } else {
-                // Android NSD can resolve the same TV again with a new listener port after
-                // its setup screen restarts. Keep the visible card, but always pair with the
-                // freshest endpoint instead of the target object originally latched by UI.
-                presentedPairingTarget = companionTargets
-                    .firstOrNull { it.deviceId == presented.deviceId }
-                    ?: companionTargets.firstOrNull { it.dismissalKey !in dismissedPairingSessions }
-            }
-        }
     }
     // Home can show the same item in several rows at once. Each poster placement
     // now carries a unique hero key (see MediaCard) so duplicates never collide
@@ -490,35 +465,15 @@ fun HomeScreen(
             onRemoteDisconnectClick = onRemoteDisconnectClick,
             isRemoteControlActive = isRemoteControlActive,
             onRequestsClick = onRequestsClick,
-            onWatchTogetherClick = onWatchTogetherClick,
+            onWatchPartyClick = onWatchPartyClick,
             onSettingsClick = onSettingsClick,
             onSwitchProfileClick = onSwitchProfileClick,
             onSwitchServerClick = onSwitchServerClick,
             onSignOutClick = onSignOutClick,
         )
 
-        CompanionPairingBottomOverlay(
-            target = presentedPairingTarget,
-            status = companionStatus,
-            approval = companionApproval,
-            serverChoices = companionServerChoices,
-            onPair = companionPairingViewModel::pair,
-            onServersSelected = companionPairingViewModel::continueWithServers,
-            onApprove = companionPairingViewModel::approveMatchCode,
-            onDecline = companionPairingViewModel::cancelMatchCode,
-            onDismiss = {
-                presentedPairingTarget?.let { target ->
-                    dismissedPairingSessions = dismissedPairingSessions + target.dismissalKey
-                }
-                companionPairingViewModel.dismissPairing()
-                presentedPairingTarget = null
-            },
-        )
     }
 }
-
-private val CompanionPairingTarget.dismissalKey: String
-    get() = "$deviceId:${sessionId ?: serviceName}"
 
 @Composable
 private fun HomeLoadingSkeleton() {
@@ -547,7 +502,7 @@ private fun HomeFloatingChrome(
     onRemoteDisconnectClick: () -> Unit,
     isRemoteControlActive: Boolean,
     onRequestsClick: (() -> Unit)?,
-    onWatchTogetherClick: (() -> Unit)?,
+    onWatchPartyClick: (() -> Unit)?,
     onSettingsClick: () -> Unit,
     onSwitchProfileClick: () -> Unit,
     onSwitchServerClick: () -> Unit,
@@ -567,7 +522,7 @@ private fun HomeFloatingChrome(
                 activeProfile = activeProfile,
                 onSearchClick = onSearchClick,
                 onRequestsClick = onRequestsClick,
-                onWatchTogetherClick = onWatchTogetherClick,
+                onWatchPartyClick = onWatchPartyClick,
                 onSettingsClick = onSettingsClick,
                 onSwitchProfileClick = onSwitchProfileClick,
                 onSwitchServerClick = onSwitchServerClick,
@@ -593,18 +548,18 @@ private fun HomeFloatingChrome(
                                 contentDescription = "Remote Control",
                             )
                         }
-                        DropdownMenu(
+                        PrairieDropdownMenu(
                             expanded = remoteMenuExpanded,
                             onDismissRequest = { remoteMenuExpanded = false },
                         ) {
-                            DropdownMenuItem(
+                            PrairieDropdownMenuItem(
                                 text = { Text("Remote Control") },
                                 onClick = {
                                     remoteMenuExpanded = false
                                     onRemoteControlClick()
                                 },
                             )
-                            DropdownMenuItem(
+                            PrairieDropdownMenuItem(
                                 text = { Text("Choose TV") },
                                 onClick = {
                                     remoteMenuExpanded = false
@@ -612,7 +567,7 @@ private fun HomeFloatingChrome(
                                 },
                             )
                             HorizontalDivider()
-                            DropdownMenuItem(
+                            PrairieDropdownMenuItem(
                                 text = {
                                     Text(
                                         "Turn Off Control Mode",

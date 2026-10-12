@@ -21,6 +21,7 @@ import org.prairieserver.prairie.repository.PlaybackRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.PushRegistrationRepository
 import org.prairieserver.prairie.repository.RecommendationRepository
+import org.prairieserver.prairie.repository.RequestDetailCache
 import org.prairieserver.prairie.repository.RequestsRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.SettingsRepository
@@ -28,7 +29,6 @@ import org.prairieserver.prairie.repository.WatchTogetherRepository
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.api.PlaybackApi
 import org.prairieserver.prairie.watchtogether.RoomSession
-import org.prairieserver.prairie.watchtogether.WatchTogetherEntryGateway
 import org.koin.dsl.module
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,9 +64,13 @@ val repositoryModule = module {
     }
     single { OnboardingRepository(get()) }
     single { DeviceLoginRepository(get()) }
+    single { org.prairieserver.prairie.repository.ServerIdentityRepository(get(), get()) }
+    single { org.prairieserver.prairie.repository.ExternalSignInRepository(get()) }
     single {
         CatalogRepository(
             catalogApi = get(),
+            catalogLanguage = get(),
+            identityTransitions = get(),
             catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
                 ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
         )
@@ -85,9 +89,25 @@ val repositoryModule = module {
                 ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
             catalogCache = getOrNull<org.prairieserver.prairie.repository.port.CatalogCachePort>()
                 ?: org.prairieserver.prairie.repository.port.NoOpCatalogCachePort,
+            hiddenLibraries = get(),
         )
     }
+    single { org.prairieserver.prairie.repository.HiddenLibrariesStore(get(), get()) }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get(), get()) }
+    // Resolved by each Application right after startKoin (guarded there, like
+    // the other starters) so a stale-profile refusal from background work
+    // (downloads, outbox replay) is handled before any screen exists. Clears
+    // only the stale profile selection; navigation acts on its pending prompt.
+    single {
+        org.prairieserver.prairie.repository.ProfileVerificationRecovery(
+            signals = get(),
+            tokenManager = get(),
+            profileRepository = get(),
+            identityTransitions = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        )
+    }
+    single { org.prairieserver.prairie.repository.ForegroundAccessCheck(get(), get()) }
     single { CollectionRepository(get()) }
     single {
         SectionRepository(
@@ -97,22 +117,39 @@ val repositoryModule = module {
         )
     }
     single { RecommendationRepository(get()) }
-    single { RequestsRepository(get()) }
+    single {
+        RequestsRepository(
+            api = get(),
+            cache = RequestDetailCache(
+                prefetchScope = kotlinx.coroutines.CoroutineScope(
+                    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate,
+                ),
+            ),
+        )
+    }
     single { RequestsFeatureStore(get()) }
     single { LiveTvRepository(get()) }
     single { LiveTvFeatureStore(get()) }
     single { ActiveProfileStore(get()) }
     single { org.prairieserver.prairie.repository.MetadataAiRepository(get()) }
     single { org.prairieserver.prairie.model.feature.MetadataAiFeatureStore(get()) }
-    single { org.prairieserver.prairie.repository.HomeRealtimeCoordinator(get(), get()) }
+    single { org.prairieserver.prairie.model.feature.ShuffleFeatureStore(get()) }
+    single { org.prairieserver.prairie.repository.HomeRealtimeCoordinator(get(), get(), getOrNull()) }
     single { SettingsRepository(get()) }
     // Profile-scoped canonical settings, shared by the phone and TV screens so
     // one platform cannot grow a behavior the other lacks.
-    single { org.prairieserver.prairie.domain.settings.ProfileSettingsController(get()) }
+    single { org.prairieserver.prairie.domain.settings.CatalogLanguageRevision() }
+    single {
+        org.prairieserver.prairie.domain.settings.ProfileSettingsController(
+            get(), get(),
+            captureAuthority = { get<TokenManager>().snapshotCurrentScope() },
+            invalidateCatalogMetadata = { get<CatalogRepository>().invalidateLocalizedMetadata() },
+        )
+    }
     single { LibraryPlaybackPrefsRepository(get()) }
     single { DownloadsRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.DownloadDeletionPort>() ?: org.prairieserver.prairie.repository.port.NoOpDownloadDeletionPort, get(), get(), get()) }
     single { EbookReaderRepository(get(), get()) }
-    single { SubtitlesRepository(get(), get()) }
+    single { SubtitlesRepository(get(), get(), get()) }
     single { PushRegistrationRepository(get()) }
 
     // REST-backed inbox state plus a realtime factory that builds the default
@@ -148,7 +185,6 @@ val repositoryModule = module {
             },
         )
     }
-    single<WatchTogetherEntryGateway> { get<WatchTogetherRepository>() }
     // Eager so the identity-transition privacy gate is installed before any
     // profile/server/token mutation can occur. This process-lifetime scope,
     // rather than a screen scope, owns connection replacement and teardown.

@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.screens.detail.CircleActionButton
 import org.prairieserver.prairie.audiobook.buildAudiobookTimeline
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.audiobook.AudiobookNarration
 import org.prairieserver.prairie.model.catalog.FileVersion
@@ -191,6 +192,7 @@ fun AudiobookDetailContent(
                     modifier = Modifier
                         .size(AudiobookCoverSizeDp.dp)
                         .clip(RoundedCornerShape(12.dp)),
+                    defaultArtwork = DefaultArtworkKind.Audiobook,
                 )
                 Text(
                     text = detail.title,

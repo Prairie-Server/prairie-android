@@ -1,8 +1,15 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
+import org.prairieserver.prairie.android.ui.components.PrairieDialogActionStyle
+import org.prairieserver.prairie.android.ui.components.PrairieDialogAction
+import org.prairieserver.prairie.android.ui.components.PrairieDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,12 +43,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Surface
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -60,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,10 +83,20 @@ import org.prairieserver.prairie.android.ui.theme.PrairieOpaqueControlBorder
 import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceElevated
 import org.prairieserver.prairie.android.ui.theme.PillShape
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.common.settings.titleLogoUrl
+import org.prairieserver.prairie.common.ui.RatingEntry
+import org.prairieserver.prairie.common.ui.WholeTokenRow
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
+import org.prairieserver.prairie.model.catalog.DisplayRating
+import org.prairieserver.prairie.model.catalog.ExternalRatings
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.catalog.titleRatings
 import org.prairieserver.prairie.model.catalog.Season
 import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
+import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 
 // ── Tokens ────────────────────────────────────────────────────
 
@@ -102,6 +119,9 @@ data class DetailPortraitArtwork(
     val url: String?,
     val thumbhash: String?,
     val reserveSpace: Boolean = false,
+    /** False while a fallback poster may still arrive, so a blank [url] keeps
+     *  the box empty rather than showing the default artwork. */
+    val isResolved: Boolean = true,
 )
 
 /**
@@ -218,6 +238,7 @@ private fun ExpandedDetailHero(
         ExpandedDetailHeroBackdrop(
             artworkUrl = detail.backdropUrl,
             artworkThumbhash = detail.backdropThumbhash,
+            hidden = detail.hidesEpisodeArtwork(detail.backdropIsEpisodeStill),
             pageSurface = pageSurface,
         ) {
             Row(
@@ -241,13 +262,16 @@ private fun ExpandedDetailHero(
                                 shape = RoundedCornerShape(12.dp),
                             ),
                     ) {
-                        if (!portraitArtwork.url.isNullOrBlank()) {
+                        // A blank URL can mean the series poster is still loading,
+                        // so the default artwork waits until the poster is resolved.
+                        if (!portraitArtwork.url.isNullOrBlank() || portraitArtwork.isResolved) {
                             ThumbhashImage(
                                 url = portraitArtwork.url,
                                 thumbhash = portraitArtwork.thumbhash,
                                 contentDescription = detail.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
+                                defaultArtwork = DefaultArtworkKind.forItemType(detail.type),
                             )
                         }
                     }
@@ -259,15 +283,27 @@ private fun ExpandedDetailHero(
                         .then(if (hasPortrait) Modifier.height(posterHeight) else Modifier),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // Beside a portrait, the text block takes only the height
+                    // the actions leave, so Play stays level with the poster.
+                    // Only the title gives up height: it is weighted, so the
+                    // facts and ratings rows are measured first and never clip,
+                    // and a logo scales down to what is left.
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (hasPortrait) Modifier.weight(1f).clipToBounds() else Modifier),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         if (!eyebrow.isNullOrBlank()) {
                             EyebrowChip(text = eyebrow)
                         }
-                        ExpandedHeroTitle(detail = detail)
+                        Box(
+                            modifier = if (hasPortrait) Modifier.weight(1f, fill = false).clipToBounds() else Modifier,
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ExpandedHeroTitle(detail = detail)
+                        }
                         val metadataTokens = (factsLine + sourceTokens).distinct()
                         if (metadataTokens.isNotEmpty() || detail.contentRating != null) {
                             SourceRow(
@@ -276,12 +312,9 @@ private fun ExpandedDetailHero(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             )
                         }
+                        DetailRatingsRow(ratings = detail.titleRatings())
                     }
-                    if (hasPortrait) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    } else {
-                        Spacer(modifier = Modifier.height(20.dp))
-                    }
+                    Spacer(modifier = Modifier.height(if (hasPortrait) 12.dp else 20.dp))
                     // Expanded/tablet only: Play and its bottom action row end
                     // no lower than the portrait. The compact phone branch is
                     // intentionally unchanged.
@@ -330,12 +363,14 @@ internal fun ExpandedDetailHeroBackdrop(
     artworkUrl: String?,
     artworkThumbhash: String?,
     pageSurface: Color,
+    hidden: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxWidth()) {
-        ThumbhashImage(
+        SpoilerImage(
             url = artworkUrl,
             thumbhash = artworkThumbhash,
+            hidden = hidden,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             crossfadeMillis = DetailArtworkCrossfadeMs,
@@ -419,7 +454,7 @@ private fun ExpandedHeroTitle(detail: ItemDetail) {
         return
     }
 
-    val logoUrl = detail.logoUrl
+    val logoUrl = titleLogoUrl(detail.logoUrl)
     if (!logoUrl.isNullOrBlank()) {
         ThumbhashImage(
             url = logoUrl,
@@ -500,6 +535,9 @@ fun DetailHero(
         DetailHeroArtwork(
             artworkUrl = detail.backdropUrl ?: detail.posterUrl,
             artworkThumbhash = detail.backdropThumbhash ?: detail.posterThumbhash,
+            hidden = detail.hidesEpisodeArtwork(
+                if (detail.backdropUrl != null) detail.backdropIsEpisodeStill else detail.posterIsEpisodeStill,
+            ),
             contentDescription = detail.title,
         ) {
             HeroTitle(detail = detail)
@@ -514,8 +552,17 @@ fun DetailHero(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             val metadataTokens = (factsLine + sourceTokens).distinct()
-            if (metadataTokens.isNotEmpty() || detail.contentRating != null) {
-                SourceRow(tokens = metadataTokens, ratingChip = detail.contentRating)
+            val ratings = detail.titleRatings()
+            if (metadataTokens.isNotEmpty() || detail.contentRating != null || ratings.isNotEmpty()) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (metadataTokens.isNotEmpty() || detail.contentRating != null) {
+                        SourceRow(tokens = metadataTokens, ratingChip = detail.contentRating)
+                    }
+                    DetailRatingsRow(ratings = ExternalRatings.forPhone(ratings))
+                }
             }
             actions()
             if (reserveOverviewSpace || !overviewText.isNullOrBlank()) {
@@ -542,6 +589,7 @@ internal fun DetailHeroArtwork(
     artworkUrl: String?,
     artworkThumbhash: String?,
     contentDescription: String? = null,
+    hidden: Boolean = false,
     title: @Composable () -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -588,9 +636,10 @@ internal fun DetailHeroArtwork(
                         )
                     },
             ) {
-                ThumbhashImage(
+                SpoilerImage(
                     url = artworkUrl,
                     thumbhash = artworkThumbhash,
+                    hidden = hidden,
                     contentDescription = contentDescription,
                     contentScale = ContentScale.Crop,
                     crossfadeMillis = DetailArtworkCrossfadeMs,
@@ -743,6 +792,12 @@ private fun Backdrop(
     }
 }
 
+/** Whether spoiler protection hides artwork of this episode with the given provenance. */
+@Composable
+private fun ItemDetail.hidesEpisodeArtwork(artworkIsEpisodeStill: Boolean?): Boolean =
+    type.equals("episode", ignoreCase = true) &&
+        LocalEpisodeSpoilerPrefs.current.hidesImage(EpisodeSpoilers.isUnwatched(userData), artworkIsEpisodeStill)
+
 @Composable
 private fun HeroTitle(detail: ItemDetail) {
     val isEpisode = detail.type == "episode"
@@ -794,7 +849,7 @@ private fun HeroTitle(detail: ItemDetail) {
         return
     }
 
-    val logoUrl = detail.logoUrl
+    val logoUrl = titleLogoUrl(detail.logoUrl)
     if (!logoUrl.isNullOrBlank()) {
         // iOS hero logo height — 160pt on compact phones, full width.
         ThumbhashImage(
@@ -916,6 +971,28 @@ private fun SourceRow(
         }
     }
 }
+
+/**
+ * External ratings centered on one line, in the order given. When they do not
+ * all fit, whole entries drop from the end; the row never wraps. The server
+ * sends at most three; the phone layout also caps at
+ * [ExternalRatings.PHONE_LIMIT].
+ */
+@Composable
+private fun DetailRatingsRow(ratings: List<DisplayRating>) {
+    if (ratings.isEmpty()) return
+    val style = detailRatingStyle()
+    WholeTokenRow(spacing = DetailRatingSpacing) {
+        ratings.forEach { rating -> RatingEntry(rating = rating, style = style) }
+    }
+}
+
+@Composable
+private fun detailRatingStyle(): TextStyle = LocalTextStyle.current.merge(
+    TextStyle(color = DetailPrimaryText, fontSize = 15.sp, lineHeight = 20.sp),
+)
+
+private val DetailRatingSpacing = 20.dp
 
 @Composable
 private fun ContentRatingChip(text: String) {
@@ -1088,7 +1165,7 @@ fun CircleOverflowButton(
             }
             Text("More", fontSize = 10.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.60f))
         }
-        DropdownMenu(
+        PrairieDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -1257,26 +1334,27 @@ fun HeroActionStack(
 
     if (showResumeDialog && onPlayFromBeginning != null) {
         val stoppedAt = resumeStoppedAtLabel
-        AlertDialog(
+        PrairieDialog(
+            title = "Continue Watching?",
+            message = stoppedAt?.let { "You stopped at $it." },
             onDismissRequest = { showResumeDialog = false },
-            title = { Text("Continue Watching?") },
-            text = if (stoppedAt != null) {
-                { Text("You stopped at $stoppedAt.") }
-            } else {
-                null
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showResumeDialog = false
-                    onPlay()
-                }) { Text("Resume") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showResumeDialog = false
-                    onPlayFromBeginning()
-                }) { Text("Play from Beginning") }
-            },
+            actions = listOf(
+                PrairieDialogAction(
+                    label = "Resume",
+                    style = PrairieDialogActionStyle.Primary,
+                    onClick = {
+                        showResumeDialog = false
+                        onPlay()
+                    },
+                ),
+                PrairieDialogAction(
+                    label = "Play from Beginning",
+                    onClick = {
+                        showResumeDialog = false
+                        onPlayFromBeginning()
+                    },
+                ),
+            ),
         )
     }
 }
@@ -1338,12 +1416,15 @@ fun SectionHeader(
 
 // ── Season chips ──────────────────────────────────────────────
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SeasonChips(
     seasons: List<Season>,
     selectedSeasonNumber: Int,
     onSeasonSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** Long-press menu on a chip; null hides it. */
+    onSeasonWatchedChange: ((Season, Boolean) -> Unit)? = null,
 ) {
     // The series overview deliberately keeps its single selected chip. iOS
     // renders "Season 1" even when there is no alternative season because it
@@ -1389,27 +1470,50 @@ fun SeasonChips(
         ) { season ->
             val isSelected = season.seasonNumber == selectedSeasonNumber
             val label = phoneSeasonLabel(season)
+            val isWatched = season.userData?.played == true
+            var menuExpanded by remember { mutableStateOf(false) }
             // iOS PhoneSeasonChips: 14pt (semibold selected / medium
             // unselected), hpad 16, height 36, unselected fill white-0.06.
-            Surface(
-                shape = PillShape,
-                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.06f),
-                border = if (isSelected) {
-                    null
-                } else {
-                    androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
-                },
-                modifier = Modifier
-                    .height(36.dp)
-                    .clickable { onSeasonSelected(season.seasonNumber) },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = label,
-                        fontSize = 14.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (isSelected) Color.Black else Color.White,
-                        modifier = Modifier.padding(horizontal = 16.dp),
+            Box {
+                Surface(
+                    shape = PillShape,
+                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.06f),
+                    border = if (isSelected) {
+                        null
+                    } else {
+                        androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+                    },
+                    modifier = Modifier
+                        .height(36.dp)
+                        .combinedClickable(
+                            onClick = { onSeasonSelected(season.seasonNumber) },
+                            onLongClick = if (onSeasonWatchedChange != null && season.episodeCount > 0) {
+                                { menuExpanded = true }
+                            } else {
+                                null
+                            },
+                        ),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = label,
+                            fontSize = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = if (isSelected) Color.Black else Color.White,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+                }
+                PrairieDropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    PrairieDropdownMenuItem(
+                        text = { Text(if (isWatched) "Mark Season Unwatched" else "Mark Season Watched") },
+                        onClick = {
+                            menuExpanded = false
+                            onSeasonWatchedChange?.invoke(season, !isWatched)
+                        },
                     )
                 }
             }
@@ -1447,7 +1551,6 @@ object HeroMetadata {
     ): List<String> = buildList {
         if (detail.year > 0) add(detail.year.toString())
         if (runtimeMinutes > 0) add(formatRuntime(runtimeMinutes))
-        detail.ratingImdb?.let { add("IMDb %.1f".format(it)) }
     }
 
     fun seriesFactsLine(detail: ItemDetail): List<String> = buildList {
@@ -1455,7 +1558,6 @@ object HeroMetadata {
         detail.seasonCount?.takeIf { it > 0 }?.let {
             add("$it Season${if (it > 1) "s" else ""}")
         }
-        detail.ratingImdb?.let { add("IMDb %.1f".format(it)) }
     }
 
     private fun formatRuntime(minutes: Int): String {

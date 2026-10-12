@@ -14,6 +14,7 @@ import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.network.resolveArtworkUrls
 import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.reportStaleProfileIfRefused
 
 /**
  * Wraps one v2 exchange: a 2xx body decodes to [T] with the production
@@ -53,9 +54,13 @@ internal suspend fun HttpResponse.toApiV2Error(): ApiResult.Error {
     } catch (_: Exception) {
         null
     }
+    val code = problem?.code ?: ""
+    // A stale profile proof is the server's way of asking for the PIN again
+    // after an access change; the recovery decides whether it applies.
+    reportStaleProfileIfRefused(code)
     return ApiResult.Error(
         code = status.value,
-        error = problem?.code ?: "",
+        error = code,
         message = problem?.detail ?: "",
     )
 }

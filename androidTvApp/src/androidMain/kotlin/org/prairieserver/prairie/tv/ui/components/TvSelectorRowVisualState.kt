@@ -30,7 +30,7 @@ internal fun tvSelectorRowVisualState(
         FocusedContent.copy(alpha = 0.22f),
     )
     selected -> TvSelectorRowVisualState(
-        PrairieOnSurface.copy(alpha = 0.14f),
+        PrairieOnSurface.copy(alpha = 0.075f),
         PrairieOnSurface,
         PrairieOnSurface.copy(alpha = 0.28f),
     )

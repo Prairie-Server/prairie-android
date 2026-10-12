@@ -170,7 +170,8 @@ class PrairieCastNsdBrowser(context: Context) {
         val name = attributes.string("name") ?: serviceName
         val mdnsName = serviceName
         val deviceId = attributes.string("deviceId") ?: attributes.string("id") ?: "$host:$port"
-        val version = attributes.string("v")?.toIntOrNull() ?: PrairieCastProtocol.version
+        // Every v2 receiver advertises `v`; one that doesn't predates it (iOS reads it the same way).
+        val version = attributes.string("v")?.toIntOrNull() ?: 1
         return PrairieCastTarget(
             serviceName = mdnsName,
             deviceId = deviceId,

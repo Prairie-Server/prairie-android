@@ -26,8 +26,18 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.prairieserver.prairie.android.auth.InMemoryAccountChoiceStore
+import org.prairieserver.prairie.android.auth.InMemoryPendingNativeSignInStore
+import org.prairieserver.prairie.android.auth.NativeSignInCompleter
+import org.prairieserver.prairie.android.auth.NativeSignInCoordinator
+import org.prairieserver.prairie.android.auth.SignOutTeardown
 import org.prairieserver.prairie.common.player.AudiobookSettingsStore
+import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
+import org.prairieserver.prairie.model.feature.RequestsFeatureStore
+import org.prairieserver.prairie.repository.MetadataAiRepository
+import org.prairieserver.prairie.repository.RequestsRepository
 import org.prairieserver.prairie.common.settings.CardPresentationUiState
+import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.profile.ActiveProfileStore
 import org.prairieserver.prairie.model.profile.Profile
@@ -53,6 +63,7 @@ import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SettingsRepository
 import java.lang.reflect.Proxy
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -118,7 +129,37 @@ class SettingsViewModelOfflinePreferencesTest {
         assertEquals("always", profiles.activeProfile.value?.subtitleMode)
     }
 
+    @Test
+    fun useProfileSettingsReportsWhetherTheClearsLanded() {
+        var landed = true
+        val cleared = mutableListOf<String>()
+        val store = object : PlayerSettingsStore by idleStore<PlayerSettingsStore>() {
+            override suspend fun resetAllDeviceSettings() = landed
+            override suspend fun resetDeviceSetting(key: String) {
+                cleared += key
+            }
+        }
+        scenario(playerSettingsStore = store) { vm, _, _ ->
+            vm.resetPlaybackOverrides()
+            runCurrent()
+            assertEquals(true, vm.uiState.value.playbackOverridesReset)
+            vm.onPlaybackOverridesResetShown()
+            assertNull(vm.uiState.value.playbackOverridesReset)
+
+            // Unconfirmed (offline, refused): the notice must not claim success.
+            landed = false
+            vm.resetPlaybackOverrides()
+            runCurrent()
+            assertEquals(false, vm.uiState.value.playbackOverridesReset)
+
+            vm.useProfileSetting(SettingKeys.PLAYBACK_AUTO_SKIP_CREDITS)
+            runCurrent()
+            assertEquals(listOf(SettingKeys.PLAYBACK_AUTO_SKIP_CREDITS), cleared)
+        }
+    }
+
     private fun scenario(
+        playerSettingsStore: PlayerSettingsStore = idleStore(),
         block: suspend TestScope.(SettingsViewModel, PendingSettingsApi, ActiveProfileStore) -> Unit,
     ) = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -130,11 +171,10 @@ class SettingsViewModelOfflinePreferencesTest {
             override suspend fun listProfiles() = ApiResult.Success(listOf(Profile(id = "p1", name = "Test", subtitleMode = "auto")))
         })
         profiles.refresh()
+        val authRepository = AuthRepository(AuthApi(client, ApiV2Gate.Unrestricted), tokens)
         val vm = SettingsViewModel(
-            authRepository = AuthRepository(AuthApi(client, ApiV2Gate.Unrestricted), tokens),
-            playerSettingsStore = idleStore(),
-            libraryPlaybackPrefsStore = idleStore(),
-            overlayPrefsStore = idleStore(),
+            authRepository = authRepository,
+            playerSettingsStore = playerSettingsStore,
             activeProfileStore = profiles,
             notificationsRepository = NotificationsRepository(NotificationsV2Api(client, tokens, ApiV2Gate.Unrestricted)),
             profileSettings = ProfileSettingsController(SettingsRepository(api)),
@@ -143,6 +183,30 @@ class SettingsViewModelOfflinePreferencesTest {
                 "getState" to MutableStateFlow(SeekIntervalState()),
                 "getLastError" to MutableStateFlow<String?>(null),
             )),
+            episodeSpoilerStore = idleStore(mapOf(
+                "getState" to MutableStateFlow(org.prairieserver.prairie.common.settings.EpisodeSpoilerState()),
+                "getSaveError" to MutableStateFlow<String?>(null),
+            )),
+            signOutTeardown = SignOutTeardown(
+                authRepository = authRepository,
+                playerSettingsStore = idleStore(),
+                libraryPlaybackPrefsStore = idleStore(),
+                overlayPrefsStore = idleStore(),
+                activeProfileStore = profiles,
+                cardPresentationStore = idleStore(),
+                seekIntervalStore = idleStore(),
+                titleArtStore = idleStore(),
+                episodeSpoilerStore = idleStore(),
+                requestsFeatureStore = RequestsFeatureStore(RequestsRepository(idleStore())),
+                metadataAiFeatureStore = MetadataAiFeatureStore(MetadataAiRepository(idleStore())),
+                serverRegistry = idleStore(mapOf("getActiveServerId" to MutableStateFlow<String?>(null))),
+                nativeSignIn = NativeSignInCoordinator(
+                    InMemoryPendingNativeSignInStore(),
+                    idleStore<NativeSignInCompleter>(),
+                    backgroundScope,
+                    InMemoryAccountChoiceStore(),
+                ),
+            ),
             audiobookSettingsStore = AudiobookSettingsStore(RuntimeEnvironment.getApplication(), { null }),
         )
         try {

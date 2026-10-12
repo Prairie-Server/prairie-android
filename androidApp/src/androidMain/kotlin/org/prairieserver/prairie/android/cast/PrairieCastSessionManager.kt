@@ -41,6 +41,8 @@ data class PrairieCastState(
     val isConnected: Boolean = false,
     val deviceName: String? = null,
     val isPlaying: Boolean = false,
+    /** Playing, or buffering or loading to play: a rebuffer is still playback. */
+    val isPlaybackActive: Boolean = false,
     val position: Double = 0.0,
     val duration: Double = 0.0,
     val title: String = "",
@@ -687,6 +689,7 @@ class PrairieCastSessionManager(private val context: Context) {
                 isConnected = true,
                 deviceName = session.castDevice?.friendlyName,
                 isPlaying = remoteClient?.playerState == MediaStatus.PLAYER_STATE_PLAYING,
+                isPlaybackActive = remoteClient?.playerState in ACTIVE_PLAYER_STATES,
                 position = remoteClient?.approximateStreamPosition
                     ?.div(1000.0)
                     ?.let { player -> pending?.playbackSession?.sourcePositionForPlayer(player) ?: player }
@@ -750,5 +753,10 @@ class PrairieCastSessionManager(private val context: Context) {
     private companion object {
         private const val TAG = "PrairieCastSessionMgr"
         private const val SERVER_PROGRESS_INTERVAL_MS = 10_000L
+        private val ACTIVE_PLAYER_STATES = setOf(
+            MediaStatus.PLAYER_STATE_PLAYING,
+            MediaStatus.PLAYER_STATE_BUFFERING,
+            MediaStatus.PLAYER_STATE_LOADING,
+        )
     }
 }

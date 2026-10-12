@@ -38,10 +38,12 @@ import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.MediaModeCapabilities
 import org.prairieserver.prairie.model.navigation.mobileMediaModeCapabilities
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
-import org.prairieserver.prairie.model.request.RequestMediaResult
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.common.ui.OnViewerAccessChanged
+import org.prairieserver.prairie.common.ui.rememberViewerAccessKey
+import org.prairieserver.prairie.network.AccessChangeSignals
 
 /**
  * The search screen with a search bar and results grid.
@@ -57,7 +59,7 @@ import org.koin.compose.koinInject
 fun SearchScreen(
     onItemClick: (String) -> Unit,
     onPersonClick: (Long) -> Unit,
-    onRequestMediaClick: (RequestMediaResult) -> Unit,
+    onRequestMediaClick: (mediaType: String, tmdbId: Int) -> Unit,
     onRequestLibraryItemClick: (String) -> Unit,
     onBackClick: (() -> Unit)? = null,
     viewModel: SearchViewModel,
@@ -70,6 +72,11 @@ fun SearchScreen(
     val personalDataRepository: PersonalDataRepository = koinInject()
     val requestsFeatureStore: RequestsFeatureStore = koinInject()
     val requestsEnabled by requestsFeatureStore.isEnabled.collectAsState()
+    // An access change can add or remove libraries and titles: re-derive the
+    // media modes and re-run the current query under the new policy.
+    val accessChangeSignals: AccessChangeSignals = koinInject()
+    val viewerAccessKey = rememberViewerAccessKey(accessChangeSignals)
+    OnViewerAccessChanged(accessChangeSignals, viewModel.accessChanges) { viewModel.retry() }
     val availableModes by produceState(
         initialValue = MediaModeCapabilities(
             listOf(
@@ -79,6 +86,7 @@ fun SearchScreen(
             ),
         ).mobileModes(),
         personalDataRepository,
+        viewerAccessKey,
     ) {
         value = when (val result = personalDataRepository.listUserLibraries()) {
             is ApiResult.Success -> result.data.mobileMediaModeCapabilities().mobileModes()

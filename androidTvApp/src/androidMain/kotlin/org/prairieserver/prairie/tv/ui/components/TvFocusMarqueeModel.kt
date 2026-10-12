@@ -3,13 +3,19 @@ package org.prairieserver.prairie.tv.ui.components
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import org.prairieserver.prairie.model.catalog.ExternalRatings
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.OverlaySummary
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.model.section.SectionItem
+import org.prairieserver.prairie.model.settings.EpisodeSpoilerPrefs
+import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -30,8 +36,11 @@ data class TvMarqueeContent(
     val logoUrl: String?,
     /** Optional uppercase content-classification badge before the editorial metadata. */
     val badges: List<String>,
-    /** Dot-joined editorial metadata after the badge. */
-    val metaParts: List<String>,
+    /**
+     * Dot-separated editorial metadata after the badge. A title's one external
+     * rating (IMDb, else TMDB) sits after its length, before the genre.
+     */
+    val metaParts: List<TvHeroFactToken>,
     val synopsis: String?,
     /** A quieter detail line: cast / air-date when carried by the payload. */
     val detailLine: String?,
@@ -49,6 +58,11 @@ data class TvMarqueeContent(
     /** The source item, retained so the ambient tint extracts its palette from
      *  the same (debounced) card the marquee + backdrop show. */
     val source: SectionItem,
+    /** Spoiler protection hides this unwatched episode's stills, including an
+     *  enrichment backdrop that is (or may be) one. */
+    val hidesStills: Boolean = false,
+    /** Whether [backdropUrl], from the section item or enrichment, is an episode still; null when unknown. */
+    val backdropIsEpisodeStill: Boolean? = null,
 ) {
     /** Backdrop art for the root hero. Like tvOS, the section artwork is shown
      *  immediately; an episode can later upgrade to its higher-resolution series
@@ -61,6 +75,38 @@ data class TvMarqueeContent(
     val contentId: String get() = source.contentId
 
     /**
+     * This content under [prefs], so a layer still fading out of a crossfade
+     * follows a protection change at once: the same instance when nothing
+     * changes, without what [prefs] now hide, or rebuilt from its source item
+     * when [prefs] reveal something.
+     */
+    fun underPrefs(prefs: EpisodeSpoilerPrefs): TvMarqueeContent {
+        if (!isEpisode) return this
+        val unwatched = EpisodeSpoilers.isUnwatched(source)
+        val hideStills = prefs.hidesImage(unwatched)
+        val hasOverview = !source.overview.isNullOrBlank()
+        val hideSynopsis = prefs.hidesOverview(unwatched) && hasOverview
+        val synopsisHidden = synopsis == null && hasOverview
+        if (hideStills == hidesStills && hideSynopsis == synopsisHidden) return this
+        // Revealing needs the source item's artwork and text back.
+        if ((hidesStills && !hideStills) || (synopsisHidden && !hideSynopsis)) {
+            return from(source, rowTitle = "", spoilers = prefs).copy(id = id)
+        }
+        // Hiding drops only what is now hidden, so explicit series artwork
+        // (such as an enrichment backdrop) stays.
+        val dropBackdrop = hideStills && backdropIsEpisodeStill != false
+        val dropPoster = hideStills && source.posterIsEpisodeStill != false
+        return copy(
+            synopsis = if (hideSynopsis) null else synopsis,
+            backdropUrl = if (dropBackdrop) null else backdropUrl,
+            backdropThumbhash = if (dropBackdrop) null else backdropThumbhash,
+            posterUrl = if (dropPoster) null else posterUrl,
+            posterThumbhash = if (dropPoster) null else posterThumbhash,
+            hidesStills = hideStills,
+        )
+    }
+
+    /**
      * Fold a landed [TvMarqueeEnrichment] into this content (tvOS
      * `TVFocusMarqueeModel.backdropURL` + `detailLine`). The aired/cast line
      * applies to every item; the backdrop upgrade applies to episodes only —
@@ -68,7 +114,8 @@ data class TvMarqueeContent(
      * preserved, so the swap reads as an in-place refresh, not a new block.
      */
     fun withEnrichment(enrichment: TvMarqueeEnrichment): TvMarqueeContent {
-        val upgradeBackdrop = isEpisode && !enrichment.backdropUrl.isNullOrBlank()
+        val upgradeBackdrop = isEpisode && !enrichment.backdropUrl.isNullOrBlank() &&
+            (!hidesStills || enrichment.backdropIsEpisodeStill == false)
         return copy(
             detailLine = enrichment.detailLine ?: detailLine,
             backdropUrl = if (upgradeBackdrop) enrichment.backdropUrl else backdropUrl,
@@ -77,26 +124,35 @@ data class TvMarqueeContent(
             } else {
                 backdropThumbhash
             },
+            backdropIsEpisodeStill = if (upgradeBackdrop) enrichment.backdropIsEpisodeStill else backdropIsEpisodeStill,
         )
     }
 
     companion object {
+        /**
+         * [spoilers] applies spoiler protection to an episode the profile has
+         * not started: no synopsis, and no still as the backdrop. The still's
+         * ThumbHash stays as a colour field until enrichment swaps in the
+         * series backdrop.
+         */
         fun from(
             item: SectionItem,
             rowTitle: String,
             rowIdentity: String = rowTitle,
+            spoilers: EpisodeSpoilerPrefs = EpisodeSpoilerPrefs.NONE,
         ): TvMarqueeContent {
             val isEpisode = item.type.equals("episode", ignoreCase = true)
+            val unwatchedEpisode = isEpisode && EpisodeSpoilers.isUnwatched(item)
 
-            val meta = mutableListOf<String>()
+            val meta = mutableListOf<TvHeroFactToken>()
             if (isEpisode) {
-                episodeToken(item.seasonNumber, item.episodeNumber)?.let(meta::add)
-                if (item.title.isNotBlank()) meta.add(item.title)
+                episodeToken(item.seasonNumber, item.episodeNumber)?.let { meta += TvHeroFactToken.TextToken(it) }
+                if (item.title.isNotBlank()) meta += TvHeroFactToken.TextToken(item.title, truncates = true)
             } else {
-                if (item.year > 0) meta.add(item.year.toString())
-                lengthText(item.runtime, item.durationSeconds)?.let(meta::add)
-                ratingToken(item.ratingImdb)?.let(meta::add)
-                item.genres.firstOrNull { it.isNotBlank() }?.let(meta::add)
+                if (item.year > 0) meta += TvHeroFactToken.TextToken(item.year.toString())
+                lengthText(item.runtime, item.durationSeconds)?.let { meta += TvHeroFactToken.TextToken(it) }
+                ExternalRatings.primary(item.ratingImdb, item.ratingTmdb)?.let { meta += TvHeroFactToken.ExternalRating(it) }
+                item.genres.firstOrNull { it.isNotBlank() }?.let { meta += TvHeroFactToken.TextToken(it) }
             }
 
             val badges = item.contentRating
@@ -105,6 +161,8 @@ data class TvMarqueeContent(
                 ?.let(::listOf)
                 .orEmpty()
 
+            val hidesBackdrop = spoilers.hidesImage(unwatchedEpisode, item.backdropIsEpisodeStill)
+            val hidesPoster = spoilers.hidesImage(unwatchedEpisode, item.posterIsEpisodeStill)
             val sectionBackdropUrl = item.backdropUrl?.takeIf { it.isNotBlank() }
             val sectionPosterUrl = item.posterUrl?.takeIf { it.isNotBlank() }
             return TvMarqueeContent(
@@ -113,22 +171,30 @@ data class TvMarqueeContent(
                 logoUrl = item.logoUrl?.takeIf { it.isNotBlank() },
                 badges = badges,
                 metaParts = meta,
-                synopsis = item.overview?.takeIf { it.isNotBlank() },
+                synopsis = item.overview
+                    ?.takeIf { it.isNotBlank() && !spoilers.hidesOverview(unwatchedEpisode) },
                 detailLine = null,
                 specLine = specLine(item.overlaySummary),
                 // Match tvOS: a section backdrop (or poster fallback) is always
                 // available for the first rested frame. Episode enrichment may
-                // replace it with series art later.
-                backdropUrl = sectionBackdropUrl ?: sectionPosterUrl,
-                backdropThumbhash = if (sectionBackdropUrl != null) {
+                // replace it with series art later. Hidden stills also drop
+                // their ThumbHash so the placeholder cannot reveal them.
+                backdropUrl = (if (hidesBackdrop) null else sectionBackdropUrl) ?: (if (hidesPoster) null else sectionPosterUrl),
+                backdropThumbhash = if (!hidesBackdrop && sectionBackdropUrl != null) {
                     item.backdropThumbhash
-                } else {
+                } else if (!hidesPoster) {
                     item.posterThumbhash
-                },
-                posterUrl = sectionPosterUrl,
-                posterThumbhash = item.posterThumbhash,
+                } else null,
+                posterUrl = if (hidesPoster) null else sectionPosterUrl,
+                posterThumbhash = if (hidesPoster) null else item.posterThumbhash,
                 isEpisode = isEpisode,
                 source = item,
+                hidesStills = spoilers.hidesImage(unwatchedEpisode),
+                backdropIsEpisodeStill = if (!hidesBackdrop && sectionBackdropUrl != null) {
+                    item.backdropIsEpisodeStill
+                } else {
+                    item.posterIsEpisodeStill
+                },
             )
         }
 
@@ -193,17 +259,6 @@ data class TvMarqueeContent(
                 "$minutes min"
             }
         }
-
-        private fun ratingToken(rating: Double?): String? =
-            validImdbRating(rating)?.let(::formatRating)
-
-        private fun validImdbRating(rating: Double?): Double? =
-            rating?.takeIf { it.isFinite() && it > 0.0 && it <= 10.0 }
-
-        private fun formatRating(rating: Double): String {
-            val rounded = (rating * 10).roundToInt() / 10.0
-            return rounded.toString()
-        }
     }
 }
 
@@ -224,6 +279,8 @@ data class TvMarqueeEnrichment(
     val detailLine: String?,
     val backdropUrl: String?,
     val backdropThumbhash: String?,
+    /** The detail's provenance for [backdropUrl]; null when unknown. */
+    val backdropIsEpisodeStill: Boolean? = null,
 ) {
     companion object {
         fun from(detail: ItemDetail): TvMarqueeEnrichment {
@@ -239,6 +296,7 @@ data class TvMarqueeEnrichment(
                 detailLine = if (parts.isEmpty()) null else parts.joinToString(" · "),
                 backdropUrl = detail.backdropUrl?.takeIf { it.isNotBlank() },
                 backdropThumbhash = detail.backdropThumbhash,
+                backdropIsEpisodeStill = detail.backdropIsEpisodeStill,
             )
         }
 
@@ -295,9 +353,33 @@ class TvFocusMarqueeState internal constructor() {
     private val enrichmentCache = mutableMapOf<String, TvMarqueeEnrichment>()
     private val enrichmentRequests = mutableSetOf<String>()
 
+    /** The profile's spoiler protection, kept current by [rememberTvFocusMarqueeState]. */
+    internal var spoilerPrefs: EpisodeSpoilerPrefs = EpisodeSpoilerPrefs.NONE
+        set(value) {
+            if (field == value) return
+            field = value
+            content = content?.withCurrentSpoilers()
+            candidate = candidate?.withCurrentSpoilers()
+        }
+
+    private fun TvMarqueeContent.withCurrentSpoilers(): TvMarqueeContent =
+        TvMarqueeContent.from(source, rowTitle = "", spoilers = spoilerPrefs).copy(id = id)
+
+    /** Refresh retained watch state without another focus event or a new detail fetch. */
+    internal fun refreshSources(rows: List<ResolvedSection>) {
+        fun TvMarqueeContent.refreshed(): TvMarqueeContent {
+            val row = rows.firstOrNull { "${it.id}#$contentId" == id } ?: return this
+            val item = row.items.firstOrNull { it.contentId == contentId } ?: return this
+            if (item == source) return this
+            return TvMarqueeContent.from(item, row.title, row.id, spoilerPrefs)
+        }
+        content = content?.refreshed()
+        candidate = candidate?.refreshed()
+    }
+
     /** Report card focus. The displayed content swaps on the next composition turn. */
     fun preview(item: SectionItem, rowTitle: String, rowIdentity: String = rowTitle) {
-        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity)
+        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity, spoilerPrefs)
         focusedMarqueeId = next.id
         // Focus is back on the already-displayed card: cancel any pending swap
         // so a brief A→B→A scrub within the debounce window can't commit a
@@ -316,7 +398,7 @@ class TvFocusMarqueeState internal constructor() {
      */
     fun seedInitialPreview(item: SectionItem, rowTitle: String, rowIdentity: String = rowTitle) {
         if (focusedMarqueeId != null) return
-        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity)
+        val next = TvMarqueeContent.from(item, rowTitle, rowIdentity, spoilerPrefs)
         if (candidate?.id == next.id || content?.id == next.id) return
         candidate = next
     }
@@ -325,7 +407,7 @@ class TvFocusMarqueeState internal constructor() {
         // Apply cached enrichment in the same snapshot as the base-content swap,
         // so revisiting an item presents one complete frame without a refetch.
         enrichment = value?.contentId?.let(enrichmentCache::get)
-        content = value
+        content = value?.withCurrentSpoilers()
     }
 
     /** True if detail for [contentId] is already cached (skip the fetch). */
@@ -369,12 +451,14 @@ fun rememberTvFocusMarqueeState(
     fetchDetail: (suspend (String) -> ItemDetail?)? = null,
 ): TvFocusMarqueeState {
     val state = remember { TvFocusMarqueeState() }
-    LaunchedEffect(state.candidate?.id) {
+    val spoilerPrefs = LocalEpisodeSpoilerPrefs.current
+    SideEffect { state.spoilerPrefs = spoilerPrefs }
+    LaunchedEffect(state.candidate) {
         val candidate = state.candidate ?: return@LaunchedEffect
         // Page-entry seed stays immediate so the hero never opens blank. Only
         // subsequent D-pad focus moves wait for the focus-rest interval.
         if (state.content != null) delay(TvMarqueeFocusRestMillis)
-        if (state.candidate?.id == candidate.id) state.commit(candidate)
+        if (state.candidate == candidate) state.commit(candidate)
     }
 
     // Populate the cache and enrich the active hero when identity still

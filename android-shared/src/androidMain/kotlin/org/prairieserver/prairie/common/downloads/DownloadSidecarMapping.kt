@@ -2,6 +2,7 @@ package org.prairieserver.prairie.common.downloads
 
 import org.prairieserver.prairie.common.data.db.entity.DownloadEntity
 import org.prairieserver.prairie.model.catalog.VersionChapter
+import org.prairieserver.prairie.model.catalog.LeafItemUserData
 import org.prairieserver.prairie.model.download.DownloadRecord
 import org.prairieserver.prairie.model.download.DownloadSidecar
 import org.prairieserver.prairie.model.download.OfflineTrackInfo
@@ -34,6 +35,8 @@ fun DownloadSidecar.toEntity(serverId: String, profileId: String): DownloadEntit
         subtitle = subtitle,
         posterUrl = posterUrl,
         posterThumbhash = posterThumbhash,
+        posterIsEpisodeStill = posterIsEpisodeStill,
+        episodeUserDataJson = episodeUserData?.let { mappingJson.encodeToString(it) },
         year = year,
         seriesTitle = seriesTitle,
         seriesContentId = seriesContentId,
@@ -60,6 +63,9 @@ fun DownloadSidecar.toEntity(serverId: String, profileId: String): DownloadEntit
         effectiveQuality = record.effectiveQuality,
         revision = record.revision,
         offlineTracksJson = offlineTracks?.let { mappingJson.encodeToString(it) },
+        offlinePosterPath = offlinePosterPath,
+        offlineSeriesPosterPath = offlineSeriesPosterPath,
+        seriesPosterThumbhash = seriesPosterThumbhash,
     )
 
 fun DownloadEntity.toSidecar(): DownloadSidecar =
@@ -84,6 +90,10 @@ fun DownloadEntity.toSidecar(): DownloadSidecar =
         subtitle = subtitle,
         posterUrl = posterUrl,
         posterThumbhash = posterThumbhash,
+        posterIsEpisodeStill = posterIsEpisodeStill,
+        episodeUserData = episodeUserDataJson?.let {
+            runCatching { mappingJson.decodeFromString<LeafItemUserData>(it) }.getOrNull()
+        },
         year = year,
         seriesTitle = seriesTitle,
         seriesContentId = seriesContentId,
@@ -102,5 +112,8 @@ fun DownloadEntity.toSidecar(): DownloadSidecar =
         offlineTracks = offlineTracksJson?.let {
             runCatching { mappingJson.decodeFromString<OfflineTrackInfo>(it) }.getOrNull()
         },
+        offlinePosterPath = offlinePosterPath,
+        offlineSeriesPosterPath = offlineSeriesPosterPath,
+        seriesPosterThumbhash = seriesPosterThumbhash,
         updatedAtMs = updatedAtMs,
     )

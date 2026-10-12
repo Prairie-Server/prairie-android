@@ -1,7 +1,11 @@
 package org.prairieserver.prairie.tv.ui.components
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,14 +33,20 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.common.settings.titleLogoUrl
+import org.prairieserver.prairie.common.ui.components.MachineTranslatedLabel
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
+import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
 import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 
 /**
  * Passive Skyline billboard, anchored bottom-left, that previews whichever row
@@ -53,11 +63,17 @@ import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
 fun TvFocusMarquee(
     content: TvMarqueeContent?,
     detailLine: String? = content?.detailLine,
+    /** The rested item's description translation; like [detailLine], it
+     *  updates the block in place instead of replaying the crossfade. */
+    translation: TvMarqueeTranslation? = null,
     modifier: Modifier = Modifier,
     startPadding: androidx.compose.ui.unit.Dp = 44.dp,
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     animateTransition: Boolean = true,
+    /** An extra line under the block for pages that preview more than catalog
+     *  items (the Requests page's status and stage track). */
+    footer: (@Composable (TvMarqueeContent) -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
@@ -73,6 +89,7 @@ fun TvFocusMarquee(
         // animation — a cold entry paints the finished marquee block instead
         // of fading it up. Focus-driven swaps keep the crossfade.
         var hasDisplayedContent by remember { mutableStateOf(false) }
+        val spoilerPrefs = LocalEpisodeSpoilerPrefs.current
         val snapInitialContent = content != null && !hasDisplayedContent
         LaunchedEffect(content != null) {
             if (content != null) hasDisplayedContent = true
@@ -95,15 +112,29 @@ fun TvFocusMarquee(
                     contentAlignment = Alignment.BottomStart,
                 ) {
                     if (value != null) {
+                        // A layer for the item still shown takes its current
+                        // copy at once, so a synopsis protection now hides
+                        // doesn't fade out.
                         TvMarqueeBlock(
-                            content = value,
+                            content = if (content != null && value.id == content.id) {
+                                content
+                            } else {
+                                value.underPrefs(spoilerPrefs)
+                            },
                             detailLine = detailLine.takeIf { value.id == content?.id },
+                            translation = translation.takeIf { it?.contentId == value.contentId },
+                            footer = footer,
                         )
                     }
                 }
             }
         } else if (content != null) {
-            TvMarqueeBlock(content = content, detailLine = detailLine)
+            TvMarqueeBlock(
+                content = content,
+                detailLine = detailLine,
+                translation = translation.takeIf { it?.contentId == content.contentId },
+                footer = footer,
+            )
         }
     }
 }
@@ -112,12 +143,16 @@ fun TvFocusMarquee(
 private fun TvMarqueeBlock(
     content: TvMarqueeContent,
     detailLine: String?,
+    translation: TvMarqueeTranslation? = null,
+    footer: (@Composable (TvMarqueeContent) -> Unit)? = null,
 ) {
     // tvOS parity (TVFocusMarquee): when the text-fallback title wraps to two
     // lines the synopsis drops to one, keeping the bottom-anchored block's
     // height bounded so it never climbs into the top-menu-bar zone.
     var titleLineCount by remember(content.id) { mutableStateOf(1) }
-    var logoLoaded by remember(content.logoUrl) { mutableStateOf(false) }
+    // "Show title art" off: the marquee always names the title in text.
+    val logoUrl = titleLogoUrl(content.logoUrl)
+    var logoLoaded by remember(logoUrl) { mutableStateOf(false) }
     val logoAlpha by animateFloatAsState(
         targetValue = if (logoLoaded) 1f else 0f,
         animationSpec = tween(TvMarqueeCrossfadeMs, easing = TvMarqueeEasing),
@@ -133,7 +168,7 @@ private fun TvMarqueeBlock(
         // Keep the semantic text title visible until transparent logo artwork
         // has actually decoded. A bad/slow URL therefore never creates a blank
         // title slot; successful artwork fades over the fixed-height fallback.
-        if (!content.logoUrl.isNullOrBlank()) {
+        if (!logoUrl.isNullOrBlank()) {
             Box(
                 modifier = Modifier
                     .height(MarqueeLogoMaxHeight)
@@ -154,7 +189,7 @@ private fun TvMarqueeBlock(
                     )
                 }
                 ThumbhashImage(
-                    url = content.logoUrl,
+                    url = logoUrl,
                     thumbhash = null,
                     contentDescription = content.title,
                     contentScale = ContentScale.Fit,
@@ -184,21 +219,42 @@ private fun TvMarqueeBlock(
             )
         }
 
+        val hidesSynopsis = content.isEpisode && LocalEpisodeSpoilerPrefs.current.hidesOverview(
+            org.prairieserver.prairie.model.settings.EpisodeSpoilers.isUnwatched(content.source),
+        )
+        val synopsisText = (translation?.synopsis ?: content.synopsis)
+            ?.takeIf { it.isNotBlank() && !hidesSynopsis }
+        val translating = translation?.translating == true
+        val machineTranslated = !translating && synopsisText != null &&
+            (translation?.machineTranslated ?: hasMachineTranslatedOverview(content.source.machineTranslatedFields))
+
         // Badge + meta line.
-        if (content.badges.isNotEmpty() || content.metaParts.isNotEmpty()) {
+        if (content.badges.isNotEmpty() || content.metaParts.isNotEmpty() || machineTranslated) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 content.badges.forEach { badge -> MarqueeBadge(badge) }
                 if (content.metaParts.isNotEmpty()) {
-                    Text(
-                        text = content.metaParts.joinToString(" · "),
+                    TvFactsRow(
+                        tokens = content.metaParts,
+                        style = LocalTextStyle.current.merge(
+                            TextStyle(
+                                color = PrairieSecondaryText,
+                                fontSize = MarqueeMetaSize,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                        ),
+                        spacing = MarqueeMetaGap,
+                    )
+                }
+                // The block has no spare row, so the machine-translation
+                // marker is the compact icon at the end of the meta line.
+                if (machineTranslated) {
+                    MachineTranslatedLabel(
                         color = PrairieSecondaryText,
-                        fontSize = MarqueeMetaSize,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        compact = true,
+                        iconSize = 14.dp,
                     )
                 }
             }
@@ -207,7 +263,19 @@ private fun TvMarqueeBlock(
         // Two synopsis lines (one when a text title wraps): the raised
         // typography floors made the old three-line block tall enough to
         // climb under the top menu bar, and the bar zone wins.
-        content.synopsis?.takeIf { it.isNotBlank() }?.let { synopsis ->
+        synopsisText?.let { synopsis ->
+            // A running translation pulses the original text until the
+            // translated description replaces it.
+            val pulse = if (translating) {
+                rememberInfiniteTransition(label = "marqueeTranslating").animateFloat(
+                    initialValue = 0.35f,
+                    targetValue = 0.7f,
+                    animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+                    label = "marqueeTranslatingAlpha",
+                ).value
+            } else {
+                1f
+            }
             Text(
                 text = synopsis,
                 color = PrairieSecondaryText,
@@ -215,7 +283,9 @@ private fun TvMarqueeBlock(
                 lineHeight = MarqueeSynopsisSize * 1.35f,
                 maxLines = if (titleLineCount > 1) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = MarqueeSynopsisMaxWidth),
+                modifier = Modifier
+                    .widthIn(max = MarqueeSynopsisMaxWidth)
+                    .alpha(pulse),
             )
         }
 
@@ -264,6 +334,8 @@ private fun TvMarqueeBlock(
                     badges.forEach { badge -> MarqueeBadge(badge.uppercase()) }
                 }
             }
+
+        footer?.invoke(content)
     }
 }
 
@@ -302,6 +374,9 @@ private val MarqueeLogoMaxHeight = 84.dp
 private val MarqueeDetailLineHeight = 20.dp
 private val MarqueeTitleSize = 44.sp
 private val MarqueeMetaSize = 14.sp
+
+/** About a space at [MarqueeMetaSize], so `·` spacing matches the joined text. */
+private val MarqueeMetaGap = 4.dp
 private val MarqueeDetailSize = 14.sp
 private val MarqueeSynopsisSize = 16.sp
 private val MarqueeBadgeSize = 10.5.sp

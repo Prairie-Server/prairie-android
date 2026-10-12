@@ -1,16 +1,18 @@
 package org.prairieserver.prairie.tv.ui.screens.detail
 
+import org.prairieserver.prairie.model.catalog.DisplayRating
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
+import org.prairieserver.prairie.model.catalog.titleRatings
+import org.prairieserver.prairie.tv.ui.components.TvHeroFactToken
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
-import kotlin.math.round
 
 /**
  * Pure functions that build the hero metadata for the cinematic detail
@@ -57,16 +59,20 @@ internal object TvDetailMetadata {
 
     /** Episode editorial facts used by the combined Series page. These mirror
      * tvOS: the episode's air date and runtime replace the Show facts, while
-     * version choices remain directly beneath the episode carousel. */
+     * version choices remain directly beneath the episode carousel. The Show's
+     * [ratings] stay, like its content-rating chip, so focusing an episode
+     * never drops the ratings row. */
     fun seriesEpisodeFactsLine(
         episode: EpisodeListItem,
         runtimeMinutes: Int = episode.runtime,
+        ratings: List<DisplayRating> = emptyList(),
         zone: ZoneId = ZoneId.systemDefault(),
     ): List<TvHeroFactToken> = buildList {
         abbreviatedDate(episode.airDate, zone)?.let {
             add(TvHeroFactToken.TextToken(it))
         }
         runtimeLabel(runtimeMinutes)?.let { add(TvHeroFactToken.TextToken(it)) }
+        ratings.forEach { add(TvHeroFactToken.ExternalRating(it)) }
     }
 
     fun factsLine(
@@ -95,9 +101,7 @@ internal object TvDetailMetadata {
                     tokens += TvHeroFactToken.TextToken(it)
                 }
         }
-        detail.ratingImdb?.let {
-            tokens += TvHeroFactToken.TextToken("★ ${formatOneDecimal(it)}")
-        }
+        detail.titleRatings().forEach { tokens += TvHeroFactToken.ExternalRating(it) }
         if (includePlaybackFormats) {
             tokens += qualityTokens(selectedVersion)
         }
@@ -158,13 +162,6 @@ internal object TvDetailMetadata {
         runCatching { Instant.parse(raw) }.getOrNull()
             ?: runCatching { OffsetDateTime.parse(raw).toInstant() }.getOrNull()
             ?: runCatching { LocalDate.parse(raw).atStartOfDay(ZoneOffset.UTC).toInstant() }.getOrNull()
-
-    private fun formatOneDecimal(value: Double): String {
-        val rounded = round(value * 10.0) / 10.0
-        val whole = rounded.toInt()
-        val tenths = (round((rounded - whole) * 10.0)).toInt().coerceIn(0, 9)
-        return "$whole.$tenths"
-    }
 
     private fun qualityTokens(version: FileVersion?): List<TvHeroFactToken> {
         version ?: return emptyList()

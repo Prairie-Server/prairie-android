@@ -144,4 +144,61 @@ class RoomCatalogCacheRepositoryTest {
         assertEquals(0L, oldProfileGeneration)
         assertNull(guardedRepo.getCachedLibraries())
     }
+    @Test
+    fun languageInvalidationPurgesOnlyCurrentScopesDetailMetadata() = runTest {
+        val owner = scope!!
+        val detail = org.prairieserver.prairie.model.catalog.ItemDetail(contentId = "c1", type = "series", title = "Old language")
+        val seasons = org.prairieserver.prairie.model.catalog.SeasonsResponse()
+        val episodes = org.prairieserver.prairie.model.catalog.EpisodesResponse()
+        suspend fun populate() {
+            repo.cacheItemDetail("c1", detail)
+            repo.cacheSeasons("c1", seasons)
+            repo.cacheEpisodes("c1", 1, episodes)
+            repo.cacheLibraries(listOf(UserLibrary(id = 1, name = "Shows", type = "series")))
+        }
+        populate()
+        scope = owner.copy(profileId = "p2")
+        populate()
+        scope = owner
+        repo.invalidateDetailMetadata()
+        assertNull(repo.getCachedItemDetail("c1"))
+        assertNull(repo.getCachedSeasons("c1"))
+        assertNull(repo.getCachedEpisodes("c1", 1))
+        assertEquals("Shows", repo.getCachedLibraries()?.single()?.name)
+        scope = owner.copy(profileId = "p2")
+        assertEquals(detail, repo.getCachedItemDetail("c1"))
+        assertEquals(seasons, repo.getCachedSeasons("c1"))
+        assertEquals(episodes, repo.getCachedEpisodes("c1", 1))
+    }
+
+    @Test
+    fun languagePurgeAfterProfileSwitchDeletesTheWriterAndRetainsTheActiveProfilesMetadata() = runTest {
+        val owner = scope!!
+        val detail = org.prairieserver.prairie.model.catalog.ItemDetail(contentId = "c1", type = "series", title = "Cached")
+        val seasons = org.prairieserver.prairie.model.catalog.SeasonsResponse()
+        val episodes = org.prairieserver.prairie.model.catalog.EpisodesResponse()
+        suspend fun populate() {
+            repo.cacheItemDetail("c1", detail)
+            repo.cacheSeasons("c1", seasons)
+            repo.cacheEpisodes("c1", 1, episodes)
+        }
+        populate()
+        val language = org.prairieserver.prairie.domain.settings.CatalogLanguageRevision()
+        language.changed(org.prairieserver.prairie.repository.port.CatalogCacheScope(owner.serverId, owner.profileId!!))
+        scope = owner.copy(profileId = "p2")
+        populate()
+        val client = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { error("No live request expected") })
+        val catalog = org.prairieserver.prairie.repository.CatalogRepository(
+            org.prairieserver.prairie.network.api.CatalogApi(client), repo, catalogLanguage = language,
+        )
+        catalog.invalidateLocalizedMetadata()
+        assertEquals(detail, repo.getCachedItemDetail("c1"))
+        assertEquals(seasons, repo.getCachedSeasons("c1"))
+        assertEquals(episodes, repo.getCachedEpisodes("c1", 1))
+        scope = owner
+        assertNull(catalog.getCachedItemDetail("c1"))
+        assertNull(catalog.getCachedSeasons("c1"))
+        assertNull(catalog.getCachedEpisodes("c1", 1))
+    }
+
 }

@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.common.settings.CardPresentationSource
 import org.prairieserver.prairie.common.settings.CardPresentationStore
 import org.prairieserver.prairie.common.settings.CardPresentationSupport
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerSetting
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerState
+import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
 import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
 import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
@@ -23,18 +26,22 @@ import org.prairieserver.prairie.model.settings.SubtitleFontSizePreset
 import org.prairieserver.prairie.model.settings.SubtitlePositionPreset
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
+import org.prairieserver.prairie.common.ui.components.avatarRef
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
+import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
 import org.prairieserver.prairie.tv.data.preferences.SubtitleMode
 import org.prairieserver.prairie.tv.data.preferences.SubtitleSize
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
+import org.prairieserver.prairie.tv.watchnext.WatchNextSeeder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -64,7 +71,10 @@ class TvSettingsViewModel(
     private val profileSettings: ProfileSettingsController,
     private val tvLibraryScopeStore: org.prairieserver.prairie.tv.data.preferences.TvLibraryScopeStore? = null,
     private val seekIntervalStore: SeekIntervalStore? = null,
+    private val episodeSpoilerStore: EpisodeSpoilerStore? = null,
     audiobookSettingsStore: AudiobookSettingsStore? = null,
+    private val profileLaunchPreferences: ProfileLaunchPreferences? = null,
+    private val watchNextSeeder: WatchNextSeeder? = null,
 ) : ViewModel() {
 
     /**
@@ -87,7 +97,7 @@ class TvSettingsViewModel(
         val userError: String? = null,
         // Active profile identity for the tappable account header row.
         val profileName: String? = null,
-        val profileAvatar: String? = null,
+        val profileAvatar: ProfileAvatarRef = ProfileAvatarRef.None,
         val serverUrl: String = "",
         val serverName: String = "",
         // Whether the canonical settings probe succeeded; playback is
@@ -115,14 +125,19 @@ class TvSettingsViewModel(
         val subtitleAppearance: SubtitleAppearance = SubtitleAppearance.DEFAULT,
         val effectiveSubtitleAppearance: SubtitleAppearance = SubtitleAppearance.DEFAULT,
         val subtitleUsesDeviceOverride: Boolean = false,
+        /** False when the server is known to discard subtitle text opacity. */
+        val subtitleTextOpacitySupported: Boolean = true,
         val autoPlayNext: Boolean = true,
         val introSkipMode: IntroSkipMode = IntroSkipMode.Default,
         val matchContentFrameRate: Boolean = false,
         val dolbyVisionEnabled: Boolean = true,
         val showAudiobooksTab: Boolean = false,
+        // Profile Selection (tvOS General → PROFILE AT LAUNCH), device-wide.
+        val profileLaunchBehavior: ProfileLaunchBehavior = ProfileLaunchBehavior.Automatic,
         val subtitleMatchesDevice: Boolean = false,
-        val dvProfile7HDR10Fallback: Boolean = true,
+        val dvProfile7HDR10Fallback: Boolean = false,
         val forceHdrPassthrough: Boolean = false,
+        val trueBlackBars: Boolean = false,
         val autoSkipCredits: Boolean = false,
         // Seconds to skip back on resume (0 = off); consecutive auto-advances
         // before the "Still watching?" prompt (0 = off).
@@ -131,12 +146,28 @@ class TvSettingsViewModel(
         // Seconds before the end of an episode to surface the Up-Next prompt
         // (0 = at the very end). Mirrors tvOS `nextUpPromptSeconds`.
         val nextUpPromptSeconds: Int = 10,
+        /**
+         * Keys this device holds its own value for. A profile-layered control
+         * whose key is absent shows "Use profile setting" as its choice.
+         */
+        val deviceOverrides: Set<String> = emptySet(),
+        /**
+         * Outcome of the last "Use Profile Settings", until the screen has told
+         * the user: true when the server confirmed every clear, false when it
+         * couldn't (offline, refused, or interrupted).
+         */
+        val playbackOverridesReset: Boolean? = null,
         // Cards & Posters (`ui.card_presentation`), mirrored from
         // CardPresentationStore. Source drives the "Only This Device" toggle
         // and the "Use Profile Default" action; support gates the whole group.
         val cardPresentation: CardPresentation = CardPresentation.DEFAULT,
         val cardPresentationSource: CardPresentationSource = CardPresentationSource.Unknown,
         val cardPresentationSupport: CardPresentationSupport = CardPresentationSupport.Unknown,
+        // Spoiler protection for unwatched episodes, mirrored
+        // from EpisodeSpoilerStore. The group is hidden unless supported.
+        val episodeSpoilers: EpisodeSpoilerState = EpisodeSpoilerState(),
+        /** Why the last spoiler switch change wasn't saved. */
+        val episodeSpoilerSaveError: String? = null,
         val navAction: NavAction? = null,
     )
 
@@ -148,6 +179,17 @@ class TvSettingsViewModel(
         loadSettings()
         observePlayerSettings()
         observeCardPresentation()
+        observeEpisodeSpoilers()
+        observeProfileLaunch()
+    }
+
+    private fun observeProfileLaunch() {
+        val preferences = profileLaunchPreferences ?: return
+        viewModelScope.launch {
+            preferences.state.collect { launch ->
+                _uiState.update { it.copy(profileLaunchBehavior = launch.behavior) }
+            }
+        }
     }
 
     /**
@@ -184,7 +226,7 @@ class TvSettingsViewModel(
                                 userLoading = false,
                                 userError = null,
                                 profileName = profile?.name,
-                                profileAvatar = profile?.avatar,
+                                profileAvatar = profile?.avatarRef() ?: ProfileAvatarRef.None,
                             )
                         }
                         return@launch
@@ -367,6 +409,11 @@ class TvSettingsViewModel(
             }
         }
         viewModelScope.launch {
+            playerSettingsStore.deviceOverrideKeysFlow.collect { keys ->
+                _uiState.update { it.copy(deviceOverrides = keys) }
+            }
+        }
+        viewModelScope.launch {
             playerSettingsStore.matchContentFrameRateFlow.collect { value ->
                 _uiState.update { it.copy(matchContentFrameRate = value) }
             }
@@ -393,6 +440,11 @@ class TvSettingsViewModel(
             }
         }
         viewModelScope.launch {
+            playerSettingsStore.trueBlackBarsFlow.collect { value ->
+                _uiState.update { it.copy(trueBlackBars = value) }
+            }
+        }
+        viewModelScope.launch {
             playerSettingsStore.subtitleMatchesDeviceFlow.collect { value ->
                 _uiState.update { it.copy(subtitleMatchesDevice = value) }
             }
@@ -409,6 +461,33 @@ class TvSettingsViewModel(
                 _uiState.update { it.copy(effectiveSubtitleAppearance = appearance) }
             }
         }
+        viewModelScope.launch {
+            playerSettingsStore.subtitleTextOpacitySupportedFlow.collect { supported ->
+                _uiState.update { it.copy(subtitleTextOpacitySupported = supported) }
+            }
+        }
+    }
+
+    /** Mirror the spoiler store into UI state and re-read it from the server. */
+    private fun observeEpisodeSpoilers() {
+        val store = episodeSpoilerStore ?: return
+        viewModelScope.launch {
+            store.state.collect { spoilers -> _uiState.update { it.copy(episodeSpoilers = spoilers) } }
+        }
+        viewModelScope.launch {
+            store.saveError.collect { error -> _uiState.update { it.copy(episodeSpoilerSaveError = error) } }
+        }
+        viewModelScope.launch { store.refresh() }
+    }
+
+    /** Profile-wide; the store writes it optimistically and rolls back on failure. */
+    fun setHideUnwatchedEpisodeImages(enabled: Boolean) {
+        episodeSpoilerStore?.set(EpisodeSpoilerSetting.Images, enabled)
+    }
+
+    /** Profile-wide; the store writes it optimistically and rolls back on failure. */
+    fun setHideUnwatchedEpisodeOverviews(enabled: Boolean) {
+        episodeSpoilerStore?.set(EpisodeSpoilerSetting.Overviews, enabled)
     }
 
     /** Mirror the card-presentation store into UI state (single source of truth). */
@@ -572,15 +651,15 @@ class TvSettingsViewModel(
     }
 
     /**
-     * Per-field appearance setters. Each reads the freshest appearance from the
-     * store before copying the single changed field, so a concurrent edit (e.g.
-     * a HUD change while a Settings picker is open) is not clobbered by a stale
-     * composable-captured snapshot. Mirrors [onSubtitleSizeChanged].
+     * Per-field appearance setters. Each applies its change atomically inside
+     * the store's own write transaction ([PlayerSettingsStore.updateSubtitleAppearance]),
+     * so a concurrent edit (e.g. a HUD change while a Settings picker is
+     * open) can't race on a snapshot read before either writes. Mirrors
+     * [onSubtitleSizeChanged].
      */
     private fun editAppearance(transform: (SubtitleAppearance) -> SubtitleAppearance) {
         viewModelScope.launch {
-            val current = playerSettingsStore.subtitleAppearanceFlow.first()
-            playerSettingsStore.setSubtitleAppearance(transform(current))
+            playerSettingsStore.updateSubtitleAppearance(transform)
             // The granular subtitle.* fields are client-local — the contract
             // carries appearance as one object — so a per-field edit only
             // reaches the server once it is projected into the composite.
@@ -593,6 +672,8 @@ class TvSettingsViewModel(
     fun setSubtitleFontFamily(value: String) = editAppearance { it.copy(fontFamily = value) }
 
     fun setSubtitleFontColor(value: String) = editAppearance { it.copy(fontColor = value) }
+
+    fun setSubtitleTextOpacity(value: Int) = editAppearance { it.copy(textOpacity = value) }
 
     fun setSubtitleTextOutline(value: Boolean) = editAppearance { it.copy(textOutline = value) }
 
@@ -634,6 +715,31 @@ class TvSettingsViewModel(
         }
     }
 
+    /**
+     * Profile Selection takes effect the next time Prairie starts or returns; it
+     * never ejects the current session (prairie-apple design §4.5). Every Time
+     * empties the launcher's Watch Next row, and leaving it refills the row.
+     */
+    fun onProfileLaunchBehaviorChanged(behavior: ProfileLaunchBehavior) {
+        val preferences = profileLaunchPreferences ?: return
+        val previous = preferences.state.value.behavior
+        if (previous == behavior) return
+        preferences.setBehavior(behavior)
+        val seeder = watchNextSeeder ?: return
+        if (behavior == ProfileLaunchBehavior.EveryTime) {
+            seeder.clear()
+        } else if (previous == ProfileLaunchBehavior.EveryTime) {
+            viewModelScope.launch {
+                if (tokenManager.getProfileId().isNullOrBlank()) return@launch
+                // A later choice may have gone back to Every Time (which
+                // cleared the row) while this read was in flight.
+                if (preferences.state.value.behavior == ProfileLaunchBehavior.EveryTime) return@launch
+                seeder.seedNow()
+                seeder.enqueuePeriodic()
+            }
+        }
+    }
+
     fun onSubtitleMatchesDeviceChanged(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setSubtitleMatchesDevice(value) }
     }
@@ -648,6 +754,10 @@ class TvSettingsViewModel(
 
     fun onForceHdrPassthroughChanged(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setForceHdrPassthrough(value) }
+    }
+
+    fun onTrueBlackBarsChanged(value: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setTrueBlackBars(value) }
     }
 
     fun onIntroSkipModeChanged(value: IntroSkipMode) {
@@ -671,11 +781,24 @@ class TvSettingsViewModel(
     }
 
     /**
-     * Clear every server-side device override for this device. Mirrors
-     * iOS tvOS "Reset Playback Overrides" (TVSettingsView.swift:137).
+     * "Use Profile Settings": clears every setting this device holds its own
+     * value for. Mirrors iOS tvOS "Reset Playback Overrides"
+     * (TVSettingsView.swift:137).
      */
     fun resetPlaybackOverrides() {
-        viewModelScope.launch { playerSettingsStore.resetAllDeviceSettings() }
+        viewModelScope.launch {
+            val landed = playerSettingsStore.resetAllDeviceSettings()
+            _uiState.update { it.copy(playbackOverridesReset = landed) }
+        }
+    }
+
+    fun onPlaybackOverridesResetShown() {
+        _uiState.update { it.copy(playbackOverridesReset = null) }
+    }
+
+    /** Goes back to the profile's value for one setting's control on this device. */
+    fun onUseProfileSetting(key: String) {
+        viewModelScope.launch { playerSettingsStore.resetDeviceSetting(key) }
     }
 
     /** Lifecycle hook — call from MainTvActivity.onStop. */
@@ -696,6 +819,7 @@ class TvSettingsViewModel(
             overlayPrefsStore.clear()
             cardPresentationStore.clear()
             seekIntervalStore?.clear()
+            episodeSpoilerStore?.clear()
             _uiState.update { it.copy(navAction = NavAction.SIGNED_OUT) }
         }
     }

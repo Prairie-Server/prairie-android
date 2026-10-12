@@ -14,6 +14,8 @@ import org.prairieserver.prairie.android.downloads.AppWorkerFactory
 import org.prairieserver.prairie.android.notifications.NotificationsForegroundStarter
 import org.prairieserver.prairie.android.push.AndroidPushRegistrationStarter
 import org.prairieserver.prairie.common.di.playerInfraModule
+import org.prairieserver.prairie.common.ui.marquee.marqueeModule
+import org.prairieserver.prairie.common.di.watchPartyModule
 import org.prairieserver.prairie.common.di.playerModule
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsCoordinator
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsStartup
@@ -42,12 +44,21 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
         DiagnosticsStartup.installCrashCapture(this)
         val koinApp = startKoin {
             androidContext(this@PrairieApplication)
-            modules(sharedModules() + playerModule + playerInfraModule + androidModule + diagnosticsModule)
+            modules(sharedModules() + playerModule + playerInfraModule + marqueeModule + watchPartyModule + androidModule + diagnosticsModule)
         }
         DiagnosticsStartup.startCoordinator { koinApp.koin.get<DiagnosticsCoordinator>() }
         koinApp.koin.get<org.prairieserver.prairie.repository.ImageCapabilitiesSession>().start(
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
         )
+        // Profile-verification recovery: clears a profile whose PIN token the
+        // server stopped accepting (after an access change), including when
+        // background work hits it first. Guarded — never load-bearing.
+        runCatching {
+            koinApp.koin.get<org.prairieserver.prairie.repository.ProfileVerificationRecovery>()
+        }.onFailure {
+            // Class name only: the exception chain can carry auth or server data.
+            android.util.Log.w("PrairieApplication", "Profile verification recovery init failed: ${it::class.simpleName}")
+        }
         // Drive notifications realtime off the app foreground lifecycle. Guarded:
         // it's a foreground accelerator, never load-bearing for cold start.
         runCatching {
@@ -99,6 +110,7 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
             org.prairieserver.prairie.android.home.HomeRealtimeForegroundStarter(
                 coordinator = koinApp.koin.get(),
                 profileRepository = koinApp.koin.get(),
+                accessCheck = koinApp.koin.getOrNull(),
             ).register()
         }.onFailure {
             android.util.Log.w("PrairieApplication", "Home realtime starter init failed", it)
@@ -150,6 +162,13 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
             org.prairieserver.prairie.common.downloads.DownloadSubscriptionWorker.enqueuePeriodic(this)
         }.onFailure {
             android.util.Log.w("PrairieApplication", "Download subscription periodic enqueue failed", it)
+        }
+        // Re-fetch saved subtitle sidecars the server has retimed since they
+        // were downloaded. Guarded for the same reason.
+        runCatching {
+            org.prairieserver.prairie.common.downloads.OfflineSubtitleRefreshWorker.enqueuePeriodic(this)
+        }.onFailure {
+            android.util.Log.w("PrairieApplication", "Offline subtitle refresh periodic enqueue failed", it)
         }
         registerDownloadsNotificationChannel()
     }

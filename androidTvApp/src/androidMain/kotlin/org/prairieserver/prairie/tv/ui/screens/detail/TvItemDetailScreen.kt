@@ -1,6 +1,5 @@
 package org.prairieserver.prairie.tv.ui.screens.detail
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -40,6 +39,14 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.rounded.CheckCircleOutline
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.HeartBroken
+import androidx.compose.material.icons.rounded.RemoveDone
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -92,14 +99,19 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.common.ui.OnViewerAccessChanged
+import org.prairieserver.prairie.network.AccessChangeSignals
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import org.prairieserver.prairie.audiobook.AudioPlaybackTrack
 import org.prairieserver.prairie.audiobook.AudiobookTimeline
 import org.prairieserver.prairie.audiobook.buildAudiobookTimeline
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 import org.prairieserver.prairie.common.ui.movieDirectorCredit
 import org.prairieserver.prairie.common.ui.openYoutubeTrailer
 import org.prairieserver.prairie.metadata.DescriptionTranslationPhase
+import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
+import org.prairieserver.prairie.model.catalog.pendingEpisodeTranslationLanguage
 import org.prairieserver.prairie.model.audiobook.AudiobookNarration
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.FileVersion
@@ -109,13 +121,14 @@ import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
 import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
+import org.prairieserver.prairie.model.catalog.titleRatings
 import org.prairieserver.prairie.model.catalog.trailerRailEntries
 import org.prairieserver.prairie.model.ebook.MediaRelatedItem
-import org.prairieserver.prairie.model.feature.CLIENT_WATCH_TOGETHER_SURFACE_ENABLED
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.metadata.MetadataAiOnView
 import org.prairieserver.prairie.model.section.SectionItem
-import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
+import org.prairieserver.prairie.model.settings.EpisodeSpoilerPrefs
+import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import org.prairieserver.prairie.tv.ui.navigation.TvSubtitleLaunchSelection
 import org.prairieserver.prairie.tv.ui.navigation.explicitTvSubtitleLaunchSelection
 import org.prairieserver.prairie.tv.ui.components.TvDialogOption
@@ -133,12 +146,16 @@ import org.prairieserver.prairie.tv.ui.focus.TvObservedFocusResult
 import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
 import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.screens.audiobook.formatAudiobookTime
-import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvJoinCodeDialog
-import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvSuggestToRoomViewModel
-import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherEntryDialog
-import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
+import org.prairieserver.prairie.tv.ui.screens.watchparty.TvWatchPartyDetailEffects
+import org.prairieserver.prairie.tv.ui.screens.watchparty.TvWatchPartyPlayGuardDialog
+import org.prairieserver.prairie.tv.ui.screens.watchparty.rememberTvWatchPartyDetailEntry
+import org.prairieserver.prairie.tv.ui.screens.watchparty.rememberTvWatchPartyDetailOption
+import org.prairieserver.prairie.tv.ui.screens.watchparty.rememberTvWatchPartyPlayGuard
+import org.prairieserver.prairie.tv.ui.screens.watchparty.tvWatchPartyItem
+import org.prairieserver.prairie.watchtogether.WatchPartyDestination
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
+import org.prairieserver.prairie.viewmodel.WatchPartySpoilers
 
 internal data class TvSeriesDetailRedirect(
     val seriesContentId: String,
@@ -189,15 +206,22 @@ fun TvItemDetailScreen(
     ) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
-    onWatchTogether: (RoomSnapshot) -> Unit,
+    /** Open a Watch Party screen: the lobby or player, or the hub for null. */
+    onWatchParty: (WatchPartyDestination?) -> Unit,
     onOpenPerson: (personId: Long) -> Unit,
     onBack: () -> Unit,
+    // Plays the first pick of a shuffle started from the More menu.
+    onShuffleStarted: (org.prairieserver.prairie.model.shuffle.Shuffle) -> Unit = {},
     viewModel: TvItemDetailViewModel = koinViewModel(
         key = "item-detail-$contentId-$libraryId-${seasonNumber ?: "default"}-${initialEpisodeContentId ?: "default"}",
         parameters = { parametersOf(contentId, libraryId) },
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val shuffleLauncher = org.prairieserver.prairie.common.ui.rememberShuffleLauncher(
+        org.koin.compose.koinInject(),
+        onShuffleStarted,
+    )
     val seriesRedirect = remember(state.detail) {
         state.detail?.let(::tvSeriesDetailRedirect)
     }
@@ -214,6 +238,17 @@ fun TvItemDetailScreen(
     }
 
     BackHandler(enabled = true) { onBack() }
+
+    // D5: while this TV is in a Watch Party, Play (and extras) first asks to
+    // leave the party; leaving is never hidden behind a solo start.
+    val watchPartyPlayGuard = rememberTvWatchPartyPlayGuard()
+    val guardedOnPlay: (String, Int?, Int?, Boolean, TvSubtitleLaunchSelection?, String?, Double?) -> Unit =
+        { playContentId, fileId, audioTrackIndex, audioPicked, subtitleSelection, itemType, resumePositionSeconds ->
+            watchPartyPlayGuard.requestPlay {
+                onPlay(playContentId, fileId, audioTrackIndex, audioPicked, subtitleSelection, itemType, resumePositionSeconds)
+            }
+        }
+    TvWatchPartyPlayGuardDialog(watchPartyPlayGuard)
 
     LaunchedEffect(seriesRedirect, seriesRedirectFailed) {
         val redirect = seriesRedirect ?: return@LaunchedEffect
@@ -239,6 +274,10 @@ fun TvItemDetailScreen(
     // any effect-local "skip the first" flag would reset and swallow exactly
     // the resume we care about. refreshOnReturn() no-ops while detail is still
     // null, which covers the initial load.
+    // The same quiet refresh when the server reports an access change, so
+    // availability, versions, and quality limits follow the new policy; a
+    // title the viewer can no longer see shows the unavailable state.
+    OnViewerAccessChanged(koinInject<AccessChangeSignals>(), viewModel.accessChanges) { viewModel.refreshAfterAccessChange() }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -306,13 +345,15 @@ fun TvItemDetailScreen(
             initialSeasonNumber = seasonNumber,
             initialEpisodeContentId = initialEpisodeContentId,
             viewModel = viewModel,
-            onPlay = onPlay,
+            libraryId = libraryId,
+            onPlay = guardedOnPlay,
             onItemDetail = onItemDetail,
             onItemDetailReplace = onItemDetailReplace,
             onSeriesClick = onSeriesClick,
             onSeasonClick = onSeasonClick,
-            onWatchTogether = onWatchTogether,
+            onWatchParty = onWatchParty,
             onOpenPerson = onOpenPerson,
+            shuffleLauncher = shuffleLauncher,
         )
     }
 }
@@ -325,13 +366,15 @@ private fun TvDetailContent(
     initialSeasonNumber: Int?,
     initialEpisodeContentId: String?,
     viewModel: TvItemDetailViewModel,
+    libraryId: Int?,
     onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
     onItemDetailReplace: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
-    onWatchTogether: (RoomSnapshot) -> Unit,
+    onWatchParty: (WatchPartyDestination?) -> Unit,
     onOpenPerson: (personId: Long) -> Unit,
+    shuffleLauncher: org.prairieserver.prairie.common.ui.ShuffleLauncher,
 ) {
     val playFocus = remember { FocusRequester() }
     // The circular Version control in the hero action cluster. Hoisted here so
@@ -616,9 +659,26 @@ private fun TvDetailContent(
             ?: episode.title
             ?: "Episode ${episode.episodeNumber}"
     } ?: detail.title
-    val heroOverview = activeSeriesEpisode?.let { episode ->
-        activeSeriesPlaybackDetail?.overview ?: episode.overview
-    } ?: detail.overview
+    // Spoiler protection: the focused episode's (or an episode page's)
+    // description stays hidden until the profile starts it. The rail row's
+    // watch state is the one "Mark as Watched" updates, so it wins.
+    val spoilerPrefs = LocalEpisodeSpoilerPrefs.current
+    val hidesHeroOverview = when {
+        activeSeriesEpisode != null -> spoilerPrefs.hidesOverview(
+            EpisodeSpoilers.isUnwatched(
+                activeSeriesEpisode.userData ?: activeSeriesPlaybackDetail?.userData,
+            ),
+        )
+        detail.type == "episode" -> spoilerPrefs.hidesOverview(EpisodeSpoilers.isUnwatched(detail.userData))
+        else -> false
+    }
+    val heroOverview = if (hidesHeroOverview) {
+        null
+    } else {
+        activeSeriesEpisode?.let { episode ->
+            activeSeriesPlaybackDetail?.overview ?: episode.overview
+        } ?: detail.overview
+    }
     // Always derive the Series credit from the Show itself. Episode focus can
     // replace the synopsis and playback target, but must never make Starring or
     // the controls underneath it jump to a different position.
@@ -643,6 +703,7 @@ private fun TvDetailContent(
             runtimeMinutes = activeSeriesPlaybackDetail?.let { playbackDetail ->
                 selectedMediaRuntimeMinutes(playbackDetail, activeSeriesSelectedVersion)
             } ?: episode.runtime,
+            ratings = detail.titleRatings(),
         )
     } ?: TvDetailMetadata.factsLine(
         detail = detail,
@@ -650,7 +711,7 @@ private fun TvDetailContent(
         selectedFileId = heroSelectedFileId,
         includePlaybackFormats = false,
     )
-    val heroArtwork = resolveTvDetailHeroArtwork(detail, state.nextUpEpisode)
+    val heroArtwork = resolveTvDetailHeroArtwork(detail, state.nextUpEpisode, spoilerPrefs)
     val detailPageTint = rememberAmbientBackdropTintState()
     LaunchedEffect(heroArtwork.url) {
         detailPageTint.set(item = null, url = heroArtwork.url)
@@ -718,6 +779,34 @@ private fun TvDetailContent(
             viewModel.translateDescription(auto = true)
         }
     }
+    // A series page's rail lists the selected season's episodes; the season's
+    // job fills any episode description still missing.
+    val pendingEpisodeLanguage = state.episodes
+        .filter { it.seasonNumber == state.selectedSeason }
+        .pendingEpisodeTranslationLanguage()
+    LaunchedEffect(
+        detail.contentId,
+        state.selectedSeason,
+        state.seasons.isNotEmpty(),
+        pendingEpisodeLanguage,
+        metadataAiStatus.onView,
+    ) {
+        if (metadataAiStatus.onView == MetadataAiOnView.Auto && pendingEpisodeLanguage != null) {
+            viewModel.translateShownSeasonEpisodes()
+        }
+    }
+    // Label the shown description when the server reports it machine-translated:
+    // the focused episode's on a series page, else the page item's own.
+    val heroMachineTranslated = if (activeSeriesEpisode != null) {
+        if (!activeSeriesPlaybackDetail?.overview.isNullOrBlank()) {
+            hasMachineTranslatedOverview(activeSeriesPlaybackDetail?.machineTranslatedFields)
+        } else {
+            hasMachineTranslatedOverview(activeSeriesEpisode.machineTranslatedFields)
+        }
+    } else {
+        hasMachineTranslatedOverview(detail.machineTranslatedFields) &&
+            translationPhase != DescriptionTranslationPhase.Translating
+    } && !heroOverview.isNullOrBlank()
     val translationSlot: (@Composable () -> Unit)? =
         if (detail.pendingTranslationLanguage != null &&
             (metadataAiStatus.onView == MetadataAiOnView.Button ||
@@ -818,7 +907,10 @@ private fun TvDetailContent(
                             tagline = detail.tagline.takeIf { activeSeriesEpisode == null },
                             factsLine = heroFactsLine,
                             directorText = heroCreditText,
-                            translation = translationSlot.takeIf { activeSeriesEpisode == null },
+                            translation = translationSlot.takeIf {
+                                activeSeriesEpisode == null && !hidesHeroOverview
+                            },
+                            machineTranslated = heroMachineTranslated && !hidesHeroOverview,
                             compactSeries = isSeriesDetail,
                             playbackSummary = {
                                 TvDetailPlaybackSelectionSummary(
@@ -841,7 +933,42 @@ private fun TvDetailContent(
                                     onPlay = onPlay,
                                     onSeriesClick = onSeriesClick,
                                     onSeasonClick = onSeasonClick,
-                                    onWatchTogether = onWatchTogether,
+                                    libraryId = libraryId,
+                                    onWatchParty = onWatchParty,
+                                    // Season mode marks the selected season;
+                                    // Show mode offers only the whole series.
+                                    watchedSeason = state.seasons
+                                        .firstOrNull { it.seasonNumber == state.selectedSeason }
+                                        ?.takeIf { isSeriesDetail && !isShowingSeriesOverview && it.episodeCount > 0 },
+                                    onShuffleSeries = if (
+                                        isSeriesDetail &&
+                                        shuffleLauncher.supports(org.prairieserver.prairie.model.shuffle.ShuffleScopeKind.SERIES)
+                                    ) {
+                                        {
+                                            shuffleLauncher.start(
+                                                org.prairieserver.prairie.model.shuffle.ShuffleScopeKind.SERIES,
+                                                detail.contentId,
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                    // Season mode offers the season on screen,
+                                    // hidden with fewer than two playable episodes.
+                                    shuffleSeason = state.seasons
+                                        .firstOrNull { it.seasonNumber == state.selectedSeason }
+                                        ?.takeIf { season ->
+                                            isSeriesDetail && !isShowingSeriesOverview && !state.episodesLoading &&
+                                                state.episodes.all { it.seasonNumber == season.seasonNumber } &&
+                                                org.prairieserver.prairie.model.shuffle.canShuffleSeason(state.episodes) &&
+                                                shuffleLauncher.supports(org.prairieserver.prairie.model.shuffle.ShuffleScopeKind.SEASON)
+                                        },
+                                    onShuffleSeason = { season ->
+                                        shuffleLauncher.start(
+                                            org.prairieserver.prairie.model.shuffle.ShuffleScopeKind.SEASON,
+                                            season.contentId,
+                                        )
+                                    },
                                 )
                             },
                         )
@@ -1487,23 +1614,15 @@ private fun HeroActionRow(
     onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
-    onWatchTogether: (RoomSnapshot) -> Unit,
+    libraryId: Int?,
+    onWatchParty: (WatchPartyDestination?) -> Unit,
+    watchedSeason: org.prairieserver.prairie.model.catalog.Season? = null,
+    onShuffleSeries: (() -> Unit)? = null,
+    shuffleSeason: org.prairieserver.prairie.model.catalog.Season? = null,
+    onShuffleSeason: (org.prairieserver.prairie.model.catalog.Season) -> Unit = {},
 ) {
-    val suggestViewModel: TvSuggestToRoomViewModel = koinViewModel()
-    val activeRoom by suggestViewModel.room.collectAsState()
-    val suggestState by suggestViewModel.uiState.collectAsState()
-    val suggestContext = LocalContext.current
-    LaunchedEffect(suggestState.notice, suggestState.error) {
-        val message = suggestState.notice ?: suggestState.error
-        if (message != null) {
-            Toast.makeText(suggestContext, message, Toast.LENGTH_SHORT).show()
-            suggestViewModel.consumeNotice()
-            suggestViewModel.clearError()
-        }
-    }
+    val watchPartyEntry = rememberTvWatchPartyDetailEntry()
     var moreOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var watchTogetherOpen by remember(detail.contentId) { mutableStateOf(false) }
-    var joinCodeOpen by remember(detail.contentId) { mutableStateOf(false) }
     var playLaunchPending by remember(detail.contentId) { mutableStateOf(false) }
     LaunchedEffect(playLaunchPending) {
         if (playLaunchPending) {
@@ -1539,11 +1658,6 @@ private fun HeroActionRow(
     // higher-frequency Watchlist toggle is visible in the stable action row.
     val hasSeriesNavigation = detail.type in setOf("episode", "season") && detail.seriesId != null
     val hasOverflowNavigation = hasSeriesNavigation
-    val hasWatchTogether =
-        CLIENT_WATCH_TOGETHER_SURFACE_ENABLED && !isAudiobookItemType(detail.type)
-    val hasSuggestionTarget = detail.type in setOf("movie", "episode") || nextUp != null
-    val canSuggestToRoom =
-        CLIENT_WATCH_TOGETHER_SURFACE_ENABLED && activeRoom != null && hasSuggestionTarget
 
     // Version set + selection state driving the selector row / Play file id.
     // Series/season use the next-up episode's versions + the next-up selection;
@@ -1583,6 +1697,43 @@ private fun HeroActionRow(
         )
     }
     val selectedFileId = selectedVersion?.fileId
+    // Watch Party offers movies, episodes, and series (as the next-up
+    // episode), staging the edition this page displays.
+    val watchPartyItem = when {
+        detail.type == "movie" || detail.type == "episode" -> tvWatchPartyItem(
+            contentId = detail.contentId,
+            contentType = detail.type,
+            title = detail.title,
+            subtitle = if (detail.type == "episode") {
+                listOfNotNull(
+                    detail.seriesTitle,
+                    detail.seasonNumber?.let { season -> detail.episodeNumber?.let { "S${season}E$it" } },
+                ).joinToString(" · ")
+            } else {
+                detail.year.takeIf { it > 0 }?.toString()
+            },
+            posterUrl = detail.posterUrl,
+            fileId = selectedFileId,
+            libraryId = libraryId,
+            spoilers = WatchPartySpoilers.of(detail),
+        )
+        detail.type == "series" && nextUp != null && playReady -> tvWatchPartyItem(
+            contentId = nextUp.contentId,
+            contentType = "episode",
+            title = nextUp.title?.takeIf { it.isNotBlank() } ?: "Episode ${nextUp.episodeNumber}",
+            subtitle = "${detail.title} · S${nextUp.seasonNumber}E${nextUp.episodeNumber}",
+            posterUrl = nextUp.stillUrl ?: detail.posterUrl,
+            fileId = selectedFileId,
+            libraryId = libraryId,
+            spoilers = WatchPartySpoilers(
+                unwatchedEpisode = EpisodeSpoilers.isUnwatched(nextUp.userData),
+                posterIsEpisodeStill = if (!nextUp.stillUrl.isNullOrBlank()) nextUp.stillIsEpisodeStill else false,
+                backdropIsEpisodeStill = false,
+            ),
+        )
+        else -> null
+    }
+    val watchPartyOption = rememberTvWatchPartyDetailOption(watchPartyEntry, watchPartyItem)
     val automaticAudioTrackOrdinal = resolveTvAutomaticAudioTrackOrdinal(
         version = selectedVersion,
         preferredAudioLanguage = state.preferredAudioLanguage,
@@ -1753,11 +1904,39 @@ private fun HeroActionRow(
 
     if (moreOpen) {
         val options = buildList {
+            // Shuffle leads the menu, as on the web.
+            if (onShuffleSeries != null) {
+                add(
+                    TvDialogOption(
+                        key = "shuffle-series",
+                        title = "Shuffle Series",
+                        icon = Icons.Rounded.Shuffle,
+                        onClick = {
+                            moreOpen = false
+                            onShuffleSeries()
+                        },
+                    ),
+                )
+            }
+            shuffleSeason?.let { season ->
+                add(
+                    TvDialogOption(
+                        key = "shuffle-season",
+                        title = "Shuffle ${tvSeasonPickerLabel(season)}",
+                        icon = Icons.Rounded.Shuffle,
+                        onClick = {
+                            moreOpen = false
+                            onShuffleSeason(season)
+                        },
+                    ),
+                )
+            }
             add(
                 TvDialogOption(
                     key = "favorite",
                     title = if (state.isFavorite) "Remove from Favorites" else "Add to Favorites",
-                    selected = state.isFavorite,
+                    // Actions take icons, not checks: a check means "selected".
+                    icon = if (state.isFavorite) Icons.Rounded.HeartBroken else Icons.Rounded.FavoriteBorder,
                     onClick = {
                         moreOpen = false
                         viewModel.onToggleFavorite()
@@ -1768,41 +1947,38 @@ private fun HeroActionRow(
                 TvDialogOption(
                     key = "watched",
                     title = if (state.isWatched) watchedUnmarkLabel(detail) else watchedMarkLabel(detail),
-                    selected = state.isWatched,
+                    icon = if (state.isWatched) Icons.Rounded.RemoveDone else Icons.Rounded.CheckCircleOutline,
                     onClick = {
                         moreOpen = false
                         viewModel.onToggleWatched()
                     },
                 ),
             )
-            if (canSuggestToRoom) {
+            watchedSeason?.let { season ->
+                val seasonWatched = season.userData?.played == true
                 add(
                     TvDialogOption(
-                        key = "suggest-to-room",
-                        title = "Suggest to Watch Together",
-                        subtitle = "Add to the room you are in",
+                        key = "season-watched",
+                        title = "Mark ${tvSeasonPickerLabel(season)} " +
+                            if (seasonWatched) "Unwatched" else "Watched",
+                        icon = if (seasonWatched) Icons.Rounded.RemoveDone else Icons.Rounded.CheckCircleOutline,
                         onClick = {
                             moreOpen = false
-                            suggestViewModel.suggest(
-                                contentId = playContentId,
-                                contentType = playType,
-                                title = nextUp?.title ?: detail.title,
-                                subtitle = if (nextUp != null) detail.title else detail.seriesTitle,
-                                posterUrl = nextUp?.stillUrl ?: detail.posterUrl,
-                            )
+                            viewModel.onSetSeasonWatched(season, !seasonWatched)
                         },
                     ),
                 )
             }
-            if (hasWatchTogether) {
+            watchPartyOption?.let { option ->
                 add(
                     TvDialogOption(
-                        key = "watch-together",
-                        title = "Watch Together",
-                        subtitle = "Host a room or join by code",
+                        key = "watch-party",
+                        title = option.title,
+                        subtitle = option.subtitle,
+                        icon = Icons.Rounded.Groups,
                         onClick = {
                             moreOpen = false
-                            watchTogetherOpen = true
+                            option.onSelect()
                         },
                     ),
                 )
@@ -1818,6 +1994,7 @@ private fun HeroActionRow(
                                     key = "season-$season",
                                     title = "Go to Season $season",
                                     subtitle = detail.seriesTitle,
+                                    icon = Icons.Rounded.VideoLibrary,
                                     onClick = {
                                         moreOpen = false
                                         onSeasonClick(seriesId, season)
@@ -1831,6 +2008,7 @@ private fun HeroActionRow(
                             key = "series",
                             title = "Go to Series",
                             subtitle = detail.seriesTitle,
+                            icon = Icons.Rounded.Tv,
                             onClick = {
                                 moreOpen = false
                                 onSeriesClick(seriesId)
@@ -1844,48 +2022,12 @@ private fun HeroActionRow(
             title = "More Actions",
             options = options,
             onDismiss = { moreOpen = false },
+            // Shuffle is first and takes focus over a selected toggle below it.
+            initialFocusKey = options.firstOrNull()?.key?.takeIf { it.startsWith("shuffle-") },
         )
     }
 
-    if (watchTogetherOpen && hasWatchTogether) {
-        val watchTogetherViewModel: TvWatchTogetherViewModel = koinViewModel()
-        val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
-
-        LaunchedEffect(watchTogetherState.result) {
-            val room = watchTogetherState.result ?: return@LaunchedEffect
-            watchTogetherViewModel.consumeResult()
-            watchTogetherOpen = false
-            joinCodeOpen = false
-            onWatchTogether(room)
-        }
-
-        if (joinCodeOpen) {
-            TvJoinCodeDialog(
-                isBusy = watchTogetherState.isBusy,
-                error = watchTogetherState.error,
-                onJoin = watchTogetherViewModel::joinRoom,
-                onDismiss = {
-                    watchTogetherViewModel.clearError()
-                    joinCodeOpen = false
-                },
-            )
-        } else {
-            TvWatchTogetherEntryDialog(
-                isBusy = watchTogetherState.isBusy,
-                error = watchTogetherState.error,
-                onHost = { watchTogetherViewModel.createRoom(playContentId, playFileId) },
-                onHostVote = watchTogetherViewModel::createEmptyVoteRoom,
-                onJoin = {
-                    watchTogetherViewModel.clearError()
-                    joinCodeOpen = true
-                },
-                onDismiss = {
-                    watchTogetherViewModel.clearError()
-                    watchTogetherOpen = false
-                },
-            )
-        }
-    }
+    TvWatchPartyDetailEffects(entry = watchPartyEntry, onNavigate = onWatchParty)
 }
 
 internal data class SeriesEpisodePlaybackLaunch(
@@ -2555,21 +2697,34 @@ internal data class TvDetailHeroArtwork(
  * Item detail responses can legitimately omit series/season artwork even
  * though their loaded episode rows carry landscape stills. Prefer the real
  * backdrop, then an episodic landscape still; never stretch a portrait poster
- * across a movie/series hero.
+ * across a movie/series hero. A still that spoiler protection hides is never
+ * shown full-size here: only its ThumbHash colour field is used.
  */
 internal fun resolveTvDetailHeroArtwork(
     detail: ItemDetail,
     nextUpEpisode: EpisodeListItem?,
+    spoilerPrefs: EpisodeSpoilerPrefs = EpisodeSpoilerPrefs.NONE,
 ): TvDetailHeroArtwork {
     if (!detail.backdropUrl.isNullOrBlank() || !detail.backdropThumbhash.isNullOrBlank()) {
-        return TvDetailHeroArtwork(detail.backdropUrl, detail.backdropThumbhash)
+        val hidesBackdrop = detail.type.equals("episode", ignoreCase = true) &&
+            spoilerPrefs.hidesImage(EpisodeSpoilers.isUnwatched(detail.userData), detail.backdropIsEpisodeStill)
+        return TvDetailHeroArtwork(detail.backdropUrl.takeUnless { hidesBackdrop }, detail.backdropThumbhash)
     }
     return when (detail.type.lowercase()) {
-        "series", "season" -> TvDetailHeroArtwork(
-            nextUpEpisode?.stillUrl,
-            nextUpEpisode?.stillThumbhash,
+        "series", "season" -> {
+            val hidesStill = nextUpEpisode != null &&
+                spoilerPrefs.hidesImage(EpisodeSpoilers.isUnwatched(nextUpEpisode.userData), nextUpEpisode.stillIsEpisodeStill)
+            TvDetailHeroArtwork(
+                nextUpEpisode?.stillUrl.takeUnless { hidesStill },
+                nextUpEpisode?.stillThumbhash,
+            )
+        }
+        "episode" -> TvDetailHeroArtwork(
+            detail.posterUrl.takeUnless {
+                spoilerPrefs.hidesImage(EpisodeSpoilers.isUnwatched(detail.userData), detail.posterIsEpisodeStill)
+            },
+            detail.posterThumbhash,
         )
-        "episode" -> TvDetailHeroArtwork(detail.posterUrl, detail.posterThumbhash)
         else -> TvDetailHeroArtwork(null, null)
     }
 }

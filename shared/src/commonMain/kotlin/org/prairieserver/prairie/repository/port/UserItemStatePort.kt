@@ -106,6 +106,19 @@ interface UserItemStatePort {
     suspend fun localPlaybackProgressForContent(contentIds: List<String>): Map<String, LocalPlaybackProgress> = emptyMap()
 
     /**
+     * Clears local resume samples recorded before [admittedAtMs] for [contentIds].
+     * A season or series watched write names only its parent, so the episodes it
+     * reached keep their local progress unless the caller clears it here.
+     * [identityGeneration] is the write's; nothing is cleared once the active
+     * server, account, or profile has changed since.
+     */
+    suspend fun clearLocalPlaybackProgressBefore(
+        contentIds: List<String>,
+        admittedAtMs: Long,
+        identityGeneration: Long,
+    ) {}
+
+    /**
      * Durably record per-file track selections. These are local-only hints for
      * future playback starts, stored as stable fingerprints rather than raw UI
      * ordinals so they survive track-list reordering. They do not enqueue a
@@ -198,6 +211,9 @@ interface UserItemStatePort {
      * a cached card. Batched (one query). Empty map by default / unknown ids absent.
      */
     suspend fun localContentStates(contentIds: List<String>): Map<String, LocalContentState> = emptyMap()
+
+    /** Local writes that must take precedence over a server read started at [sinceMs]. */
+    suspend fun contentIdsWithPendingOrNewerUserState(contentIds: List<String>, sinceMs: Long): Set<String> = emptySet()
 }
 
 /** Local optimistic content-level state; null fields = "no local opinion" (defer to server). */

@@ -1,8 +1,10 @@
 package org.prairieserver.prairie.cast
 
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 
@@ -328,6 +330,23 @@ class PrairieCastMessageTest {
         assertWireEquals(
             """{"type":"handoff_cancel","v":2,"handoffCancel":{"requestId":"req-1","reason":"denied","message":"No"}}""",
             PrairieCastMessage.HandoffCancel(PrairieCastHandoffCancel("req-1", "denied", "No")),
+        )
+    }
+
+    @Test
+    fun unknownMessageTypeIsDroppedNotFatal() {
+        assertNull(PrairieCastMessage.decodeOrNull(json, """{"type":"queue_update","v":3,"queueUpdate":{"items":[]}}"""))
+        assertIs<PrairieCastMessage.Ping>(PrairieCastMessage.decodeOrNull(json, """{"type":"ping","v":2}"""))
+        // A known kind with a broken payload is still a protocol error.
+        assertFailsWith<SerializationException> {
+            PrairieCastMessage.decodeOrNull(json, """{"type":"state","v":2,"state":{"title":"x"}}""")
+        }
+        assertEquals(
+            setOf(
+                "hello", "handoff_offer", "handoff_challenge", "handoff_ready", "handoff_cancel",
+                "launch", "control", "state", "error", "ping", "pong", "close",
+            ),
+            PrairieCastMessage.knownTypes,
         )
     }
 }

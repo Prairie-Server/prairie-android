@@ -56,6 +56,7 @@ class MembershipActivationTest {
         val app = org.koin.dsl.koinApplication(createEagerInstances = false) {
             modules(org.prairieserver.prairie.di.repositoryModule, org.koin.dsl.module {
                 single { PersonalDataApi(client) }
+                single { SettingsApi(SettingsV2Api(client, tokens, ApiV2Gate.Unrestricted)) }
                 single<MembershipPort> { port }
                 single<IdentityTransitionBarrier> { barrier }
             })
@@ -175,7 +176,7 @@ class MembershipActivationTest {
             }
         })
         val (repository, _) = repository(client)
-        val vm = HomeViewModel(SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted))),
+        val vm = HomeViewModel(SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted, decodeDispatcher = Dispatchers.Main))),
             org.prairieserver.prairie.domain.MediaActionsCoordinator(repository), identityTransitions = barrier)
         viewModels += vm
         vm.uiState.first { !it.isLoading }
@@ -224,7 +225,7 @@ class MembershipActivationTest {
             }
         })
         val (repository, _) = repository(client)
-        val vm = HomeViewModel(SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted))),
+        val vm = HomeViewModel(SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted, decodeDispatcher = Dispatchers.Main))),
             org.prairieserver.prairie.domain.MediaActionsCoordinator(repository), identityTransitions = barrier)
         viewModels += vm
         vm.uiState.first { !it.isLoading }
@@ -285,7 +286,7 @@ class MembershipActivationTest {
             }
         })
         val (repository, _) = repository(client)
-        val vm = HomeViewModel(SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted))),
+        val vm = HomeViewModel(SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted, decodeDispatcher = Dispatchers.Main))),
             org.prairieserver.prairie.domain.MediaActionsCoordinator(repository), identityTransitions = barrier)
         viewModels += vm
         vm.uiState.first { !it.isLoading }

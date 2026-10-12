@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,11 +13,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.ClosedCaption
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,11 +31,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.theme.PrairieBackground
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
+import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.ItemExtra
 import org.prairieserver.prairie.model.catalog.Season
 import org.prairieserver.prairie.model.catalog.trailerRailEntries
+import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
@@ -72,6 +78,11 @@ fun SeriesDetailContent(
     onEpisodeDetailClick: (String) -> Unit,
     onEpisodeWatchedChange: (String, Boolean) -> Unit,
     onSeasonSelected: (Int) -> Unit,
+    onSeasonWatchedChange: ((Season, Boolean) -> Unit)? = null,
+    // Shuffle the whole series, or the season on screen; null where the
+    // server doesn't offer that scope.
+    onShuffleSeries: (() -> Unit)? = null,
+    onShuffleSeason: ((Season) -> Unit)? = null,
     onFavoriteClick: () -> Unit,
     onWatchlistClick: () -> Unit,
     onToggleWatched: () -> Unit,
@@ -84,8 +95,8 @@ fun SeriesDetailContent(
     /** Series-level roll-up across ALL seasons: isDownloaded when every episode
      *  is downloaded, progress = downloaded/total fraction while partial. */
     seriesDownloadState: DetailDownloadState = DetailDownloadState(),
-    onWatchTogether: (() -> Unit)? = null,
-    onSuggestToRoom: (() -> Unit)? = null,
+    /** The Watch Party overflow action (host, add, or suggest), when one applies. */
+    partyAction: org.prairieserver.prairie.android.ui.screens.watchparty.DetailPartyAction? = null,
     translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -105,14 +116,45 @@ fun SeriesDetailContent(
     val loadedSelectedEpisodeDetail = selectedEpisodeDetail
         ?.takeIf { it.contentId == selectedEpisodeContentId }
     val usesEpisodeEditorial = selectedEpisode != null || selectedEpisodeContentId != null
-    val selectedEpisodeOverview = loadedSelectedEpisodeDetail?.overview
-        ?.takeIf { it.isNotBlank() }
-        ?: selectedEpisode?.overview?.takeIf { it.isNotBlank() }
+    // Spoiler protection: the rail row's watch state is the one the long-press
+    // "Mark as Watched" updates, so it wins over the loaded episode detail.
+    val selectedEpisodeUnwatched = EpisodeSpoilers.isUnwatched(
+        selectedEpisode?.userData ?: loadedSelectedEpisodeDetail?.userData,
+    )
+    val hidesSelectedEpisodeOverview =
+        LocalEpisodeSpoilerPrefs.current.hidesOverview(selectedEpisodeUnwatched)
+    val selectedEpisodeOverview = if (hidesSelectedEpisodeOverview) {
+        null
+    } else {
+        loadedSelectedEpisodeDetail?.overview
+            ?.takeIf { it.isNotBlank() }
+            ?: selectedEpisode?.overview?.takeIf { it.isNotBlank() }
+    }
+    // Mark the episode overview by the same source the text above came from.
+    val selectedEpisodeOverviewMachineTranslated = when {
+        !loadedSelectedEpisodeDetail?.overview.isNullOrBlank() ->
+            hasMachineTranslatedOverview(loadedSelectedEpisodeDetail?.machineTranslatedFields)
+        selectedEpisodeOverview != null -> hasMachineTranslatedOverview(selectedEpisode?.machineTranslatedFields)
+        else -> false
+    }
+    val episodeTranslationLabel: (@Composable () -> Unit)? =
+        if (!hidesSelectedEpisodeOverview && selectedEpisodeOverviewMachineTranslated) {
+            { DetailMachineTranslatedLabel() }
+        } else {
+            null
+        }
     // iOS keeps the series cast credit stable while the selected episode's
     // overview and playback options change. Reusing the series credit avoids
     // replacing it with a skeleton (and repainting different names) on every
     // horizontal episode selection.
     val fixedSeriesCredit = remember(detail.contentId, detail.cast) { seriesStarringCredit(detail) }
+    val markableSelectedSeason = selectedSeason?.takeIf {
+        onSeasonWatchedChange != null && it.episodeCount > 0
+    }
+    // Hidden on a season with fewer than two playable episodes.
+    val shuffleableSelectedSeason = selectedSeason?.takeIf {
+        onShuffleSeason != null && org.prairieserver.prairie.model.shuffle.canShuffleSeason(episodes)
+    }
     val episodeCountSubtitle = selectedSeason?.episodeCount?.takeIf { it > 0 }?.let { count ->
         "$count episode${if (count == 1) "" else "s"}"
     }
@@ -169,6 +211,7 @@ fun SeriesDetailContent(
                     seasons = seasons,
                     selectedSeasonNumber = selectedSeasonNumber,
                     onSeasonSelected = onSeasonSelected,
+                    onSeasonWatchedChange = onSeasonWatchedChange,
                 )
             }
             if (showsEpisodeDetails) {
@@ -257,11 +300,14 @@ fun SeriesDetailContent(
                 } else {
                     detail.overview
                 },
-                reserveOverviewSpace = !isExpandedDetailLayout && usesEpisodeEditorial,
+                // A hidden (spoiler) overview collapses instead of leaving
+                // the reserved block empty between the actions and the credit.
+                reserveOverviewSpace = !isExpandedDetailLayout && usesEpisodeEditorial &&
+                    !hidesSelectedEpisodeOverview,
                 directorText = fixedSeriesCredit,
                 isCreditLoading = false,
                 reserveCreditSpace = !isExpandedDetailLayout && usesEpisodeEditorial,
-                translation = if (isExpandedDetailLayout || !usesEpisodeEditorial) translation else null,
+                translation = if (isExpandedDetailLayout || !usesEpisodeEditorial) translation else episodeTranslationLabel,
                 belowOverview = if (isExpandedDetailLayout) null else playbackSelector,
                 expandedBelowOverview = {
                     episodeSection(true)
@@ -281,30 +327,64 @@ fun SeriesDetailContent(
                     onToggleWatchlist = onWatchlistClick,
                     onToggleWatched = onToggleWatched,
                     overflow = if (
-                        onWatchTogether != null || onSuggestToRoom != null
+                        markableSelectedSeason != null || partyAction != null ||
+                        onShuffleSeries != null || shuffleableSelectedSeason != null
                     ) {
                         { dismiss ->
-                            if (onSuggestToRoom != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Suggest to Watch Together") },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.Groups, contentDescription = null)
-                                    },
+                            if (onShuffleSeries != null) {
+                                PrairieDropdownMenuItem(
+                                    text = { Text("Shuffle Series") },
+                                    leadingIcon = { Icon(Icons.Filled.Shuffle, contentDescription = null) },
                                     onClick = {
                                         dismiss()
-                                        onSuggestToRoom()
+                                        onShuffleSeries()
                                     },
                                 )
                             }
-                            if (onWatchTogether != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Watch Together") },
+                            if (shuffleableSelectedSeason != null && onShuffleSeason != null) {
+                                PrairieDropdownMenuItem(
+                                    text = { Text("Shuffle ${phoneSeasonLabel(shuffleableSelectedSeason)}") },
+                                    leadingIcon = { Icon(Icons.Filled.Shuffle, contentDescription = null) },
+                                    onClick = {
+                                        dismiss()
+                                        onShuffleSeason(shuffleableSelectedSeason)
+                                    },
+                                )
+                            }
+                            if (markableSelectedSeason != null && onSeasonWatchedChange != null) {
+                                val seasonWatched = markableSelectedSeason.userData?.played == true
+                                PrairieDropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "Mark ${phoneSeasonLabel(markableSelectedSeason)} " +
+                                                if (seasonWatched) "Unwatched" else "Watched",
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (seasonWatched) {
+                                                Icons.Outlined.Circle
+                                            } else {
+                                                Icons.Outlined.CheckCircle
+                                            },
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        dismiss()
+                                        onSeasonWatchedChange(markableSelectedSeason, !seasonWatched)
+                                    },
+                                )
+                            }
+                            if (partyAction != null) {
+                                PrairieDropdownMenuItem(
+                                    text = { Text(partyAction.label) },
                                     leadingIcon = {
                                         Icon(Icons.Outlined.Groups, contentDescription = null)
                                     },
                                     onClick = {
                                         dismiss()
-                                        onWatchTogether()
+                                        partyAction.onClick()
                                     },
                                 )
                             }
@@ -335,12 +415,12 @@ fun SeriesDetailContent(
                                         }
                                     },
                                 )
-                                DropdownMenu(
+                                PrairieDropdownMenu(
                                     expanded = showDownloadMenu,
                                     onDismissRequest = { showDownloadMenu = false },
                                 ) {
                                     if (onEpisodeDownloadClick != null) {
-                                        DropdownMenuItem(
+                                        PrairieDropdownMenuItem(
                                             text = { Text(when {
                                                 episodeDownloadState.isDownloaded -> "Episode downloaded"
                                                 episodeDownloadState.progress != null -> "Cancel episode download"
@@ -354,7 +434,7 @@ fun SeriesDetailContent(
                                         )
                                     }
                                     if (onSeriesDownloadClick != null) {
-                                        DropdownMenuItem(
+                                        PrairieDropdownMenuItem(
                                             text = { Text(if (seriesDownloadState.isDownloaded) "Series downloaded" else "Download series") },
                                             enabled = !seriesDownloadState.isDownloaded,
                                             onClick = {

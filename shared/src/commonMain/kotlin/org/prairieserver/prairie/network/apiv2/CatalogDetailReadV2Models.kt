@@ -27,6 +27,7 @@ internal data class ItemDetailReadV2(
     val year: Int = 0,
     val overview: String? = null,
     @SerialName("pending_translation_language") val pendingTranslationLanguage: String? = null,
+    @SerialName("machine_translated_fields") val machineTranslatedFields: List<String> = emptyList(),
     val tagline: String? = null,
     val runtime: Int = 0,
     @SerialName("content_rating") val contentRating: String? = null,
@@ -35,6 +36,9 @@ internal data class ItemDetailReadV2(
     @SerialName("rating_tmdb") val ratingTmdb: Double? = null,
     @SerialName("rating_rt_critic") val ratingRtCritic: Int? = null,
     @SerialName("rating_rt_audience") val ratingRtAudience: Int? = null,
+    // Absent on servers that predate the title-page ratings row.
+    @Serializable(with = DisplayRatingListSerializer::class)
+    val ratings: List<DisplayRating>? = null,
     @SerialName("imdb_id") val imdbId: String? = null,
     @SerialName("tmdb_id") val tmdbId: String? = null,
     @SerialName("tvdb_id") val tvdbId: String? = null,
@@ -47,6 +51,8 @@ internal data class ItemDetailReadV2(
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("last_air_date") val lastAirDate: String? = null,
+    @SerialName("poster_is_episode_still") val posterIsEpisodeStill: Boolean? = null,
+    @SerialName("backdrop_is_episode_still") val backdropIsEpisodeStill: Boolean? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,
@@ -88,6 +94,7 @@ internal data class ItemDetailReadV2(
         year = year,
         overview = overview,
         pendingTranslationLanguage = pendingTranslationLanguage,
+        machineTranslatedFields = machineTranslatedFields,
         tagline = tagline,
         runtime = runtime,
         contentRating = contentRating,
@@ -96,6 +103,7 @@ internal data class ItemDetailReadV2(
         ratingTmdb = ratingTmdb,
         ratingRtCritic = ratingRtCritic,
         ratingRtAudience = ratingRtAudience,
+        ratings = ratings,
         imdbId = imdbId,
         tmdbId = tmdbId,
         tvdbId = tvdbId,
@@ -108,6 +116,8 @@ internal data class ItemDetailReadV2(
         releaseDate = releaseDate,
         firstAirDate = firstAirDate,
         lastAirDate = lastAirDate,
+        posterIsEpisodeStill = posterIsEpisodeStill,
+        backdropIsEpisodeStill = backdropIsEpisodeStill,
         posterUrl = posterUrl,
         posterThumbhash = posterThumbhash,
         backdropUrl = backdropUrl,
@@ -271,10 +281,13 @@ internal data class EpisodeListItemReadV2(
     @SerialName("imdb_id") val imdbId: String? = null,
     @SerialName("tmdb_id") val tmdbId: String? = null,
     @SerialName("tvdb_id") val tvdbId: String? = null,
+    @SerialName("still_is_episode_still") val stillIsEpisodeStill: Boolean? = null,
     @SerialName("still_url") val stillUrl: String? = null,
     @SerialName("still_thumbhash") val stillThumbhash: String? = null,
     @SerialName("user_data") val userData: LeafItemUserDataReadV2? = null,
-    val files: List<EpisodeFileReadV2> = emptyList()
+    val files: List<EpisodeFileReadV2> = emptyList(),
+    @SerialName("pending_translation_language") val pendingTranslationLanguage: String? = null,
+    @SerialName("machine_translated_fields") val machineTranslatedFields: List<String> = emptyList(),
 ) {
     fun toDomain() = EpisodeListItem(
         contentId = contentId,
@@ -287,10 +300,13 @@ internal data class EpisodeListItemReadV2(
         imdbId = imdbId,
         tmdbId = tmdbId,
         tvdbId = tvdbId,
+        stillIsEpisodeStill = stillIsEpisodeStill,
         stillUrl = stillUrl,
         stillThumbhash = stillThumbhash,
         userData = userData?.toDomain(),
         files = files.map { it.toDomain() },
+        pendingTranslationLanguage = pendingTranslationLanguage,
+        machineTranslatedFields = machineTranslatedFields,
     )
 }
 

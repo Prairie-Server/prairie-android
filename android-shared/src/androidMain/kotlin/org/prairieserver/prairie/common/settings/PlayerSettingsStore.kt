@@ -75,6 +75,13 @@ interface PlayerSettingsStore {
     val letterboxExpansionFlow: Flow<String>
         get() = flowOf(LetterboxExpansion.Default)
 
+    /**
+     * See [org.prairieserver.prairie.model.settings.PlaybackSettingsKeys.TrueBlackBars].
+     * Defaulted for the same reason as [letterboxExpansionFlow].
+     */
+    val trueBlackBarsFlow: Flow<Boolean>
+        get() = flowOf(false)
+
     /** Per-profile preference for restricting downloads to unmetered (Wi-Fi)
      *  networks. Default true. Consumed by [DownloadEnqueuer] at enqueue
      *  time to set the WorkManager NetworkType constraint. */
@@ -126,8 +133,25 @@ interface PlayerSettingsStore {
     val subtitleMatchesDeviceFlow: Flow<Boolean>
     /** iOS AppNavPreferences.showAudiobooks parity — audiobook surfaces are opt-in. */
     val showAudiobooksFlow: Flow<Boolean>
+
+    /**
+     * The server-stored keys this device holds its own value for, in the
+     * active profile. A control whose key is absent follows the profile (or
+     * the default); see [PlaybackSettingsKeys.hasDeviceOverride][org.prairieserver.prairie.model.settings.PlaybackSettingsKeys.hasDeviceOverride].
+     */
+    val deviceOverrideKeysFlow: Flow<Set<String>>
+        get() = flowOf(emptySet())
     /** [subtitleAppearanceFlow] with the match-device override applied. */
     val effectiveSubtitleAppearanceFlow: Flow<org.prairieserver.prairie.model.settings.SubtitleAppearance>
+
+    /**
+     * False only when the active server is known to run a settings manifest
+     * older than [SubtitleAppearance.TEXT_OPACITY_MIN_MANIFEST_REVISION], so it
+     * would discard [SubtitleAppearance.textOpacity]. An unknown revision
+     * counts as supported: the flusher holds the value until it is known.
+     */
+    val subtitleTextOpacitySupportedFlow: Flow<Boolean>
+        get() = flowOf(true)
 
     // Setters
     suspend fun setIntroSkipMode(value: IntroSkipMode)
@@ -148,6 +172,7 @@ interface PlayerSettingsStore {
     suspend fun setPictureInPictureEnabled(value: Boolean)
     suspend fun setForceHdrPassthrough(value: Boolean)
     suspend fun setLetterboxExpansion(value: String) = Unit
+    suspend fun setTrueBlackBars(value: Boolean) = Unit
     suspend fun setDownloadsWifiOnly(value: Boolean)
     suspend fun setKeepWatchedDownloads(value: Boolean)
     suspend fun setDefaultDownloadQuality(value: String)
@@ -178,6 +203,23 @@ interface PlayerSettingsStore {
     suspend fun setOrientationMode(value: String)
 
     suspend fun setSubtitleAppearance(value: SubtitleAppearance)
+
+    /**
+     * Applies [transform] atomically against the current stored appearance,
+     * read inside the same DataStore transaction that writes the result.
+     * Unlike a caller reading [subtitleAppearanceFlow] and then calling
+     * [setSubtitleAppearance] separately, no write from another caller can
+     * land in the gap between the read and the write — two edits committing
+     * around the same time (e.g. two fields as a sheet dismisses) each see
+     * the other's result instead of racing on a shared pre-transaction read.
+     *
+     * The default falls back to the non-atomic read-then-write for fakes
+     * that only need to capture the resulting value; [AndroidPlayerSettingsStore]
+     * overrides this with the real atomic transaction.
+     */
+    suspend fun updateSubtitleAppearance(transform: (SubtitleAppearance) -> SubtitleAppearance) {
+        setSubtitleAppearance(transform(subtitleAppearanceFlow.first()))
+    }
 
     /**
      * Project the granular, client-local `subtitle.*` fields into the
@@ -213,20 +255,23 @@ interface PlayerSettingsStore {
     suspend fun setShowAudiobooks(enabled: Boolean)
 
     /**
-     * Clear the server-side device override for one key. Local DataStore
-     * is repopulated from the cascade (user → global → default) on the
-     * next refresh.
+     * Go back to the profile's value for one setting on this device: clears
+     * the device-scoped value for [key] (and any key its control writes with
+     * it), then refreshes so the profile's value, or the default, applies.
      */
     suspend fun resetDeviceSetting(key: String)
 
     /**
-     * Return this device's playback settings to their defaults — the user's
-     * "Reset playback settings" action. Clears every server-side device
-     * override (as iOS `PlayerSettings.resetAllDeviceSettings()` does) and the
-     * local-only playback keys that have no server row to clear, since those
-     * would otherwise survive an action whose whole promise is the defaults.
+     * The user's "Use Profile Settings" action. Clears every server-side
+     * device override (as iOS `PlayerSettings.resetAllDeviceSettings()` does)
+     * and resets the local-only playback keys, which have no profile value, to
+     * their defaults.
+     *
+     * Returns true when every clear reached the server and the server's
+     * answer no longer resolves any setting from this device; false when some
+     * are still queued (offline) or the server could not confirm it.
      */
-    suspend fun resetAllDeviceSettings()
+    suspend fun resetAllDeviceSettings(): Boolean
 
     /**
      * Cancel any in-flight debounce, drain pending writes, and suspend

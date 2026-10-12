@@ -67,7 +67,7 @@ androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/theme/Color.
 androidApp/src/androidMain/res/values/colors.xml	1	#FFE0A84A	phone Dusk XML accent
 
 # --- Quick Connect naming (12925ada).
-androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/AccountSection.kt	1	"Quick Connect"	phone settings row
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/SettingsScreen.kt	1	"Quick Connect"	phone settings row
 androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/auth/DevicePairingScreen.kt	1	"Quick Connect"	phone approval screen title
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/auth/TvPairDeviceScreen.kt	1	"Quick Connect"	TV approval screen title
 
@@ -93,7 +93,7 @@ androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/serv
 
 # --- App update status (b3b04cbb).
 shared/src/commonMain/kotlin/org/prairieserver/prairie/di/NetworkModule.kt	1	AppUpdateChecker\(	update checker binding
-androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/ServerInfoSection.kt	1	AppUpdateStatusRow\(\)	phone settings update row (dropped by a sync once)
+androidApp/src/androidMain/kotlin/org/prairieserver/prairie/android/ui/screens/settings/SettingsScreen.kt	1	AppUpdateStatusRow\(\)	phone settings update row (dropped by a sync once)
 androidTvApp/src/androidMain/kotlin/org/prairieserver/prairie/tv/ui/screens/settings/TvSettingsScreen.kt	1	TvAppUpdateStatusRows\(\)	TV settings update rows
 
 # --- Player: quality ladder, trickplay, stats for nerds (63055d17, 261d6f81).

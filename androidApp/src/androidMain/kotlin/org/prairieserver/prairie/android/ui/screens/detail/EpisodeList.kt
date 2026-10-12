@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,8 +30,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -53,8 +53,13 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.prairieserver.prairie.android.ui.util.formatCardDate
 import org.prairieserver.prairie.android.ui.util.playbackResumePosition
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
+import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
+import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import kotlin.math.abs
 
 /**
@@ -172,6 +177,10 @@ private fun EpisodeRailCard(
     var menuExpanded by remember { mutableStateOf(false) }
     val isWatched = episode.userData?.played == true
     val stillShape = RoundedCornerShape(8.dp)
+    val spoilers = LocalEpisodeSpoilerPrefs.current
+    val unwatched = EpisodeSpoilers.isUnwatched(episode.userData)
+    val visibleOverview = episode.overview
+        ?.takeIf { it.isNotBlank() && !spoilers.hidesOverview(unwatched) }
     val progress = episodeProgressFraction(
         positionSeconds = episode.userData?.positionSeconds,
         durationSeconds = episode.userData?.durationSeconds,
@@ -197,11 +206,14 @@ private fun EpisodeRailCard(
                     shape = stillShape,
                 ),
         ) {
-            ThumbhashImage(
+            SpoilerImage(
                 url = episode.stillUrl,
                 thumbhash = episode.stillThumbhash,
+                hidden = spoilers.hidesImage(unwatched, episode.stillIsEpisodeStill),
                 contentDescription = episode.title,
                 modifier = Modifier.fillMaxSize(),
+                // The play button covers the centre, so no mark under it.
+                defaultArtwork = if (onPlayClick != null) DefaultArtworkKind.GlowOnly else DefaultArtworkKind.Tv,
             )
 
             if (episode.userData?.played == true) {
@@ -275,6 +287,11 @@ private fun EpisodeRailCard(
                     letterSpacing = 1.sp,
                     color = Color.White.copy(alpha = 0.55f),
                 )
+                if (showsEpisodeDetails && visibleOverview != null &&
+                    hasMachineTranslatedOverview(episode.machineTranslatedFields)
+                ) {
+                    DetailMachineTranslatedLabel(compact = true, iconSize = 11.dp)
+                }
                 if (isCurrent) {
                     Text(
                         text = "NOW VIEWING",
@@ -311,9 +328,11 @@ private fun EpisodeRailCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                // Spoiler protection omits the text; the fixed-height column
+                // keeps the card the same size.
+                if (visibleOverview != null) {
                     Text(
-                        text = overview,
+                        text = visibleOverview,
                         style = MaterialTheme.typography.bodySmall,
                         color = DetailSecondaryText,
                         maxLines = 3,
@@ -322,11 +341,11 @@ private fun EpisodeRailCard(
                 }
             }
         }
-        DropdownMenu(
+        PrairieDropdownMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
-            DropdownMenuItem(
+            PrairieDropdownMenuItem(
                 text = { Text(if (isWatched) "Mark as Unwatched" else "Mark as Watched") },
                 onClick = {
                     menuExpanded = false

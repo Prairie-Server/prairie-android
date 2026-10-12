@@ -77,7 +77,7 @@ class HomeViewModelCacheIdentityTest {
         val cache = RecordingHomeCache()
         val viewModel = HomeViewModel(
             sectionRepository = SectionRepository(
-                sectionApi = SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted)),
+                sectionApi = SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted, decodeDispatcher = dispatcher)),
             ),
             mediaActions = mediaActions(),
             homeCache = cache,
@@ -107,7 +107,7 @@ class HomeViewModelCacheIdentityTest {
         }
         val observations = mutableListOf<HomeLoadObservation>()
         val viewModel = HomeViewModel(
-            sectionRepository = SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted))),
+            sectionRepository = SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted, decodeDispatcher = dispatcher))),
             mediaActions = mediaActions(),
             diagnostics = HomeDiagnosticsObserver(observations::add),
         )
@@ -123,6 +123,47 @@ class HomeViewModelCacheIdentityTest {
         // The repository removes empty rows during hydration; diagnostics see
         // only the aggregate resolved count, never the private row metadata.
         assertEquals(listOf(0, 0), observations.map { it.sectionCount })
+    }
+
+    @Test
+    fun realtimeSignalsDuringARefreshRunOneMoreRefreshAfterIt() = runTest(dispatcher) {
+        var requests = 0
+        val realtimeEntered = CompletableDeferred<Unit>()
+        val releaseRealtime = CompletableDeferred<Unit>()
+        val followUpEntered = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine {
+                when (++requests) {
+                    2 -> {
+                        realtimeEntered.complete(Unit)
+                        releaseRealtime.await()
+                    }
+                    3 -> followUpEntered.complete(Unit)
+                }
+                respond(
+                    """{"sections":[]}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            install(ContentNegotiation) { json(PrairieJson) }
+        }
+        val viewModel = HomeViewModel(
+            sectionRepository = SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted, decodeDispatcher = dispatcher))),
+            mediaActions = mediaActions(),
+        )
+        viewModel.uiState.first { !it.isLoading }
+
+        viewModel.refreshFromRealtime()
+        realtimeEntered.await()
+        // An access change reported while that fetch is out: its answer may
+        // predate the change. Repeated signals collapse into one follow-up.
+        viewModel.refreshFromRealtime()
+        viewModel.refreshFromRealtime()
+        releaseRealtime.complete(Unit)
+
+        followUpEntered.await()
     }
 
     private class RecordingHomeCache : HomeCachePort {

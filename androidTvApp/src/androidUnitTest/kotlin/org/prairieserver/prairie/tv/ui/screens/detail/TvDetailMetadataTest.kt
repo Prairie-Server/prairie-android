@@ -12,6 +12,7 @@ import org.prairieserver.prairie.model.catalog.VideoTrack
 import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
 import org.prairieserver.prairie.model.catalog.trailerRailEntries
 import org.prairieserver.prairie.model.ebook.MediaPerson
+import org.prairieserver.prairie.tv.ui.components.TvHeroFactToken
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals

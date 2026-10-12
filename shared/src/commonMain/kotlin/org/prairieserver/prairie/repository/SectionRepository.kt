@@ -14,8 +14,15 @@ import org.prairieserver.prairie.network.map
 import org.prairieserver.prairie.repository.port.CatalogCachePort
 import org.prairieserver.prairie.repository.port.NoOpCatalogCachePort
 import org.prairieserver.prairie.repository.port.canServeCache
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class SectionRepository(
     private val sectionApi: SectionApi,
@@ -25,7 +32,42 @@ class SectionRepository(
     suspend fun captureHomeAuthority() = sectionApi.captureHomeAuthority()
     suspend fun isHomeAuthorityCurrent(owner: org.prairieserver.prairie.network.AuthScopeSnapshot) = sectionApi.isHomeAuthorityCurrent(owner)
 
-    suspend fun getHomeSections(owner: org.prairieserver.prairie.network.AuthScopeSnapshot) = sectionApi.getHomeSections(owner)
+    private val homeReadLock = Mutex()
+    private var homeRead: Pair<org.prairieserver.prairie.network.AuthScopeSnapshot, CompletableDeferred<ApiResult<SectionsResponse>>>? = null
+
+    suspend fun getHomeSections(owner: org.prairieserver.prairie.network.AuthScopeSnapshot): ApiResult<SectionsResponse> {
+        val read = CompletableDeferred<ApiResult<SectionsResponse>>()
+        homeReadLock.withLock { homeRead = owner to read }
+        try {
+            return sectionApi.getHomeSections(owner).also { read.complete(it) }
+        } catch (e: Throwable) {
+            read.completeExceptionally(e)
+            throw e
+        } finally {
+            withContext(NonCancellable) { homeReadLock.withLock { if (homeRead?.second === read) homeRead = null } }
+        }
+    }
+
+    /**
+     * Home's first load: joins a read for the same [owner] that is already
+     * running instead of starting another. At launch the startup warmup starts
+     * one, and with 100-item rows each read downloads and decodes over 1 MB.
+     * Refreshes use [getHomeSections], which never joins: they must see changes
+     * made after an earlier read started.
+     */
+    suspend fun getHomeSectionsJoiningRead(owner: org.prairieserver.prairie.network.AuthScopeSnapshot): ApiResult<SectionsResponse> {
+        val running = homeReadLock.withLock { homeRead?.takeIf { it.first == owner }?.second }
+        if (running != null) {
+            try {
+                return running.await()
+            } catch (e: CancellationException) {
+                // The read we joined was cancelled with its caller; read for ourselves.
+                currentCoroutineContext().ensureActive()
+            }
+        }
+        return getHomeSections(owner)
+    }
+
     suspend fun getHomeSectionItems(id: String, owner: org.prairieserver.prairie.network.AuthScopeSnapshot) = sectionApi.getHomeSectionItems(id, owner)
 
     suspend fun dismissHomeItem(surface: String, itemId: String, anchor: String, owner: org.prairieserver.prairie.network.AuthScopeSnapshot) =
@@ -69,6 +111,10 @@ class SectionRepository(
     ): ApiResult<HomeSectionItemsResponse> =
         sectionApi.getLibrarySectionItems(libraryId, sectionId, owner)
 
+    suspend fun getLibrarySectionCatalogItems(libraryId: Int, sectionId: String,
+        owner: org.prairieserver.prairie.network.AuthScopeSnapshot, continuation: CatalogContinuationV2?) =
+        sectionApi.getLibrarySectionCatalogItems(libraryId, sectionId, owner, continuation)
+
     /** Lists collections within a library as a flat list. Callers that need
      *  the grouped layout should use [getLibraryCollectionsGrouped]. */
     suspend fun getLibraryCollections(libraryId: Int): ApiResult<List<LibraryCollection>> =
@@ -88,6 +134,9 @@ class SectionRepository(
         order: String? = null,
         queryGroups: List<CatalogQueryGroup> = emptyList(),
         match: String? = null,
+        mediaType: String? = null,
+        libraryId: Int? = null,
+        source: String = "library_collection",
     ): ApiResult<CatalogResponse> =
         sectionApi.getLibraryCollectionItems(
             collectionId = collectionId,
@@ -97,5 +146,8 @@ class SectionRepository(
             order = order,
             queryGroups = queryGroups,
             match = match,
+            mediaType = mediaType,
+            libraryId = libraryId,
+            source = source,
         )
 }
