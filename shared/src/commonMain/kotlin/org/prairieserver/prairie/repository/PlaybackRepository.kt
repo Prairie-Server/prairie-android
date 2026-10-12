@@ -20,6 +20,9 @@ class PlaybackRepository(
 ) {
     suspend fun controlOwner(sessionId: String): Pair<AuthScopeSnapshot, String?>? = sequenced.controlOwner(sessionId)
     fun isSequenced(sessionId: String): Boolean = sequenced.owns(sessionId)
+    val pendingPlayback = sequenced.pending
+    suspend fun pendingPlaybackCount(): Int = sequenced.pendingForCurrentViewer()
+    suspend fun recoverPlayback(): ApiResult<Unit> = guarded { sequenced.recover() }
     /** [SequencedPlayback] answers null for a session it never journaled. */
     private fun unknownSession() = ApiResult.Error(0, "playback_unavailable", "This playback session is not owned by the app.")
     private suspend fun <T> guarded(block: suspend () -> ApiResult<T>): ApiResult<T> = try { block() }

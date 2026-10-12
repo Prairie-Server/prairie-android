@@ -85,6 +85,13 @@ class SequencedPlayback(
         if (entries == null) { entries = store.read(); publish() }
         return requireNotNull(entries)
     }
+    suspend fun pendingForCurrentViewer(): Int = mutex.withLock {
+        val live = authorities.snapshotDurableLoginAuthority() ?: return@withLock 0
+        load().count { it.needsRecovery() &&
+            it.loginId == live.loginId && it.serverId == live.scope.serverId &&
+            it.origin == live.scope.serverUrl && it.profileId == live.scope.profileId }
+    }
+
     private fun PlaybackJournalEntry.needsRecovery(): Boolean = !terminal &&
         (stop != null || attemptId !in adopted || replans.any { it.response == null && it.rejectedCode == null })
 
