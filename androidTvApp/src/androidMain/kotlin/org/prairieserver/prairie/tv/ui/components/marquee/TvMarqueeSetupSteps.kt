@@ -89,7 +89,7 @@ private fun AppIconPicture() {
         Modifier
             .size(46.dp)
             .clip(RoundedCornerShape(11.dp))
-            .background(colorResource(R.color.silo_icon_background))
+            .background(colorResource(R.color.prairie_icon_background))
             .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(11.dp)),
         contentAlignment = Alignment.Center,
     ) {
