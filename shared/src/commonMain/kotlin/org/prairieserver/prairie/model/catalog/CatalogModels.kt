@@ -229,6 +229,8 @@ data class ItemDetail(
     @SerialName("user_data") val userData: LeafItemUserData? = null,
     /** The current user's personal star rating (1-5), when set. */
     @SerialName("user_rating") val userRating: Int? = null,
+    /** Aggregate star rating across profiles; omitted by the server below 3 ratings. */
+    @SerialName("community_rating") val communityRating: CommunityRating? = null,
     val versions: List<FileVersion> = emptyList(),
     @SerialName("playback_variants") val playbackVariants: List<PlaybackVariant> = emptyList(),
     val subtitles: List<SubtitleInfo> = emptyList(),
@@ -567,6 +569,13 @@ data class EpisodesResponse(
 )
 
 // --- User Data ---
+
+/** Mean of all profiles' 1-5 star ratings ([average], one decimal) and how many there are. */
+@Serializable
+data class CommunityRating(
+    val average: Double = 0.0,
+    val count: Int = 0,
+)
 
 @Serializable
 data class LeafItemUserData(
