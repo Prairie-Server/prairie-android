@@ -13,7 +13,7 @@ server's buffering policy and Apple's merged client. The June and July Watch
 Together plans under `docs/superpowers/` remain history.
 [Android playback architecture](playback/README.md) continues to own Media3,
 playback-v3, timeline mapping, and output-route behavior. Tracking issue:
-[Android #355](https://github.com/Prairie-Server/silo-android/issues/355).
+[Android #355](https://github.com/Silo-Server/silo-android/issues/355).
 
 ## What changed from the September 21 draft
 

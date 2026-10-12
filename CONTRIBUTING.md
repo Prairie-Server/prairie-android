@@ -23,7 +23,7 @@ for taking the time to write things up well.
 
 ## Write a useful issue
 
-Open an [issue](https://github.com/Prairie-Server/silo-android/issues) for problems
+Open an [issue](https://github.com/Prairie-Server/prairie-android/issues) for problems
 in the Android phone and TV apps. Server and API problems belong in
 [`prairie-server`](https://github.com/Prairie-Server/prairie-server/issues/new/choose).
 Search first; if an issue already covers the problem, add what's new there.
@@ -149,7 +149,7 @@ one of two places:
   `npx @prairie-server/evidence publish <folder> --pr <number>`. The
   [package README](https://www.npmjs.com/package/@prairie-server/evidence) describes
   the folder. Then write
-  `Evidence: https://evidence.prairieserver.org/r/silo-android/pr-<number>/` under
+  `Evidence: https://evidence.prairieserver.org/r/prairie-android/pr-<number>/` under
   the Evidence heading. Until a pull request of yours has merged here, a
   maintainer approves you once before your first upload.
 

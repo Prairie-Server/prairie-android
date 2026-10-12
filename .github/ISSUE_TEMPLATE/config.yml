@@ -10,7 +10,7 @@ contact_links:
     url: https://discord.gg/prairieserver
     about: Ask how to set up or use Prairie in the Prairie Discord.
   - name: Report a security vulnerability
-    url: https://github.com/Prairie-Server/silo-android/security/advisories/new
+    url: https://github.com/Prairie-Server/prairie-android/security/advisories/new
     about: Report it privately. Do not open a public issue.
   - name: How to report a problem
     url: https://prairieserver.org/docs/report-a-problem

@@ -13,7 +13,7 @@ module PlayBundleManifest
   ].freeze
   MAX_FILE_BYTES = 1_073_741_824
   MAX_MANIFEST_BYTES = 65_536
-  REPOSITORY = "Prairie-Server/silo-android"
+  REPOSITORY = "Prairie-Server/prairie-android"
 
   def self.require!(condition, message)
     raise ArgumentError, message unless condition

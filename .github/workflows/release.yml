@@ -338,7 +338,7 @@ jobs:
           PRAIRIE_PLAY_BUNDLE_MANIFEST_SHA256: ${{ needs.play-bundles.outputs.manifest_sha256 }}
         run: |
           set -euo pipefail
-          [[ "${GITHUB_REPOSITORY}" == 'Prairie-Server/silo-android' ]]
+          [[ "${GITHUB_REPOSITORY}" == 'Prairie-Server/prairie-android' ]]
           [[ "${PLAY_BUNDLE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${PRAIRIE_PLAY_BUNDLE_MANIFEST_SHA256}" =~ ^[0-9a-f]{64}$ ]]
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${PLAY_BUNDLE_ARTIFACT_ID}" |

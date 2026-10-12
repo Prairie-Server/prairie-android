@@ -47,7 +47,7 @@ affected surface, and a short recording when motion, timing, or focus matters. C
 blur private details in anything attached here. To keep captures private instead,
 publish them to evidence.prairieserver.org, where only you and Prairie maintainers can open
 them, and replace the table with
-`Evidence: https://evidence.prairieserver.org/r/silo-android/pr-<number>/`. When nothing
+`Evidence: https://evidence.prairieserver.org/r/prairie-android/pr-<number>/`. When nothing
 visible changes, replace this section's content with "Evidence: none, no user-visible
 change". -->
 
