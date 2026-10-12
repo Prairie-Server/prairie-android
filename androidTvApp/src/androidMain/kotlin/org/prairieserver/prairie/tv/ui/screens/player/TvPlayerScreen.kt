@@ -3858,11 +3858,11 @@ private fun TvPlayerViewModel.UiState.toPrairieCastPlaybackState(
         isBuffering = isBuffering,
         currentTime = position,
         duration = duration,
-        audioTracks = audioTracks.map { it.toSiloCastTrack(kind = "audio") },
-        subtitleTracks = subtitleTracks.map { it.toSiloCastTrack(kind = "subtitle") },
+        audioTracks = audioTracks.map { it.toPrairieCastTrack(kind = "audio") },
+        subtitleTracks = subtitleTracks.map { it.toPrairieCastTrack(kind = "subtitle") },
         selectedAudioTrackId = audioTracks.firstOrNull { it.isSelected }?.index?.toLong(),
         selectedSubtitleTrackId = subtitleTracks.firstOrNull { it.isSelected }?.index?.toLong(),
-        qualityOptions = videoQualities.map { it.toSiloCastQualityOption() },
+        qualityOptions = videoQualities.map { it.toPrairieCastQualityOption() },
         activeQualityId = activeQualityId,
         isQualitySwitching = false,
         playbackSpeed = playbackSpeed,
@@ -3878,7 +3878,7 @@ private fun TvPlayerViewModel.UiState.toPrairieCastPlaybackState(
         // stays on the wire because older remotes require it.
         supportsHDRToggle = false,
         subtitleSyncMs = subtitleDelayMs,
-        subtitlePosition = subtitleAppearance.position.toSiloCastPositionValue(),
+        subtitlePosition = subtitleAppearance.position.toPrairieCastPositionValue(),
         supportsSubtitleDelay = true,
         supportsSubtitlePosition = true,
         volume = volumeState.volume,
@@ -3890,7 +3890,7 @@ private fun TvPlayerViewModel.UiState.toPrairieCastPlaybackState(
     )
 }
 
-private fun PlayerTrackEntry.toSiloCastTrack(kind: String): PrairieCastTrack =
+private fun PlayerTrackEntry.toPrairieCastTrack(kind: String): PrairieCastTrack =
     PrairieCastTrack(
         kind = kind,
         trackId = index.toLong(),
@@ -3898,7 +3898,7 @@ private fun PlayerTrackEntry.toSiloCastTrack(kind: String): PrairieCastTrack =
         detail = language,
     )
 
-private fun VideoQualityOption.toSiloCastQualityOption(): PrairieCastQualityOption =
+private fun VideoQualityOption.toPrairieCastQualityOption(): PrairieCastQualityOption =
     PrairieCastQualityOption(
         id = id,
         label = label,
@@ -3906,20 +3906,20 @@ private fun VideoQualityOption.toSiloCastQualityOption(): PrairieCastQualityOpti
     )
 
 // Apple SubtitlePositionPreset raw values: "bottom", "lower-third", "top".
-private fun SubtitlePositionPreset.toSiloCastPositionValue(): String = when (this) {
+private fun SubtitlePositionPreset.toPrairieCastPositionValue(): String = when (this) {
     SubtitlePositionPreset.Top -> "top"
     SubtitlePositionPreset.LowerThird -> "lower-third"
     SubtitlePositionPreset.Bottom -> "bottom"
 }
 
-private fun String.toSiloCastVideoFillMode(): VideoFillMode =
+private fun String.toPrairieCastVideoFillMode(): VideoFillMode =
     when (trim().lowercase()) {
         "zoom", "crop", "fill" -> VideoFillMode.Zoom
         "stretch" -> VideoFillMode.Stretch
         else -> VideoFillMode.Fit
     }
 
-private fun String.toSiloCastSubtitlePosition(): SubtitlePositionPreset {
+private fun String.toPrairieCastSubtitlePosition(): SubtitlePositionPreset {
     when (trim().lowercase()) {
         "top" -> return SubtitlePositionPreset.Top
         "lower-third", "lower_third", "lowerthird" -> return SubtitlePositionPreset.LowerThird
