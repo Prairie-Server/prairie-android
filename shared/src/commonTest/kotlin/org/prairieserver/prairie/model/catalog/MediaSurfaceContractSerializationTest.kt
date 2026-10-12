@@ -131,4 +131,24 @@ class MediaSurfaceContractSerializationTest {
         )
         assertNull(detail.userRating)
     }
+
+    @Test
+    fun decodesOptionalCommunityRatingOnItemDetail() {
+        val rated = json.decodeFromString<ItemDetail>(
+            """
+            { "content_id": "m3", "type": "movie", "title": "Popular Movie",
+              "community_rating": { "average": 4.2, "count": 7 } }
+            """.trimIndent(),
+        )
+        assertEquals(CommunityRating(average = 4.2, count = 7), rated.communityRating)
+        assertEquals("4.2 · 7 ratings", rated.titleRatings().single().display)
+
+        val unrated = json.decodeFromString<ItemDetail>(
+            """
+            { "content_id": "m4", "type": "movie", "title": "Quiet Movie" }
+            """.trimIndent(),
+        )
+        assertNull(unrated.communityRating)
+        assertEquals(emptyList(), unrated.titleRatings())
+    }
 }

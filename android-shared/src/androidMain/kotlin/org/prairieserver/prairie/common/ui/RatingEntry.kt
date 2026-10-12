@@ -29,7 +29,8 @@ import org.prairieserver.prairie.model.catalog.ExternalRatings
  * `RT 93%`. The mark is the source's name as plain text, never a star or the
  * source's artwork, except TMDB, whose approved logo its terms allow. The
  * score is [DisplayRating.display] as the server formatted it. Screen readers
- * hear "IMDb 8.5".
+ * hear "IMDb 8.5". The community rating (Prairie's own, not external) uses a
+ * star mark and is read as "Community rating 4.2 · 7 ratings".
  *
  * [style] is the score's text style and should carry a color and font size;
  * the mark is drawn from it semibold and dimmed, at [markFontSize] or a
@@ -58,7 +59,11 @@ fun RatingEntry(
     )
     Row(
         modifier = modifier.clearAndSetSemantics {
-            contentDescription = "${rating.name} ${rating.display}"
+            contentDescription = if (rating.source == ExternalRatings.SOURCE_COMMUNITY) {
+                "Community rating ${rating.display}"
+            } else {
+                "${rating.name} ${rating.display}"
+            }
         },
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,

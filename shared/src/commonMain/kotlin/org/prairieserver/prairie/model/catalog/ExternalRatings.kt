@@ -63,6 +63,9 @@ object ExternalRatings {
     const val SOURCE_IMDB = "imdb"
     const val SOURCE_TMDB = "tmdb"
 
+    /** Prairie's own aggregate of profile star ratings, not an external source. */
+    const val SOURCE_COMMUNITY = "community"
+
     /**
      * The most ratings a phone-width title page shows. Web and iOS use the
      * same limit. The server already sends at most three, so this only guards
@@ -91,7 +94,29 @@ object ExternalRatings {
      * of [ratings], in the server's order. Wider layouts pass the server's
      * list as is.
      */
-    fun forPhone(ratings: List<DisplayRating>): List<DisplayRating> = ratings.take(PHONE_LIMIT)
+    fun forPhone(ratings: List<DisplayRating>): List<DisplayRating> {
+        val (community, external) = ratings.partition { it.source == SOURCE_COMMUNITY }
+        // The community rating rides after the limit so three external
+        // ratings never push it off a phone-width page.
+        return external.take(PHONE_LIMIT) + community
+    }
+
+    /**
+     * The community entry: `★ 4.2 · 7 ratings`. Null when the server omits
+     * `community_rating` (an older server, or fewer than three ratings) or
+     * sends a value outside 1-5.
+     */
+    fun community(rating: CommunityRating?): DisplayRating? {
+        if (rating == null || rating.count <= 0 || !rating.average.isFinite()) return null
+        if (rating.average < 1.0 || rating.average > 5.0) return null
+        val noun = if (rating.count == 1) "rating" else "ratings"
+        return DisplayRating(
+            source = SOURCE_COMMUNITY,
+            name = "★",
+            score = rating.average * 20.0,
+            display = "${formatOneDecimal(rating.average)} · ${rating.count} $noun",
+        )
+    }
 
     /** The one rating a hero shows from card fields: IMDb, else TMDB. */
     fun primary(ratingImdb: Double?, ratingTmdb: Double?): DisplayRating? =
@@ -123,6 +148,10 @@ object ExternalRatings {
     }
 }
 
-/** This title's ratings row; see [ExternalRatings.forTitle]. */
+/**
+ * This title's ratings row: the external ratings (see
+ * [ExternalRatings.forTitle]) then, when present, the community rating.
+ */
 fun ItemDetail.titleRatings(): List<DisplayRating> =
-    ExternalRatings.forTitle(ratings, ratingImdb, ratingTmdb)
+    ExternalRatings.forTitle(ratings, ratingImdb, ratingTmdb) +
+        listOfNotNull(ExternalRatings.community(communityRating))
