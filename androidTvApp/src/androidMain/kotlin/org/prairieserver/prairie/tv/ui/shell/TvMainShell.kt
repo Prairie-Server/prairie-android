@@ -28,9 +28,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.People
@@ -121,6 +123,7 @@ import org.prairieserver.prairie.model.feature.LiveTvFeatureStore
 import org.prairieserver.prairie.model.feature.WatchPartyExposure
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.model.personal.UserLibrary
+import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.repository.AuthRepository
@@ -155,6 +158,7 @@ import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsPage
 import org.prairieserver.prairie.tv.ui.screens.search.TvSearchScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.TvSettingsScreen
+import org.prairieserver.prairie.tv.ui.screens.watchtogether.TvWatchTogetherViewModel
 import org.prairieserver.prairie.tv.ui.theme.TvSkyline
 import org.prairieserver.prairie.tv.ui.util.visibleOnTv
 import org.koin.compose.koinInject
@@ -212,6 +216,7 @@ fun TvMainShell(
     onSwitchServer: () -> Unit,
     onPairDevice: () -> Unit,
     onPlayItem: (contentId: String, type: String?, resumePositionSeconds: Double?) -> Unit,
+    onOpenWatchTogether: (RoomSnapshot) -> Unit,
     /** Open the Watch Party hub. */
     onOpenWatchParty: () -> Unit,
     // Plays the first pick of a shuffle started from a library screen.
@@ -243,6 +248,20 @@ fun TvMainShell(
     // while the already-visible Home instance held the populated rows.
     val homeViewModel: HomeViewModel = koinViewModel(key = "tv-main-home")
     val serverUrl = rememberProfileServerUrl()
+    val watchTogetherViewModel = koinViewModel<TvWatchTogetherViewModel>()
+    val watchTogetherState by watchTogetherViewModel.uiState.collectAsState()
+    val currentWatchTogetherRoom by watchTogetherViewModel.currentRoom.collectAsState()
+    var watchTogetherEntryOpen by rememberSaveable { mutableStateOf(false) }
+    var watchTogetherJoinOpen by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(watchTogetherState.result) {
+        val room = watchTogetherState.result ?: return@LaunchedEffect
+        watchTogetherViewModel.consumeResult()
+        watchTogetherEntryOpen = false
+        watchTogetherJoinOpen = false
+        onOpenWatchTogether(room)
+    }
+
     // Settings → Experimental → Watch Party decides whether the entry shows.
     val watchPartyExposure: WatchPartyExposure = koinInject()
     val watchPartyEnabled by watchPartyExposure.enabled.collectAsState()

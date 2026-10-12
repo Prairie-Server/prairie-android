@@ -314,7 +314,8 @@ internal fun switchTvPlaybackQuality(
     watchParty: TvWatchPartyScreenController?,
     id: String,
 ) {
-    if (viewModel.switchQuality(id)) watchParty?.onQualityChanged()
+    viewModel.switchQuality(id)
+    watchParty?.onQualityChanged()
 }
 
 /** How often the room observation samples the player. */

@@ -5665,7 +5665,6 @@ class TvPlayerViewModel(
                 resolution = option.resolution.ifBlank { null },
             )
         }
-        return true
     }
 
     /**
