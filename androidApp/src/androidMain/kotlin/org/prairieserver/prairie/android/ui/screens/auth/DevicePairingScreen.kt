@@ -135,6 +135,13 @@ fun DevicePairingScreen(
             PrairieLogo()
             Spacer(modifier = Modifier.height(18.dp))
 
+            Text(
+                text = "Quick Connect",
+                style = MaterialTheme.typography.headlineMedium,
+                color = AuthColors.OnBackground,
+                fontWeight = FontWeight.SemiBold,
+            )
+
             val lookup = state.lookup
             when {
                 state.completedStatus != null -> DecisionResult(state = state, onDone = onDone)

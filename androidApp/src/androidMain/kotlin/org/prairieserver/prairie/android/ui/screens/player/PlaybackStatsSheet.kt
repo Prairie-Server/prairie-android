@@ -47,7 +47,7 @@ fun PlaybackStatsSheet(
 
     PlayerMenu(controller = controller, tabletopPaneHeight = tabletopPaneHeight) {
         PlayerPanelHeader(
-            title = "Playback stats",
+            title = "Stats for nerds",
             onClose = { controller.dismiss() },
             onBack = onBack?.let { back -> { controller.dismiss(then = back) } },
             backDescription = "Back to settings",
