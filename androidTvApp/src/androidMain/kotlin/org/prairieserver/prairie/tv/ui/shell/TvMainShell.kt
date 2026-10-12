@@ -152,7 +152,6 @@ import org.prairieserver.prairie.tv.ui.screens.recommendations.TvForYouEntryRequ
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestDetailScreen
 import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvPlayerScreen
 import org.prairieserver.prairie.tv.ui.screens.livetv.TvLiveTvScreen
-import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsScreen
 import org.prairieserver.prairie.tv.ui.screens.requests.TvRequestsPage
 import org.prairieserver.prairie.tv.ui.screens.search.TvSearchScreen
 import org.prairieserver.prairie.tv.ui.screens.settings.TvSettingsScreen
@@ -1430,6 +1429,7 @@ fun TvMainShell(
                             type = NavType.StringType
                             nullable = true
                             defaultValue = ""
+                        },
                     ),
                 ) { entry ->
                     TvLiveTvPlayerScreen(
@@ -1438,6 +1438,8 @@ fun TvMainShell(
                         channelName = entry.arguments
                             ?.getString(TvMainRoute.LiveTvPlayer.ARG_NAME).orEmpty(),
                         onBack = { if (nestedNav.previousBackStackEntry != null) nestedNav.popBackStack() },
+                    )
+                }
                 shellComposable(TvMainRoute.Requests.route) {
                     TvRequestsPage(
                         onOpenLibraryItem = onOpenItemDetail,
@@ -1445,10 +1447,14 @@ fun TvMainShell(
                         onInitialContentFocus = {
                             focusState.closeProfileMenuForContent()
                             requestsFocusHandoffPending = false
+                        },
                         onFocusHandoffFailed = {
+                            requestsFocusHandoffPending = false
                             focusState.requestMenuFocus(
                                 target = TvTopMenuPanel.Root(TvRootDestination.Requests),
                                 suppressDwellPreview = true,
+                            )
+                        },
                         focusRequest = requestsEntryRequest,
                     )
                 }
@@ -1772,11 +1778,13 @@ fun TvMainShell(
                 onLiveTv = closeMenuAnd {
                     navigateToSecondary(TvMainRoute.LiveTv.route)
                     moveFocusToContent(TvMainRoute.LiveTv.route)
+                },
                 showWatchTogether = CLIENT_WATCH_TOGETHER_SURFACE_ENABLED,
                 onWatchTogether = {
                     focusState.closeProfileMenuForContent()
                     watchTogetherViewModel.clearError()
                     watchTogetherEntryOpen = true
+                },
                 showWatchParty = watchPartyEnabled,
                 onWatchParty = closeMenuAnd(onOpenWatchParty),
                 onSettings = {
@@ -2066,10 +2074,19 @@ private fun TvProfileDropdown(
             )
         }
         if (showLiveTv) {
+            ProfileDropdownRow(
                 label = "Live TV",
                 icon = Icons.Filled.LiveTv,
                 onClick = onLiveTv,
+            )
+        }
         if (showWatchTogether) {
+            ProfileDropdownRow(
+                label = "Watch Together",
+                icon = Icons.Filled.Groups,
+                onClick = onWatchTogether,
+            )
+        }
         if (showWatchParty) {
             ProfileDropdownRow(
                 label = "Watch Party",

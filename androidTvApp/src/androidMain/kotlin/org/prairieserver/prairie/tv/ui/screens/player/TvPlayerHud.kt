@@ -112,8 +112,6 @@ import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
 import org.prairieserver.prairie.common.player.healthRows
 import org.prairieserver.prairie.playback.stats.displayLine
 import org.prairieserver.prairie.playback.stats.planRows
-import org.prairieserver.prairie.domain.player.IntroSkipMode
-import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.common.player.SleepTimerState
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.catalog.VersionChapter
@@ -548,33 +546,6 @@ internal fun TvPlayerHud(
             ) {
                 CompositionLocalProvider(LocalHudPanelWindow provides panelWindow) {
                 when (selectedTab) {
-                    HudTab.Info -> HudPaneViewport {
-                        HudInfoPane(
-                            title = title,
-                            positionSec = positionSec,
-                            durationSec = durationSec,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                            stats = stats,
-                            playbackPlan = playbackPlan,
-                            subtitleLabel = subtitlePresentation.rows
-                                .firstOrNull { row -> row.checked }
-                                ?.label
-                                ?: "Off",
-                            chapters = chapters,
-                        )
-                    }
-                    HudTab.Stats -> HudPaneViewport {
-                        HudStatsPane(
-                            sessionId = sessionId,
-                            playMethod = playMethodLabel
-                                ?: playbackPlan?.stream?.playMethod?.name,
-                            playbackContext = tvPlaybackStatsContext(
-                                plan = playbackPlan,
-                                audioTracks = audioTracks,
-                                streamUrl = streamUrl,
-                                videoQualities = videoQualities,
-                            ),
                     // Info scrolls per column, so it must not sit inside the
                     // single-column viewport: nested vertical scrolls throw.
                     HudTab.Info -> HudInfoPane(
@@ -591,7 +562,21 @@ internal fun TvPlayerHud(
                             ?: "Off",
                         chapters = chapters,
                     )
-                    HudTab.Stats -> HudPaneViewport { HudStatsPane(stats) }
+                    HudTab.Stats -> HudPaneViewport {
+                        HudStatsPane(
+                            stats = stats,
+                            sessionId = sessionId,
+                            playMethod = playMethodLabel
+                                ?: playbackPlan?.stream?.playMethod?.name,
+                            positionSec = positionSec,
+                            playbackContext = tvPlaybackStatsContext(
+                                plan = playbackPlan,
+                                audioTracks = audioTracks,
+                                streamUrl = streamUrl,
+                                videoQualities = videoQualities,
+                            ),
+                        )
+                    }
                     HudTab.Video -> HudVideoPane(
                         videoQualities = videoQualities,
                         onSelectVideoQuality = onSelectVideoQuality,
@@ -1295,30 +1280,6 @@ private fun HudVideoPane(
                     )
                 }
 
-                // The server-transcode quality ladder always offers at least
-                // Auto + Original (plus downscale rungs below the source), so the
-                // row is enabled whenever there is more than one option.
-                val hasQualityChoice = videoQualities.size > 1
-                val selectedQuality = videoQualities.firstOrNull { it.isSelected }
-                val qualityValue = selectedQuality?.label ?: "Auto"
-                HudFocusedSettingRow(
-                    label = "Quality",
-                    value = qualityValue,
-                    enabled = enabled && hasQualityChoice,
-                    entryFocusRequester = entryFocusRequester.takeIf { entryRow == "quality" },
-                    onActivate = {
-                        onPresentPicker(
-                            HudPickerPresentation(
-                                title = "Quality",
-                                options = videoQualities.map {
-                                    HudPickerOption(id = it.id, label = it.label)
-                                },
-                                selectedId = (selectedQuality?.id ?: "auto"),
-                                onSelect = { id -> onSelectVideoQuality(id) },
-                            ),
-                        )
-                    },
-                )
                 // Quality — the plan's quality menu: Auto, then the server's
                 // entries in its order, each re-planned on the server when
                 // picked. Hidden only when there is no plan.
@@ -1410,37 +1371,10 @@ private fun HudVideoPane(
                     onActivate = { onHdrEnabledChanged(!hdrEnabled) },
                 )
 
-                    // Off plays DV sources as their base layer (HDR10) — some
-                    // users prefer HDR10 even on DV-capable displays. Profile 5
-                    // always plays as DV (no watchable base layer); applies from
-                    // the next playback start. Apple parity (silo-apple e9bd775).
-                    HudFocusedSettingRow(
-                        label = "Dolby Vision",
-                        // A toggle on a DV file restarts the session so the
-                        // server can re-plan the layer; say so on the row (the
-                        // subtitle track row's idiom) and swallow presses until
-                        // the replacement is playing, so a second press can't
-                        // queue a second restart behind the first. Swallow, not
-                        // disable: a disabled row is not focusable, and taking
-                        // focus off the row the viewer just pressed left the
-                        // next press landing on nothing.
-                        value = if (dolbyVisionSwitchInFlight) {
-                            "${onOffLabel(dolbyVisionEnabled)} · Applying…"
-                        } else {
-                            onOffLabel(dolbyVisionEnabled)
-                        },
-                        enabled = enabled,
-                        showsChevron = false,
-                        onActivate = {
-                            if (!dolbyVisionSwitchInFlight) {
-                                onDolbyVisionEnabledChanged(!dolbyVisionEnabled)
-                            }
-                    )
-                }
                 // Off plays DV sources as their base layer (HDR10) — some
                 // users prefer HDR10 even on DV-capable displays. Profile 5
                 // always plays as DV (no watchable base layer); applies from
-                // the next playback start. Apple parity (prairie-apple e9bd775).
+                // the next playback start. Apple parity (silo-apple e9bd775).
                 HudFocusedSettingRow(
                     label = "Dolby Vision",
                     // A toggle on a DV file restarts the session so the
@@ -1462,6 +1396,7 @@ private fun HudVideoPane(
                         if (!dolbyVisionSwitchInFlight) {
                             onDolbyVisionEnabledChanged(!dolbyVisionEnabled)
                         }
+                    },
                 )
             }
             HudSectionSpacer()
@@ -2517,8 +2452,6 @@ private fun HudCheckSlot(checked: Boolean, tint: Color) {
     }
 }
 
-private fun PlayerStatsSnapshot.hasHudRows(): Boolean =
-    hudRows().isNotEmpty() || healthRows().isNotEmpty() || !events.isEmpty
 @Composable
 private fun HudChevron(tint: Color) {
     Icon(
@@ -2552,6 +2485,7 @@ private fun Modifier.hudFadingEdges(
         }
         if (state.canScrollForward) {
             val height = bottom.toPx()
+            drawRect(
                 brush = Brush.verticalGradient(
                     0f to Color.Black,
                     1f to Color.Transparent,
@@ -2560,8 +2494,13 @@ private fun Modifier.hudFadingEdges(
                 ),
                 topLeft = Offset(0f, size.height - height),
                 size = size.copy(height = height),
+                blendMode = BlendMode.DstIn,
+            )
+        }
     }
-private fun PlayerStatsSnapshot.hasHudRows(): Boolean = hudRows().isNotEmpty()
+
+private fun PlayerStatsSnapshot.hasHudRows(): Boolean =
+    hudRows().isNotEmpty() || healthRows().isNotEmpty() || !events.isEmpty
 
 private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildList {
     backendDisplayName?.let { add("Backend" to it) }

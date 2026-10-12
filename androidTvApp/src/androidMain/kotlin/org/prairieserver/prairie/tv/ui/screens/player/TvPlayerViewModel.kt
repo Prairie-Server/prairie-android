@@ -840,7 +840,6 @@ class TvPlayerViewModel(
     /** Live server ladder (or fallback) used to build the Quality picker. */
     private var qualityLadder: List<org.prairieserver.prairie.playback.QualityLadderRung> =
         org.prairieserver.prairie.playback.FALLBACK_QUALITY_LADDER
-    private val roomId: String? = launchArgs.roomId
     // Blank means solo, exactly as the screen treats it.
     private val roomId: String? = launchArgs.roomId?.takeIf { it.isNotBlank() }
     private val resumePositionOverride: Double? = launchArgs.resumePositionOverride
@@ -2404,12 +2403,6 @@ class TvPlayerViewModel(
                                     .firstOrNull { it.fileId == result.fileId }
                                     ?.trickplay
                                     ?: result.versions.firstOrNull()?.trickplay,
-                                // Server-transcode quality ladder for this source
-                                // (tvOS parity) — replaces adaptive-variant options.
-                                videoQualities = transcodeQualityLadder(
-                                    result.fileResolution,
-                                    qualityOverride ?: preferredQuality ?: "auto",
-                                    playMethod = result.playMethod?.name?.lowercase(),
                                 videoQualities = authoritativePlaybackQualityOptions(
                                     available = result.playbackPlanV3?.availableQualities.orEmpty(),
                                     selectedLabel = qualityOverride
@@ -4455,8 +4448,10 @@ class TvPlayerViewModel(
         }
     }
 
+    /**
      * A `markers_updated` event. The server also sends a file's update to
      * sessions that requested that file but play another, so check the file.
+     */
     fun applyMarkersUpdate(update: PlaybackMarkersUpdate) {
         if (update.fileId != null && update.fileId != _uiState.value.mediaFileId) return
         applyUpdatedMarkers(update.intro, update.credits, update.recap, update.preview)
@@ -5602,7 +5597,7 @@ class TvPlayerViewModel(
      * for the replan while the menu keeps the selected rung highlighted.
      */
     fun switchQuality(wireValue: String) {
-        val current = qualityOverride ?: preferredQuality ?: "auto"
+        val current = qualityOverride ?: preferredQuality ?: PlaybackQuality.Auto.wireValue
         if (wireValue == current) return
         qualityOverride = wireValue
         val v3Preference = org.prairieserver.prairie.playback.toV3QualityPreference(wireValue)
@@ -5619,9 +5614,7 @@ class TvPlayerViewModel(
                     playMethod = it.playMethod?.name?.lowercase(),
                 ),
             )
-    fun switchQuality(wireValue: String): Boolean {
-        val current = qualityOverride ?: preferredQuality ?: PlaybackQuality.Auto.wireValue
-        if (wireValue == current) return false
+        }
         val state = _uiState.value
         playbackMutationFence.beginReplan()
         viewModelScope.launch {
@@ -5631,7 +5624,6 @@ class TvPlayerViewModel(
                 subtitleTransactions.selectQuality(v3Preference)
             }
         }
-        return true
     }
 
     /**
