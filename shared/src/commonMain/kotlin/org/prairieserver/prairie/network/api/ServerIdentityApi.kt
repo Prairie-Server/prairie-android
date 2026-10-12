@@ -26,7 +26,7 @@ import org.prairieserver.prairie.pairing.PairingEndpoint
  * addresses are worth trying and which saved server a link or a TV means.
  * Device-login approval remains the proof that two addresses share a backend.
  *
- * Mirrors prairie-apple `ServerIdentity.swift`.
+ * Mirrors silo-apple `ServerIdentity.swift`.
  */
 interface ServerIdentityApi {
     /** Classify one address: the identity it reports, an older server, or unreachable. */

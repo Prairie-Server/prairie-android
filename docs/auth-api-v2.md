@@ -73,7 +73,7 @@ scoped by `url`'s origin, the way an HTTPS device link is.
 
 A link's code is approved on the saved server it names, through that server's
 own profileless account scope, without switching the phone's active server
-(prairie-apple parity). When the phone isn't signed in there it asks to sign in
+(silo-apple parity). When the phone isn't signed in there it asks to sign in
 first rather than trying another server. Only `token` links, which the active
 server's lookup alone accepts, still offer the switch. A link naming a server
 the phone hasn't saved offers to add it, with the link's `url` prefilled.
@@ -88,7 +88,7 @@ the account (or that the provider can't be reached, when that was the
 reason), offers a retry, and keeps approving disabled.
 "Not you?" signs out of that server's account and returns to sign-in, keeping
 the pending code; on a server other than the active one it makes that server
-active first. As on prairie-apple, it reads "Not you? Switch account" when the
+active first. As on silo-apple, it reads "Not you? Switch account" when the
 next sign-in lets the person choose (a provider that takes `select_account`,
 or only the password form) and "Not you? Sign out" otherwise, including when
 the server's sign-in options couldn't be read. Where a provider takes
@@ -99,7 +99,7 @@ memory only and handed back if the screen goes away before the browser
 opens). "Sign in" after a 401 does the same without
 signing out: it signs in on the server the code was looked up on.
 
-The LAN pairing protocol matches prairie-apple frame for frame
+The LAN pairing protocol matches silo-apple frame for frame
 (`PairingProtocolGoldenFramesTest`). A TV on its sign-in screen advertises
 `_prairiepair._tcp` with TXT `st=login` and `srv=<server_id>`; a phone offers it
 only when it holds a signed-in server with that verified identity, skips the
@@ -107,7 +107,7 @@ server chooser and pushes only that server. That TV accepts only a push whose
 `serverIdentity` equals its `srv` and answers with the code its sign-in screen
 already shows; the screen polls and saves the session, so there is only one
 request. The TV advertises only while its sign-in screen is visible.
-Advertising `st=login` sits behind a rollout gate shared with prairie-apple
+Advertising `st=login` sits behind a rollout gate shared with silo-apple
 (`PairingProtocol.advertisesSignInTVs` there, `TvLoginViewModel`'s
 `advertisesSignIn`, set from `BuildConfig.DEBUG`, here): on in debug builds,
 off in release until the iOS and Android phone apps that accept `login` TVs

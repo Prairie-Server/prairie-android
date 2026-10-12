@@ -64,7 +64,7 @@ val PrairieSettingsBackground = Color(0xFF000000)
 // --- Settings grouped list (Apple Settings parity) ---
 //
 // The Apple apps draw Settings as a native inset-grouped list in Apple's
-// dark-mode grouped palette (prairie-apple `Colors.swift`). Settings uses these
+// dark-mode grouped palette (silo-apple `Colors.swift`). Settings uses these
 // rather than the web card values above so both phones show the same list;
 // its text uses the chrome's `PrairieOnSurface` / `PrairieSecondaryText`, which are
 // already Apple's `prairieOnSurface` / `prairieSecondaryText`.

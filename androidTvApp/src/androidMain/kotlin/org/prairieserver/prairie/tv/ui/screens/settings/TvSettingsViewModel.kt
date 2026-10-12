@@ -139,10 +139,6 @@ class TvSettingsViewModel(
         val forceHdrPassthrough: Boolean = false,
         val trueBlackBars: Boolean = false,
         val autoSkipCredits: Boolean = false,
-        /** Skip "previously on" recaps automatically — `playback.auto_skip_recap`. */
-        val autoSkipRecap: Boolean = false,
-        /** Preview the next episode while credits play — `playback.auto_play_next_preview`. */
-        val autoPlayNextPreview: Boolean = false,
         // Seconds to skip back on resume (0 = off); consecutive auto-advances
         // before the "Still watching?" prompt (0 = off).
         val resumeRewindSeconds: Int = 7,
@@ -369,8 +365,6 @@ class TvSettingsViewModel(
                 playerSettingsStore.audioLanguageFlow,
                 playerSettingsStore.resumeRewindSecondsFlow,
                 playerSettingsStore.passOutThresholdFlow,
-                playerSettingsStore.autoSkipRecapFlow,
-                playerSettingsStore.autoPlayNextPreviewFlow,
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val quality = values[0] as String
@@ -387,11 +381,9 @@ class TvSettingsViewModel(
                 val audioLang = values[6] as String
                 val rewind = values[7] as Int
                 val threshold = values[8] as Int
-                val skipRecap = values[9] as Boolean
-                val previewNext = values[10] as Boolean
                 Snapshot(
                     quality, bitrate, autoPlay, skipIntro, skipCredits,
-                    appearance, audioLang, rewind, threshold, skipRecap, previewNext,
+                    appearance, audioLang, rewind, threshold,
                 )
             }.collect { snap ->
                 _uiState.update {
@@ -401,8 +393,6 @@ class TvSettingsViewModel(
                         autoPlayNext = snap.autoPlay,
                         introSkipMode = snap.skipIntro,
                         autoSkipCredits = snap.skipCredits,
-                        autoSkipRecap = snap.skipRecap,
-                        autoPlayNextPreview = snap.previewNext,
                         subtitleSize = snap.appearance.fontSize.toTvSubtitleSize(),
                         subtitleAppearance = snap.appearance,
                         audioLanguage = snap.audioLanguage,
@@ -727,7 +717,7 @@ class TvSettingsViewModel(
 
     /**
      * Profile Selection takes effect the next time Prairie starts or returns; it
-     * never ejects the current session (prairie-apple design §4.5). Every Time
+     * never ejects the current session (silo-apple design §4.5). Every Time
      * empties the launcher's Watch Next row, and leaving it refills the row.
      */
     fun onProfileLaunchBehaviorChanged(behavior: ProfileLaunchBehavior) {
@@ -776,14 +766,6 @@ class TvSettingsViewModel(
 
     fun onAutoSkipCreditsChanged(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoSkipCredits(value) }
-    }
-
-    fun onAutoSkipRecapChanged(value: Boolean) {
-        viewModelScope.launch { playerSettingsStore.setAutoSkipRecap(value) }
-    }
-
-    fun onAutoPlayNextPreviewChanged(value: Boolean) {
-        viewModelScope.launch { playerSettingsStore.setAutoPlayNextPreview(value) }
     }
 
     fun onResumeRewindSecondsChanged(value: Int) {
@@ -879,8 +861,6 @@ class TvSettingsViewModel(
         val audioLanguage: String,
         val resumeRewindSeconds: Int,
         val passOutThreshold: Int,
-        val skipRecap: Boolean,
-        val previewNext: Boolean,
     )
 
     private companion object {

@@ -97,7 +97,7 @@ data class PrairieCastPendingLaunch(
     val replacingContentId: String? = null,
 )
 
-/** Haptic moments of a Play sent to a TV, mirroring prairie-apple's remote. */
+/** Haptic moments of a Play sent to a TV, mirroring silo-apple's remote. */
 enum class PrairieCastLaunchFeedback { Sent, Started, Failed }
 
 /**

@@ -38,7 +38,7 @@ internal fun resolveTvAutomaticAudioTrackOrdinal(
 
 /**
  * Pure formatting helpers for the TV detail playback selector row (Version /
- * Audio / Subtitles / Edition). Mirrors prairie-apple's
+ * Audio / Subtitles / Edition). Mirrors silo-apple's
  * `Screens/Detail/DetailPlaybackFormatting.swift` + `PlaybackEditions.swift`,
  * adapted to the real Android [FileVersion] / [AudioTrack] / [SubtitleTrack]
  * field names.
@@ -282,7 +282,7 @@ object TvPlaybackFormatting {
     /**
      * Language of the track [audioValueLabel] would display for Auto — feeds
      * the subtitle auto-resolver, whose "auto" mode hides subs when the audio
-     * is already in the preferred subtitle language. Mirrors prairie-apple's
+     * is already in the preferred subtitle language. Mirrors silo-apple's
      * `DetailPlaybackFormatting.resolvedAudioLanguage`.
      */
     fun resolvedAudioLanguage(
@@ -513,7 +513,7 @@ object TvPlaybackFormatting {
      * Inputs needed to preview what the player's subtitle auto-resolver would
      * land on, so the row can annotate "Auto" with the concrete track (or
      * "None"). Mirrors the subset of `resolveTvAutoSubtitleIdentity`'s
-     * inputs the detail page can supply. Analogue of prairie-apple's
+     * inputs the detail page can supply. Analogue of silo-apple's
      * `DetailPlaybackFormatting.SubtitleAutoContext`.
      */
     data class SubtitleAutoContext(

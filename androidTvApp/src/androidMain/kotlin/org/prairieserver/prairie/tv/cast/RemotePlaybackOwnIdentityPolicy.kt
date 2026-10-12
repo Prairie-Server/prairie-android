@@ -5,7 +5,7 @@ import org.prairieserver.prairie.network.AndroidServerRegistry
 /**
  * Decides when a phone's handoff offer can skip the server-mediated profile
  * exchange because the TV is already signed in as the offered profile on the
- * same server. Mirrors prairie-apple's `RemotePlaybackOwnIdentityPolicy`.
+ * same server. Mirrors silo-apple's `RemotePlaybackOwnIdentityPolicy`.
  *
  * The fast path never grants authorization: [authorizedAtHello] must already
  * hold, so a cross-server controller always takes the full handoff.

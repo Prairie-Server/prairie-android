@@ -477,13 +477,13 @@ fun TvAppNavigation(
     val titleArtStore: TitleArtStore = koinInject()
     val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore = koinInject()
     val watchNextSeeder: WatchNextSeeder = koinInject()
-    val prairieCastReceiver: TvPrairieCastReceiver = koinInject()
+    val siloCastReceiver: TvPrairieCastReceiver = koinInject()
     val watchPartyRepository: WatchTogetherRepository = koinInject()
     val diagnosticsViewModel = koinViewModel<TvDiagnosticsViewModel>()
     val diagnosticsState by diagnosticsViewModel.state.collectAsState()
     val pendingDeepLink: MutableStateFlow<Uri?> =
         koinInject(qualifier = named("pendingDeepLink"))
-    val prairieCastStandby by prairieCastReceiver.standbyState.collectAsState()
+    val siloCastStandby by siloCastReceiver.standbyState.collectAsState()
     val profileAwayTracker: ProfileAwayTracker = koinInject()
     val profileLaunchPreferences: ProfileLaunchPreferences = koinInject()
     val activeProfileReset: TvActiveProfileReset = koinInject()
@@ -509,7 +509,7 @@ fun TvAppNavigation(
         }
     }
 
-    // Profile Selection's return rule (prairie-apple `applyProfileReturnPolicy`):
+    // Profile Selection's return rule (silo-apple `applyProfileReturnPolicy`):
     // when Prairie comes back from the background and the setting asks, Who's
     // Watching replaces whatever was on screen, as Switch Profile does.
     LaunchedEffect(profileAwayTracker) {
@@ -548,7 +548,7 @@ fun TvAppNavigation(
                     return@collect
                 }
             }
-            // Re-check after the wait, as prairie-apple's return policy does.
+            // Re-check after the wait, as silo-apple's return policy does.
             if (!profileLaunchPreferences.requiresSelectionAfterBackground()) {
                 profileAwayTracker.onSelectionHandled()
                 return@collect
@@ -572,10 +572,10 @@ fun TvAppNavigation(
         }
     }
 
-    LaunchedEffect(prairieCastReceiver) {
-        prairieCastReceiver.launchRequests.collect { launch ->
+    LaunchedEffect(siloCastReceiver) {
+        siloCastReceiver.launchRequests.collect { launch ->
             // An expired launch, or one whose identity changed, never opens.
-            if (!prairieCastReceiver.confirmLaunch(launch.id)) return@collect
+            if (!siloCastReceiver.confirmLaunch(launch.id)) return@collect
             val playback = launch.request.playback
             val destination = TvRoute.Player(
                 contentId = playback.contentId,
@@ -664,7 +664,7 @@ fun TvAppNavigation(
             // never go stale on an authenticated session.
             val route = entry.destination.route
             if (route == null || route in preMainAuthRoutes) return@collect // unauthenticated flow: keep queued until Main
-            // Profile Selection (prairie-apple `handleDeepLink`): a link that
+            // Profile Selection (silo-apple `handleDeepLink`): a link that
             // arrives while Prairie is returning must not open the previous
             // profile's data before Who's Watching replaces it. Keep it queued
             // until a profile is chosen.
@@ -1031,7 +1031,7 @@ fun TvAppNavigation(
         composable(TvRoute.ProfileSelection.route) {
             TvProfileSelectionScreen(
                 onProfileSelected = {
-                    // A chosen profile ends any away interval (prairie-apple
+                    // A chosen profile ends any away interval (silo-apple
                     // `remember`), which lets Watch Next and held links through.
                     profileLaunchPreferences.clearBackgroundedAt()
                     navController.navigate(TvRoute.Main.route) {
@@ -1514,7 +1514,7 @@ fun TvAppNavigation(
             // A phone's launch that went stale after navigation took it never
             // creates its player, so nothing starts loading under another identity.
             val castLaunchCurrent = remember(backStack.id) {
-                castLaunchId == null || prairieCastReceiver.confirmLaunch(castLaunchId)
+                castLaunchId == null || siloCastReceiver.confirmLaunch(castLaunchId)
             }
             if (!castLaunchCurrent) {
                 LaunchedEffect(backStack.id) { leaveStaleCastLaunch {} }
@@ -1846,10 +1846,10 @@ fun TvAppNavigation(
     )
 
     org.prairieserver.prairie.tv.ui.screens.profiles.TvHouseholdReverifyHost(profileRepository)
-    prairieCastStandby?.let { state ->
+    siloCastStandby?.let { state ->
         TvPrairieCastStandbyView(
             state = state,
-            onDisconnect = prairieCastReceiver::disconnectRemoteControl,
+            onDisconnect = siloCastReceiver::disconnectRemoteControl,
         )
     }
     diagnosticsState.prompt

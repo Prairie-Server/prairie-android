@@ -96,7 +96,7 @@ class OfflineTrackAssetFetcherTest {
         },
     ) {
         install(HttpTimeout)
-        defaultRequest { url("https://prairie.example/") }
+        defaultRequest { url("https://silo.example/") }
     }
 
     /** A server whose stored subtitle 7 is retimed between [revision]s; it serves [cue] for it. */

@@ -9,7 +9,7 @@ import kotlin.test.assertNull
 class DeviceLoginRouteParserTest {
 
     @Test
-    fun customPrairieTokenUrlRoutesToPairDevice() {
+    fun customSiloTokenUrlRoutesToPairDevice() {
         assertEquals(
             "pair_device?token=t1",
             deviceLoginPairRouteOrNull("prairie://device?token=t1"),
@@ -17,7 +17,7 @@ class DeviceLoginRouteParserTest {
     }
 
     @Test
-    fun customPrairieCodeUrlRoutesToPairDevice() {
+    fun customSiloCodeUrlRoutesToPairDevice() {
         assertEquals(
             "pair_device?code=ABCD-1234",
             deviceLoginPairRouteOrNull("prairie://device?code=ABCD-1234"),

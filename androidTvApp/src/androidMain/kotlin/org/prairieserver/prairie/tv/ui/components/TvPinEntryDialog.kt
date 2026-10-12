@@ -63,7 +63,7 @@ private val PinKeySize = 50.dp
 
 /**
  * Full-screen, remote-first PIN prompt over the brand light: the person's
- * avatar, four dots, and a round keypad (prairie-apple `PINEntryView` on tvOS).
+ * avatar, four dots, and a round keypad (silo-apple `PINEntryView` on tvOS).
  * A wrong PIN turns the dots red and clears for another try.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)

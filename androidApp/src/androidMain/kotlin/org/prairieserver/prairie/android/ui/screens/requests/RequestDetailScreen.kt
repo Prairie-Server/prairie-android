@@ -87,13 +87,6 @@ import org.prairieserver.prairie.model.request.requestPosterUrl
 import org.prairieserver.prairie.model.request.requestReasonCopy
 import org.prairieserver.prairie.viewmodel.RequestDetailUiState
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
-import org.koin.compose.viewmodel.koinViewModel
-import org.koin.core.parameter.parametersOf
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Add
 import org.prairieserver.prairie.viewmodel.RequestPrimaryAction
 
 /**
@@ -231,48 +224,6 @@ private fun RequestDetailContent(
                         },
                     )
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = detail.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    RequestMetaLine(mediaType = detail.mediaType, year = detail.year)
-                        text = detail.basicFacts(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    RequestActions(
-                        detail = detail,
-                        isSubmitting = isSubmitting,
-                        onRequest = onRequest,
-                        onLibraryItemClick = onLibraryItemClick,
-                }
-            }
-        }
-        notice?.let {
-            item {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-        error?.let {
-                        text = it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    OutlinedButton(onClick = onRetry) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Retry")
                 val recommendations = state.recommendations
                 if (recommendations.isNotEmpty()) {
                     item(key = "more-like-this", contentType = "rail") {
@@ -420,33 +371,6 @@ private fun PrimaryActionButton(state: RequestDetailUiState, onClick: () -> Unit
 
 /** The four request steps with their timestamps, under the primary action. */
 @Composable
-private fun RequestActions(
-    detail: RequestMediaDetail,
-    isSubmitting: Boolean,
-    onRequest: () -> Unit,
-    onLibraryItemClick: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val libraryContentId = detail.libraryContentId?.takeIf { it.isNotBlank() }
-        when {
-            libraryContentId != null -> {
-                Button(onClick = { onLibraryItemClick(libraryContentId) }) {
-                    Icon(
-                        imageVector = Icons.Default.OpenInNew,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Open Library Item")
-                }
-            }
-            detail.request.requestable -> {
-                Button(
-                    onClick = onRequest,
-                    enabled = !isSubmitting,
-                ) {
-                        imageVector = Icons.Default.Add,
-                    Text(if (isSubmitting) "Requesting..." else "Request")
 private fun RequestStatusCard(progress: RequestProgress, record: MediaRequest?) {
     val shape = RoundedCornerShape(20.dp)
     Column(

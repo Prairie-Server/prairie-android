@@ -552,7 +552,7 @@ internal fun pending(purpose: NativeSignInPurpose) = PendingNativeSignIn(
     startedAtEpochMs = 0L,
 )
 
-/** The nearby-TV confirmation uses the same content model as prairie-apple's CompanionPairingCard. */
+/** The nearby-TV confirmation uses the same content model as silo-apple's CompanionPairingCard. */
 class CompanionConfirmCopyTest {
     @Test
     fun confirmationCopyMatchesTheIphoneApp() {

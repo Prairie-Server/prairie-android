@@ -8,7 +8,7 @@ import org.prairieserver.prairie.common.player.ActivePlayerHolder
 
 /**
  * Applies the Profile Selection setting when Prairie leaves and returns to the
- * foreground. Mirrors prairie-apple ContentView's `markProfileAwayStartIfNeeded`
+ * foreground. Mirrors silo-apple ContentView's `markProfileAwayStartIfNeeded`
  * and `handleReturnFromBackgroundIfNeeded`. Shared by the phone and TV apps.
  *
  * Main thread only: the app's main Activity calls it from onStop/onStart, and

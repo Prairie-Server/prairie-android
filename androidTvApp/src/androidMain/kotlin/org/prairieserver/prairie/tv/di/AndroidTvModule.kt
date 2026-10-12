@@ -342,7 +342,7 @@ val androidTvModule = module {
             preferences = get(),
             activePlayerHolder = get(),
             // Every Time keeps the launcher's Watch Next row empty whenever
-            // Prairie is not on screen (prairie-apple Top Shelf parity).
+            // Prairie is not on screen (silo-apple Top Shelf parity).
             onLeave = { state ->
                 if (state.behavior == ProfileLaunchBehavior.EveryTime) watchNextSeeder.clear()
             },
@@ -382,14 +382,6 @@ val androidTvModule = module {
                         .stable(androidContext()),
                 )
             },
-            // Always `setup`: advertising only runs while the server-setup
-            // screen is showing, and Apple is authoritative for the wire —
-            // silo-apple's TVPairingAdvertiser hardcodes st=setup and its
-            // companion card FILTERS to state == .setup, so a registry-based
-            // `login` (always true after a sign-out, since the registry keeps
-            // entries) made the TV invisible to phones exactly when the user
-            // needed set-up-with-phone again.
-            receiverStateProvider = { org.prairieserver.prairie.pairing.PairingReceiverState.Setup },
             identityProbe = { url -> identityApi.probeIdentity(url) },
         )
     }
@@ -400,14 +392,6 @@ val androidTvModule = module {
         org.prairieserver.prairie.common.pairing.TvPairingAdvertiser(
             context = androidContext(),
             receiver = get(),
-            // Always `setup`: advertising only runs while the server-setup
-            // screen is showing, and Apple is authoritative for the wire —
-            // silo-apple's TVPairingAdvertiser hardcodes st=setup and its
-            // companion card FILTERS to state == .setup, so a registry-based
-            // `login` (always true after a sign-out, since the registry keeps
-            // entries) made the TV invisible to phones exactly when the user
-            // needed set-up-with-phone again.
-            receiverStateProvider = { org.prairieserver.prairie.pairing.PairingReceiverState.Setup },
         )
     }
     single { PrairieCastNsdAdvertiser(androidContext()) }
@@ -454,7 +438,7 @@ val androidTvModule = module {
             serverIdentities = get(),
             sessionExpired = params.getOrNull<Boolean>() ?: false,
             externalSignIn = get(),
-            // st=login rollout gate (prairie-apple PairingProtocol.advertisesSignInTVs):
+            // st=login rollout gate (silo-apple PairingProtocol.advertisesSignInTVs):
             // debug builds only until both phone apps that accept login TVs ship.
             advertisesSignIn = BuildConfig.DEBUG,
         )
@@ -469,7 +453,6 @@ val androidTvModule = module {
             profileId = params.get(),
         )
     }
-    viewModel { TvServerListViewModel(get(), get(), get(), get()) }
     viewModel { TvServerListViewModel(get(), get(), get(), get(), get()) }
 
     viewModel { params ->

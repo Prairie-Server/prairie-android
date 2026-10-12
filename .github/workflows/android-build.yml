@@ -40,73 +40,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ffmpeg-aar:
-    name: Media3 FFmpeg AAR
-    if: github.event_name == 'workflow_dispatch' && inputs.build_ffmpeg_aar
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - name: Check out sources
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Install pinned native toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
-            "ndk;26.3.11579264" \
-            "cmake;3.22.1"
-
-      - name: Build FFmpeg decoder extension
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/26.3.11579264"
-          ./scripts/build-ffmpeg-aar.sh
-
-      - name: Verify packaged ABIs and renderer
-        shell: bash
-        run: |
-          set -euo pipefail
-          aar="android-shared/libs/media3-decoder-ffmpeg-1.11.0.aar"
-          unzip -l "${aar}" | grep -F "jni/arm64-v8a/libffmpegJNI.so"
-          unzip -l "${aar}" | grep -F "jni/armeabi-v7a/libffmpegJNI.so"
-          unzip -l "${aar}" | grep -F "jni/x86_64/libffmpegJNI.so"
-          unzip -p "${aar}" classes.jar > /tmp/media3-ffmpeg-classes.jar
-          unzip -l /tmp/media3-ffmpeg-classes.jar | \
-            grep -F "androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.class"
-          readelf="${ANDROID_HOME}/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            so="/tmp/libffmpegJNI-${abi}.so"
-            unzip -p "${aar}" "jni/${abi}/libffmpegJNI.so" > "${so}"
-            "${readelf}" -lW "${so}" | python3 -c '
-          import sys
-          alignments = [
-              int(line.split()[-1], 16)
-              for line in sys.stdin
-              if line.lstrip().startswith("LOAD ")
-          ]
-          if not alignments or min(alignments) < 0x4000:
-              raise SystemExit(f"ELF LOAD alignment is below 16 KB: {alignments}")
-          '
-          done
-          sha256sum "${aar}"
-
-      - name: Upload FFmpeg AAR
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
-        with:
-          name: media3-decoder-ffmpeg-1.11.0
-          path: android-shared/libs/media3-decoder-ffmpeg-1.11.0.aar
-          if-no-files-found: error
+  ci:
+    # Hosted PR validation must exercise the proposed workflow revision. The
+    # runner group's main-only restriction still applies to self-hosted calls.
+    uses: ./.github/workflows/trusted-linux-ci.yml
+    with:
+      self_hosted: false
+      build_ffmpeg_aar: ${{ inputs.build_ffmpeg_aar || false }}
+      build_cache: ${{ github.event_name != 'workflow_dispatch' || inputs.build_cache }}
+      parallel: ${{ inputs.parallel || false }}
+      configuration_cache: ${{ inputs.configuration_cache || false }}
 
   prairie-invariants:
     name: Prairie invariants
@@ -126,61 +69,3 @@ jobs:
       # to make it pass. See docs/upstream-sync.md.
       - name: Check Prairie invariants
         run: ./scripts/check-prairie-invariants.sh
-
-  release-readiness:
-    name: Release readiness
-    if: github.event_name != 'workflow_dispatch' || !inputs.build_ffmpeg_aar
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - name: Check out sources
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-
-      # Match release.yml: the pinned Ruby and frozen lockfile must work
-      # before a release reaches the Google Play job.
-      - name: Set up Ruby and install release dependencies
-        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
-        with:
-          bundler-cache: true
-
-      - name: Load the release lane and Play client
-        run: |
-          bundle exec fastlane lanes
-          bundle exec ruby -e "require 'supply'"
-        env:
-          FASTLANE_SKIP_UPDATE_CHECK: "true"
-          FASTLANE_OPT_OUT_USAGE: "true"
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
-
-      # Exercise both Play artifacts, including R8 and bundle packaging.
-      # Signing and publishing remain in release.yml.
-      - name: Build phone and TV release bundles
-        run: |
-          ./gradlew \
-            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
-            :androidApp:bundleRelease :androidTvApp:bundleRelease \
-            --max-workers=2
-          test -s androidApp/build/outputs/bundle/release/androidApp-release.aab
-          test -s androidTvApp/build/outputs/bundle/release/androidTvApp-release.aab
-
-  ci:
-    # Hosted PR validation must exercise the proposed workflow revision. The
-    # runner group's main-only restriction still applies to self-hosted calls.
-    uses: ./.github/workflows/trusted-linux-ci.yml
-    with:
-      self_hosted: false
-      build_ffmpeg_aar: ${{ inputs.build_ffmpeg_aar || false }}
-      build_cache: ${{ github.event_name != 'workflow_dispatch' || inputs.build_cache }}
-      parallel: ${{ inputs.parallel || false }}
-      configuration_cache: ${{ inputs.configuration_cache || false }}

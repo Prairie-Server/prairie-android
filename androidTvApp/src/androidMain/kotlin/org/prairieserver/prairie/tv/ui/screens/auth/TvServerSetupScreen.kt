@@ -74,18 +74,7 @@ import org.prairieserver.prairie.tv.ui.focus.TvFocusLog
 import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 
 /**
- * Server setup — connects the app to a Silo server.
- *
- * While idle, this mirrors tvOS `TVServerSetupView`, scaled for the Shield's
- * ~960×540dp canvas (the iOS source is laid out in 1920×1080 points): the
- * wordmark sits top-left in normal flow, a centered eyebrow + title header
- * block sits below it, and the phone-card / OR / manual-card chooser is
- * centered in the remaining vertical space via a `weight(1f)` box. There are
- * no fixed row heights and no negative offsets — the weight box is what keeps
- * the title clear of the eyebrow and the phone headline clear of its
- * description. Once a phone connects, the chooser swaps in-place to the live
- * pairing receiver flow.
- * First-run server setup on Android TV (prairie-apple `TVServerSetupView`). The
+ * First-run server setup on Android TV (silo-apple `TVServerSetupView`). The
  * screen advertises on the LAN the moment it appears, so the lead path is a
  * nearby phone or tablet setting this TV up with nothing to type, shown as
  * three numbered steps. Typing the address is one button away, under "No
@@ -301,39 +290,6 @@ private fun AddressEntry(
     onBack: () -> Unit,
 ) {
     TvHideStockImeOnDispose()
-    Column(
-        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-        modifier = modifier
-            .auroraGlass(16.dp, emphasized = true)
-            .padding(24.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .tvImeAwareFieldContext(),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
-            Text(
-                text = "Enter the server address",
-                style = TvServerSetupTextStyles.Headline,
-                color = Color.White,
-            )
-
-                text = "SERVER ADDRESS",
-                style = TvServerSetupTextStyles.InputLabel,
-                color = Color.White.copy(alpha = 0.52f),
-            OutlinedTextField(
-                value = state.serverUrl,
-                onValueChange = onServerUrlChanged,
-                placeholder = {
-                    Text(
-                        text = "silo.example.com",
-                        style = TvServerSetupTextStyles.FieldText,
-                    )
-                },
-                singleLine = true,
-                textStyle = TvServerSetupTextStyles.FieldText,
-                keyboardOptions = KeyboardOptions(
     BackHandler(onBack = onBack)
     val fieldFocus = remember { FocusRequester() }
     var fieldFocused by remember { mutableStateOf(false) }

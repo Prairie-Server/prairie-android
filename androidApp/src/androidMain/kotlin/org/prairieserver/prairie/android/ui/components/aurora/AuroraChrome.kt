@@ -183,6 +183,7 @@ fun AuroraTextField(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val shape = RoundedCornerShape(AuroraControlCorner)
+
     Column(modifier = modifier.fillMaxWidth()) {
         AuroraFieldLabel(label)
         Spacer(Modifier.height(8.dp))
@@ -201,6 +202,8 @@ fun AuroraTextField(
                 .border(
                     width = if (isFocused) 2.dp else 1.5.dp,
                     color = if (isFocused) AuroraAccent else Color.White.copy(alpha = 0.16f),
+                    shape = shape,
+                )
                 .heightIn(min = AuroraControlHeight)
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart,
@@ -235,15 +238,21 @@ fun AuroraTextField(
                 if (trailing != null) {
                     Spacer(Modifier.width(10.dp))
                     trailing()
+                }
             }
         }
     }
 }
+
 /** Equal-width, single-line segmented option chip (Aurora). */
+@Composable
 fun AuroraSegment(
     title: String,
     isSelected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(AuroraControlCorner)
     val fill = if (isSelected) AuroraAccent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.06f)
     val stroke = if (isSelected) AuroraAccent.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.14f)
     val textColor = if (isSelected) AuroraInk else AuroraInkSecondary
@@ -263,3 +272,5 @@ fun AuroraSegment(
             fontSize = 16.sp,
             maxLines = 1,
         )
+    }
+}

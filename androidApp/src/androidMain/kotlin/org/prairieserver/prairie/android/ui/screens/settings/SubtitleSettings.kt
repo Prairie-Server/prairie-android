@@ -372,7 +372,7 @@ private fun previewColor(hex: String): Color =
 
 /**
  * Option labels for the Text / Background / Layout groups, in the Apple apps'
- * wording. The palettes match prairie-apple `SubtitleAppearance` and the TV app's
+ * wording. The palettes match silo-apple `SubtitleAppearance` and the TV app's
  * `TvSubtitleAppearanceOptions`. Android also offers the outline background
  * style, which the Apple apps draw as a text outline.
  */

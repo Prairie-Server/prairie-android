@@ -13,7 +13,7 @@ server's buffering policy and Apple's merged client. The June and July Watch
 Together plans under `docs/superpowers/` remain history.
 [Android playback architecture](playback/README.md) continues to own Media3,
 playback-v3, timeline mapping, and output-route behavior. Tracking issue:
-[Android #355](https://github.com/Prairie-Server/prairie-android/issues/355).
+[Android #355](https://github.com/Prairie-Server/silo-android/issues/355).
 
 ## What changed from the September 21 draft
 
@@ -42,7 +42,7 @@ playback-v3, timeline mapping, and output-route behavior. Tracking issue:
 | Android | `main` at `03ac5b71` (2026-09-24) | Code baseline. Watch Together sources are unchanged since `6e26ae46`; the player gained seek intervals (#365), extras (#369), Force HDR passthrough (#360), and named editions |
 | Server | `main` at `2812ac39` (2026-09-24) | Contract owner: [room phases](https://github.com/Prairie-Server/prairie-server/blob/2812ac390829bec2b64328dcee29f0eb15a9b808/docs/architecture/watch-together-rooms.md), [realtime API](https://github.com/Prairie-Server/prairie-server/blob/2812ac390829bec2b64328dcee29f0eb15a9b808/docs/realtime-api.md), [synchronization and buffering policy](https://github.com/Prairie-Server/prairie-server/blob/2812ac390829bec2b64328dcee29f0eb15a9b808/docs/architecture/watch-party-synchronization.md), [capabilities](https://github.com/Prairie-Server/prairie-server/blob/2812ac390829bec2b64328dcee29f0eb15a9b808/internal/apiv2/watch_together_capabilities.go) |
 | Web reference client | Same server revision | Client timing reference: [`useWatchTogetherPlaybackSync.ts`](https://github.com/Prairie-Server/prairie-server/blob/2812ac390829bec2b64328dcee29f0eb15a9b808/web/src/player/hooks/useWatchTogetherPlaybackSync.ts), [`roomSyncCatchup.ts`](https://github.com/Prairie-Server/prairie-server/blob/2812ac390829bec2b64328dcee29f0eb15a9b808/web/src/player/utils/roomSyncCatchup.ts) |
-| Apple | `main` at `5d9dc764`, including [#347](https://github.com/Prairie-Server/prairie-apple/pull/347) | Native reference: session, playback adapter, end of file, Experimental gate, host-pick suggestions |
+| Apple | `main` at `5d9dc764`, including [#347](https://github.com/Prairie-Server/silo-apple/pull/347) | Native reference: session, playback adapter, end of file, Experimental gate, host-pick suggestions |
 | Shared-dev | Record at every run | Must run server code that includes `9482302b` and advertise every required capability |
 
 When sources disagree, server code wins, then server docs, then the web
@@ -64,7 +64,7 @@ remux, or cross-node cases.
 | D1 | Add a device-local **Settings → Experimental → Watch Party** toggle on phone and TV. Debug builds default on; release builds default off. The section is visible to everyone. Turning it off hides every entry point, ignores invitations, and leaves an active party (for a host, the room ends two minutes later unless they rejoin). A server reporting `allowed=false` or missing capabilities is the remote kill switch. | Apple #347 and `5d9dc764` | Agreed 2026-09-24. Record it in `AGENTS.md` "Current Product Exposure" in the change that adds the toggle |
 | D2 | Everyone gets **Leave party**. The host also gets **Return everyone to lobby** (Stop) and **End party for everyone**. A host's Leave explains that the party ends two minutes after they leave unless they rejoin. | Apple's room menu; no leave route; 2-minute host grace | Adopted |
 | D3 | No new foreground service keeps the room socket alive. Background behavior follows the table under "Background and process death". Background hosting is not promised. | 2-minute host grace | Adopted |
-| D4 | Invitations: room code everywhere; phone share and copy of the server's `https` invitation link (custom-scheme links aren't clickable in Messages or email); a paste parser; a TV QR code of the link. The app link is `prairie://watch-party?server=<server URL>&token=<join token>`, and it resolves to the same invitation as the web link. Tapping a shared `https` link opens the app only after the server's join page offers that app link. | Server `invite_path`; [Apple #409](https://github.com/Prairie-Server/prairie-apple/issues/409); format proposed in [Apple #412](https://github.com/Prairie-Server/prairie-apple/pull/412) | Not final. Build against #412's format; freeze it before the M5 link handling merges |
+| D4 | Invitations: room code everywhere; phone share and copy of the server's `https` invitation link (custom-scheme links aren't clickable in Messages or email); a paste parser; a TV QR code of the link. The app link is `prairie://watch-party?server=<server URL>&token=<join token>`, and it resolves to the same invitation as the web link. Tapping a shared `https` link opens the app only after the server's join page offers that app link. | Server `invite_path`; [Apple #409](https://github.com/Prairie-Server/silo-apple/issues/409); format proposed in [Apple #412](https://github.com/Prairie-Server/silo-apple/pull/412) | Not final. Build against #412's format; freeze it before the M5 link handling merges |
 | D5 | While engaged, solo playback (detail Play, extras, launcher and deep links, PrairieCast launch) asks the user to leave the party first. An invitation that arrives while engaged explains that the user must leave first. | Invitation message from Apple #347; the solo-playback guard is an Android decision (one shared service player) | Adopted |
 | D6 | Catch-up follows the server policy and the web client: 2-second buffering grace, rate convergence between 0.9x and 1.25x kept separate from user speed, paced correction reloads, and a lower-quality offer. User playback speed is a session-only 1x. | Server sync doc; web client | Adopted |
 | D7 | Party PiP, Google Cast, and external players stay disabled in rooms until each route is qualified. Starting party playback ends a solo PiP session. The party player blocks Cast connection. | Apple disables party PiP and AirPlay and ends solo PiP; Cast and external players are the Android equivalents | Adopted |
@@ -452,7 +452,7 @@ preparation.
 Route every input through one decision. Guests never seek; play and pause
 follow the room policy. A denied input changes nothing locally and shows a
 notice. An input during a reconnect shows an immediate notice; it is neither
-dropped silently nor queued ([Apple #410](https://github.com/Prairie-Server/prairie-apple/issues/410)).
+dropped silently nor queued ([Apple #410](https://github.com/Prairie-Server/silo-apple/issues/410)).
 
 | Input | Today | Required |
 | --- | --- | --- |
@@ -1011,9 +1011,9 @@ captures.
 | [Server #1345](https://github.com/Prairie-Server/prairie-server/pull/1345) (open) | Web-only pre-roll fix for copy-remux seeks. Android checks Media3's landing behavior in T44 |
 | [Server #1259](https://github.com/Prairie-Server/prairie-server/issues/1259) (open) | Replan storms on copy remux. The reload budget is Android's side; T23 proves it |
 | [Server #1284](https://github.com/Prairie-Server/prairie-server/issues/1284) (open tracker) | Suggestion broadcast and replacement fixes are merged (#1286, #1287). Confirm they are deployed on every API that Android testing uses |
-| [Apple #412](https://github.com/Prairie-Server/prairie-apple/pull/412) (open), for [#409](https://github.com/Prairie-Server/prairie-apple/issues/409) | Proposes the `prairie://watch-party` app link that Android adopts (D4). The server still needs a public join page that offers the link; the web join page currently requires sign-in. Freeze the format before M5's link handling merges; tapping a shared link end to end (T39) needs the server page |
-| [Apple #410](https://github.com/Prairie-Server/prairie-apple/issues/410) | Android uses an immediate notice on taps during reconnect (T27) |
-| [Apple #411](https://github.com/Prairie-Server/prairie-apple/issues/411) | Android keys recent parties by `loginId` from sign-in. Confirm that sessions from older app versions carry it |
+| [Apple #412](https://github.com/Prairie-Server/silo-apple/pull/412) (open), for [#409](https://github.com/Prairie-Server/silo-apple/issues/409) | Proposes the `prairie://watch-party` app link that Android adopts (D4). The server still needs a public join page that offers the link; the web join page currently requires sign-in. Freeze the format before M5's link handling merges; tapping a shared link end to end (T39) needs the server page |
+| [Apple #410](https://github.com/Prairie-Server/silo-apple/issues/410) | Android uses an immediate notice on taps during reconnect (T27) |
+| [Apple #411](https://github.com/Prairie-Server/silo-apple/issues/411) | Android keys recent parties by `loginId` from sign-in. Confirm that sessions from older app versions carry it |
 | [Server #1379](https://github.com/Prairie-Server/prairie-server/pull/1379) (merged) | Room-driven starts omit `first_frame_ms`; Rejoin is a viewer start. Android's general first-frame timing, which starts at plan adoption, is separate work |
 | Picker `overlay_summary` | Server picker cards carry no overlay summary, so the watchlist row shows no quality badges until the server fills it |
 | Access-token lifetime | Not confirmed. If it is shorter than 5 minutes, sockets rotate earlier; T09 and T10 measure it |

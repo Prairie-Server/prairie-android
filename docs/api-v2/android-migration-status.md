@@ -2,7 +2,7 @@
 
 Every HTTP call the Android clients make goes to `/api/v2/` except the two
 exceptions at the end. Source of truth: `grep -rhoE '"/api/v2/[^"]+' shared/src/commonMain`
-and the server ledger `contracts/api/v2/migration.json` (prairie-server `origin/apiv2`).
+and the server ledger `contracts/api/v2/migration.json` (silo-server `origin/apiv2`).
 
 | Endpoint family | v2 paths | Status |
 | --- | --- | --- |

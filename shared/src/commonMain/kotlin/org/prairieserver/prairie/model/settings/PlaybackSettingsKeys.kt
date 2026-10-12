@@ -29,18 +29,6 @@ object PlaybackSettingsKeys {
     const val IntroSkipMode = "playback.intro_skip_mode"
     const val AutoSkipCredits = "playback.auto_skip_credits"
     const val AutoPlayNext = "playback.auto_play_next"
-    /**
-     * Skip "previously on" recaps automatically when Prairie can detect them —
-     * `playback.auto_skip_recap`. Same scopes and resolution order as the other
-     * episode behavior keys.
-     */
-    const val AutoSkipRecap = "playback.auto_skip_recap"
-    /**
-     * Show a preview of the next episode while credits play —
-     * `playback.auto_play_next_preview`. Paired with [AutoPlayNext] at the
-     * Up-Next surface.
-     */
-    const val AutoPlayNextPreview = "playback.auto_play_next_preview"
     // Renamed at the settings cutover: every other key carries a domain prefix
     // and this one did not, so the contract registers it as
     // playback.subtitle_appearance. Old servers are gone by the time this
@@ -172,7 +160,7 @@ object PlaybackSettingsKeys {
      * while HDR or Dolby Vision is on, so painted bars glow grey (Onn 4K Pro,
      * Sony TVs). Others do the reverse and lift the transparent area (Fire TV,
      * Google TV Streamer). Neither the chip vendor nor any platform signal
-     * tells them apart (prairie-android#475), so the user picks what looks right
+     * tells them apart (silo-android#475), so the user picks what looks right
      * on their device. It describes this device's compositor, not a playback
      * preference, so this never enters [DeviceSettings].
      */
@@ -186,8 +174,6 @@ object PlaybackSettingsKeys {
         IntroSkipMode,
         AutoSkipCredits,
         AutoPlayNext,
-        AutoSkipRecap,
-        AutoPlayNextPreview,
         SubtitleAppearance,
         HdrEnabled,
         PlaybackSpeed,
@@ -227,8 +213,6 @@ object PlaybackSettingsKeys {
         IntroSkipMode,
         AutoSkipCredits,
         AutoPlayNext,
-        AutoSkipRecap,
-        AutoPlayNextPreview,
         NextUpPromptSeconds,
         SubtitleAppearance,
     )

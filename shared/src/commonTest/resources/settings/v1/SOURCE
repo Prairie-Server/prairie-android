@@ -1,4 +1,4 @@
-repository=https://github.com/Prairie-Server/prairie-server
+repository=https://github.com/Silo-Server/silo-server
 path=contracts/settings/v1
 manifest_revision=17
 fixture_version=1

@@ -136,7 +136,7 @@ private sealed class TvTopMenuFocus {
  * The custom top menu bar — the Skyline grammar from tvOS `TVTopMenuBar.swift`.
  *
  * Layout (three zones):
- * - Leading: the Prairie brand lockup image (see [TvPrairieWordmark]).
+ * - Leading: the Silo brand lockup image (see [TvSiloWordmark]).
  * - Center: Search icon · `Home` · one inverted-capsule tab per visible
  *   library-type · `Calendar`, derived from [destinations] (the shell's
  *   `visibleRoots`), with an invisible search-size twin trailing the tabs so
@@ -517,14 +517,14 @@ fun TvTopMenuBar(
             },
         verticalAlignment = Alignment.Bottom,
     ) {
-        // Leading: the Prairie brand lockup.
+        // Leading: the Silo brand lockup.
         Box(
             modifier = Modifier
                 .padding(start = TvSkyline.safeAreaX)
                 .height(TvSkyline.barHeight),
             contentAlignment = Alignment.Center,
         ) {
-            TvPrairieWordmark()
+            TvSiloWordmark()
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -696,9 +696,9 @@ data class TvAccountState(
     val serverName: String = "",
 )
 
-/** The Prairie brand lockup image, sized to the bar. */
+/** The Silo brand lockup image, sized to the bar. */
 @Composable
-private fun TvPrairieWordmark() {
+private fun TvSiloWordmark() {
     Image(
         painter = painterResource(id = R.drawable.prairie_wordmark),
         contentDescription = "Prairie",

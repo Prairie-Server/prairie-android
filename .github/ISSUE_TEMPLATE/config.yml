@@ -4,13 +4,13 @@ contact_links:
     url: https://github.com/Prairie-Server/prairie-server/issues/new/choose
     about: Report it in prairie-server, especially if it also happens in the web app.
   - name: Problem in the iOS, tvOS, or macOS app
-    url: https://github.com/Prairie-Server/prairie-apple/issues/new/choose
-    about: Report it in prairie-apple.
+    url: https://github.com/Prairie-Server/silo-apple/issues/new/choose
+    about: Report it in silo-apple.
   - name: Questions and setup help
     url: https://discord.gg/prairieserver
     about: Ask how to set up or use Prairie in the Prairie Discord.
   - name: Report a security vulnerability
-    url: https://github.com/Prairie-Server/prairie-android/security/advisories/new
+    url: https://github.com/Prairie-Server/silo-android/security/advisories/new
     about: Report it privately. Do not open a public issue.
   - name: How to report a problem
     url: https://prairieserver.org/docs/report-a-problem

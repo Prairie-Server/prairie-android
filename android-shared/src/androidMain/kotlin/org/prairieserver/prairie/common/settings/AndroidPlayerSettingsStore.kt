@@ -1204,7 +1204,7 @@ class AndroidPlayerSettingsStore(
         fun isDoubleKey(key: String): Boolean = key in DOUBLE_KEYS
 
         fun fileNameFor(profileId: String): String =
-            "prairie_player_settings_${profileHash(profileId)}"
+            "silo_player_settings_${profileHash(profileId)}"
 
         fun profileHash(profileId: String): String =
             sha256Hex(profileId).take(16)

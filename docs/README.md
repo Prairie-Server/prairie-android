@@ -1,4 +1,4 @@
-# Prairie Android Docs
+# Silo Android Docs
 
 Start with the root [README](../README.md) for architecture/build instructions and
 [FEATURES](../FEATURES.md) for the current exposed feature inventory.
@@ -23,7 +23,7 @@ Start with the root [README](../README.md) for architecture/build instructions a
   apps can open downloaded videos, audiobooks, and ebooks.
 - Android TV has a dedicated audiobook detail/player flow; ebooks remain
   phone-only.
-- Client diagnostics are Android-native: the hosted Prairie collector is the
+- Client diagnostics are Android-native: the hosted Silo collector is the
   default destination, and self-hosted ingest remains an explicit choice.
   Adult profiles can review local reports and choose consent, while child
   profiles are excluded.
@@ -55,4 +55,4 @@ Start with the root [README](../README.md) for architecture/build instructions a
 - Implementation plan and verification commands: [`superpowers/plans/2026-07-22-android-client-diagnostics.md`](superpowers/plans/2026-07-22-android-client-diagnostics.md)
 - Hosted destination design: [`superpowers/specs/2026-08-12-android-hosted-diagnostics-design.md`](superpowers/specs/2026-08-12-android-hosted-diagnostics-design.md)
 - Hosted destination implementation plan: [`superpowers/plans/2026-08-12-android-hosted-diagnostics.md`](superpowers/plans/2026-08-12-android-hosted-diagnostics.md)
-- The compatible server ingest endpoint shipped separately in Prairie Server PR 445.
+- The compatible server ingest endpoint shipped separately in Silo Server PR 445.

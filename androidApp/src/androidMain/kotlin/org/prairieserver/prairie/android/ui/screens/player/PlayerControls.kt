@@ -244,20 +244,6 @@ fun PlayerControls(
                 modifier = Modifier.alpha(chromeAlpha),
             )
         }
-        val progressBar: @Composable () -> Unit = {
-            PlayerProgressBar(
-                position = position,
-                duration = duration,
-                bufferedPosition = bufferedPosition,
-                onSeek = onSeek,
-                enabled = seekEnabled,
-                chapters = chapters,
-                intro = intro,
-                trickplay = trickplay,
-                credits = credits,
-                recap = recap,
-                preview = preview,
-            )
         val bottom: @Composable () -> Unit = {
             Column(modifier = Modifier.padding(horizontal = 4.dp)) {
                 PlayerProgressBar(
@@ -268,6 +254,7 @@ fun PlayerControls(
                     enabled = seekEnabled,
                     chapters = chapters,
                     intro = intro,
+                    trickplay = trickplay,
                     credits = credits,
                     recap = recap,
                     preview = preview,
@@ -288,6 +275,7 @@ fun PlayerControls(
                     onOpenQuality = onOpenQuality,
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.alpha(chromeAlpha),
+                )
             }
         }
 

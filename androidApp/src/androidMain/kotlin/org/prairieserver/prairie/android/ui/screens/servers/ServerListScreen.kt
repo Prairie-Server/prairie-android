@@ -34,10 +34,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -279,16 +276,6 @@ fun ServerListScreen(
                 viewModel.onRemove(target.id)
                 removeTarget = null
             },
-            dismissButton = {
-                TextButton(onClick = { removeTarget = null }) { Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Cancel") }
-            },
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
             onDismiss = { removeTarget = null },
         )
     }
@@ -461,54 +448,33 @@ private fun ServerRow(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                DropdownMenu(
+                PrairieDropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                    DropdownMenuItem(
+                ) {
+                    PrairieDropdownMenuItem(
                         text = { Text("Rename") },
                         onClick = {
                             menuExpanded = false
                             onRename()
                         },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    )
+                    PrairieDropdownMenuItem(
                         text = { Text("Remove Server") },
+                        onClick = {
+                            menuExpanded = false
                             onRemove()
+                        },
                         leadingIcon = {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.error,
                             )
-        Box {
-            IconButton(
-                enabled = !isPending,
-                onClick = { menuExpanded = true },
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Server actions",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            PrairieDropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-                PrairieDropdownMenuItem(
-                    text = { Text("Rename") },
-                    onClick = {
-                        menuExpanded = false
-                        onRename()
-                    },
-                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                    text = { Text("Remove Server") },
-                        onRemove()
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                        )
+                        },
+                    )
+                }
             }
         }
     }
@@ -575,19 +541,6 @@ private fun RenameDialog(
         actions = buildList {
             add(PrairieDialogAction("Save", { onConfirm(input) }, PrairieDialogActionStyle.Primary))
             if (hasOverride) {
-                TextButton(onClick = { onConfirm("") }) {
-                    Text(
-                        "Reset to server-provided name",
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            } else {
-                TextButton(onClick = onDismiss) { Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Cancel") }
                 add(PrairieDialogAction("Reset to server-provided name", { onConfirm("") }))
             }
             add(PrairieDialogAction("Cancel", onDismiss))

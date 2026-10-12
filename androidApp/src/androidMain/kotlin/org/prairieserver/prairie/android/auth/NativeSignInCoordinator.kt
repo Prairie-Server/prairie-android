@@ -127,7 +127,7 @@ class NativeSignInCoordinator(
      *
      * [autoStart] ("Not you? Switch account" where the provider takes
      * `select_account`) also has that server's login screen start the sign-in
-     * as soon as it has its providers (prairie-apple `SelectAccountPrompt`). It
+     * as soon as it has its providers (silo-apple `SelectAccountPrompt`). It
      * lives in memory only, so a relaunch never opens a browser by itself.
      */
     fun requestAccountChoice(serverEntryId: String, autoStart: Boolean = false) {

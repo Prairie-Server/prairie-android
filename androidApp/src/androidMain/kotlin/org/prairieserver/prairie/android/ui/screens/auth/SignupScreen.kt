@@ -2,12 +2,6 @@ package org.prairieserver.prairie.android.ui.screens.auth
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.ConfirmationNumber
 import androidx.compose.material.icons.outlined.Email
@@ -96,19 +90,6 @@ fun SignupScreen(
                 imeAction = ImeAction.Go,
                 onImeAction = viewModel::onSignupClick,
             )
-
-            state.error?.let { AuroraErrorLabel(it) }
-            AuroraPrimaryButton(
-                label = if (state.isLoading) "Creating…" else "Create account",
-                onClick = viewModel::onSignupClick,
-                icon = Icons.Default.PersonAdd,
-                isLoading = state.isLoading,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AuroraGhostButton(
-                label = "Back to sign in",
-                onClick = onNavigateToLogin,
-                fillMaxWidth = true,
         }
         state.error?.let { MarqueeErrorText(it, Modifier.padding(top = 10.dp)) }
         MarqueeButton(

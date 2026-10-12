@@ -193,14 +193,6 @@ class TvServerListViewModel(
             // Switch the registry + token scope and probe the target server.s contract.
             authRepository.switchToServer(serverId)
 
-            val accessToken = tokenManager.getAccessToken()
-            val activeEntry = serverRegistry.activeEntry.value
-            val profileId = activeEntry?.profileId ?: tokenManager.getProfileId()
-            val destination = when {
-                accessToken.isNullOrBlank() -> TvServerSwitchDestination.Login
-                profileId.isNullOrBlank() -> TvServerSwitchDestination.ProfileSelection
-                else -> TvServerSwitchDestination.Home
-            }
             // Land on the deepest screen the new server's stored credentials
             // can reach — preserves the signed-in user when tokens are present.
             val destination = switchDestination()
@@ -299,14 +291,6 @@ class TvServerListViewModel(
             // idempotent when the registry is already there).
             authRepository.switchToServer(promotedId)
 
-            val accessToken = tokenManager.getAccessToken()
-            val activeEntry = serverRegistry.activeEntry.value
-            val profileId = activeEntry?.profileId ?: tokenManager.getProfileId()
-            val destination = when {
-                accessToken.isNullOrBlank() -> TvServerSwitchDestination.Login
-                profileId.isNullOrBlank() -> TvServerSwitchDestination.ProfileSelection
-                else -> TvServerSwitchDestination.Home
-            }
             // Land on the deepest screen the promoted server's stored
             // credentials can reach — preserves that server's session if tokens
             // are present, otherwise falls back to Login.
@@ -315,16 +299,7 @@ class TvServerListViewModel(
             _uiState.update { it.copy(switchedTo = destination) }
         }
     }
-}
 
-internal fun mergeDiscoveryLists(
-    base: List<DiscoveryHit>,
-    extra: List<DiscoveryHit>,
-): List<DiscoveryHit> {
-    val map = LinkedHashMap<String, DiscoveryHit>()
-    for (hit in base) map[hit.url] = hit
-    for (hit in extra) map[hit.url] = hit
-    return map.values.toList()
     /**
      * The deepest screen the now-active server's stored credentials reach.
      *
@@ -349,4 +324,14 @@ internal fun mergeDiscoveryLists(
             else -> TvServerSwitchDestination.Home
         }
     }
+}
+
+internal fun mergeDiscoveryLists(
+    base: List<DiscoveryHit>,
+    extra: List<DiscoveryHit>,
+): List<DiscoveryHit> {
+    val map = LinkedHashMap<String, DiscoveryHit>()
+    for (hit in base) map[hit.url] = hit
+    for (hit in extra) map[hit.url] = hit
+    return map.values.toList()
 }

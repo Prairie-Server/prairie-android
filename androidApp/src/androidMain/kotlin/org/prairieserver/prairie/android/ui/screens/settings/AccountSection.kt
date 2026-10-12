@@ -40,8 +40,8 @@ import org.prairieserver.prairie.model.auth.User
  * Settings section showing user account info, device pairing, and sign out.
  *
  * Session management and the admin surface are deliberately absent: both were
- * removed from the Android clients outright — phone, TV, and the shared code
- * that served them — not merely hidden behind a gate.
+ * removed from the Android clients outright â phone, TV, and the shared code
+ * that served them â not merely hidden behind a gate.
  */
 @Composable
 fun AccountSection(
@@ -51,7 +51,7 @@ fun AccountSection(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     // iOS parity: the account header is a button that opens profile
-    // selection ("Tap to switch profile") — the chevron was previously dead.
+    // selection ("Tap to switch profile") â the chevron was previously dead.
     onSwitchProfile: () -> Unit = {},
 ) {
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
@@ -85,7 +85,7 @@ fun AccountSection(
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Avatar — iOS ProfileAvatarView size 56.
+                // Avatar â iOS ProfileAvatarView size 56.
                 Box(
                     modifier = Modifier
                         .size(SettingsDimens.avatarSize)

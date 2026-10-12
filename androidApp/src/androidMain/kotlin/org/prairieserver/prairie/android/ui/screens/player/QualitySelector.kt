@@ -57,7 +57,7 @@ fun QualitySelector(
             modifier = Modifier
                 .fillMaxWidth()
                 // Cap below the top edge + keep content flings from
-                // dismissing the sheet — see PlayerSheetSupport.
+                // dismissing the sheet â see PlayerSheetSupport.
                 .playerSheetContent(tabletopPaneHeight)
                 .nestedScroll(PlayerSheetFlingGuard)
                 .padding(bottom = 32.dp),
@@ -118,7 +118,7 @@ fun QualitySelector(
                         contentType = { _, _ -> "quality-version" },
                     ) { index, version ->
                         val label = buildString {
-                            version.editionLabel?.let { append(it).append(" · ") }
+                            version.editionLabel?.let { append(it).append(" Â· ") }
                             version.resolution?.let { append(it) } ?: append("Unknown")
                             if (version.hdr) append(" HDR")
                         }

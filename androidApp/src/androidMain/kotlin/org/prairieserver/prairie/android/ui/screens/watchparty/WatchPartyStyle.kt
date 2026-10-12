@@ -78,7 +78,7 @@ import org.prairieserver.prairie.watchtogether.watchPartySeatState
 import org.prairieserver.prairie.watchtogether.watchPartySeatStatus
 
 /*
- * The Watch Party look, after prairie-apple's WatchPartyComponents (iOS values):
+ * The Watch Party look, after silo-apple's WatchPartyComponents (iOS values):
  * the film's artwork is the room, members sit over it as seats, and actions
  * are white-on-black pills.
  */

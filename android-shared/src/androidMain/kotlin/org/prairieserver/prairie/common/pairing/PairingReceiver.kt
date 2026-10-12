@@ -50,7 +50,7 @@ sealed interface NearbySignInOutcome {
  * `login` mode. The phone approves the code the TV already shows, so there is
  * only ever one code on screen; the sign-in screen polls, saves the session
  * and routes on, and the receiver only relays the outcome. Mirrors the
- * prairie-apple `NearbySignInCodeSource`.
+ * silo-apple `NearbySignInCodeSource`.
  */
 interface NearbySignInCodeSource {
     /** The code on screen, waiting briefly while one is being fetched; null when none is available. */
@@ -409,7 +409,7 @@ class PairingReceiver(
         Log.i(TAG, "received pushed server")
         // The protocol is one server at a time: a new push while one is in
         // flight means the phone gave up on the previous server — supersede
-        // it, don't ignore the push (prairie-apple parity).
+        // it, don't ignore the push (silo-apple parity).
         pushJob?.cancelAndJoin()
         pushJob = null
         // tvOS parity: the first push of a session needs the TV user's consent
@@ -594,7 +594,7 @@ class PairingReceiver(
     /**
      * Commit the approved tokens. A failed commit is a failed attempt, and the
      * phone is told so: the TV must never sit on "almost there" while the phone
-     * waits for a result that isn't coming (prairie-apple#554).
+     * waits for a result that isn't coming (silo-apple#554).
      */
     private suspend fun persist(
         response: DeviceLoginPollResponse,

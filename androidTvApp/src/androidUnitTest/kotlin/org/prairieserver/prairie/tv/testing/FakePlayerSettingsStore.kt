@@ -20,8 +20,6 @@ internal class FakePlayerSettingsStore : PlayerSettingsStore {
     override val introSkipModeFlow = MutableStateFlow(IntroSkipMode.ASK)
     override val autoSkipCreditsFlow = MutableStateFlow(false)
     override val autoPlayNextFlow = MutableStateFlow(true)
-    override val autoSkipRecapFlow = MutableStateFlow(false)
-    override val autoPlayNextPreviewFlow = MutableStateFlow(false)
     override val hdrEnabledFlow = MutableStateFlow(true)
     override val dvProfile7HDR10FallbackFlow = MutableStateFlow(false)
     override val dolbyVisionEnabledFlow = MutableStateFlow(true)
@@ -58,12 +56,6 @@ internal class FakePlayerSettingsStore : PlayerSettingsStore {
     }
     override suspend fun setAutoPlayNext(value: Boolean) {
         setterCalls += "setAutoPlayNext"; autoPlayNextFlow.value = value
-    }
-    override suspend fun setAutoSkipRecap(value: Boolean) {
-        setterCalls += "setAutoSkipRecap"; autoSkipRecapFlow.value = value
-    }
-    override suspend fun setAutoPlayNextPreview(value: Boolean) {
-        setterCalls += "setAutoPlayNextPreview"; autoPlayNextPreviewFlow.value = value
     }
     override suspend fun setHdrEnabled(value: Boolean) {
         setterCalls += "setHdrEnabled"; hdrEnabledFlow.value = value

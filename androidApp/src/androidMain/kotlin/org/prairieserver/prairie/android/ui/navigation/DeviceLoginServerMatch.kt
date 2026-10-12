@@ -25,7 +25,7 @@ sealed interface DeviceLoginServerMatch {
 /**
  * The saved server this link's code is approved on in place: through that
  * server's own account scope, without switching the phone's active server
- * (prairie-apple parity). Null for a `token` link, which only the active
+ * (silo-apple parity). Null for a `token` link, which only the active
  * server's lookup accepts, so the "Different server" screen offers the switch.
  */
 fun DeviceLoginServerMatch.SwitchRequired.inPlaceApprovalServer(token: String?, code: String?): ServerEntry? =

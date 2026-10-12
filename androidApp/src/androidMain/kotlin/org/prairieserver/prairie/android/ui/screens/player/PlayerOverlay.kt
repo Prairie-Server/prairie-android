@@ -48,13 +48,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import org.prairieserver.prairie.android.ui.util.LanguageNames
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.android.R
 import org.prairieserver.prairie.android.ui.util.formatClockTime
 import org.prairieserver.prairie.common.ui.LanguageNames
 import org.prairieserver.prairie.common.player.video.markerSkipTarget
 import org.prairieserver.prairie.common.player.video.ManualMarkerKind
-import androidx.compose.ui.res.stringResource
-import org.prairieserver.prairie.android.R
 import org.prairieserver.prairie.common.player.SessionState
 import org.prairieserver.prairie.common.player.SleepTimerState
 import org.prairieserver.prairie.model.playback.PlaybackQualityOption
@@ -63,7 +62,6 @@ import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.watchtogether.RoomTransportIntent
 import org.prairieserver.prairie.watchtogether.roomTransportAuthorized
-import androidx.compose.material.icons.filled.Close
 import org.prairieserver.prairie.playback.statusLabelFor
 import org.prairieserver.prairie.playback.timingActionsFor
 
@@ -104,9 +102,6 @@ fun PlayerOverlay(
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectVersion: (Int) -> Unit,
-    onSelectQuality: (String) -> Unit = {},
-    // Google Cast (Chromecast) button rendered in the transport top bar.
-    castSlot: @Composable () -> Unit = {},
     // Google Cast (Chromecast) button rendered in the transport top bar; the
     // modifier dresses it as a player disc.
     castSlot: @Composable (Modifier) -> Unit = {},
@@ -427,7 +422,6 @@ fun PlayerOverlay(
                 preview = state.preview,
                 hasChapters = state.chapters.isNotEmpty(),
                 hasTracks = state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty(),
-                hasMultipleVersions = state.versions.size > 1 || state.qualityOptions.size > 1,
                 hasQualityMenu = hasQualityMenu,
                 isOrientationLocked = isOrientationLocked,
                 orientationLockSupported = orientationLockSupported,
@@ -612,14 +606,6 @@ fun PlayerOverlay(
                 tracksSheetVisible = false
                 subtitleSearchVisible = true
             },
-            dismissButton = {
-                TextButton(onClick = { showCloseConfirm = false }) { Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Cancel") }
             onTranslateWithAi = {
                 tracksSheetVisible = false
                 aiTranslateVisible = true
@@ -765,18 +751,31 @@ fun PlayerOverlay(
                 statsSheetVisible = false
                 settingsSheetVisible = true
             },
+            // Fork "stats for nerds" enhancements, kept alongside upstream's sheet.
+            sessionId = state.sessionId,
+            playMethod = state.playMethod?.name,
+            positionLabel = formatClockTime(state.position) + " / " + formatClockTime(state.duration),
+            playbackContext = org.prairieserver.prairie.playback.stats.PlaybackStatsContext(
+                plan = state.playbackPlan,
+                playMethod = state.playMethod,
+                audioTrack = state.audioTracks.getOrNull(state.selectedAudioIndex)?.let { track ->
+                    org.prairieserver.prairie.playback.stats.describeAudioTrackForStats(
+                        ordinal = state.selectedAudioIndex,
+                        language = track.language,
+                        codec = track.codec,
+                        channels = track.channels,
+                        title = track.title,
+                    )
+                },
+                streamUrl = state.streamUrl,
+                qualityPreference = state.qualityOptions
+                    .firstOrNull { it.id.equals(state.selectedQualityId, ignoreCase = true) }
+                    ?.label
+                    ?: state.selectedQualityId,
+            ),
             tabletopPaneHeight = tabletopPaneHeight,
         )
 
-    if (showQualitySelector) {
-        QualitySelector(
-            versions = state.versions,
-            selectedIndex = state.selectedVersionIndex,
-            onSelect = onSelectVersion,
-            onDismiss = { showQualitySelector = false },
-            qualityOptions = state.qualityOptions,
-            selectedQualityId = state.selectedQualityId,
-            onSelectQuality = onSelectQuality,
         // Chapters picker — opened from the HUD chapters button (HUD product
         // decision: chapters + tracks + quality; no longer reachable from the
         // gear sheet). Selecting a row seeks the player to the chapter's
@@ -795,97 +794,6 @@ fun PlayerOverlay(
             tabletopPaneHeight = tabletopPaneHeight,
         )
 
-    // Glass-style playback settings sheet (speed / aspect / HDR / auto-skip / auto-play)
-    PlayerSettingsSheet(
-        isVisible = settingsSheetVisible,
-        onDismiss = { settingsSheetVisible = false },
-        playbackSpeed = playbackSpeed,
-        onSetPlaybackSpeed = viewModel::onSetPlaybackSpeed,
-        videoGravity = videoGravity,
-        onSetVideoGravity = viewModel::onSetVideoGravity,
-        letterboxExpansion = viewModel.letterboxExpansion.collectAsState().value,
-        onSetLetterboxExpansion = viewModel::onSetLetterboxExpansion,
-        introSkipMode = viewModel.introSkipMode.collectAsState().value,
-        onSetIntroSkipMode = viewModel::onSetIntroSkipMode,
-        autoPlayNextEnabled = viewModel.autoPlayNextEnabled.collectAsState().value,
-        onSetAutoPlayNext = viewModel::onSetAutoPlayNext,
-        hdrEnabled = viewModel.hdrEnabled.collectAsState().value,
-        onSetHdrEnabled = viewModel::onSetHdrEnabled,
-        dolbyVisionEnabled = viewModel.dolbyVisionEnabled.collectAsState().value,
-        onSetDolbyVisionEnabled = viewModel::onSetDolbyVisionEnabled,
-        qualityLabel = playerQualityLabel(state.versions, state.selectedVersionIndex),
-        onOpenQuality = {
-            settingsSheetVisible = false
-            showQualitySelector = true
-        },
-        audioLabel = playerAudioLabel(state.audioTracks, state.selectedAudioIndex),
-        subtitleLabel = playerSubtitleLabel(state.subtitleTracks, state.selectedSubtitleIndex),
-        onOpenTracks = {
-            tracksSheetVisible = true
-        onOpenSubtitleStyle = {
-            subtitleStyleVisible = true
-        onOpenSleepTimer = {
-            sleepTimerVisible = true
-        stats = state.stats,
-        onOpenPlaybackStats = {
-            statsSheetVisible = true
-        audioDelayMs = viewModel.audioDelayMs.collectAsState().value,
-        audioDelayEnabled = state.playbackPlan?.claims?.audio?.passthrough != true,
-        onSetAudioDelay = viewModel::onSetAudioDelay,
-        subtitleDelayMs = viewModel.subtitleDelayMs.collectAsState().value,
-        onSetSubtitleDelay = viewModel::onSetSubtitleDelay,
-        sleepTimerState = sleepTimerState,
-        tabletopPaneHeight = tabletopPaneHeight,
-    )
-
-    PlaybackStatsSheet(
-        isVisible = statsSheetVisible,
-        onDismiss = { statsSheetVisible = false },
-        onBack = {
-            statsSheetVisible = false
-            settingsSheetVisible = true
-        sessionId = state.sessionId,
-        playMethod = state.playMethod?.name,
-        positionLabel = formatClockTime(state.position) + " / " + formatClockTime(state.duration),
-        playbackContext = org.prairieserver.prairie.playback.stats.PlaybackStatsContext(
-            plan = state.playbackPlan,
-            playMethod = state.playMethod,
-            audioTrack = state.audioTracks.getOrNull(state.selectedAudioIndex)?.let { track ->
-                org.prairieserver.prairie.playback.stats.describeAudioTrackForStats(
-                    ordinal = state.selectedAudioIndex,
-                    language = track.language,
-                    codec = track.codec,
-                    channels = track.channels,
-                    title = track.title,
-                )
-            },
-            streamUrl = state.streamUrl,
-            qualityPreference = state.qualityOptions
-                .firstOrNull { it.id.equals(state.selectedQualityId, ignoreCase = true) }
-                ?.label
-                ?: state.selectedQualityId,
-        ),
-    // Chapters picker — opened from the HUD chapters button (HUD product
-    // decision: chapters + tracks + quality; no longer reachable from the
-    // gear sheet). Selecting a row seeks the player to the chapter's
-    // startSeconds. The HUD button hides when the active version has no
-    // embedded chapters.
-    ChaptersSheet(
-        isVisible = chaptersSheetVisible,
-        chapters = state.chapters,
-        position = state.position,
-        onSelect = { idx ->
-            viewModel.onSeekToChapter(idx)?.let { sec -> viewModel.onSeek(sec) }
-        onDismiss = { chaptersSheetVisible = false },
-    // Subtitle styling sheet — opened from the "Subtitle Style" row in
-    // PlayerSettingsSheet. Material 3 sheets can't nest, so the parent sheet
-    // dismisses itself before we open this one.
-    SubtitleStyleSheet(
-        isVisible = subtitleStyleVisible,
-        appearance = viewModel.subtitleAppearance.collectAsState().value,
-        onUpdate = viewModel::onSetSubtitleAppearance,
-        onDismiss = { subtitleStyleVisible = false },
-            subtitleStyleVisible = false
         // Subtitle styling sheet — opened from the "Subtitle Style" row in
         // PlayerSettingsSheet. Material 3 sheets can't nest, so the parent sheet
         // dismisses itself before we open this one.
@@ -898,6 +806,7 @@ fun PlayerOverlay(
             onBack = {
                 subtitleStyleVisible = false
                 settingsSheetVisible = true
+            },
             tabletopPaneHeight = tabletopPaneHeight,
         )
 

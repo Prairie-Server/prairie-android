@@ -254,16 +254,16 @@ Known gaps the docs track: TV has no reader/ebooks and no downloads management b
 
 - The Android phone and TV apps share one application ID, `org.prairieserver.prairie`, and publish as a single Google Play listing; Play delivers the right build per device via manifest feature filtering (phone requires a touchscreen, TV requires leanback).
 - The Android modules target Java 21.
-- The server repo lives at [`Prairie-Server/prairie-server`](https://github.com/Prairie-Server/prairie-server). Prairie is a fork of [Prairie](https://github.com/Prairie-Server/prairie-server).
+- The server repo lives at [`Prairie-Server/prairie-server`](https://github.com/Prairie-Server/prairie-server). Prairie is a fork of [Silo](https://github.com/Silo-Server/silo-server).
 
 ## License & Trademarks
 
 Prairie Android is licensed under `AGPL-3.0-or-later`. See [LICENSE](LICENSE).
 
-Prairie is a rebranded fork of Prairie. The AGPL covers the code, but it does not
-license the Prairie name, logo, wordmark, or other Silo Media L.L.C. marks. This
-repository replaces Prairie product identity with Prairie identifiers and assets;
-factual references such as "fork of Prairie" remain permitted when they are
+Prairie is a rebranded fork of Silo. The AGPL covers the code, but it does not
+license the Silo name, logo, wordmark, or other Silo Media L.L.C. marks. This
+repository replaces Silo product identity with Prairie identifiers and assets;
+factual references such as "fork of Silo" remain permitted when they are
 truthful and non-confusing. See [TRADEMARK.md](TRADEMARK.md).
 
 The checked-in Media3 FFmpeg decoder AAR and other third-party dependencies retain their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -39,7 +39,7 @@ object Spacing {
  * *above* its card, and rows that are tall enough to carry a label over a
  * description. Android row mechanics are kept — the control stays trailing
  * rather than stacking under the label the way the web layout does.
- * Mirrors the Apple apps' Settings (prairie-apple #546): a native inset-grouped
+ * Mirrors the Apple apps' Settings (silo-apple #546): a native inset-grouped
  * list on a black ground, one-line rows with the current value trailing, a
  * title-case section header above each group and an optional footer below it.
  * Overview rows carry a graphite icon tile; sub-page rows are text only.

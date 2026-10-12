@@ -480,7 +480,7 @@ class TvLoginViewModelDeviceSignInTest {
         assertNull(vm.uiState.value.error)
     }
 
-    // --- st=login rollout gate (prairie-apple PairingProtocol.advertisesSignInTVs) ---
+    // --- st=login rollout gate (silo-apple PairingProtocol.advertisesSignInTVs) ---
 
     /** Released phones push servers without an identity, so a release TV must not advertise st=login yet. */
     @Test

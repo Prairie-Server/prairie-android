@@ -320,7 +320,7 @@ object NativeSignInMessages {
         }
     }
 
-    /** The same words as prairie-apple for a redirect from another server or origin. */
+    /** The same words as silo-apple for a redirect from another server or origin. */
     const val DIFFERENT_SERVER = "This sign-in came back from a different server. Nothing was signed in."
 
     /**

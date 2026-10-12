@@ -110,8 +110,6 @@ fun MainScreen(
     // D5: quick play from these tabs asks to leave a Watch Party first.
     val soloGuard = rememberWatchPartySoloGuard()
 
-    fun playVideo(contentId: String, fileId: Int? = null, resumePositionSeconds: Double? = null) {
-        val launchedRemotely = siloCastController.launchOnConnectedTarget(
     fun startVideo(contentId: String, fileId: Int?, resumePositionSeconds: Double?) {
         val launchedRemotely = prairieCastController.launchOnConnectedTarget(
             PrairieCastPlaybackRequest(
@@ -306,20 +304,11 @@ fun MainScreen(
 
     fun signOutFromProfileMenu() {
         reachabilityScope.launch {
-            authRepository.logout()
-            requestsFeatureStore.reset()
-            liveTvFeatureStore.reset()
-            metadataAiFeatureStore.reset()
-            // Per-profile card caches, same teardown the Settings sign-out
-            // does — otherwise the next user's shell renders (and can write
-            // back) the previous profile's overlays and card presentation.
-            overlayPrefsStore.clear()
-            activeProfileStore.reset()
-            cardPresentationStore.clear()
-            seekIntervalStore.clear()
             // Same teardown as the Settings sign-out: otherwise the next
             // user's shell renders (and can write back) the previous
             // profile's overlays and card presentation.
+            // Live TV is a fork feature outside the shared teardown, so reset it alongside.
+            liveTvFeatureStore.reset()
             signOutTeardown.signOut()
             navController.navigate(Route.Login.route) {
                 popUpTo(0) { inclusive = true }
@@ -348,6 +337,9 @@ fun MainScreen(
     val watchTogetherMenuAction: (() -> Unit)? =
         if (CLIENT_WATCH_TOGETHER_SURFACE_ENABLED) {
             { showWatchTogetherEntry = true }
+        } else {
+            null
+        }
     val watchPartyMenuAction: (() -> Unit)? =
         if (watchPartyEnabled) {
             { navController.navigate(Route.WatchPartyHub().route) { launchSingleTop = true } }

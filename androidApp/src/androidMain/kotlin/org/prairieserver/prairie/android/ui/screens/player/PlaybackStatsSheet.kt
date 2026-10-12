@@ -9,18 +9,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
@@ -47,69 +45,6 @@ fun PlaybackStatsSheet(
 
     val controller = rememberPlayerMenuController(onDismiss)
 
-    LaunchedEffect(isVisible) {
-        if (isVisible) sheetState.show()
-    }
-
-    PlayerModalBottomSheet(
-        onDismissRequest = dismissSheet,
-        sheetState = sheetState,
-        tabletopPaneHeight = tabletopPaneHeight,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                // Cap below the top edge + keep content flings from
-                // dismissing the sheet — see PlayerSheetSupport.
-                .playerSheetContent(tabletopPaneHeight)
-                .nestedScroll(PlayerSheetFlingGuard)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF111827).copy(alpha = 0.97f),
-                            Color.Black.copy(alpha = 0.94f),
-                        ),
-                    ),
-                ),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
-            ) {
-                PlayerSheetHeader(
-                    title = "Stats for nerds",
-                    onBack = onBack?.let { back ->
-                        { scope.dismissPlayerSheet(sheetState, back) }
-                    },
-                    onDismiss = dismissSheet,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Current stream",
-                    color = Color.White.copy(alpha = 0.62f),
-                    fontSize = 13.sp,
-                Spacer(modifier = Modifier.height(18.dp))
-                val planRows = playbackContext.planRows()
-                val rows = buildList {
-                    sessionId?.takeIf { it.isNotBlank() }?.let { add("Session" to it) }
-                    playMethod?.takeIf { it.isNotBlank() }?.let { add("Play method" to it) }
-                    positionLabel?.takeIf { it.isNotBlank() }?.let { add("Position" to it) }
-                    addAll(stats.mobileStatsRows())
-                    stats.healthRows().forEach { add(it.label to it.value) }
-                }
-                if (planRows.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        planRows.forEach { row -> StatsBlockRow(label = row.label, value = row.value) }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                if (rows.isEmpty() && planRows.isEmpty()) {
-                    Text(
-                        text = "Waiting for player data",
-                        color = Color.White.copy(alpha = 0.66f),
-                        fontSize = 15.sp,
-                    )
     PlayerMenu(controller = controller, tabletopPaneHeight = tabletopPaneHeight) {
         PlayerPanelHeader(
             title = "Playback stats",
@@ -119,9 +54,22 @@ fun PlaybackStatsSheet(
         )
         PlayerMenuScrollColumn(horizontalPadding = 12.dp) {
             PlayerSectionHeader("Current stream")
-            val rows = stats.mobileStatsRows()
+            val planRows = playbackContext.planRows()
+            val rows = buildList {
+                sessionId?.takeIf { it.isNotBlank() }?.let { add("Session" to it) }
+                playMethod?.takeIf { it.isNotBlank() }?.let { add("Play method" to it) }
+                positionLabel?.takeIf { it.isNotBlank() }?.let { add("Position" to it) }
+                addAll(stats.mobileStatsRows())
+                stats.healthRows().forEach { add(it.label to it.value) }
+            }
+            if (planRows.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    planRows.forEach { row -> StatsBlockRow(label = row.label, value = row.value) }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
             PlayerGroup {
-                if (rows.isEmpty()) {
+                if (rows.isEmpty() && planRows.isEmpty()) {
                     StatsRow(label = "Waiting for player data", value = "", separator = false)
                 } else {
                     rows.forEachIndexed { index, (label, value) ->

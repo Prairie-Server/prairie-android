@@ -594,7 +594,7 @@ val androidModule = module {
     viewModel { ProfileSelectionViewModel(get(), get(), profileVerificationRecovery = getOrNull()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }
-    viewModel { ServerListViewModel(get(), get(), get(), get(), get()) }
+    viewModel { ServerListViewModel(get(), get(), get(), get()) }
     viewModel { params ->
         val args = params.get<Pair<String?, String?>>()
         val authRepository = get<org.prairieserver.prairie.repository.AuthRepository>()
@@ -690,14 +690,6 @@ val androidModule = module {
             availability = get(),
         )
     }
-
-    viewModel {
-        LiveTvViewModel(
-            repository = get(),
-            nowMillisProvider = { System.currentTimeMillis() },
-        )
-    }
-    viewModel { LiveTvPlayerViewModel(get()) }
     viewModel {
         val catalog = get<org.prairieserver.prairie.repository.CatalogRepository>()
         org.prairieserver.prairie.viewmodel.WatchPartyPickerViewModel(
@@ -719,6 +711,14 @@ val androidModule = module {
             handoff = get(),
         )
     }
+
+    viewModel {
+        LiveTvViewModel(
+            repository = get(),
+            nowMillisProvider = { System.currentTimeMillis() },
+        )
+    }
+    viewModel { LiveTvPlayerViewModel(get()) }
 }
 
 /**
@@ -739,5 +739,4 @@ private suspend fun accountNameOn(
             null
         }
     is org.prairieserver.prairie.network.ApiResult.Error -> null
-}
 }

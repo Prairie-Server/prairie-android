@@ -196,10 +196,8 @@ fun PlayerSettingsSheet(
                             onCheckedChange = onSetDolbyVisionEnabled,
                             separator = true,
                         )
-                        ValueRow(
-                            label = "Stats for nerds",
                         PlayerValueRow(
-                            label = "Playback stats",
+                            label = "Stats for nerds",
                             value = stats.summaryLabel(),
                             onClick = { handOff(onOpenPlaybackStats) },
                             separator = true,

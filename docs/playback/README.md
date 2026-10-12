@@ -1,4 +1,4 @@
-# Prairie Android Playback Architecture
+# Silo Android Playback Architecture
 
 Status: **the Android client is ported to the platform-neutral playback-v3
 wire contract; live validation still requires a server built from the matching
@@ -12,7 +12,7 @@ advertises engine names or computes plan-attempt keys.
 
 ## Product decision
 
-Prairie Android will ship one in-process video engine: **Media3 ExoPlayer**. MPV
+Silo Android will ship one in-process video engine: **Media3 ExoPlayer**. MPV
 will be removed from app artifacts, capability reporting, engine selection,
 recovery, and UI.
 
@@ -21,7 +21,7 @@ every Android player component. The retained foundation and target runtime are
 defined in [architecture section 2](01-media3-only-player-architecture.md#2-target-runtime).
 
 Media3 is the AndroidX media framework; ExoPlayer is its default `Player`
-implementation. Prairie already uses that implementation. [Checkout dependency](../../android-shared/build.gradle.kts) ·
+implementation. Silo already uses that implementation. [Checkout dependency](../../android-shared/build.gradle.kts) ·
 [player factory](../../android-shared/src/androidMain/kotlin/org/prairieserver/prairie/common/player/PrairiePlayerFactory.kt)
 See the
 [Media3 ExoPlayer overview](https://developer.android.com/media/media3/exoplayer)

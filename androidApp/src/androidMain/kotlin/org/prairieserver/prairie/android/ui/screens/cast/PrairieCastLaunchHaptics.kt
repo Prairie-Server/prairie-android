@@ -11,7 +11,7 @@ import org.prairieserver.prairie.android.cast.PrairieCastLaunchFeedback
 /**
  * Haptics for a Play sent to a TV, wherever the user is in the app: a light
  * tick when it goes out, success once the TV reports the title, and an error
- * if it fails. Mirrors prairie-apple's remote.
+ * if it fails. Mirrors silo-apple's remote.
  */
 @Composable
 fun PrairieCastLaunchHaptics(controller: PrairieCastController) {

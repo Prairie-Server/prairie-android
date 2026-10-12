@@ -112,7 +112,7 @@ class LoginViewModel(
     /**
      * "Not you? Switch account" sent the person here to pick another account:
      * start the provider sign-in by itself when the server lists exactly one
-     * provider and passes `select_account` on (prairie-apple
+     * provider and passes `select_account` on (silo-apple
      * `LoginViewModel.startRequestedSignIn`).
      */
     private fun startRequestedSignIn(options: SignInOptions) {

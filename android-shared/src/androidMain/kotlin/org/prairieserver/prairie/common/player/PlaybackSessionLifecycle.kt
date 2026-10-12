@@ -831,7 +831,7 @@ class PlaybackSessionLifecycle(
                     if (probe is ApiResult.Success) {
                         // Only a decoded health payload is authoritative. Reverse
                         // proxies/tunnels can still produce HTTP errors, or even
-                        // an HTML 200 page, while the Prairie origin is down.
+                        // an HTML 200 page, while the Silo origin is down.
                         if (!ownsRecoveredSession(recoveredSessionId)) return@launch
                         Log.i(TAG, "Health probe succeeded; resuming playback session")
                         DiagnosticsPlaybackLogger.sessionEvent("session reconnected")

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Vendors the selected native API v2 contract fixtures from a prairie-server
+# Vendors the selected native API v2 contract fixtures from a silo-server
 # checkout into shared/src/commonTest/resources/api/v2/fixtures.
 #
-# Usage: scripts/sync-apiv2-fixtures.sh /path/to/prairie-server
+# Usage: scripts/sync-apiv2-fixtures.sh /path/to/silo-server
 #
 # Only the fixtures the Android client consumes are copied (the four pilot
 # operations, the probe's system-info body, the device sign-in and server
@@ -12,7 +12,7 @@
 # exact server commit in the repository's key=value convention.
 set -euo pipefail
 
-SERVER_DIR="${1:?usage: $0 /path/to/prairie-server}"
+SERVER_DIR="${1:?usage: $0 /path/to/silo-server}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$REPO_ROOT/shared/src/commonTest/resources/api/v2/fixtures"
 SRC="$SERVER_DIR/contracts/api/v2/fixtures"
@@ -93,7 +93,7 @@ if [ -n "$(git -C "$SERVER_DIR" status --porcelain -- contracts/api/v2/fixtures 
   echo "warning: $SRC has uncommitted changes; SOURCE records a local snapshot" >&2
 fi
 cat > "$DEST/SOURCE" <<EOS
-repository=https://github.com/Prairie-Server/prairie-server
+repository=https://github.com/Silo-Server/silo-server
 path=contracts/api/v2/fixtures
 commit=$COMMIT
 ref=$REF

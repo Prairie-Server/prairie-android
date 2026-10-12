@@ -9,12 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * When this device asks "Who's watching?" instead of reopening the last
- * profile. Mirrors prairie-apple `ProfileLaunchBehavior` (General → Profile
+ * profile. Mirrors silo-apple `ProfileLaunchBehavior` (General → Profile
  * Selection), including its titles and descriptions. Shared by the phone and
  * TV apps; each keeps its own choice on the device.
  */
 enum class ProfileLaunchBehavior(
-    /** Stored value. Same strings as prairie-apple's raw values. */
+    /** Stored value. Same strings as silo-apple's raw values. */
     val raw: String,
     val title: String,
     private val describe: (device: String) -> String,
@@ -62,7 +62,7 @@ enum class ProfileLaunchBehavior(
 
 /**
  * The policy plus the start of the current interval away from Prairie. Pure, so
- * the timing rules are unit-testable. Mirrors prairie-apple `ProfileLaunchState`.
+ * the timing rules are unit-testable. Mirrors silo-apple `ProfileLaunchState`.
  */
 data class ProfileLaunchState(
     val behavior: ProfileLaunchBehavior = ProfileLaunchBehavior.Automatic,
@@ -91,7 +91,7 @@ data class ProfileLaunchState(
 
     /**
      * Android TV only. Whether the launcher's Watch Next row may show the active profile's
-     * titles. prairie-apple `TopShelfProfilePolicy`: never with Every Time, and
+     * titles. silo-apple `TopShelfProfilePolicy`: never with Every Time, and
      * not once a timed choice has expired.
      */
     fun allowsWatchNext(nowMs: Long): Boolean =
@@ -149,7 +149,7 @@ data class ProfileLaunchState(
 
 /**
  * Device-wide Profile Selection setting. It is never sent to the server, so a
- * choice on this device leaves every other device alone (prairie-apple
+ * choice on this device leaves every other device alone (silo-apple
  * profile-launch design §12). It survives sign-out; the profile itself does
  * not.
  *

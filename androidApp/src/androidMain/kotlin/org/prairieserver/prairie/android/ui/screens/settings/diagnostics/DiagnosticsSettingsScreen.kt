@@ -73,7 +73,7 @@ fun DiagnosticsSettingsScreen(
 }
 
 /**
- * Diagnostics, in the Apple page's order (prairie-apple `DiagnosticsSettingsView`):
+ * Diagnostics, in the Apple page's order (silo-apple `DiagnosticsSettingsView`):
  * Feature State, Capture, Pending Reports, the send action, and Sent History.
  * Android's timed capture sits beside "Send Diagnostics Now"; it has no Apple
  * twin.

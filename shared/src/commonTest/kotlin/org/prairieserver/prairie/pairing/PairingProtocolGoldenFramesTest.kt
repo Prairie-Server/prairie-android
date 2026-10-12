@@ -9,19 +9,19 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 /**
- * Literal frames shared with prairie-apple (`iosApp/Tests/PairingProtocolTests.swift`,
+ * Literal frames shared with silo-apple (`iosApp/Tests/PairingProtocolTests.swift`,
  * `testLiteralWireFramesDecodeAndEncodeExactly`). A round trip passes even when
  * a key is renamed on both sides of one codec, which would strand the other
  * platform's phones and TVs; these literals fail instead. Frames compare as
  * JSON objects because the two encoders order keys differently.
  *
  * Keep the two lists identical. When a frame changes here, change it in
- * prairie-apple in the same release.
+ * silo-apple in the same release.
  */
 class PairingProtocolGoldenFramesTest {
     private val url = "https://media.example.com"
 
-    /** Copied verbatim from prairie-apple. */
+    /** Copied verbatim from silo-apple. */
     private val appleFrames: List<Pair<String, PairingMessage>> = listOf(
         """{"type":"hello","v":1,"tvName":"Living Room","tvDeviceId":"ABC-123","state":"setup","supportedVersions":[1]}""" to
             PairingMessage.Hello("Living Room", "ABC-123", PairingReceiverState.Setup, listOf(1)),
@@ -43,9 +43,9 @@ class PairingProtocolGoldenFramesTest {
 
     /**
      * Frames Android adds for the Phase 1 sign-in work. The pushServer frame
-     * is the shape prairie-apple's encoder writes for `pushServer(serverIdentity:
+     * is the shape silo-apple's encoder writes for `pushServer(serverIdentity:
      * endpoints:)`; the hello frame is a signed-out TV (`st=login`). Send these
-     * to prairie-apple for the same literal check.
+     * to silo-apple for the same literal check.
      */
     private val androidFrames: List<Pair<String, PairingMessage>> = listOf(
         """{"type":"hello","v":1,"tvName":"Den","tvDeviceId":"id-9","state":"login","supportedVersions":[1]}""" to
@@ -97,7 +97,7 @@ class PairingProtocolGoldenFramesTest {
         assertNull(encoded["serverIdentity"])
         assertNull(encoded["endpoints"])
 
-        // Endpoint URLs cross the wire without a trailing slash, as prairie-apple normalizes them.
+        // Endpoint URLs cross the wire without a trailing slash, as silo-apple normalizes them.
         val full = json(
             PairingMessageCodec.encode(
                 PairingMessage.PushServer(

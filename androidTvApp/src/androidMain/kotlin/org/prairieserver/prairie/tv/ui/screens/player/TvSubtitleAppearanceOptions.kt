@@ -50,7 +50,7 @@ object TvSubtitleAppearanceOptions {
 
     /** Text-opacity percentage steps for the HUD quick overlay (coarse). Starts
      *  at 25: 1% is the schema floor but reads as no subtitles at all. Matches
-     *  prairie-apple's tvOS HUD. */
+     *  silo-apple's tvOS HUD. */
     val TEXT_OPACITY_STEPS: List<Int> = listOf(25, 50, 75, 100)
 
     /** Fine-grained opacity steps for the Settings Appearance block — 0–100 by
@@ -60,7 +60,7 @@ object TvSubtitleAppearanceOptions {
     /** Fine-grained text-opacity steps for the Settings Appearance block — same
      *  5-point cadence as [OPACITY_PERCENT_STEPS], but starting at 5 rather than
      *  0 since fully transparent text has no legible affordance to pick it back
-     *  up from. Matches prairie-apple `TVSettingsOptions.textOpacity`. */
+     *  up from. Matches silo-apple `TVSettingsOptions.textOpacity`. */
     val TEXT_OPACITY_PERCENT_STEPS: List<Int> = (5..100 step 5).toList()
 
     /**

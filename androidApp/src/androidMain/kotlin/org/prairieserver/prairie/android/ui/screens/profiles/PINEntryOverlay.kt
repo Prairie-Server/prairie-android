@@ -67,7 +67,7 @@ private const val PIN_LENGTH = 4
  * Full-screen PIN prompt over the brand light: the person's avatar, four
  * dots, and a keypad laid out like the system passcode screen. A wrong PIN
  * keeps the prompt open, turns the dots red, shakes them and clears for
- * another try (prairie-apple `PINEntryView`).
+ * another try (silo-apple `PINEntryView`).
  *
  * Back stays live during verification so a slow round trip can be left; the
  * view model drops an answer for a prompt that's gone.

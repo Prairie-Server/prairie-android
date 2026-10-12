@@ -24,7 +24,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -80,7 +79,7 @@ import org.prairieserver.prairie.network.ServerRegistry
 /**
  * First screen when no server is configured: the address field over the
  * brand light, recent servers below it, and protocol and port under
- * "Advanced options" (prairie-apple `ServerSetupView`).
+ * "Advanced options" (silo-apple `ServerSetupView`).
  *
  * After validating the server:
  * - If the server needs setup, navigates to [onNavigateToSetup].
@@ -397,14 +396,6 @@ private fun RecentServers(
                     modifier = Modifier.size(18.dp),
                 )
             }
-
-            AuroraPrimaryButton(
-                label = if (state.isLoading) "Connecting…" else "Connect",
-                onClick = viewModel::onConnectClick,
-                icon = Icons.Default.Link,
-                isLoading = state.isLoading,
-                modifier = Modifier.padding(top = 4.dp),
-            )
         }
     }
 }

@@ -91,7 +91,7 @@ import org.prairieserver.prairie.common.ui.components.SpoilerImage
 
 /*
  * The Watch Party look, ported from the tvOS clients (`WatchPartyComponents`
- * in prairie-apple). tvOS metrics are pixels at 1920×1080; this app lays out a
+ * in silo-apple). tvOS metrics are pixels at 1920×1080; this app lays out a
  * 960×540dp canvas and scales text by 0.86, so lengths are px / 2 and text is
  * px / 2 / 0.86, never below the TV app's 14sp reading floor (eyebrows,
  * captions, and badges land on the floor rather than at tvOS's smaller size).

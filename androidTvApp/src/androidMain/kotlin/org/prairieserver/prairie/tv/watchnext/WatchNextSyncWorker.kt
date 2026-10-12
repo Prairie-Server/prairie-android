@@ -63,7 +63,7 @@ class WatchNextSyncWorker(
 
     /**
      * Profile Selection hides the previous viewer's titles from the launcher
-     * (prairie-apple TopShelfProfilePolicy): wipe instead of writing.
+     * (silo-apple TopShelfProfilePolicy): wipe instead of writing.
      */
     private suspend fun wipeIfHidden(): Boolean {
         if (allowsWatchNext()) return false

@@ -71,7 +71,7 @@ import kotlin.math.ceil
 
 // --- Shared Settings UI Components ---
 //
-// The Apple apps' Settings in Compose (prairie-apple #546): an inset-grouped list
+// The Apple apps' Settings in Compose (silo-apple #546): an inset-grouped list
 // on a black ground, one-line rows with the current value trailing, a
 // title-case header above each group and an optional footer below it. Overview
 // rows carry a graphite icon tile; sub-page rows are text only, and anything a

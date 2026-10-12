@@ -2,6 +2,7 @@
 
 Prairie Android is an AGPL-3.0 fork of the Silo Android clients. This guide
 covers the Android-specific workflow for this repository.
+
 > [!IMPORTANT]
 > The most helpful way to contribute to Prairie right now is a clear, accurate
 > issue. Pull requests are welcome from contributors who've had one merged in a
@@ -9,23 +10,29 @@ covers the Android-specific workflow for this repository.
 > requests without review.
 
 ## Why we're asking for issues
+
 Pull requests now arrive faster than we can review them carefully. Reviewing a
 change properly means reading every line, checking it against work already in
 flight, re-running validation, and owning the result after it merges. Writing
 the change ourselves from a precise issue takes less time, and it keeps every
 change on one workflow with the same tests and the same review.
+
 This is about review capacity, not the quality of anyone's work, and it applies
 whether or not you used AI. We'll revisit it as Prairie approaches 1.0. Thank you
 for taking the time to write things up well.
+
 ## Write a useful issue
-Open an [issue](https://github.com/Prairie-Server/prairie-android/issues) for problems
+
+Open an [issue](https://github.com/Prairie-Server/silo-android/issues) for problems
 in the Android phone and TV apps. Server and API problems belong in
 [`prairie-server`](https://github.com/Prairie-Server/prairie-server/issues/new/choose).
 Search first; if an issue already covers the problem, add what's new there.
+
 Using Claude Code or Codex? The
 [Prairie troubleshooting skill](https://github.com/Prairie-Server/prairie-troubleshooting-skill)
 helps you collect these details and drafts the issue, then has independent
 reviewers check it against your evidence before you post it.
+
 - One problem or proposal per issue.
 - Describe what you observed before any theory about the cause.
 - Give exact steps to reproduce, expected and actual behavior, the app version,
@@ -39,15 +46,20 @@ reviewers check it against your evidence before you post it.
   code excerpt is fine. We may implement it differently.
 - Disclose AI use, as described in the
   [Prairie contribution guide](https://github.com/Prairie-Server/.github/blob/main/CONTRIBUTING.md#ai-assisted-contributions).
+
 Report security vulnerabilities privately with **Report a vulnerability** on
 the repository's Security tab, not in a public issue.
+
 ## Pull requests
+
 Pull requests are welcome from contributors who've had a pull request merged in
 a Prairie repository, and from anyone a maintainer has asked for one, usually in
 an issue comment. The rest of this guide applies to those pull requests.
+
 We close other pull requests without review. That isn't a judgment of the
 work. If the problem still matters, open an issue for it and link the closed
 pull request; we may use the code as a reference.
+
 The [Prairie contribution guide](https://github.com/Prairie-Server/.github/blob/main/CONTRIBUTING.md)
 covers project-wide coordination, focused changes, evidence, AI disclosure, and
 pull request expectations. Those requirements apply here; this guide adds the
@@ -137,7 +149,7 @@ one of two places:
   `npx @prairie-server/evidence publish <folder> --pr <number>`. The
   [package README](https://www.npmjs.com/package/@prairie-server/evidence) describes
   the folder. Then write
-  `Evidence: https://evidence.prairieserver.org/r/prairie-android/pr-<number>/` under
+  `Evidence: https://evidence.prairieserver.org/r/silo-android/pr-<number>/` under
   the Evidence heading. Until a pull request of yours has merged here, a
   maintainer approves you once before your first upload.
 
@@ -151,10 +163,6 @@ without it.
 
 ## Open the pull request
 
-Use a Conventional Commit title, explain which surfaces are affected, paste the
-actual validation results, and call out any server coordination. If AI tools
-helped produce the change, include an AI disclosure block (tool, model, and
-level of involvement).
 Use a Conventional Commit title, fill in the pull request template, explain
 which surfaces are affected, paste the actual validation results, and call out
 any server or Apple coordination. Read

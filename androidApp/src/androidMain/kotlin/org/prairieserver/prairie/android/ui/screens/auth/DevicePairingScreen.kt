@@ -68,9 +68,6 @@ import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.repository.ExternalSignInRepository
 import org.koin.core.parameter.parametersOf
-import androidx.compose.material.icons.automirrored.filled.Login
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import org.prairieserver.prairie.android.R
 import org.prairieserver.prairie.model.auth.DeviceCodeFormat
 import org.prairieserver.prairie.model.auth.DeviceLoginLookupResponse
@@ -349,8 +346,6 @@ private fun ApprovalCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "Quick Connect",
-                style = MaterialTheme.typography.headlineMedium,
                 text = deviceName?.let { stringResource(R.string.sign_in_tv_card_title, it) }
                     ?: stringResource(R.string.sign_in_tv_card_title_generic),
                 style = MaterialTheme.typography.titleLarge,
@@ -406,22 +401,6 @@ private fun ApprovalCard(
             } else {
                 tvSignInLine(serverName, serverHost, state.accountName)
             }
-
-            state.error?.let { error ->
-                Spacer(modifier = Modifier.height(18.dp))
-                AuthErrorBanner(message = error)
-                if (error.startsWith("Sign in")) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedButton(onClick = onSignIn, modifier = Modifier.fillMaxWidth()) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Login,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign In")
-                    }
-                }
             serverLine?.let {
                 Text(text = it, style = MaterialTheme.typography.bodyMedium, color = AuthColors.OnBackground, textAlign = TextAlign.Center)
             }
@@ -448,37 +427,6 @@ private fun ApprovalCard(
                         if (accountSwitch == ApprovalAccountSwitch.SignOut) {
                             R.string.sign_in_tv_sign_out_account
                         } else {
-                            Icon(Icons.Default.Refresh, contentDescription = null)
-                        }
-                        Text("Check")
-                    }
-                    OutlinedButton(
-                        onClick = viewModel::deny,
-                        enabled = state.canDecide,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null)
-                        Text("Deny")
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = viewModel::approve,
-                    enabled = state.canDecide,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AuthColors.Primary),
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null)
-                    Text("Approve")
-            } else {
-                    onClick = onDone,
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Done")
                             R.string.sign_in_tv_switch_account
                         },
                     ),
@@ -494,27 +442,37 @@ private fun ApprovalCard(
                     body = stringResource(
                         if (choosing) R.string.sign_in_tv_switch_body else R.string.sign_in_tv_sign_out_body,
                         switchServerName,
+                    ),
                     confirmLabel = stringResource(
                         if (choosing) R.string.sign_in_tv_switch_confirm else R.string.sign_in_tv_sign_out_confirm,
+                    ),
                     onConfirm = {
                         confirmsSwitchAccount = false
                         onSwitchAccount()
                     },
                     onDismiss = { confirmsSwitchAccount = false },
+                )
+            }
             Text(
                 text = stringResource(R.string.sign_in_tv_profiles_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = AuthColors.OnSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+            Text(
                 text = stringResource(R.string.sign_in_tv_warning),
+                style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFFFFC107),
+                textAlign = TextAlign.Center,
+            )
             lookup.ipAddressHint?.takeIf { it.isNotBlank() }?.let { network ->
                 Text(
                     text = stringResource(R.string.sign_in_tv_network, network),
                     style = MaterialTheme.typography.bodySmall,
                     color = AuthColors.OnSurfaceVariant,
                     textAlign = TextAlign.Center,
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = onApprove,

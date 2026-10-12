@@ -70,8 +70,7 @@ fun ProfileMenu(
     // old menu drew its divider unconditionally, so a server with requests
     // disabled opened onto a stray rule above its first item.
     val hasFeatureGroup =
-        onRequestsClick != null || onLiveTvClick != null || onWatchTogetherClick != null
-    val hasFeatureGroup = onRequestsClick != null || onWatchPartyClick != null
+        onRequestsClick != null || onLiveTvClick != null || onWatchTogetherClick != null || onWatchPartyClick != null
 
     PrairieDropdownMenu(
         expanded = expanded,
@@ -109,6 +108,14 @@ fun ProfileMenu(
             )
         }
         if (onWatchTogetherClick != null) {
+            PrairieMenuItem(
+                label = "Watch together",
+                onClick = {
+                    onDismissRequest()
+                    onWatchTogetherClick()
+                },
+            )
+        }
         if (onWatchPartyClick != null) {
             PrairieMenuItem(
                 label = "Watch Party",

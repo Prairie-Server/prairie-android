@@ -100,7 +100,7 @@ fun MarqueeStage(
     }
 }
 
-/** The Prairie wordmark for a first-run top bar. */
+/** The Silo wordmark for a first-run top bar. */
 @Composable
 fun MarqueeWordmark(width: Dp = 92.dp) {
     Image(

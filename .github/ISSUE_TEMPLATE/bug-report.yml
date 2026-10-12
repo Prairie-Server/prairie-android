@@ -8,9 +8,9 @@ body:
       value: |
         Report behavior you reproduced yourself. Keep what you observed separate from any theory about the cause. Redact credentials, tokens, personal data, server addresses, and private media details, and mark each redaction.
 
-        [Reporting a problem](https://prairieserver.org/docs/report-a-problem) explains where to find versions, stats, and diagnostics. Using Claude Code or Codex? The [Prairie troubleshooting skill](https://github.com/Prairie-Server/prairie-troubleshooting-skill) helps you collect the details and drafts this report, then has independent reviewers check it before you post. Problems that also happen in the web app usually come from the server and belong in [prairie-server](https://github.com/Prairie-Server/prairie-server/issues/new/choose). Problems in the Apple apps belong in [prairie-apple](https://github.com/Prairie-Server/prairie-apple/issues/new/choose).
+        [Reporting a problem](https://prairieserver.org/docs/report-a-problem) explains where to find versions, stats, and diagnostics. Using Claude Code or Codex? The [Prairie troubleshooting skill](https://github.com/Prairie-Server/prairie-troubleshooting-skill) helps you collect the details and drafts this report, then has independent reviewers check it before you post. Problems that also happen in the web app usually come from the server and belong in [prairie-server](https://github.com/Prairie-Server/prairie-server/issues/new/choose). Problems in the Apple apps belong in [silo-apple](https://github.com/Prairie-Server/silo-apple/issues/new/choose).
 
-        Fabricated or AI-hallucinated reports are an immediate block. Read [CONTRIBUTING.md](https://github.com/Prairie-Server/prairie-android/blob/main/CONTRIBUTING.md) first.
+        Fabricated or AI-hallucinated reports are an immediate block. Read [CONTRIBUTING.md](https://github.com/Prairie-Server/silo-android/blob/main/CONTRIBUTING.md) first.
   - type: textarea
     id: what-happened
     attributes:

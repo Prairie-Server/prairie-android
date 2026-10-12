@@ -10,8 +10,7 @@ A detailed inventory of what the Android **phone** and **TV** clients do today. 
 
 File pointers are repository-relative.
 
-> **Important exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v1/requests/status`), and reached from the profile menu and search — matching the Apple clients. Admin surfaces (including the STATS dashboard) and Watch Together remain inaccessible.
-> **Important exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v2/requests/status`), and reached from the profile menu and search on phone and from a top-bar tab and search on TV — matching the Apple clients. Admins who can moderate approve, decline, and retry requests there. The richer admin screens (users/sessions/logs/scans) remain inaccessible. Watch Party is experimental, behind Settings → Experimental → Watch Party.
+> **Important exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v2/requests/status`), and reached from the profile menu and search on phone and from a top-bar tab and search on TV — matching the Apple clients. Admins who can moderate approve, decline, and retry requests there. The richer admin screens (users/sessions/logs/scans) remain inaccessible, as does Watch Together. Watch Party is experimental, behind Settings → Experimental → Watch Party.
 
 ---
 
@@ -161,7 +160,6 @@ Shown only while Settings → Experimental → Watch Party is on (default on in 
 
 **TV** is a 10-foot, D-pad client focused on browsing and playback, including audiobooks, calendar, the subtitle suite, person detail, and system Watch Next integration. It intentionally omits ebooks/reading and downloads management.
 
-**Not currently exposed on either Android surface:** Admin (including the STATS dashboard and users/sessions/logs/scans) and Watch Together.
-**Not currently exposed on either Android surface:** the admin stats dashboard and full admin management (users/sessions/logs/scans). **Experimental:** Watch Party, behind Settings → Experimental. Request moderation (approve, decline, retry) is the one admin action the Requests screens offer.
+**Not currently exposed on either Android surface:** the admin stats dashboard and full admin management (users/sessions/logs/scans), and Watch Together. **Experimental:** Watch Party, behind Settings → Experimental. Request moderation (approve, decline, retry) is the one admin action the Requests screens offer.
 
 Both apps share the same networking, auth, repositories, most ViewModels, and the entire Media3 playback/capability stack.

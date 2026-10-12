@@ -218,7 +218,7 @@ fun CreateProfileScreen(
 
 @Composable
 internal fun SectionHeader(text: String) {
-    // iOS phone field labels use prairieCaption (12pt regular, secondary).
+    // iOS phone field labels use siloCaption (12pt regular, secondary).
     Text(
         text = text,
         fontSize = 12.sp,
@@ -240,14 +240,14 @@ internal fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            // iOS phone Toggle title: prairieBody (14pt), onSurface.
+            // iOS phone Toggle title: siloBody (14pt), onSurface.
             Text(
                 text = label,
                 fontSize = 14.sp,
                 color = AuthColors.OnBackground,
             )
             if (subtitle != null) {
-                // iOS phone Toggle subtitle: prairieCaption (12pt), secondary.
+                // iOS phone Toggle subtitle: siloCaption (12pt), secondary.
                 Text(
                     text = subtitle,
                     fontSize = 12.sp,

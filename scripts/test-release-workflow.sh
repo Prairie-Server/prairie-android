@@ -197,7 +197,7 @@ mock_gh = lambda do |root, version, existing|
     "PATH" => "#{bin_dir}:#{ENV.fetch('PATH')}",
     "GH_FIXTURE_CALLS" => File.join(root, "gh-calls.jsonl"),
     "GH_FIXTURE_EXISTING" => existing.to_s,
-    "GH_REPO" => "fixture/prairie-android",
+    "GH_REPO" => "fixture/silo-android",
     "RELEASE_TAG" => "v#{version}",
     "RELEASE_VERSION" => version,
     "GITHUB_SHA" => "0" * 40
@@ -207,7 +207,7 @@ end
 ["1.2.3", "1.2.3-rc.1+2"].product([false, true]).each do |version, existing|
   Dir.mktmpdir("release-workflow-") do |root|
     expected = prepare_apks.call(root, version)
-    %w[prairie-android prairie-android-tv].each do |prefix|
+    %w[silo-android silo-android-tv].each do |prefix|
       bytes = expected.fetch("#{prefix}-#{version}-universal-release.apk")
       expected["#{prefix}-latest-universal-release.apk"] = bytes
       expected["#{prefix}-latest-universal-debug.apk"] = bytes
@@ -233,7 +233,7 @@ end
   end
 end
 
-%w[prairie-android prairie-android-tv].product(%w[missing empty duplicate]).each do |prefix, defect|
+%w[silo-android silo-android-tv].product(%w[missing empty duplicate]).each do |prefix, defect|
   Dir.mktmpdir("release-workflow-invalid-") do |root|
     version = "1.2.3"
     prepare_apks.call(root, version)

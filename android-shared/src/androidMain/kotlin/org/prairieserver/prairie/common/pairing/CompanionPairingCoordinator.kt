@@ -74,7 +74,7 @@ data class CompanionPairingServer(
  * What the phone knows about a saved server beyond its URL: the deployment
  * identity verified at that URL and the other addresses it offers
  * (`GET /api/v2/system/connections`). Sent in `pushServer` so the TV can
- * verify the server and reach it at another address (prairie-apple parity).
+ * verify the server and reach it at another address (silo-apple parity).
  */
 interface CompanionServerIdentitySource {
     /** Verified identity of [server], or null when it can't be verified. */

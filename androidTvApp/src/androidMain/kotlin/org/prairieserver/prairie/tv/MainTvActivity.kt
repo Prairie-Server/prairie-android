@@ -412,7 +412,7 @@ class MainTvActivity : ComponentActivity() {
         // navigation graph applies the return rule once it has.
         if (tokenManager.hasTemporaryScope()) return TvRoute.Main.route
 
-        // Profile Selection (prairie-apple `ProfileLaunchState.resolution`). A
+        // Profile Selection (silo-apple `ProfileLaunchState.resolution`). A
         // process start applies the launch rule: Every Time, or a timed choice
         // whose away interval ran out while Prairie was closed. A later Activity
         // in this process (Back left Prairie, then it was reopened) follows the

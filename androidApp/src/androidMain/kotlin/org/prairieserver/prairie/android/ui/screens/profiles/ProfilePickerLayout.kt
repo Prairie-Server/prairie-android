@@ -9,7 +9,7 @@ import kotlin.math.roundToInt
  * the room it has, in dp: two, three or four per row, whichever gives the
  * largest avatars that still fit without scrolling. When even four per row
  * would shrink avatars below a comfortable tap size, the picker keeps four
- * per row at that size and scrolls. Port of prairie-apple's `ProfilePickerLayout`,
+ * per row at that size and scrolls. Port of silo-apple's `ProfilePickerLayout`,
  * except that a scrolling grid stays at the minimum size: going back up to
  * full size would make avatars grow as the household grows.
  */

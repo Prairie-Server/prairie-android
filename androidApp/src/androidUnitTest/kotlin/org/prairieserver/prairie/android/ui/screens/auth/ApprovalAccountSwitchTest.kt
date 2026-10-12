@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 
 /**
  * "Not you?" on the approval card always shows; its wording follows what the
- * next sign-in offers (prairie-apple `TVApprovalAccountSwitch`).
+ * next sign-in offers (silo-apple `TVApprovalAccountSwitch`).
  */
 class ApprovalAccountSwitchTest {
     private val keycloak = SignInProvider(

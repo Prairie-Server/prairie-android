@@ -908,7 +908,7 @@ private fun PasswordScreen(
                     )
                 }
                 // An account that signs in with the server's provider has no password
-                // here (prairie-apple parity). The 401 message says the same, so the hint
+                // here (silo-apple parity). The 401 message says the same, so the hint
                 // steps aside while that message shows.
                 state.providerName?.takeIf { state.error != TvLoginError.InvalidCredentials }?.let { provider ->
                     TvMarqueeBody(

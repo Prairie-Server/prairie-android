@@ -20,11 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Login
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
@@ -86,7 +81,7 @@ import org.prairieserver.prairie.model.auth.SignInProvider
 import org.prairieserver.prairie.network.ServerRegistry
 
 /**
- * Sign-in, laid out like prairie-apple's phone `LoginView` (Marquee): "Sign in"
+ * Sign-in, laid out like silo-apple's phone `LoginView` (Marquee): "Sign in"
  * with the server's branded subtitle, then "Continue as <owner>" first when
  * the server lists a network provider for this device (such as Tailscale),
  * a "Sign in with <provider>" button per external provider (OIDC, run in a
@@ -352,13 +347,6 @@ fun LoginScreen(
 
             Footnote(state)
 
-            AuroraPrimaryButton(
-                label = if (state.isLoading) "Signing in…" else "Sign in",
-                onClick = viewModel::onLoginClick,
-                icon = Icons.AutoMirrored.Filled.Login,
-                isLoading = state.isLoading,
-                modifier = Modifier.fillMaxWidth(),
-            )
             if (state.signupEnabled) {
                 MarqueeButton(
                     text = "Create account",

@@ -52,12 +52,6 @@ import org.prairieserver.prairie.common.requests.RequestColors
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.model.request.MyRequestsBucket
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
-import org.koin.compose.viewmodel.koinViewModel
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.material.icons.filled.Close
 import org.prairieserver.prairie.viewmodel.RequestApprovalsViewModel
 
 /**
@@ -141,64 +135,6 @@ fun MyRequestsScreen(
                 )
             }
             else -> {
-                PullToRefreshBox(
-                    isRefreshing = state.isRefreshing,
-                    onRefresh = viewModel::refresh,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                ) {
-                    val listState = rememberLazyListState()
-                    DeferImagePresentationWhileScrolling(listState) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        state.error?.let { error ->
-                            item {
-                                Text(
-                                    text = error,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        }
-                        if (state.requests.isEmpty()) {
-                                EmptyStateView(
-                                    title = "No requests yet",
-                                    subtitle = "Movies and series you request will show up here with their status.",
-                                    icon = Icons.Outlined.Inbox,
-                        } else {
-                            items(state.requests, key = { it.id }) { request ->
-                                RequestListItem(
-                                    request = request,
-                                    onClick = { onRequestClick(request) },
-                                    trailing = {
-                                        if (request.canCancel()) {
-                                            Column {
-                                                OutlinedButton(
-                                                    onClick = { viewModel.cancel(request.id) },
-                                                    enabled = state.actionInFlightId != request.id,
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(18.dp),
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = if (state.actionInFlightId == request.id) {
-                                                            "Canceling"
-                                                        } else {
-                                                            "Cancel"
-                                                        },
-                                                        maxLines = 1,
-                                                }
-                                            }
-                                        }
-                                    },
                 state.actionErrorMessage?.let { message ->
                     item(key = "action-error") {
                         Text(

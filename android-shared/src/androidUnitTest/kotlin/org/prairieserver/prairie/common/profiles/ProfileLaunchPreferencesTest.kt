@@ -9,7 +9,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Profile Selection timing rules, mirroring prairie-apple
+ * Profile Selection timing rules, mirroring silo-apple
  * `ProfileLaunchPolicyTests`: when Who's Watching is required, and when the
  * launcher's Watch Next row may show the active profile.
  */

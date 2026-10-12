@@ -338,7 +338,7 @@ jobs:
           PRAIRIE_PLAY_BUNDLE_MANIFEST_SHA256: ${{ needs.play-bundles.outputs.manifest_sha256 }}
         run: |
           set -euo pipefail
-          [[ "${GITHUB_REPOSITORY}" == 'Prairie-Server/prairie-android' ]]
+          [[ "${GITHUB_REPOSITORY}" == 'Prairie-Server/silo-android' ]]
           [[ "${PLAY_BUNDLE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${PRAIRIE_PLAY_BUNDLE_MANIFEST_SHA256}" =~ ^[0-9a-f]{64}$ ]]
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${PLAY_BUNDLE_ARTIFACT_ID}" |
@@ -530,7 +530,7 @@ jobs:
             cp "${universal_apk}" "${artifact_dir}/${prefix}-latest-universal-debug.apk"
           done
 
-          release_title="Silo Android ${RELEASE_TAG}"
+          release_title="Prairie Android ${RELEASE_TAG}"
           android_latest_url="https://github.com/${GH_REPO}/releases/latest/download/prairie-android-latest-universal-release.apk"
           android_tv_latest_url="https://github.com/${GH_REPO}/releases/latest/download/prairie-android-tv-latest-universal-release.apk"
           android_downloader_url="http://aftv.news/1051382"

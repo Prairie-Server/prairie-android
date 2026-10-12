@@ -203,7 +203,7 @@ data class DevicePairingUiState(
  *
  * [lockServer]: a link named [initialServerId], so approving happens on that
  * saved server's own account scope without switching the phone's active
- * server (prairie-apple parity). When this phone isn't signed in there the
+ * server (silo-apple parity). When this phone isn't signed in there the
  * screen asks to sign in rather than trying another server.
  */
 class DevicePairingViewModel(

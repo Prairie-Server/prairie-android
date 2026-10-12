@@ -45,7 +45,7 @@ class ActiveProfileReset(
     }
 
     /**
-     * Profile Selection covers a server switch as it does a launch (prairie-apple
+     * Profile Selection covers a server switch as it does a launch (silo-apple
      * design §7.5): when the setting would ask now, drop the newly active
      * server's saved profile so Who's Watching shows and a protected profile
      * needs its PIN. Call it after the switch, before choosing a destination.

@@ -65,23 +65,16 @@ import org.prairieserver.prairie.playback.TrickplayInfo
 import org.prairieserver.prairie.playback.resolveTrickplayTile
 
 /**
- * Seek bar with current/total time and a buffered-ahead track, mirroring
- * iOS `MobilePlayerControls.progressSlider` plus web trickplay scrub previews:
- *
- * - three track regions — played, buffered (safe to seek into), base;
- * - detected marker ranges tinted as bands (intro cyan, recap green,
- *   credits orange, preview purple);
- * - a 2dp chapter tick per chapter, drawn under the played fill;
- * - while scrubbing, a preview bubble above the thumb with trickplay tiles
- *   when available, the target time, and the chapter title at that point.
  * The seek bar. Like iOS, the whole bar is the handle: it grows from 5 to
  * 11dp under the finger, a bubble above shows the target time, the chapter,
  * and how far the scrub has moved, and a tick marks where it started. Chapters
  * show as gaps in the bar rather than tick marks, and a light haptic fires as
  * the scrub crosses into a new chapter.
+ *
  * Track regions: played (Paper), buffered (safe to seek into), base. Detected
  * markers are tinted bands under the played fill (intro cyan, recap green,
- * credits orange, preview purple).
+ * credits orange, preview purple). While scrubbing, the bubble also shows a
+ * trickplay tile for the target position when one is available.
  */
 @Composable
 fun PlayerProgressBar(
@@ -132,98 +125,18 @@ fun PlayerProgressBar(
         null
     }
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            if (isSeeking) {
-                val density = LocalDensity.current
-                val barWidthDp = with(density) { barWidthPx.toDp() }
-                val clampPad = 80.dp
-                val bubbleX = (barWidthDp * playedFraction)
-                    .coerceIn(clampPad, (barWidthDp - clampPad).coerceAtLeast(clampPad))
-                val chapterTitle = chapterTitleAt(chapters, seekPosition.toDouble())
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .offset(x = bubbleX - clampPad)
-                        .padding(bottom = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.82f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    if (trickplayTile != null) {
-                        TrickplayTileImage(
-                            tile = trickplayTile,
-                            previewWidth = 176.dp,
-                            modifier = Modifier.padding(bottom = 4.dp),
-                        )
-                    }
-                    Text(
-                        text = formatClockTime(seekPosition.toDouble()),
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color.White,
-                    )
-                    chapterTitle?.let { title ->
-                        Text(
-                            text = title,
-                            modifier = Modifier.widthIn(max = 160.dp),
-                            fontSize = 12.sp,
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                }
-            }
-        }
-
-        Slider(
-            value = sliderPosition,
-            enabled = enabled && hasKnownDuration,
-            onValueChange = { value ->
-                isSeeking = true
-                seekPosition = value
-            },
-            onValueChangeFinished = {
-                isSeeking = false
-                onSeek(seekPosition.toDouble())
-            valueRange = 0f..maxDuration,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-            ),
-            thumb = {
-                Box(
-                        .size(if (isSeeking) 20.dp else 14.dp)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape),
-                )
-            track = {
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.16f))
-                        .onSizeChanged { barWidthPx = it.width.toFloat() },
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(bufferedFraction)
-                            .fillMaxHeight()
-                            .background(Color.White.copy(alpha = 0.52f)),
-                    // Marker bands — tinted segments for each detected marker
-                    // kind (intro/recap/credits/preview), drawn under the played
-                    // fill so the playhead still reads clearly over them.
     val barHeight by animateDpAsState(
         targetValue = if (isSeeking) 11.dp else 5.dp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "seekBarHeight",
     )
     val timesAlpha by animateFloatAsState(if (isSeeking) 0f else 1f, label = "seekTimesAlpha")
+
     fun positionAt(x: Float): Double =
         if (barWidthPx <= 0f) 0.0 else (x / barWidthPx).coerceIn(0f, 1f).toDouble() * duration
+
     fun chapterIndexAt(seconds: Double): Int = latestChapters.indexOfLast { it.startSeconds <= seconds }
+
     Column(modifier = modifier.fillMaxWidth()) {
         if (showTimes) {
             Row(
@@ -236,7 +149,9 @@ fun PlayerProgressBar(
                     text = formatClockTime(displayPosition),
                     style = PlayerType.Time,
                     modifier = Modifier.weight(1f),
+                )
                 // Tap to switch between time left and total length (iOS).
+                Text(
                     text = if (showTotal && hasKnownDuration) {
                         formatClockTime(duration)
                     } else {
@@ -248,6 +163,10 @@ fun PlayerProgressBar(
                         indication = null,
                         onClickLabel = "Switch between time left and total length",
                     ) { showTotal = !showTotal },
+                )
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -309,7 +228,6 @@ fun PlayerProgressBar(
                         }
                         latestOnSeek(seekPosition)
                     }
-                    Box(
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -337,6 +255,9 @@ fun PlayerProgressBar(
                         markers.map { (range, color) ->
                             Triple((range.start / duration).toFloat(), (range.end / duration).toFloat(), color)
                         }
+                    } else {
+                        emptyList()
+                    },
                     startFraction = if (isSeeking && hasKnownDuration) (scrubStart / duration).toFloat() else null,
                     showHead = seekable && !isSeeking,
                     dimmed = !enabled,
@@ -359,11 +280,19 @@ fun PlayerProgressBar(
                                 x = (clampedX - half).roundToInt(),
                                 y = -with(density) { 52.dp.toPx() }.roundToInt(),
                             )
+                        }
                         .clip(RoundedCornerShape(14.dp))
                         .background(PlayerChrome.Smoke)
                         .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(14.dp))
                         .padding(horizontal = 14.dp, vertical = 9.dp),
                 ) {
+                    trickplayTile?.let { tile ->
+                        TrickplayTileImage(
+                            tile = tile,
+                            previewWidth = 176.dp,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                    }
                     Text(text = formatClockTime(seekPosition), style = PlayerType.BubbleTime)
                     Text(
                         text = listOfNotNull(chapterTitle, formatSeekDelta(delta)).joinToString(" · "),

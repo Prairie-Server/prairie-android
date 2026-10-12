@@ -239,7 +239,7 @@ class BundleFixtureSuite
   end
 
   def ci_context(attempt = "1")
-    {"GITHUB_REPOSITORY" => "Prairie-Server/prairie-android", "GITHUB_REPOSITORY_ID" => "7001",
+    {"GITHUB_REPOSITORY" => "Prairie-Server/silo-android", "GITHUB_REPOSITORY_ID" => "7001",
      "GITHUB_RUN_ID" => "9001", "GITHUB_RUN_ATTEMPT" => attempt, "GITHUB_SHA" => @source_sha}
   end
 

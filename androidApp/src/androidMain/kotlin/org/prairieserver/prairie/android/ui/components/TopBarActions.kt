@@ -181,7 +181,7 @@ fun TabTopBarActions(
     }
 }
 
-// iOS `prairieGlass(tint: black 0.08)`: a light blur with a faint dark wash.
+// iOS `siloGlass(tint: black 0.08)`: a light blur with a faint dark wash.
 private val TopBarGlassTint = Color.Black.copy(alpha = 0.08f)
 private val TopBarGlassBlurRadius = 20.dp
 // Below API 31 Haze cannot blur; a heavier flat wash keeps the header

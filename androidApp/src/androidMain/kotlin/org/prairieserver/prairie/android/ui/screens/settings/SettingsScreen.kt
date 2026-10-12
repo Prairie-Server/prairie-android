@@ -56,15 +56,6 @@ import org.prairieserver.prairie.android.ui.theme.SettingsTextStyles
 import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.android.ui.theme.PrairieSettingsBackground
-import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceContainer
-import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceContainerHigh
-import org.prairieserver.prairie.android.ui.theme.siloRowTopDivider
-import org.prairieserver.prairie.android.ui.util.formatBytes
-import org.prairieserver.prairie.model.download.DownloadQuality
-import org.koin.compose.koinInject
-import org.koin.compose.viewmodel.koinViewModel
-import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
-import org.prairieserver.prairie.model.metadata.MetadataAiOnView
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi
 import org.prairieserver.prairie.common.network.clientVersionLabel
 import org.prairieserver.prairie.common.settings.CardPresentationSupport
@@ -76,7 +67,7 @@ import org.prairieserver.prairie.model.settings.SettingKeys
 internal const val PRAIRIE_PRIVACY_POLICY_URL = "https://prairieserver.org/privacy"
 
 /**
- * The Settings overview, laid out like the Apple apps' (prairie-apple
+ * The Settings overview, laid out like the Apple apps' (silo-apple
  * `IOSSettingsOverview`): a large title, the account card, a search field,
  * then grouped one-line rows with graphite icon tiles that open the sub-pages.
  *
@@ -426,175 +417,7 @@ fun SettingsScreen(
 
             // Bottom spacing
             item { Spacer(modifier = Modifier.height(SettingsDimens.pageBottomSpacer)) }
-        }
-    }
-    if (showRemoveAllDownloadsConfirm) {
-        PrairieConfirmDialog(
-            title = "Remove all downloads?",
-            body = "This removes ${formatBytes(downloadsState.totalBytesUsed)} of downloaded files " +
-                "from this device. Your library and server media stay intact.",
-            confirmLabel = if (downloadsState.isRemovingAllDownloads) "Removing…" else "Remove all",
-            confirmEnabled = !downloadsState.isRemovingAllDownloads,
-            onConfirm = {
-                showRemoveAllDownloadsConfirm = false
-                downloadsViewModel.removeAllDownloads()
-            },
-            onDismiss = { showRemoveAllDownloadsConfirm = false },
-        )
-    if (showHomeSectionsEditor) {
-        HomeSectionsEditor(onDismiss = { showHomeSectionsEditor = false })
-}
-// --- Shared Settings UI Components ---
-//
-// The grouped surface these build is the Silo web client's, adapted to Android
-// row mechanics: an opaque card on a lifted page ground, a lettered heading
-// above rather than inside it, a label over a muted description, and the
-// control kept trailing rather than stacked underneath the way the web layout
-// stacks it. Metrics live in `ui.theme.SettingsDimens` / `SettingsTextStyles`.
-// There is deliberately no leading icon on any row. The web client puts icons
-// only in its settings *sidebar*, never on a row; Android has no sidebar, so
-// its destination rows sit inline among the value rows and an icon on half of
-// them is exactly the "iOS Settings at the ends, unstyled form in the middle"
-// split this pass removed. The description line is the scanning aid now, and
-// the trailing affordance (chevron / value / switch) is what separates a
-// destination from a setting.
-/**
- * Per-card row counter backing the "no divider above the first row" rule.
- *
- * Rows claim a slot on first composition and remember it, so the index is
- * stable across recomposition and follows source order within the card. A card
- * whose *first* row is conditional would need [SettingsRow]'s `showDivider`
- * override — no section does that today, since every card's opening row is
- * unconditional.
- */
-@Stable
-internal class SettingsSectionSlots {
-    private var next = 0
-    fun claim(): Int = next++
-internal val LocalSettingsSectionSlots = staticCompositionLocalOf<SettingsSectionSlots?> { null }
-/** True for the first row composed into the enclosing [SettingsSectionCard]. */
-@Composable
-private fun isFirstSettingsRow(): Boolean {
-    val slots = LocalSettingsSectionSlots.current ?: return true
-    return remember(slots) { slots.claim() } == 0
- * Claims a row slot for a card child that is not a [SettingsRow] — the account
- * header, a prose pane — and reports whether it should draw a hairline above
- * itself. A custom child that skips this is invisible to the divider rule, and
- * the row after it would wrongly believe it is the card's first.
- * Pair with [settingsRowDivider].
-fun settingsRowDividerVisible(): Boolean = !isFirstSettingsRow()
-/** Draws the standard inter-row hairline along this element's top edge. */
-fun Modifier.settingsRowDivider(show: Boolean): Modifier = settingsRowTopDivider(show)
-// The hairline itself lives in `ui.theme` beside the tokens it draws with:
-// the popup menus rule their rows the same way, and one line rendered by two
-// implementations is how two lines end up different.
-private fun Modifier.settingsRowTopDivider(show: Boolean): Modifier = siloRowTopDivider(show)
- * A settings group: a lettered heading sitting above its card.
- * The heading used to render *inside* the card as its first child, which is
- * what made every section start with a stray caps line on the same surface as
- * the rows. Its own KDoc always described the intended placement.
-fun SettingsSection(
-    title: String?,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        if (!title.isNullOrBlank()) {
-            SettingsSectionHeader(title)
-        SettingsSectionCard(content = content)
- * Card container for a settings section, and the owner of the row dividers.
-fun SettingsSectionCard(
-    val slots = remember { SettingsSectionSlots() }
-    CompositionLocalProvider(LocalSettingsSectionSlots provides slots) {
-        Column(
-            modifier = modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(SettingsDimens.cardRadius))
-                .background(PrairieSurfaceContainer),
-            content = content,
- * Section heading — uppercased, letter-spaced, muted, sitting above the card
- * with a small inset.
-fun SettingsSectionHeader(title: String) {
-    Text(
-        text = title.uppercase(),
-        style = SettingsTextStyles.sectionHeader,
-        color = PrairieMutedText,
-        modifier = Modifier.padding(
-            start = SettingsDimens.headerStartInset,
-            end = SettingsDimens.headerStartInset,
-            bottom = SettingsDimens.headerBottomGap,
-        ),
-    )
- * Disclosure chevron.
-fun SettingsRowChevron(enabled: Boolean = true) {
-    Icon(
-        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-        contentDescription = null,
-        tint = PrairieMutedText.copy(alpha = if (enabled) 1f else SettingsDimens.disabledAlpha),
-        modifier = Modifier.size(SettingsDimens.chevronSize),
- * The one settings row.
- * Every other row type in this package is this one with a different trailing
- * slot: label over an optional description, control trailing, a 60dp floor so
- * a described row and a bare row still read as the same list, and a hairline
- * above every row but the card's first.
- * A trailing [value] shares the *label's* line rather than sitting beside the
- * whole text block. That is the structural half of a real defect: with the
- * value beside the block, a long one ("30 seconds before end") squeezed the
- * description into a narrow column whose last line then ended a few dp from
- * the value, and the two read as touching. On the label's line the value can
- * never abut the description — the description runs the full width beneath it
- * — and the wider column costs a line rather than adding one, so the page gets
- * shorter, not taller. Only [trailing] controls (chevron, switch, radio) sit
- * beside the block now, and an icon at [SettingsDimens.rowTrailingGap] does
- * not read as a collision the way text does.
- * @param showDivider Overrides the automatic first-row rule. Only needed in a
- *   card whose opening row is conditional.
-fun SettingsRow(
-    label: String,
-    description: String? = null,
-    value: String? = null,
-    labelColor: Color = PrairieForeground,
-    enabled: Boolean = true,
-    onClick: (() -> Unit)? = null,
-    showDivider: Boolean? = null,
-    trailing: @Composable RowScope.() -> Unit = {},
-    val contentAlpha = if (enabled) 1f else SettingsDimens.disabledAlpha
-    val divider = showDivider ?: !isFirstSettingsRow()
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = SettingsDimens.rowMinHeight)
-            .settingsRowTopDivider(divider)
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(enabled = enabled, onClick = onClick)
-                } else {
-                    Modifier
-                },
-            )
-            .padding(
-                horizontal = SettingsDimens.rowHorizontalPadding,
-                vertical = SettingsDimens.rowVerticalPadding,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(SettingsDimens.rowLabelGap),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = label,
-                    style = SettingsTextStyles.rowLabel,
-                    color = labelColor.copy(alpha = contentAlpha),
-                    // Fills the line so the value stays trailing-aligned, and
-                    // yields — by wrapping — when a capped value needs room.
-                    modifier = Modifier.weight(1f),
-                if (value != null) {
-                    Spacer(modifier = Modifier.width(SettingsDimens.rowLabelValueGap))
-                    SettingsRowValue(value = value, enabled = enabled)
+
             if (matchesSignOut) {
                 item(key = "sign-out") {
                     SettingsSectionCard {
@@ -617,6 +440,7 @@ fun SettingsRow(
         onDismiss = { confirmSignOut = false },
     )
 }
+
 /**
  * The overview search (Apple `IOSSettingsOverview.matches`): a row shows when
  * any of its keywords contains the trimmed query, case-insensitively. An
@@ -624,6 +448,7 @@ fun SettingsRow(
  */
 private class SettingsSearch(query: String) {
     private val needle = query.trim()
+
     fun matches(vararg terms: String): Boolean =
         needle.isEmpty() || terms.any { it.contains(needle, ignoreCase = true) }
 }

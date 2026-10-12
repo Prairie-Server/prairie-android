@@ -261,7 +261,7 @@ class TvLoginViewModel(
     /** Provider discovery, for whether the password form is offered. */
     private val externalSignIn: ExternalSignInRepository? = null,
     /**
-     * Rollout gate for sign-in TVs, mirroring prairie-apple
+     * Rollout gate for sign-in TVs, mirroring silo-apple
      * `PairingProtocol.advertisesSignInTVs`: whether this screen advertises
      * `st=login`. Both phone apps must accept `login` TVs before either TV
      * advertises one; a phone that predates them offers a sign-in TV the

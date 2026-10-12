@@ -46,7 +46,7 @@ enum class PairingServerStatus(val wire: String) {
  * Why a pushed server failed on the TV. Carried in [PairingMessage.ServerResult.error]
  * so the phone can say what to fix. Older TVs send only [AuthFailed] (or, on
  * older Android TVs, free text), and any value this build doesn't know reads
- * as that generic failure. Mirrors prairie-apple `PairingFailureCode`.
+ * as that generic failure. Mirrors silo-apple `PairingFailureCode`.
  */
 enum class PairingFailureCode(val wire: String) {
     /** Device authorization could not be started or completed; the legacy catch-all. */
@@ -76,7 +76,7 @@ enum class PairingFailureCode(val wire: String) {
 /**
  * One address a deployment offers. The same value crosses the
  * `system/connections` document and the pairing push, so a TV that can't reach
- * the phone's address can verify and use one it can. Mirrors prairie-apple
+ * the phone's address can verify and use one it can. Mirrors silo-apple
  * `ServerEndpoint`. Build it with [of] so [url] carries no trailing slash.
  */
 data class PairingEndpoint(
@@ -92,7 +92,7 @@ data class PairingEndpoint(
         Provider("provider");
 
         companion object {
-            /** Unknown kinds read as public, matching prairie-apple. */
+            /** Unknown kinds read as public, matching silo-apple. */
             fun fromWire(value: String?): Kind = entries.firstOrNull { it.wire == value } ?: Public
         }
     }

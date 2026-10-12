@@ -43,16 +43,15 @@ import org.prairieserver.prairie.tv.ui.components.tvImeAwareFieldContext
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 
 /**
- * First-time server setup — creates the initial admin account on a freshly
- * installed Silo server. Mirrors the phone's `SetupScreen` logic via
- * [TvSetupViewModel]; on success the user is already signed in (tokens
- * persisted by [org.prairieserver.prairie.repository.AuthRepository.setup]) so the
- * flow advances to profile selection.
+ * First-admin account creation on a server that has none yet, laid out like
+ * the other TV first-run screens: the form on the left, a card on the right.
+ * Mirrors the phone's `SetupScreen` logic via [TvSetupViewModel]; on success
+ * the user is already signed in (tokens persisted by
+ * [org.prairieserver.prairie.repository.AuthRepository.setup]) so the flow
+ * advances to profile selection.
  *
  * Layout follows [TvServerSetupScreen]: TOP-anchored + `imePadding` +
  * `bringIntoView` so the focused field stays above the soft IME on Android TV.
- * First-admin account creation on a server that has none yet, laid out like
- * the other TV first-run screens: the form on the left, a card on the right.
  */
 @Composable
 fun TvSetupScreen(

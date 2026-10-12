@@ -2,12 +2,6 @@ package org.prairieserver.prairie.android.ui.screens.auth
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Person
@@ -85,28 +79,6 @@ fun SetupScreen(
                 isSecure = true,
                 imeAction = ImeAction.Go,
                 onImeAction = viewModel::onCreateAccountClick,
-                visualTransformation = if (showPassword) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-                trailing = {
-                    IconButton(onClick = { showPassword = !showPassword }) {
-                        Icon(
-                            imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = if (showPassword) "Hide password" else "Show password",
-                            tint = Color.White.copy(alpha = 0.62f),
-                        )
-                    }
-            )
-
-            state.error?.let { AuroraErrorLabel(it) }
-            AuroraPrimaryButton(
-                label = if (state.isLoading) "Creating…" else "Create account",
-                onClick = viewModel::onCreateAccountClick,
-                icon = Icons.Default.PersonAdd,
-                isLoading = state.isLoading,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
         state.error?.let { MarqueeErrorText(it, Modifier.padding(top = 10.dp)) }

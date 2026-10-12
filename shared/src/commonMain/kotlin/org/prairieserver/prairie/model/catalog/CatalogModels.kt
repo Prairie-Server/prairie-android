@@ -20,7 +20,7 @@ data class MediaItemUserState(
 
 /**
  * Tech-level overlay summary derived server-side from the best-ranked file
- * (see prairie-server `internal/overlays/summary.go`). Wire keys match the server
+ * (see silo-server `internal/overlays/summary.go`). Wire keys match the server
  * JSON and Apple's `OverlaySummary` (which decodes via `.convertFromSnakeCase`,
  * so `audioChannels` ⇄ `audio_channels`, etc.). `audioChannels` arrives
  * pre-formatted (e.g. "5.1", "7.1", "Stereo").
@@ -370,7 +370,7 @@ data class PlaybackVariantPart(
  * the client renders whatever it receives.
  *
  * Shape mirrors the server's `VersionChapter` struct at
- * `prairie-server/internal/catalog/detail.go:258-266` and Apple's
+ * `silo-server/internal/catalog/detail.go:258-266` and Apple's
  * `VersionChapter` at `iosApp/Networking/Models.swift:537-545` exactly.
  */
 @Serializable

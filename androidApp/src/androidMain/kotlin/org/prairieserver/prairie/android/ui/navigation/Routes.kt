@@ -8,7 +8,7 @@ import org.prairieserver.prairie.model.section.LibraryCollection
 import org.prairieserver.prairie.model.section.SectionItem
 
 /**
- * All navigation routes for the Prairie app.
+ * All navigation routes for the Silo app.
  *
  * Screens that take parameters use companion objects with a ROUTE constant
  * containing the placeholder (e.g. "item/{contentId}") for use with NavHost,
@@ -230,7 +230,7 @@ sealed class Route(val route: String) {
     }
 
     // --- Player / casting (fullscreen or hidden shell routes, no menu entries) ---
-    data object PrairieCastRemote : Route("prairiecast/remote")
+    data object PrairieCastRemote : Route("silocast/remote")
 
     data class Player(
         val contentId: String,

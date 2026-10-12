@@ -547,7 +547,7 @@ class MainActivity : ComponentActivity() {
         val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
         if (profileId.isNullOrBlank()) return Route.ProfileSelection.route
 
-        // Profile Selection (prairie-apple `ProfileLaunchState.resolution`). A
+        // Profile Selection (silo-apple `ProfileLaunchState.resolution`). A
         // process start applies the launch rule: Every Time, or a timed choice
         // whose away interval ran out while Prairie was closed. A later Activity
         // in this process follows the return rule the away tracker evaluated
@@ -564,7 +564,7 @@ class MainActivity : ComponentActivity() {
         }
 
         // Offline-with-downloads fast path: if local media exists and either
-        // the device has no network OR the configured Prairie server fails the
+        // the device has no network OR the configured Silo server fails the
         // authoritative health probe, land directly on Downloads instead of
         // greeting the user with a dead Home request.
         // Filesystem walk + health probe off the main dispatcher: this runs

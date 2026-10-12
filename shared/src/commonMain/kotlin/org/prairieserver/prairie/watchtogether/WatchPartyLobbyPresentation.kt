@@ -9,7 +9,7 @@ import org.prairieserver.prairie.model.watchtogether.Suggestion
 
 /*
  * How the lobby reads, shared by phone and TV so both say what the Apple
- * clients say (`WatchPartyLobbyPolicy` in prairie-apple). Layout stays in each
+ * clients say (`WatchPartyLobbyPolicy` in silo-apple). Layout stays in each
  * app; the words and the one foregrounded action live here.
  */
 

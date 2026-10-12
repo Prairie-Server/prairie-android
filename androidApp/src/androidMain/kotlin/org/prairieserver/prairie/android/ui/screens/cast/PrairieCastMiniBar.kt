@@ -39,7 +39,7 @@ import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 /**
  * Persistent Remote Control bar shown above the tab content whenever a TV
  * control session is active and the full remote is dismissed. Mirrors
- * prairie-apple's `PrairieControlMiniBar`: poster thumb, title, target line
+ * silo-apple's `PrairieControlMiniBar`: poster thumb, title, target line
  * ("Playing on", "Starting on", or "Connected / to" while the TV is idle),
  * and a trailing play/pause button (spinner while reconnecting or starting).
  * Tapping reopens the remote; disconnect lives in the remote's menu, not here.

@@ -75,7 +75,7 @@ jobs:
     name: Media3 FFmpeg AAR
     needs: changes
     if: needs.changes.outputs.ffmpeg_aar == 'true'
-    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/prairie-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-ffmpeg-aar"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/silo-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-ffmpeg-aar"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
     timeout-minutes: 45
 
     steps:
@@ -146,7 +146,7 @@ jobs:
       PRAIRIE_CI_PARALLEL_FLAG: --no-parallel
     needs: changes
     if: needs.changes.outputs.release_readiness == 'true'
-    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/prairie-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-release-readiness"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/silo-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-release-readiness"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
     timeout-minutes: 45
 
     steps:
@@ -206,7 +206,7 @@ jobs:
       PRAIRIE_CI_PARALLEL_FLAG: --parallel
     needs: changes
     if: needs.changes.outputs.unit_tests == 'true'
-    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/prairie-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-unit-tests"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/silo-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-unit-tests"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
 
     steps:
       - name: Check out sources
@@ -311,7 +311,7 @@ jobs:
     name: Lint
     needs: changes
     if: needs.changes.outputs.lint == 'true'
-    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/prairie-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-lint"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.self_hosted && (github.repository == 'Prairie-Server/silo-android' && ((github.event_name == 'pull_request' && contains(fromJSON(vars.PRAIRIE_CI_MEMBERS || '[]'), github.event.pull_request.user.login)) || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))) && fromJSON(format('["self-hosted","linux","x64","prairie-linux","prairie-run-{0}-{1}","prairie-job-lint"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
 
     steps:
       - name: Check out sources

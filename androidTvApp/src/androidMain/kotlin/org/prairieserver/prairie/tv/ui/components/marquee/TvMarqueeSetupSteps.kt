@@ -39,7 +39,7 @@ import org.prairieserver.prairie.tv.R
 /**
  * How to set this TV up from a phone: three numbered steps, one action each,
  * with a small picture of exactly that action. Short titles only, so they
- * read from across the room (prairie-apple `MarqueeTVSetupSteps`).
+ * read from across the room (silo-apple `MarqueeTVSetupSteps`).
  */
 @Composable
 fun TvMarqueeSetupSteps(modifier: Modifier = Modifier) {

@@ -39,10 +39,6 @@ import org.prairieserver.prairie.model.request.RequestMediaResult
 import org.prairieserver.prairie.model.request.RequestStatusTint
 import org.prairieserver.prairie.viewmodel.RequestsUiState
 import org.prairieserver.prairie.viewmodel.RequestsViewModel
-import org.koin.compose.viewmodel.koinViewModel
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 
 /**
  * The Requests hub, in the same grammar as the library pages: search TMDB to
@@ -105,56 +101,6 @@ private fun LazyListScope.discover(
     onMyRequestsClick: () -> Unit,
     onApprovalsClick: () -> Unit,
 ) {
-    val summary = requestSearchSummary(
-        query = query,
-        totalResults = totalResults,
-        isLoading = isLoading,
-        hasSubmittedQuery = hasSubmittedQuery,
-        hasResults = results.isNotEmpty(),
-        error = error,
-    )
-
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            text = "Search",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.SemiBold,
-        )
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Movie or series title") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RequestFilterChip(
-                selected = selectedType == RequestMediaType.All,
-                label = "All",
-                onClick = { onTypeChange(RequestMediaType.All) },
-            )
-                selected = selectedType == RequestMediaType.Movie,
-                label = "Movies",
-                onClick = { onTypeChange(RequestMediaType.Movie) },
-                selected = selectedType == RequestMediaType.Series,
-                label = "Series",
-                onClick = { onTypeChange(RequestMediaType.Series) },
-        }
-        Button(onClick = onSearch, enabled = !isLoading) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(if (isLoading) "Searching..." else "Search")
-        error?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
     val moving = state.inProgressCount + state.needsAttentionCount
     if (moving > 0 || state.pendingApprovals > 0) {
         item(key = "summary", contentType = "summary") {
@@ -173,6 +119,7 @@ private fun LazyListScope.discover(
                         leadingTint = RequestColors.Amber,
                         onClick = onApprovalsClick,
                     )
+                }
             }
         }
     }
@@ -257,36 +204,6 @@ private fun LazyListScope.searchResults(state: RequestsUiState, onOpen: (Request
 }
 
 @Composable
-private fun RequestErrorState(
-    message: String,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.ErrorOutline,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.error,
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        Spacer(modifier = Modifier.height(20.dp))
-        Button(onClick = onRetry) {
-            Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Retry")
 private fun SearchGrid(count: Int, cell: @Composable (width: Dp, index: Int) -> Unit) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columns = requestGridColumns(maxWidth, MediaGridDefaults.scaledPosterGridMinWidth)
