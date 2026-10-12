@@ -152,6 +152,15 @@ kover {
                     "org.prairieserver.prairie.player.SubtitleTrackDisplayLabelKt",
                     "org.prairieserver.prairie.discovery.LocalIpv4Addresses_androidKt",
                     "org.prairieserver.prairie.util.Dispatchers_androidKt",
+                    // Platform OkHttp glue that lives in androidMain; the source-set filter leaks it.
+                    "org.prairieserver.prairie.network.PrairieOkHttp",
+                    "org.prairieserver.prairie.network.PrairieOkHttp$*",
+                    // Live websocket frame I/O helpers in the same file as the realtime clients above.
+                    "org.prairieserver.prairie.network.WatchTogetherRealtimeClientKt",
+                    "org.prairieserver.prairie.network.WatchTogetherRealtimeClientKt$*",
+                    // Live server identity/connection probe (needs a real server).
+                    "org.prairieserver.prairie.network.api.DefaultServerIdentityApi",
+                    "org.prairieserver.prairie.network.api.DefaultServerIdentityApi$*",
                 )
             }
         }
