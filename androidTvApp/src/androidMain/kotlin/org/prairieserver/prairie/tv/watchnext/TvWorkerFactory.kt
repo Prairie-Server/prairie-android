@@ -13,7 +13,9 @@ import org.prairieserver.prairie.common.diagnostics.HostedDiagnosticsDeletionWor
 import org.prairieserver.prairie.common.diagnostics.HostedDiagnosticsReportDeleter
 import org.prairieserver.prairie.common.diagnostics.PendingReportStore
 import org.prairieserver.prairie.repository.SectionRepository
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.koin.core.context.GlobalContext
+import org.prairieserver.prairie.network.TokenManager
 
 /**
  * Hand-rolled WorkerFactory that constructs DI-dependent workers via Koin.
@@ -47,6 +49,10 @@ class TvWorkerFactory : WorkerFactory() {
                     params = workerParameters,
                     sectionRepository = koin.get<SectionRepository>(),
                     repository = koin.get<WatchNextRepository>(),
+                    spoilerStore = koin.get(),
+                    catalogRepository = koin.get(),
+                    allowsWatchNext = koin.get<ProfileLaunchPreferences>()::allowsWatchNext,
+                    hasTemporaryScope = koin.get<TokenManager>()::hasTemporaryScope,
                 )
             }
             SyncWorker::class.java.name -> {

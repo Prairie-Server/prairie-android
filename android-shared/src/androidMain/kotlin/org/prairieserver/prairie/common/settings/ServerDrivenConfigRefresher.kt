@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.common.settings
 
 import android.os.SystemClock
+import org.prairieserver.prairie.repository.HiddenLibrariesStore
 
 /**
  * Best-effort refresh coordinator for server-owned client configuration.
@@ -17,6 +18,9 @@ class ServerDrivenConfigRefresher(
     private val playerSettingsStore: PlayerSettingsStore,
     private val hasAuthenticatedProfile: suspend () -> Boolean,
     private val seekIntervalStore: SeekIntervalStore? = null,
+    private val episodeSpoilerStore: EpisodeSpoilerStore? = null,
+    private val titleArtStore: TitleArtStore? = null,
+    private val hiddenLibrariesStore: HiddenLibrariesStore? = null,
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
     @Volatile
@@ -40,6 +44,9 @@ class ServerDrivenConfigRefresher(
         libraryPlaybackPrefsStore.refresh()
         playerSettingsStore.refreshFromServer()
         seekIntervalStore?.refresh()
+        episodeSpoilerStore?.refresh()
+        titleArtStore?.refresh()
+        hiddenLibrariesStore?.refresh()
         lastRefreshAtMs = now
         return true
     }

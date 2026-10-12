@@ -101,7 +101,10 @@ fun TvHomeScreen(
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                if (shouldRefreshOnResume()) {
+                // The observer gets ON_RESUME as soon as it is added. On a new
+                // ViewModel that is while its own first load is still running,
+                // and a second full Home read would only supersede it.
+                if (shouldRefreshOnResume() && !viewModel.uiState.value.isLoading) {
                     viewModel.refreshFromRealtime()
                 }
             }
@@ -145,6 +148,7 @@ fun TvHomeScreen(
                 firstRowContainerFocusRequester = firstRowContainerFocusRequester,
                 onContentUpFallbackChanged = onContentUpFallbackChanged,
                 onSetWatched = viewModel::setWatched,
+                onMarqueeTranslated = viewModel::refreshFromRealtime,
                 onToggleFavorite = viewModel::toggleFavorite,
                 onToggleWatchlist = viewModel::toggleWatchlist,
                 onDismissContinueWatching = viewModel::dismissContinueWatching,
@@ -239,8 +243,10 @@ private fun TvHomeContent(
     onDismissContinueWatching: (String, String) -> Unit = { _, _ -> },
     onDismissNextUp: (String, String) -> Unit = { _, _ -> },
     sectionsFullyResolved: Boolean = true,
+    onMarqueeTranslated: () -> Unit = {},
 ) {
     TvSkylineSectionFeed(
+        onMarqueeTranslated = onMarqueeTranslated,
         surfaceKey = "home",
         // tvOS Home drops the foreground marquee + row band by 56pt while
         // keeping the ambient art and top navigation fixed (28dp at TV scale).

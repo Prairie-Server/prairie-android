@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.components
 
+import org.prairieserver.prairie.common.ui.components.SpoilerImage
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -70,6 +72,7 @@ object MediaGridDefaults {
 @Composable
 fun MediaCard(
     title: String,
+    hideArtwork: Boolean = false,
     posterUrl: String?,
     posterThumbhash: String?,
     year: Int? = null,
@@ -92,6 +95,7 @@ fun MediaCard(
     sharedContentId: String? = null,
     detailBackdropUrl: String? = null,
     detailBackdropThumbhash: String? = null,
+    hideDetailArtwork: Boolean = hideArtwork,
 ) {
     val overlayState = LocalCardOverlayUiState.current
     var menuExpanded by remember { mutableStateOf(false) }
@@ -113,8 +117,8 @@ fun MediaCard(
                     // pairs with this card, not a duplicate elsewhere on screen.
                     if (heroKey != null) heroHandoff?.pendingKey = heroKey
                     // Match the detail hero from its first loading frame.
-                    heroHandoff?.pendingArtworkUrl = detailBackdropUrl ?: posterUrl
-                    heroHandoff?.pendingArtworkThumbhash = if (detailBackdropUrl != null) {
+                    heroHandoff?.pendingArtworkUrl = (detailBackdropUrl ?: posterUrl).takeUnless { hideDetailArtwork }
+                    heroHandoff?.pendingArtworkThumbhash = if (hideDetailArtwork) null else if (detailBackdropUrl != null) {
                         detailBackdropThumbhash
                     } else {
                         posterThumbhash
@@ -135,12 +139,14 @@ fun MediaCard(
                 .heroSource(heroKey)
                 .clip(MaterialTheme.shapes.small),
         ) {
-            ThumbhashImage(
+            SpoilerImage(
+                hidden = hideArtwork,
                 url = posterUrl,
                 thumbhash = posterThumbhash,
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
+                defaultArtwork = DefaultArtworkKind.forItemType(type),
             )
 
             // Card-overlay badge layer (resolution / audio / ratings, etc.).

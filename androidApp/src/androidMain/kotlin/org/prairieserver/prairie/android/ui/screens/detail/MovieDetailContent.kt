@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,14 +13,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +36,7 @@ import org.prairieserver.prairie.android.ui.theme.PrairieBackground
 import org.prairieserver.prairie.android.ui.theme.PrairieDetailActionControl
 import org.prairieserver.prairie.android.ui.theme.PrairieDetailActionControlActive
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
+import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 import org.prairieserver.prairie.common.ui.movieDirectorCredit
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.ItemDetail
@@ -44,6 +44,7 @@ import org.prairieserver.prairie.model.catalog.ItemExtra
 import org.prairieserver.prairie.model.catalog.Season
 import org.prairieserver.prairie.model.catalog.trailerRailEntries
 import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
+import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
@@ -98,8 +99,8 @@ fun MovieDetailContent(
     isDownloaded: Boolean = false,
     downloadProgress: Float? = null,
     onDownloadTapped: (() -> Unit)? = null,
-    onWatchTogether: (() -> Unit)? = null,
-    onSuggestToRoom: (() -> Unit)? = null,
+    /** The Watch Party overflow action (host, add, or suggest), when one applies. */
+    partyAction: org.prairieserver.prairie.android.ui.screens.watchparty.DetailPartyAction? = null,
     translation: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -116,14 +117,16 @@ fun MovieDetailContent(
     val audioTracks = selectedVersion?.audioTracks.orEmpty()
     val subtitleTracks = selectedVersion?.subtitleTracks.orEmpty()
     val hasTrackSelectors = detail.versions.isNotEmpty()
-    val hasOverflow = onSeriesClick != null || onWatchTogether != null ||
-        onSuggestToRoom != null
+    val hasOverflow = onSeriesClick != null || partyAction != null
 
     val eyebrow = if (detail.type == "episode") {
         HeroMetadata.episodeEyebrow(detail)
     } else {
         null
     }
+    // Spoiler protection: an unwatched episode's page drops its description.
+    val hidesEpisodeOverview = detail.type == "episode" &&
+        LocalEpisodeSpoilerPrefs.current.hidesOverview(EpisodeSpoilers.isUnwatched(detail.userData))
     val sourceTokens = HeroMetadata.movieSourceTokens(detail)
     val selectedRuntimeMinutes = selectedMediaRuntimeMinutes(detail, selectedVersion)
     val factsLine = HeroMetadata.movieFactsLine(detail, selectedRuntimeMinutes)
@@ -168,7 +171,9 @@ fun MovieDetailContent(
                 portraitArtwork = portraitArtwork,
                 dominantColor = dominantColor,
                 directorText = movieDirectorCredit(detail),
-                translation = translation,
+                overviewText = if (hidesEpisodeOverview) null else detail.overview,
+                // No "Translate description" under a hidden description.
+                translation = if (hidesEpisodeOverview) null else translation,
                 belowOverview = {
                     // PR #212 places the grouped playback card after overview,
                     // credits, and translation—not inside the action stack.
@@ -222,7 +227,7 @@ fun MovieDetailContent(
                     overflow = if (hasOverflow) {
                         { dismiss ->
                             if (onSeriesClick != null) {
-                                DropdownMenuItem(
+                                PrairieDropdownMenuItem(
                                     text = { Text("Go to Series") },
                                     onClick = {
                                         dismiss()
@@ -230,27 +235,15 @@ fun MovieDetailContent(
                                     },
                                 )
                             }
-                            if (onSuggestToRoom != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Suggest to Watch Together") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Add, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        dismiss()
-                                        onSuggestToRoom()
-                                    },
-                                )
-                            }
-                            if (onWatchTogether != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Watch Together") },
+                            if (partyAction != null) {
+                                PrairieDropdownMenuItem(
+                                    text = { Text(partyAction.label) },
                                     leadingIcon = {
                                         Icon(Icons.Outlined.Groups, contentDescription = null)
                                     },
                                     onClick = {
                                         dismiss()
-                                        onWatchTogether()
+                                        partyAction.onClick()
                                     },
                                 )
                             }

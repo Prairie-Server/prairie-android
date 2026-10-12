@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.model.download
 
 import org.prairieserver.prairie.model.catalog.VersionChapter
+import org.prairieserver.prairie.model.catalog.LeafItemUserData
 import kotlinx.serialization.Serializable
 
 /**
@@ -29,6 +30,9 @@ data class DownloadSidecar(
     val subtitle: String? = null,
     val posterUrl: String? = null,
     val posterThumbhash: String? = null,
+    /** Null on older downloads; episode artwork is protected conservatively. */
+    val posterIsEpisodeStill: Boolean? = null,
+    val episodeUserData: LeafItemUserData? = null,
     val year: Int? = null,
     val seriesTitle: String? = null,
     /** Stable parent series/show content id — the rename-safe grouping key for the
@@ -72,6 +76,15 @@ data class DownloadSidecar(
      *  it, captured from the offline manifest when the download completed. Null
      *  for downloads completed before this existed (legacy offline playback). */
     val offlineTracks: OfflineTrackInfo? = null,
+    /** Absolute path of the item's own poster (an episode's image for episodes),
+     *  saved from the offline manifest when the download completed. Null when
+     *  none was saved, including downloads completed before this existed. */
+    val offlinePosterPath: String? = null,
+    /** Absolute path of the parent series poster saved with an episode download.
+     *  Null for movies and for servers whose manifest does not list it. */
+    val offlineSeriesPosterPath: String? = null,
+    /** ThumbHash of the parent series poster, from the episode's offline manifest. */
+    val seriesPosterThumbhash: String? = null,
     /** Wall-clock millis when the sidecar was last written. Diagnostic only;
      *  helps debug stale-file scenarios via `ls -la`. */
     val updatedAtMs: Long,

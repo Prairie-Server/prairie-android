@@ -83,6 +83,7 @@ import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
 import org.prairieserver.prairie.common.calendar.localDisplayAirTime
 import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
+import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.calendar.CalendarBadge
 import org.prairieserver.prairie.model.calendar.CalendarFilter
@@ -707,6 +708,7 @@ private fun CalendarEventCard(
                 thumbhash = item.posterThumbhash,
                 contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(),
+                defaultArtwork = DefaultArtworkKind.forItemType(item.type),
             )
 
             // Badge pills, top-leading. overlayPadding (phone) = 6.

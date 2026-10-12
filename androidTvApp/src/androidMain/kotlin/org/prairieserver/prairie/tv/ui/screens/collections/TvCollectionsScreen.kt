@@ -41,7 +41,10 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import org.prairieserver.prairie.common.ui.OnViewerAccessChanged
+import org.prairieserver.prairie.network.AccessChangeSignals
 import org.prairieserver.prairie.model.personal.Collection
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
@@ -60,6 +63,7 @@ fun TvCollectionsScreen(
     viewModel: CollectionsViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    OnViewerAccessChanged(koinInject<AccessChangeSignals>(), viewModel.accessChanges) { viewModel.refresh() }
     val firstCollectionFocusRequester = remember { FocusRequester() }
     val firstCollectionId = state.sections.firstNotNullOfOrNull { it.collections.firstOrNull()?.id }
 

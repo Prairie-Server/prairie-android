@@ -1,0 +1,76 @@
+package org.prairieserver.prairie.viewmodel
+
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.headersOf
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import org.prairieserver.prairie.network.api.CollectionApi
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+import org.prairieserver.prairie.repository.CollectionRepository
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class CollectionsViewModelLoadOrderTest {
+
+    @Test
+    fun anOlderLoadDoesNotOverwriteTheRefreshThatReplacedIt() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val firstEntered = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        var calls = 0
+        val client = HttpClient(
+            MockEngine {
+                val call = ++calls
+                val id = if (call == 1) {
+                    firstEntered.complete(Unit)
+                    releaseFirst.await()
+                    "before"
+                } else {
+                    "after"
+                }
+                respond(
+                    """{"items":[{"id":"$id","name":"$id"}],"groups":[]}""",
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        )
+        val viewModel = CollectionsViewModel(CollectionRepository(CollectionApi(client, ApiV2Gate.Unrestricted)))
+        try {
+            withContext(Dispatchers.Default) { firstEntered.await() }
+
+            // An access change refreshes while the initial load still waits on
+            // the server's answer under the old policy.
+            viewModel.refresh()
+            withContext(Dispatchers.Default) {
+                viewModel.uiState.first { state -> state.collections.map { it.id } == listOf("after") }
+                releaseFirst.complete(Unit)
+                delay(200)
+            }
+
+            assertEquals(listOf("after"), viewModel.uiState.value.collections.map { it.id })
+        } finally {
+            // Cancel AND join the VM's scope before Main is reset: a plain cancel()
+            // lets an in-flight Ktor call resume on a missing Main and leak an
+            // uncaught exception into whichever test runs next.
+            releaseFirst.complete(Unit)
+            viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
+            client.close()
+            Dispatchers.resetMain()
+        }
+    }
+}

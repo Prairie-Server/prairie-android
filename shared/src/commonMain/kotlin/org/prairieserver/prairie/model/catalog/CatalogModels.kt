@@ -40,6 +40,12 @@ data class OverlaySummary(
     @SerialName("multi_sub") val multiSub: Boolean? = null
 )
 
+/** A watched mutation clears resume progress, including optimistic unwatched resets. */
+fun BrowseItem.withWatched(watched: Boolean): BrowseItem = copy(
+    userState = (userState ?: MediaItemUserState()).copy(played = watched),
+    positionSeconds = 0.0,
+)
+
 @Serializable
 data class BrowseItem(
     @SerialName("content_id") val contentId: String,
@@ -59,6 +65,8 @@ data class BrowseItem(
     val networks: List<String> = emptyList(),
     @SerialName("show_status") val showStatus: String? = null,
     val overview: String? = null,
+    @SerialName("poster_is_episode_still") val posterIsEpisodeStill: Boolean? = null,
+    @SerialName("backdrop_is_episode_still") val backdropIsEpisodeStill: Boolean? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,
@@ -67,7 +75,19 @@ data class BrowseItem(
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("last_air_date") val lastAirDate: String? = null,
     @SerialName("user_state") val userState: MediaItemUserState? = null,
-    @SerialName("overlay_summary") val overlaySummary: OverlaySummary? = null
+    @SerialName("overlay_summary") val overlaySummary: OverlaySummary? = null,
+    @SerialName("series_id") val seriesId: String? = null,
+    @SerialName("series_title") val seriesTitle: String? = null,
+    @SerialName("season_number") val seasonNumber: Int? = null,
+    @SerialName("episode_number") val episodeNumber: Int? = null,
+    @SerialName("item_source") val itemSource: String? = null,
+    @SerialName("position_seconds") val positionSeconds: Double? = null,
+    @SerialName("duration_seconds") val durationSeconds: Double? = null,
+    @SerialName("progress_updated_at") val progressUpdatedAt: String? = null,
+    /** This profile's metadata language while the card's description is not available in it yet. */
+    @SerialName("pending_translation_language") val pendingTranslationLanguage: String? = null,
+    /** Localized fields ("overview", "tagline") whose text was machine-translated by AI. */
+    @SerialName("machine_translated_fields") val machineTranslatedFields: List<String> = emptyList(),
 )
 
 @Serializable
@@ -163,6 +183,8 @@ data class ItemDetail(
     // Non-null while a viewer-facing description translation job is queued or
     // running for this item; clears when the translated overview lands.
     @SerialName("pending_translation_language") val pendingTranslationLanguage: String? = null,
+    /** Localized fields ("overview", "tagline") whose text was machine-translated by AI. */
+    @SerialName("machine_translated_fields") val machineTranslatedFields: List<String> = emptyList(),
     val tagline: String? = null,
     val runtime: Int = 0,
     @SerialName("content_rating") val contentRating: String? = null,
@@ -171,6 +193,12 @@ data class ItemDetail(
     @SerialName("rating_tmdb") val ratingTmdb: Double? = null,
     @SerialName("rating_rt_critic") val ratingRtCritic: Int? = null,
     @SerialName("rating_rt_audience") val ratingRtAudience: Int? = null,
+    /**
+     * The server's title-page ratings row, in display order. `null` when an
+     * older server omits it; read it through [titleRatings].
+     */
+    @Serializable(with = DisplayRatingListSerializer::class)
+    val ratings: List<DisplayRating>? = null,
     @SerialName("imdb_id") val imdbId: String? = null,
     @SerialName("tmdb_id") val tmdbId: String? = null,
     @SerialName("tvdb_id") val tvdbId: String? = null,
@@ -183,6 +211,8 @@ data class ItemDetail(
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("last_air_date") val lastAirDate: String? = null,
+    @SerialName("poster_is_episode_still") val posterIsEpisodeStill: Boolean? = null,
+    @SerialName("backdrop_is_episode_still") val backdropIsEpisodeStill: Boolean? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,
@@ -305,6 +335,10 @@ data class FileVersion(
     @SerialName("presentation_part_total") val presentationPartTotal: Int? = null,
     @SerialName("edition_raw") val editionRaw: String? = null,
     @SerialName("edition_key") val editionKey: String? = null,
+    val intro: TimeRange? = null,
+    val credits: TimeRange? = null,
+    val recap: TimeRange? = null,
+    val preview: TimeRange? = null,
 )
 
 @Serializable
@@ -429,7 +463,9 @@ data class Season(
     @SerialName("episode_count") val episodeCount: Int = 0,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
-    @SerialName("user_data") val userData: SeasonUserData? = null
+    @SerialName("user_data") val userData: SeasonUserData? = null,
+    /** Localized fields ("overview") whose text was machine-translated by AI. */
+    @SerialName("machine_translated_fields") val machineTranslatedFields: List<String> = emptyList(),
 )
 
 @Serializable
@@ -500,10 +536,18 @@ data class EpisodeListItem(
     @SerialName("imdb_id") val imdbId: String? = null,
     @SerialName("tmdb_id") val tmdbId: String? = null,
     @SerialName("tvdb_id") val tvdbId: String? = null,
+    @SerialName("still_is_episode_still") val stillIsEpisodeStill: Boolean? = null,
     @SerialName("still_url") val stillUrl: String? = null,
     @SerialName("still_thumbhash") val stillThumbhash: String? = null,
     @SerialName("user_data") val userData: LeafItemUserData? = null,
-    val files: List<EpisodeFile> = emptyList()
+    val files: List<EpisodeFile> = emptyList(),
+    /**
+     * This profile's metadata language while the episode's description is not
+     * available in it yet; translating the episode's season fills it.
+     */
+    @SerialName("pending_translation_language") val pendingTranslationLanguage: String? = null,
+    /** Localized fields ("overview") whose text was machine-translated by AI. */
+    @SerialName("machine_translated_fields") val machineTranslatedFields: List<String> = emptyList(),
 )
 
 @Serializable
@@ -570,6 +614,8 @@ data class WatchDetail(
     // Optional forward-compatible artwork. Current servers expose these on
     // ItemDetail rather than WatchDetail, so playback clients must fall back
     // to the full catalog detail when these fields are absent.
+    @SerialName("poster_is_episode_still") val posterIsEpisodeStill: Boolean? = null,
+    @SerialName("backdrop_is_episode_still") val backdropIsEpisodeStill: Boolean? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,

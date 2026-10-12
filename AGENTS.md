@@ -8,10 +8,11 @@ This repository contains only the Prairie Android clients. Shared Kotlin logic l
 
 - Ebooks/Reading are phone-only. Do not expose ebooks or Reading on Android TV.
 - Android mobile navigation is Home, Libraries, For You, Calendar, and Downloads only when the active profile has downloads. Video, Audio, and Reading are library modes reached through Libraries, not bottom-nav tabs.
-- Android TV navigation is Home, available media-type tabs from server libraries, For You (with its Watchlist/Favorites dropdown, mirroring tvOS `.recommendations`), and Calendar, plus search and profile actions. Reading/ebooks are excluded.
+- Android TV navigation is Home, available media-type tabs from server libraries, For You (with its Watchlist/Favorites dropdown, mirroring tvOS `.recommendations`), Calendar, and Requests while the server enables it (mirroring tvOS `.requests`), plus search and profile actions. Reading/ebooks are excluded.
 - Live TV (Prairie-only) is live on phone and TV, gated by `LiveTvFeatureStore` (the server has channels), and reached from the profile menu (phone `ProfileMenu` via `LocalLiveTvMenuAction`; TV profile dropdown). It is not a bottom-nav or top-menu tab.
 - Upstream Silo syncs have silently dropped Prairie-only code. `scripts/check-prairie-invariants.sh` (CI job "Prairie invariants") anchors it; see `docs/upstream-sync.md`. When restoring dropped code, add an anchor.
-- Requests is live on phone and TV, server-gated by `requests_enabled` (profile menu + search entry points, matching Apple). Admin surfaces are not exposed in the Android clients — no STATS dashboard, and none of the richer admin screens (users/sessions/logs/scans) — and neither is Watch Together. Session management (seeing where you are signed in and signing other devices out) is not exposed either; device pairing stays. This is a deliberate divergence from Apple, which does surface the STATS dashboard. Do not add any of it back to menus without an explicit product decision.
+- Requests is live on phone and TV, server-gated by `requests_enabled` (phone: profile menu + search; TV: a top-bar tab + search, matching Apple). Admins who can moderate requests approve, decline, and retry them in the Requests screens, as on Apple; limits and auto-approval stay in web admin. Other admin surfaces are not exposed in the Android clients — no STATS dashboard, and none of the richer admin screens (users/sessions/logs/scans). Session management (seeing where you are signed in and signing other devices out) is not exposed either; device pairing stays. This is a deliberate divergence from Apple, which does surface the STATS dashboard. Do not add any of it back to menus without an explicit product decision.
+- Watch Party (synchronized playback) is experimental on phone and TV. Its entry points (profile menu, the detail page's party action, and phone `prairie://watch-party` invitations) appear only while Settings → Experimental → Watch Party is on, a device-local toggle that defaults on in debug builds and off in release builds, and it works only when the server advertises the room and playback capabilities. Keep it behind the toggle until the qualification matrix in `docs/watch-party-implementation-plan.md` passes.
 
 ## Skills & review agents
 
@@ -68,10 +69,22 @@ follow-up work.
 
 - Keep one concern per pull request. If an honest description needs the word
   "also," split the work.
-- Include before-and-after images for UI changes. Include a short video when
-  motion or timing matters.
-- Upload pull request evidence to GitHub. Never commit PR-only assets such as
-  `.github/pr-assets/`.
+- Every pull request that changes what a user sees must include evidence, as
+  [Show visible changes](CONTRIBUTING.md#show-visible-changes) defines. That
+  covers UI and UX changes and changes to which items appear or what they show,
+  such as search results, home sections, recommendations, sorting, filtering,
+  metadata, or artwork. Use before-and-after captures of the same screen with the
+  same data, and a short recording when motion, timing, or focus matters. Write
+  `Evidence: none, no user-visible change` only when that is true.
+- Attach evidence on GitHub under the PR body's Evidence heading, or publish it
+  with `npx @prairie-server/evidence publish <folder> --pr <number>` and put its
+  `Evidence:` link there. Only Prairie maintainers and the pull request's author can
+  open a published page. GitHub has no API for attaching images to a pull
+  request, so an agent either publishes with the CLI or gives the developer the
+  captures to attach. Check media for private information before it goes on
+  GitHub. When publishing exits 4, ask the developer to run
+  `npx @prairie-server/evidence login`; never approve that login or read the saved
+  key. Never commit PR-only assets such as `.github/pr-assets/`.
 - When babysitting a pull request, poll checks and review comments created
   after the last push. Verify bot findings against the source, fix real issues,
   and dismiss false positives with a written reason. Remain quiet when nothing

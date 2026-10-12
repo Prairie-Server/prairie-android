@@ -2,19 +2,23 @@ package org.prairieserver.prairie.tv.ui.screens.profiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import org.prairieserver.prairie.common.ui.marquee.SignInHandoff
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.profile.authorizedProfileToken
+import org.prairieserver.prairie.model.profile.householdPrimary
 import org.prairieserver.prairie.model.server.ServerContract
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.ProfileCommitResult
 import org.prairieserver.prairie.repository.ProfileRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
+import org.prairieserver.prairie.repository.ProfileVerificationRecovery
+import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 
 data class TvProfileSelectionUiState(
     val profiles: List<Profile> = emptyList(),
@@ -26,11 +30,21 @@ data class TvProfileSelectionUiState(
     val isManageMode: Boolean = false,
     // PIN entry flow.
     val pinProfile: Profile? = null,
+    /** The open PIN prompt is the primary profile's, unlocking manage mode rather than selecting it. */
+    val pinForManagement: Boolean = false,
     val isVerifyingPin: Boolean = false,
     val pinError: String? = null,
     // Profile pending delete confirmation (manage mode).
     val deleteCandidate: Profile? = null,
     val isDeleting: Boolean = false,
+    /** Manage mode just started for "Add profile"; the screen opens the add form and consumes this. */
+    val openAddProfile: Boolean = false,
+    /** The signed-in account's username, shown under the title; null until read. */
+    val accountName: String? = null,
+    /** A one-profile household is being opened straight after sign-in; the picker stays hidden. */
+    val openingOnlyProfile: Boolean = false,
+    /** The profile just picked on a new TV, while the TV asks whether to open it automatically. */
+    val rememberOffer: Profile? = null,
 )
 
 /**
@@ -41,6 +55,9 @@ data class TvProfileSelectionUiState(
 class TvProfileSelectionViewModel(
     private val profileRepository: ProfileRepository,
     private val authRepository: AuthRepository? = null,
+    private val consumeSkipsSingleProfile: () -> Boolean = SignInHandoff::consumeSkipsSingleProfilePicker,
+    private val profileVerificationRecovery: ProfileVerificationRecovery? = null,
+    private val launchPreferences: ProfileLaunchPreferences? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvProfileSelectionUiState())
@@ -52,9 +69,57 @@ class TvProfileSelectionViewModel(
     /** Monotonic generation for profile-list loads; see [loadProfiles]. */
     private var loadAttempt: Int = 0
 
+    /**
+     * Read once, on the first load: a sign-in that just finished asked to
+     * skip a one-person picker (see [SignInHandoff]).
+     */
+    private var skipsSingleProfile: Boolean? = null
+
+    /** "Add profile" asked for manage mode; open the add form once it starts. */
+    private var addAfterUnlock = false
+
     init {
         loadProfiles()
         reloadWhenUpdateRequiredLifts()
+        reloadWhenStaleProfileCleared()
+        leaveManageModeWhenSessionEnds()
+    }
+
+    /**
+     * A load sent with a profile token the server no longer accepts fails with
+     * `profile_verification_required`. The recovery then clears that profile,
+     * and the grid reloads without it instead of leaving the error up.
+     */
+    private fun reloadWhenStaleProfileCleared() {
+        val recovery = profileVerificationRecovery ?: return
+        viewModelScope.launch {
+            recovery.profileCleared.collect {
+                dropStaleRememberOffer()
+                loadProfiles()
+            }
+        }
+    }
+
+    /**
+     * Closes an open remember offer whose profile is no longer the active one
+     * (cleared by recovery, or another identity took over). An offer from a
+     * commit that landed after this check began stays.
+     */
+    private suspend fun dropStaleRememberOffer() {
+        val offer = _uiState.value.rememberOffer ?: return
+        if (profileRepository.getActiveProfileId() == offer.id) return
+        _uiState.update { if (it.rememberOffer == offer) it.copy(rememberOffer = null) else it }
+    }
+
+    /** Cancel on a re-prompt for the primary's PIN ends the session; manage mode goes with it. */
+    private fun leaveManageModeWhenSessionEnds() {
+        viewModelScope.launch {
+            profileRepository.householdManagement.isActive.collect { active ->
+                if (!active && _uiState.value.isManageMode) {
+                    _uiState.update { it.copy(isManageMode = false, deleteCandidate = null) }
+                }
+            }
+        }
     }
 
     /**
@@ -95,7 +160,9 @@ class TvProfileSelectionViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             val scope = profileRepository.captureIdentityScope()
-            val isAdmin = (authRepository?.getCurrentUser() as? ApiResult.Success)?.data?.role?.equals("admin", ignoreCase = true) == true
+            val skipSingle = skipsSingleProfile ?: consumeSkipsSingleProfile().also { skipsSingleProfile = it }
+            val user = (authRepository?.getCurrentUser() as? ApiResult.Success)?.data
+            val isAdmin = user?.role?.equals("admin", ignoreCase = true) == true
             val listed = profileRepository.listProfiles()
             // Two separate reasons to drop this response: a newer load
             // superseded it, or the identity it was fetched under is gone.
@@ -103,6 +170,7 @@ class TvProfileSelectionViewModel(
             if (!profileRepository.identityScopeUnchanged(scope)) {
                 // The displayed grid is gone, so its scope must go with it.
                 gridScope = null
+                profileRepository.householdManagement.end()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -112,6 +180,9 @@ class TvProfileSelectionViewModel(
                         deleteCandidate = null,
                     )
                 }
+                // A pick committed while this load was in flight also moves
+                // the identity; its offer is still current.
+                dropStaleRememberOffer()
                 return@launch
             }
             when (val result = listed) {
@@ -121,15 +192,23 @@ class TvProfileSelectionViewModel(
                     // failed reload under a NEW identity left the OLD grid
                     // qualified by the NEW scope.
                     gridScope = scope
+                    // A household with one profile and no PIN doesn't need a
+                    // picker after signing in: open it, once.
+                    val only = result.data.singleOrNull()?.takeIf { skipSingle && !it.hasPin }
+                    skipsSingleProfile = false
+                    if (!isAdmin) profileRepository.householdManagement.end()
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            openingOnlyProfile = only != null,
+                            accountName = user?.username ?: it.accountName,
                             profiles = result.data,
                             canManageProfiles = isAdmin,
                             isManageMode = if (isAdmin) it.isManageMode else false,
                             deleteCandidate = if (isAdmin) it.deleteCandidate else null,
                         )
                     }
+                    if (only != null) onProfileSelected(only)
                 }
                 is ApiResult.Error -> {
                     _uiState.update {
@@ -148,15 +227,73 @@ class TvProfileSelectionViewModel(
         }
     }
 
+    /**
+     * Entering manage mode acts as the household's primary profile, the only
+     * one the server lets manage the others: the picker has no selected profile
+     * on TV. A PIN-locked primary is verified first; Cancel there leaves manage
+     * mode off. The primary is never selected, so watching still needs a pick.
+     */
     fun toggleManageMode() {
-        if (!_uiState.value.canManageProfiles) return
-        _uiState.update {
-            it.copy(
-                isManageMode = !it.isManageMode,
-                // Leaving manage mode clears any pending delete prompt.
-                deleteCandidate = if (it.isManageMode) null else it.deleteCandidate,
-            )
+        val state = _uiState.value
+        if (!state.canManageProfiles) return
+        if (state.isManageMode) {
+            exitManageMode()
+            return
         }
+        enterManageMode(thenAdd = false)
+    }
+
+    /**
+     * "Add profile" creates a household profile, so it needs the same primary
+     * profile step as Manage; the add form opens once manage mode is on.
+     */
+    fun requestAddProfile() {
+        val state = _uiState.value
+        if (!state.canManageProfiles) return
+        if (state.isManageMode && profileRepository.householdManagement.isActive.value) {
+            _uiState.update { it.copy(openAddProfile = true) }
+        } else {
+            enterManageMode(thenAdd = true)
+        }
+    }
+
+    fun onAddProfileConsumed() {
+        _uiState.update { it.copy(openAddProfile = false) }
+    }
+
+    private fun enterManageMode(thenAdd: Boolean) {
+        val primary = _uiState.value.profiles.householdPrimary()
+        if (primary == null) {
+            _uiState.update { it.copy(error = "Couldn't find the primary profile needed to manage profiles.") }
+            return
+        }
+        pinAttempt++
+        addAfterUnlock = thenAdd
+        if (primary.hasPin) {
+            _uiState.update {
+                it.copy(pinProfile = primary, pinForManagement = true, pinError = null, isVerifyingPin = false)
+            }
+            return
+        }
+        profileRepository.householdManagement.begin(primary, profileToken = null, scope = gridScope)
+        onManageModeStarted()
+    }
+
+    private fun onManageModeStarted() {
+        val add = addAfterUnlock
+        addAfterUnlock = false
+        _uiState.update { it.copy(isManageMode = true, openAddProfile = add) }
+    }
+
+    private fun exitManageMode() {
+        profileRepository.householdManagement.end()
+        // Leaving manage mode clears any pending delete prompt.
+        _uiState.update { it.copy(isManageMode = false, deleteCandidate = null) }
+    }
+
+    override fun onCleared() {
+        profileRepository.householdManagement.end()
+        super.onCleared()
     }
 
     /**
@@ -182,7 +319,7 @@ class TvProfileSelectionViewModel(
         if (profile.hasPin) {
             // Open the PIN dialog; actual selection happens in onPinEntered.
             _uiState.update {
-                it.copy(pinProfile = profile, pinError = null, isVerifyingPin = false)
+                it.copy(pinProfile = profile, pinForManagement = false, pinError = null, isVerifyingPin = false)
             }
             return
         }
@@ -193,15 +330,17 @@ class TvProfileSelectionViewModel(
     }
 
     fun onPinDialogDismissed() {
+        addAfterUnlock = false
         // Abandon any in-flight verification for the dismissed profile.
         pinAttempt++
         _uiState.update {
-            it.copy(pinProfile = null, pinError = null, isVerifyingPin = false)
+            it.copy(pinProfile = null, pinForManagement = false, pinError = null, isVerifyingPin = false)
         }
     }
 
     fun onPinEntered(pin: String) {
         val profile = _uiState.value.pinProfile ?: return
+        val forManagement = _uiState.value.pinForManagement
         val attempt = ++pinAttempt
         _uiState.update { it.copy(isVerifyingPin = true, pinError = null) }
         viewModelScope.launch {
@@ -222,11 +361,23 @@ class TvProfileSelectionViewModel(
                     // gate on the issued token (matches phone) — never commit on
                     // a bare 200, nor on a valid=true carrying no proof.
                     val token = r.data.authorizedProfileToken()
-                    if (token != null) {
+                    if (token != null && forManagement) {
+                        // An account or server change during the round trip
+                        // voids this answer; the reload shows the new identity.
+                        if (!profileRepository.identityScopeUnchanged(scope)) {
+                            onPinDialogDismissed()
+                            loadProfiles()
+                            return@launch
+                        }
+                        // Kept for manage mode only; the device's selection is untouched.
+                        profileRepository.householdManagement.begin(profile, token, scope)
+                        _uiState.update { it.copy(pinProfile = null, pinForManagement = false, isVerifyingPin = false) }
+                        onManageModeStarted()
+                    } else if (token != null) {
                         commitSelection(profile, token, scope)
                         _uiState.update { it.copy(pinProfile = null, isVerifyingPin = false) }
                     } else {
-                        _uiState.update { it.copy(isVerifyingPin = false, pinError = "Incorrect PIN") }
+                        _uiState.update { it.copy(isVerifyingPin = false, pinError = "Wrong PIN. Try again.") }
                     }
                 }
                 is ApiResult.Error -> _uiState.update {
@@ -252,6 +403,7 @@ class TvProfileSelectionViewModel(
     ) {
         viewModelScope.launch {
             val result = profileRepository.selectProfile(profile.id, profileToken, expectedScope)
+            if (result != ProfileCommitResult.Committed) _uiState.update { it.copy(openingOnlyProfile = false) }
             if (result == ProfileCommitResult.ScopeChanged) {
                 // Identity moved under us — don't route into this profile, and
                 // drop the grid with it. A retained grid keeps D-pad focus on
@@ -261,15 +413,38 @@ class TvProfileSelectionViewModel(
                         profiles = emptyList(),
                         selectedProfileId = null,
                         pinProfile = null,
+                        pinForManagement = false,
                         isVerifyingPin = false,
                         pinError = null,
                         deleteCandidate = null,
                         isManageMode = false,
                     )
                 }
+                profileRepository.householdManagement.end()
                 loadProfiles()
                 return@launch
             }
+            if (result == ProfileCommitResult.Committed && launchPreferences?.isRememberOfferPending == true) {
+                // A new TV: ask whether to open this profile automatically before Home.
+                _uiState.update { it.copy(rememberOffer = profile) }
+                return@launch
+            }
+            _uiState.update { it.copy(selectedProfileId = profile.id) }
+        }
+    }
+
+    /**
+     * Answers the new TV's offer and continues into the picked profile. The
+     * dialog can stay up indefinitely, so an answer for a profile that is no
+     * longer the active one (cleared by recovery meanwhile) neither saves nor
+     * navigates; the offer stays pending for the next pick.
+     */
+    fun answerRememberOffer(remember: Boolean) {
+        val profile = _uiState.value.rememberOffer ?: return
+        _uiState.update { it.copy(rememberOffer = null) }
+        viewModelScope.launch {
+            if (profileRepository.getActiveProfileId() != profile.id) return@launch
+            launchPreferences?.answerRememberOffer(remember)
             _uiState.update { it.copy(selectedProfileId = profile.id) }
         }
     }

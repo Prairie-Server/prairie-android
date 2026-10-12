@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -20,6 +21,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
@@ -31,11 +33,17 @@ import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 
+/**
+ * Full-screen takeover while a phone controls the TV with nothing playing:
+ * "Ready for <phone>", or, while a profile handoff prepares a title the phone
+ * is about to play, "Starting <title>" with a spinner.
+ */
 @Composable
 fun TvPrairieCastStandbyView(
     state: TvPrairieCastReceiver.StandbyState,
     onDisconnect: () -> Unit,
 ) {
+    val preparing = state.preparing
     val disconnectFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { disconnectFocus.requestFocus() }
 
@@ -56,27 +64,45 @@ fun TvPrairieCastStandbyView(
                     .background(Color.White.copy(alpha = 0.08f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Tv,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(76.dp),
-                )
+                if (preparing != null) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 5.dp,
+                        modifier = Modifier.size(76.dp),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Tv,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(76.dp),
+                    )
+                }
             }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "Ready for ${state.controllerLabel}",
+                    text = when {
+                        preparing == null -> "Ready for ${state.controllerLabel}"
+                        preparing.title != null -> "Starting ${preparing.title}"
+                        else -> "Starting playback"
+                    },
                     color = Color.White,
                     fontSize = 52.sp,
                     lineHeight = 58.sp,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = state.serverName ?: "Remote control active",
+                    text = if (preparing != null) {
+                        "From ${state.controllerName?.takeIf { it.isNotBlank() } ?: "your phone"}"
+                    } else {
+                        state.serverName ?: "Remote control active"
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,

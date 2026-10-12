@@ -7,6 +7,8 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import org.prairieserver.prairie.common.di.playerInfraModule
+import org.prairieserver.prairie.common.ui.marquee.marqueeModule
+import org.prairieserver.prairie.common.di.watchPartyModule
 import org.prairieserver.prairie.common.di.playerModule
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsCoordinator
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsStartup
@@ -37,18 +39,28 @@ class PrairieTvApplication : Application(), Configuration.Provider, SingletonIma
         DiagnosticsStartup.installCrashCapture(this)
         val koinApp = startKoin {
             androidContext(this@PrairieTvApplication)
-            modules(sharedModules() + playerModule + playerInfraModule + androidTvModule + diagnosticsModule)
+            modules(sharedModules() + playerModule + playerInfraModule + marqueeModule + watchPartyModule + androidTvModule + diagnosticsModule)
         }
         DiagnosticsStartup.startCoordinator { koinApp.koin.get<DiagnosticsCoordinator>() }
         koinApp.koin.get<org.prairieserver.prairie.repository.ImageCapabilitiesSession>().start(
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
         )
+        // Profile-verification recovery: clears a profile whose PIN token the
+        // server stopped accepting (after an access change), including when
+        // background work hits it first. Guarded — never load-bearing.
+        runCatching {
+            koinApp.koin.get<org.prairieserver.prairie.repository.ProfileVerificationRecovery>()
+        }.onFailure {
+            // Class name only: the exception chain can carry auth or server data.
+            android.util.Log.w("PrairieTvApplication", "Profile verification recovery init failed: ${it::class.simpleName}")
+        }
         // Live-home socket (Apple realtime-updates spec). Guarded — a dead
         // socket just means Home refreshes on open only.
         runCatching {
             org.prairieserver.prairie.tv.home.HomeRealtimeForegroundStarter(
                 coordinator = koinApp.koin.get(),
                 profileRepository = koinApp.koin.get(),
+                accessCheck = koinApp.koin.getOrNull(),
             ).register()
         }.onFailure {
             android.util.Log.w("PrairieTvApplication", "Home realtime starter init failed", it)
