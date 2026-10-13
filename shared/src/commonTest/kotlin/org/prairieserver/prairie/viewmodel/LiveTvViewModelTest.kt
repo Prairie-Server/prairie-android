@@ -5,8 +5,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.prairieserver.prairie.model.livetv.LiveTvChannel
@@ -118,7 +120,7 @@ class LiveTvViewModelTest {
         val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
 
         viewModel.start("ch-1", "KRON")
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals("s1", viewModel.uiState.value.session?.sessionId)
         assertEquals("/api/v1/livetv/live-hls/s1/index.m3u8", viewModel.uiState.value.session?.playableUrl)
@@ -130,6 +132,41 @@ class LiveTvViewModelTest {
 
         assertNull(viewModel.uiState.value.session)
         assertEquals(listOf("s1"), api.releaseCalls)
+    }
+
+    @Test
+    fun playerHeartbeatsUntilStopped() = runTest {
+        val api = FakeLiveTvApi(
+            startResult = ApiResult.Success(
+                LiveTvSessionStartResponse(sessionId = "s1", streamUrl = "/stream", staleAfterSeconds = 90),
+            ),
+            releaseResult = ApiResult.Success(Unit),
+        )
+        val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
+        viewModel.start("ch-1")
+        runCurrent()
+
+        advanceTimeBy(30_001)
+        assertEquals(listOf("s1"), api.heartbeatCalls)
+        advanceTimeBy(30_000)
+        assertEquals(listOf("s1", "s1"), api.heartbeatCalls)
+
+        viewModel.stop()
+        advanceUntilIdle()
+        assertEquals(2, api.heartbeatCalls.size)
+    }
+
+    @Test
+    fun playerStopsHeartbeatWhenSessionIsGone() = runTest {
+        val api = FakeLiveTvApi(
+            startResult = ApiResult.Success(LiveTvSessionStartResponse(sessionId = "s1", streamUrl = "/stream")),
+        )
+        api.heartbeatResult = ApiResult.Error(404, "not_found", "gone")
+        val viewModel = track(LiveTvPlayerViewModel(LiveTvRepository(api)))
+        viewModel.start("ch-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("s1"), api.heartbeatCalls)
     }
 
     @Test

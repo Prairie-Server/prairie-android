@@ -39,6 +39,9 @@ class LiveTvRepository(private val api: LiveTvApi) {
     suspend fun startSession(channelId: String): ApiResult<LiveTvSessionStartResponse> =
         api.startSession(channelId)
 
+    suspend fun heartbeatSession(sessionId: String): ApiResult<Unit> =
+        api.heartbeatSession(sessionId)
+
     suspend fun releaseSession(sessionId: String): ApiResult<Unit> =
         api.releaseSession(sessionId)
 

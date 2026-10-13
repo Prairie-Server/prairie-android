@@ -109,6 +109,8 @@ internal class FakeLiveTvApi(
 ) : LiveTvApi {
     var startCalls = 0
     val releaseCalls = mutableListOf<String>()
+    val heartbeatCalls = mutableListOf<String>()
+    var heartbeatResult: ApiResult<Unit> = ApiResult.Success(Unit)
 
     override suspend fun channels(tunerId: String?): ApiResult<LiveTvChannelsResponse> = channelsResult
 
@@ -123,6 +125,11 @@ internal class FakeLiveTvApi(
     override suspend fun startSession(channelId: String): ApiResult<LiveTvSessionStartResponse> {
         startCalls += 1
         return startResult
+    }
+
+    override suspend fun heartbeatSession(sessionId: String): ApiResult<Unit> {
+        heartbeatCalls += sessionId
+        return heartbeatResult
     }
 
     override suspend fun releaseSession(sessionId: String): ApiResult<Unit> {
