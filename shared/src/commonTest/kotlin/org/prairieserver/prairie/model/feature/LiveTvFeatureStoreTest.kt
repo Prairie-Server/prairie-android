@@ -131,6 +131,9 @@ private class SequencingLiveTvApi : org.prairieserver.prairie.network.api.LiveTv
     override suspend fun startSession(channelId: String) =
         ApiResult.NetworkError(IllegalStateException("unused"))
 
+    override suspend fun heartbeatSession(sessionId: String) =
+        ApiResult.NetworkError(IllegalStateException("unused"))
+
     override suspend fun releaseSession(sessionId: String) =
         ApiResult.NetworkError(IllegalStateException("unused"))
 

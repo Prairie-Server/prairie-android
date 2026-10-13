@@ -121,6 +121,16 @@ class LiveTvApiTest {
     }
 
     @Test
+    fun heartbeatSessionPostsHeartbeat() = runTest {
+        val captured = Captured()
+        val result = api(captured, body = "", status = HttpStatusCode.NoContent).heartbeatSession("s1")
+
+        assertEquals(HttpMethod.Post, captured.method)
+        assertEquals("/api/v2/livetv/sessions/s1/heartbeat", captured.path)
+        assertIs<ApiResult.Success<Unit>>(result)
+    }
+
+    @Test
     fun releaseSessionDeletesSession() = runTest {
         val captured = Captured()
         val result = api(captured, body = "", status = HttpStatusCode.NoContent).releaseSession("s1")

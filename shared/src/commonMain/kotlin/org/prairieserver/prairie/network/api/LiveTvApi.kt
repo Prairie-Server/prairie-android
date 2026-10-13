@@ -44,6 +44,8 @@ interface LiveTvApi {
 
     suspend fun startSession(channelId: String): ApiResult<LiveTvSessionStartResponse>
 
+    suspend fun heartbeatSession(sessionId: String): ApiResult<Unit>
+
     suspend fun releaseSession(sessionId: String): ApiResult<Unit>
 
     suspend fun recordings(status: String? = null): ApiResult<LiveTvRecordingsResponse>
@@ -89,6 +91,9 @@ class DefaultLiveTvApi(
 
     override suspend fun startSession(channelId: String): ApiResult<LiveTvSessionStartResponse> =
         call(HttpMethod.Post, "/channels/${channelId.encodeURLPathPart()}/sessions")
+
+    override suspend fun heartbeatSession(sessionId: String): ApiResult<Unit> =
+        call(HttpMethod.Post, "/sessions/${sessionId.encodeURLPathPart()}/heartbeat")
 
     override suspend fun releaseSession(sessionId: String): ApiResult<Unit> =
         call(HttpMethod.Delete, "/sessions/${sessionId.encodeURLPathPart()}")

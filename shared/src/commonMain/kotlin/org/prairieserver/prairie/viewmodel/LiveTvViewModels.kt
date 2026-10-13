@@ -2,6 +2,8 @@ package org.prairieserver.prairie.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -280,6 +282,7 @@ class LiveTvPlayerViewModel(
 
     private val _uiState = MutableStateFlow(LiveTvPlayerUiState())
     val uiState: StateFlow<LiveTvPlayerUiState> = _uiState.asStateFlow()
+    private var heartbeatJob: Job? = null
 
     fun start(channelId: String, channelName: String = "") {
         if (channelId.isBlank()) {
@@ -288,6 +291,7 @@ class LiveTvPlayerViewModel(
             }
             return
         }
+        heartbeatJob?.cancel()
         viewModelScope.launch {
             val previousSessionId = _uiState.value.session?.sessionId
             if (!previousSessionId.isNullOrBlank()) {
@@ -318,6 +322,7 @@ class LiveTvPlayerViewModel(
                         _uiState.update {
                             it.copy(isStarting = false, session = result.data, error = null)
                         }
+                        startHeartbeat(result.data)
                     }
                 }
                 is ApiResult.Error, is ApiResult.NetworkError -> {
@@ -333,7 +338,24 @@ class LiveTvPlayerViewModel(
         }
     }
 
+    // The server reclaims a session's tuner when nothing fetches the stream or
+    // heartbeats it for stale_after_seconds, which a long pause would hit.
+    private fun startHeartbeat(session: LiveTvSessionStartResponse) {
+        val staleAfter = session.staleAfterSeconds.takeIf { it > 0 } ?: DEFAULT_STALE_AFTER_SECONDS
+        val intervalMillis = staleAfter * 1000L / 3
+        heartbeatJob = viewModelScope.launch {
+            while (true) {
+                delay(intervalMillis)
+                val result = repository.heartbeatSession(session.sessionId)
+                // 404: the session is no longer active; nothing left to keep alive.
+                if (result is ApiResult.Error && result.code == 404) break
+            }
+        }
+    }
+
     fun stop() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
         val sessionId = _uiState.value.session?.sessionId
         _uiState.update { it.copy(session = null, isStarting = false) }
         if (sessionId.isNullOrBlank()) return
@@ -343,6 +365,7 @@ class LiveTvPlayerViewModel(
     }
 
     override fun onCleared() {
+        heartbeatJob?.cancel()
         val sessionId = _uiState.value.session?.sessionId
         if (!sessionId.isNullOrBlank()) {
             // Best-effort: viewModelScope is cancelled in onCleared, so fire a
@@ -353,3 +376,6 @@ class LiveTvPlayerViewModel(
         super.onCleared()
     }
 }
+
+// The server default when a session start omits stale_after_seconds.
+private const val DEFAULT_STALE_AFTER_SECONDS = 90
