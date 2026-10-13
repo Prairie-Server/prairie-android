@@ -14,7 +14,6 @@ data class LiveTvChannel(
     @SerialName("logo_url") val logoUrl: String = "",
     val hd: Boolean = false,
     val enabled: Boolean = true,
-    @SerialName("stream_url") val streamUrl: String = "",
     @SerialName("guide_station_id") val guideStationId: String = "",
 ) {
     /** Prefer an admin override when present, otherwise the tuner lineup number. */
@@ -29,7 +28,7 @@ data class LiveTvChannel(
 
 @Serializable
 data class LiveTvChannelsResponse(
-    val channels: List<LiveTvChannel> = emptyList(),
+    @SerialName("items") val channels: List<LiveTvChannel> = emptyList(),
 )
 
 @Serializable
@@ -54,26 +53,28 @@ data class LiveTvProgram(
 
 @Serializable
 data class LiveTvGuideResponse(
-    val programs: List<LiveTvProgram> = emptyList(),
+    @SerialName("items") val programs: List<LiveTvProgram> = emptyList(),
     val start: String = "",
     val end: String = "",
 )
 
 /**
- * Response from `POST /api/v1/livetv/channels/{id}/session`.
+ * Response from `POST /api/v2/livetv/channels/{id}/sessions` (201).
  *
- * [transport] is `"hls"` when the server HLS remux bridge is active, otherwise
- * `"mpegts"` for the authenticated session MPEG-TS proxy. Clients play
- * [playableUrl], then `DELETE /api/v1/livetv/sessions/{sessionId}` when stopped.
+ * [transport] is `"hls"` (live playlist) or `"mpegts"` (authenticated proxy).
+ * [streamUrl] is opaque and server-relative (still under `/api/v1/livetv`);
+ * play it as returned, then `DELETE /api/v2/livetv/sessions/{sessionId}`.
  */
 @Serializable
 data class LiveTvSessionStartResponse(
     @SerialName("session_id") val sessionId: String,
+    @SerialName("channel_id") val channelId: String = "",
     @SerialName("playback_ticket") val playbackTicket: String = "",
-    @SerialName("hls_url") val hlsUrl: String = "",
     @SerialName("stream_url") val streamUrl: String = "",
     val transport: String = "mpegts",
     val note: String = "",
+    val status: String = "",
+    @SerialName("stale_after_seconds") val staleAfterSeconds: Int = 0,
 ) {
     /** True when the server (or URL shape) indicates HLS remux. */
     val isHls: Boolean
@@ -81,30 +82,13 @@ data class LiveTvSessionStartResponse(
             val explicit = transport.trim().lowercase()
             if (explicit == "hls") return true
             if (explicit == "mpegts") return false
-            val url = (hlsUrl.ifBlank { streamUrl }).lowercase()
+            val url = streamUrl.lowercase()
             return url.contains(".m3u8") || url.contains("/live-hls/")
         }
 
     val playableUrl: String
-        get() = when {
-            isHls -> hlsUrl.takeIf { it.isNotBlank() } ?: streamUrl
-            else -> streamUrl.takeIf { it.isNotBlank() } ?: hlsUrl
-        }
+        get() = streamUrl
 }
-
-@Serializable
-data class LiveTvSession(
-    val id: String,
-    @SerialName("channel_id") val channelId: String = "",
-    @SerialName("tuner_id") val tunerId: String = "",
-    @SerialName("tuner_index") val tunerIndex: Int = 0,
-    val status: String = "",
-    @SerialName("hls_url") val hlsUrl: String = "",
-    @SerialName("stream_url") val streamUrl: String = "",
-    val note: String = "",
-    @SerialName("created_at") val createdAt: String = "",
-    @SerialName("released_at") val releasedAt: String? = null,
-)
 
 @Serializable
 data class LiveTvRecording(
@@ -112,6 +96,7 @@ data class LiveTvRecording(
     @SerialName("program_id") val programId: String? = null,
     @SerialName("channel_id") val channelId: String = "",
     @SerialName("series_rule_id") val seriesRuleId: String? = null,
+    @SerialName("profile_id") val profileId: String? = null,
     val status: String = "",
     // Intentionally omit server filesystem `path` from the client model.
     @SerialName("library_item_id") val libraryItemId: String? = null,
@@ -130,7 +115,7 @@ data class LiveTvRecording(
 
 @Serializable
 data class LiveTvRecordingsResponse(
-    val recordings: List<LiveTvRecording> = emptyList(),
+    @SerialName("items") val recordings: List<LiveTvRecording> = emptyList(),
 )
 
 /** Guide-based schedule body — server fills channel/window/title from program_id. */

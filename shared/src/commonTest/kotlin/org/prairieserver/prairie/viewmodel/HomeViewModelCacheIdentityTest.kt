@@ -10,9 +10,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -90,6 +93,7 @@ class HomeViewModelCacheIdentityTest {
         viewModel.uiState.first { !it.isLoading }
 
         assertEquals(null, cache.sections)
+        viewModel.close()
     }
 
     @Test
@@ -123,6 +127,7 @@ class HomeViewModelCacheIdentityTest {
         // The repository removes empty rows during hydration; diagnostics see
         // only the aggregate resolved count, never the private row metadata.
         assertEquals(listOf(0, 0), observations.map { it.sectionCount })
+        viewModel.close()
     }
 
     @Test
@@ -164,6 +169,14 @@ class HomeViewModelCacheIdentityTest {
         releaseRealtime.complete(Unit)
 
         followUpEntered.await()
+        viewModel.close()
+    }
+
+    // Cancel and join before tearDown resets Main: a fetch still out on the
+    // MockEngine's IO thread would otherwise resume onto a missing Main
+    // dispatcher and fail whichever runTest comes next.
+    private suspend fun HomeViewModel.close() {
+        viewModelScope.coroutineContext[Job]?.cancelAndJoin()
     }
 
     private class RecordingHomeCache : HomeCachePort {

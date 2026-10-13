@@ -8,16 +8,16 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.QualityLadderResponse
 
 /**
- * Prairie-only v1 playback route: the transcode quality ladder.
+ * Prairie-only playback route: the transcode quality ladder.
  *
  * Upstream dropped the rest of the v1 playback transport in favour of
  * SequencedPlayback + PlaybackV2Api; only the Prairie additions remain here.
  */
 class PlaybackApi(private val client: HttpClient) {
 
-    /** Server's transcode quality ladder (`GET /api/v1/playback/quality-ladder`). */
+    /** Server's transcode quality ladder (`GET /api/v2/playback/quality-ladder`; auth, no profile). */
     suspend fun getQualityLadder(sourceHeight: Int? = null): ApiResult<QualityLadderResponse> = safeApiCall {
-        client.get("/api/v1/playback/quality-ladder") {
+        client.get("/api/v2/playback/quality-ladder") {
             if (sourceHeight != null && sourceHeight > 0) {
                 parameter("source_height", sourceHeight)
             }

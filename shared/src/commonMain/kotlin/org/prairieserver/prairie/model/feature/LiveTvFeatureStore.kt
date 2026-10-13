@@ -9,7 +9,7 @@ import org.prairieserver.prairie.repository.LiveTvRepository
 /**
  * Server-gated Live TV capability.
  *
- * Entry points start hidden. A successful `/api/v1/livetv/channels` probe with a
+ * Entry points start hidden. A successful `/api/v2/livetv/channels` probe with a
  * nonempty channel list enables the surface. Transient failures keep the previous
  * value, and [reset] hides the surface before a server/profile switch can reuse
  * stale capability state — matching [RequestsFeatureStore].
@@ -33,9 +33,14 @@ class LiveTvFeatureStore(
                     _isEnabled.value = result.data.channels.isNotEmpty()
                 }
             }
-            is ApiResult.Error,
-            is ApiResult.NetworkError,
-            -> Unit
+            // Live TV switched off server-side: hide the surface.
+            is ApiResult.Error -> if (
+                result.code == 409 && result.error == "capability_not_configured" &&
+                refreshGeneration == generation
+            ) {
+                _isEnabled.value = false
+            }
+            is ApiResult.NetworkError -> Unit
         }
     }
 

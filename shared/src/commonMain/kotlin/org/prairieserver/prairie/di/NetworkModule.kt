@@ -40,7 +40,7 @@ val networkModule = module {
     single { PersonRefreshV2Api(get(), get(), get()) }
     single { WatchDetailV2Api(get(), get(), get()) }
     single { CatalogApi(get(), get(), get(), get()) }
-    // Prairie-only v1 routes: explicit transcode start + the transcode quality ladder.
+    // Prairie-only: the transcode quality ladder (/api/v2/playback/quality-ladder).
     single { PlaybackApi(get()) }
     single {
         org.prairieserver.prairie.playback.QualityLadderClient(
@@ -59,8 +59,8 @@ val networkModule = module {
     single { ShufflesV2Api(get(), get(), get()) }
     single { RecommendationApi(get(), get(), get(), get()) }
     single<RequestsApi> { DefaultRequestsApi(get(), get(), get()) }
-    // Prairie-only: Live TV (Jellyfin-compat endpoints on prairie-server).
-    single<LiveTvApi> { DefaultLiveTvApi(get()) }
+    // Prairie-only: Live TV (/api/v2/livetv on prairie-server).
+    single<LiveTvApi> { DefaultLiveTvApi(get(), get()) }
     single<MetadataAiApi> { DefaultMetadataAiApi(get(), get(), get()) }
     single { EventsSocketV2Api(get(), get(), get(), getOrNull()) }
     single<HomeRealtimeClient> { DefaultHomeRealtimeClient(get()) }

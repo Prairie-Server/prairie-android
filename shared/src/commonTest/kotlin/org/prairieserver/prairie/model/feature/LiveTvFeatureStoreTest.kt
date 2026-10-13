@@ -60,6 +60,22 @@ class LiveTvFeatureStoreTest {
     }
 
     @Test
+    fun capabilityNotConfiguredHidesLiveTv() = runTest {
+        val api = FakeLiveTvApi(
+            channelsResult = ApiResult.Success(
+                LiveTvChannelsResponse(listOf(LiveTvChannel(id = "1"))),
+            ),
+        )
+        val store = LiveTvFeatureStore(LiveTvRepository(api))
+        store.refresh()
+        assertTrue(store.isEnabled.value)
+
+        api.channelsResult = ApiResult.Error(409, "capability_not_configured", "Live TV is not configured.")
+        store.refresh()
+        assertFalse(store.isEnabled.value)
+    }
+
+    @Test
     fun resetHidesLiveTvBeforeNextProbe() = runTest {
         val store = LiveTvFeatureStore(
             LiveTvRepository(
