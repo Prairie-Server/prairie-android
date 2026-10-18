@@ -71,6 +71,10 @@ data class RequestState(
     val requestable: Boolean = false,
     val reason: String = "",
     @SerialName("request_id") val requestId: String? = null,
+    /** The viewer hears when the title becomes available: they requested it or follow it. False on older servers. */
+    val following: Boolean = false,
+    /** The viewing profile made the active request, so there is nothing to follow. */
+    @SerialName("requested_by_viewer") val requestedByViewer: Boolean = false,
 )
 
 @Serializable
@@ -239,26 +243,10 @@ data class RequestsFeatureStatus(
     @SerialName("requests_enabled") val requestsEnabled: Boolean,
     val allowed: Boolean? = null,
     val state: String? = null,
+    /** The server takes `PUT`/`DELETE /api/v2/requests/follows/{media_type}/{tmdb_id}`; absent (false) on older servers. */
+    @SerialName("follow_supported") val followSupported: Boolean = false,
 ) {
     /** The feature is on and this profile may use it; a blocked account sees `allowed: false`. */
     val isAvailable: Boolean
         get() = requestsEnabled && allowed == true && state == "available"
 }
-
-/** `GET /api/v2/admin/requests/capabilities`: whether the request integration is configured. */
-@Serializable
-data class AdminRequestCapabilities(
-    val available: Boolean = false,
-)
-
-/** Moderation actions an admin can take on someone's request (`POST /api/v2/admin/requests/{id}/…`). */
-enum class AdminRequestAction(val path: String) {
-    Approve("approve"),
-    Decline("decline"),
-    Retry("retry"),
-}
-
-@Serializable
-data class AdminRequestActionBody(
-    val reason: String? = null,
-)

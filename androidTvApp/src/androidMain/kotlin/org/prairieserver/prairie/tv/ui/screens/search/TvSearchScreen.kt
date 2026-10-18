@@ -6,11 +6,14 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -104,7 +107,11 @@ internal fun shouldFocusSearchField(
     explicitFieldRequest: Boolean,
 ): Boolean = explicitFieldRequest || (!hasEnteredSearch && !hasResults)
 
-@OptIn(ExperimentalTvMaterial3Api::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@OptIn(
+    ExperimentalTvMaterial3Api::class,
+    kotlinx.coroutines.ExperimentalCoroutinesApi::class,
+    ExperimentalLayoutApi::class,
+)
 @Composable
 fun TvSearchScreen(
     onResultClick: (BrowseItem) -> Unit,
@@ -178,7 +185,20 @@ fun TvSearchScreen(
     val activeSearchFieldFocusRequester = searchFieldFocusRequester ?: internalSearchFieldFocusRequester
     val keyboardController = LocalSoftwareKeyboardController.current
     var hasEnteredSearch by rememberSaveable { mutableStateOf(false) }
-    var isKeyboardOpen by remember { mutableStateOf(false) }
+    var keyboardState by remember { mutableStateOf(TvSearchKeyboardState()) }
+    val isKeyboardOpen = keyboardState.keyboardOpen
+    val setKeyboardOpen: (Boolean) -> Unit = { keyboardState = TvSearchKeyboardState(keyboardOpen = it) }
+
+    // Back pressed while the keyboard is up goes to the IME, not to this
+    // screen: the IME hides itself and consumes the key, so the BackHandler
+    // below never runs. Left alone, the field stayed editable after that Back,
+    // the text field swallowed D-pad Down as a caret move, and the viewer was
+    // stuck on the field. Follow the real IME instead: once it has appeared
+    // and then goes away, the field is closed, whatever closed it.
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(imeVisible, isKeyboardOpen) {
+        keyboardState = keyboardState.onImeVisibilityChanged(imeVisible)
+    }
 
     // Back closes the keyboard rather than leaving the screen.
     //
@@ -186,7 +206,7 @@ fun TvSearchScreen(
     // popped Search entirely — so the only way to put the keyboard away was
     // also the way out, and anyone reaching for the mic lost the screen instead.
     BackHandler(enabled = isKeyboardOpen) {
-        isKeyboardOpen = false
+        setKeyboardOpen(false)
         keyboardController?.hide()
         // Back from a raised keyboard must answer synchronously, so this is the
         // single-shot claim; losing it silently would strand the viewer with
@@ -646,7 +666,7 @@ fun TvSearchScreen(
                     },
                     onMediaTypeChanged = viewModel::onMediaTypeChanged,
                     isKeyboardOpen = isKeyboardOpen,
-                    onKeyboardOpenChanged = { isKeyboardOpen = it },
+                    onKeyboardOpenChanged = setKeyboardOpen,
                     peopleRow = {
                         TvSearchPeopleRow(
                             people = state.people,

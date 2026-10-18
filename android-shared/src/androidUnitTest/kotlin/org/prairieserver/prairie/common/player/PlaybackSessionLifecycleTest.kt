@@ -88,6 +88,37 @@ class PlaybackSessionLifecycleTest {
         assertEquals(2, manager.progressCallCount)
     }
 
+    @Test fun `a session the server ended is handed to the owner to leave, not renewed`() = runTest {
+        val ended = ApiResult.Error(410, "playback_session_ended", "An administrator ended this playback session")
+        for (sequenced in listOf(true, false)) {
+            val manager = object : FakeSessionManager() {
+                override fun isSequenced(sessionId: String) = sequenced
+            }.apply { progressDefault = ended }
+            val lifecycle = newLifecycle(manager)
+            val endedIds = mutableListOf<String>()
+            val renewals = mutableListOf<String>()
+            val collectors = listOf(
+                backgroundScope.launch { lifecycle.sessionEndedEvents.collect { endedIds += it } },
+                backgroundScope.launch { lifecycle.missingSessionEvents.collect { renewals += it.staleSessionId } },
+            )
+            lifecycle.adoptActiveSession(defaultStartParams(), makeSession("ended-$sequenced"))
+            lifecycle.reportOwnedPosition(10.0, 100.0, false)
+            advanceTimeBy(PlaybackSessionLifecycle.PROGRESS_REPORT_INTERVAL_MS + 100)
+            assertEquals(listOf("ended-$sequenced"), endedIds, "sequenced=$sequenced")
+            assertTrue(renewals.isEmpty(), "sequenced=$sequenced")
+            assertNull(lifecycle.notice.value)
+            collectors.forEach { it.cancel() }
+            lifecycle.stop()
+        }
+    }
+
+    @Test fun `only a 410 playback_session_ended counts as a session the server ended`() {
+        assertTrue(ApiResult.Error(410, "playback_session_ended", "").isPlaybackSessionEnded())
+        assertFalse(ApiResult.Error(404, "not_found", "").isPlaybackSessionEnded())
+        assertFalse(ApiResult.Error(410, "gone", "").isPlaybackSessionEnded())
+        assertFalse(ApiResult.Success(Unit).isPlaybackSessionEnded())
+    }
+
     @Test fun `sequenced progress warns only after consecutive failures and clears on success`() = runTest {
         val failure = ApiResult.Error(401, "invalid_token", "expired")
         val manager = object : FakeSessionManager() {

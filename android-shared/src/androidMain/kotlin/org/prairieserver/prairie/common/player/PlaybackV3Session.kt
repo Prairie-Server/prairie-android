@@ -13,6 +13,7 @@ import org.prairieserver.prairie.model.playback.PlaybackSubtitleModeV3
 import org.prairieserver.prairie.model.playback.PlaybackTimeline
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.playback.SelectedPlaybackTracks
+import org.prairieserver.prairie.model.playback.SubtitleHlsRendition
 import org.prairieserver.prairie.model.playback.SUBTITLE_DELIVERY_BURN_IN_ONLY
 import org.prairieserver.prairie.model.playback.SUBTITLE_DELIVERY_SIDECAR
 import org.prairieserver.prairie.model.playback.resolvedSelectedSubtitleIndex
@@ -78,6 +79,10 @@ internal fun PlaybackPlanV3.toSessionResponse(
             ),
         )
     }
+    val selectedHlsRendition = subtitle.hlsRendition?.takeIf {
+        delivery == PlaybackDelivery.SERVER_TRANSCODE_HLS &&
+            (subtitle.mode == PlaybackSubtitleModeV3.CONVERT || subtitle.mode == PlaybackSubtitleModeV3.RENDER)
+    }?.let { SubtitleHlsRendition(groupId = it.groupId, name = it.name) }
     // Neutral v3 publishes the complete subtitle inventory on every plan,
     // including plans with subtitles off. Project it into native phone/TV UI
     // state so both menus retain every authoritative ordinal. The player mount
@@ -92,6 +97,12 @@ internal fun PlaybackPlanV3.toSessionResponse(
                 it.delivery == SUBTITLE_DELIVERY_BURN_IN_ONLY
         }
         .map { item ->
+            // The stream itself carries a rendition-selected track. Its
+            // inventory URL is a whole-file extraction, the slow path the
+            // rendition replaces, so this row publishes no URL to mount.
+            val rendition = selectedHlsRendition.takeIf {
+                item.trackId == subtitle.trackId && item.combinedIndex == selectedSubtitleIndex
+            }
             PlayerSubtitleInfo(
                 index = item.combinedIndex,
                 language = item.language,
@@ -100,6 +111,7 @@ internal fun PlaybackPlanV3.toSessionResponse(
                 source = item.source,
                 forced = item.forced,
                 url = if (
+                    rendition == null &&
                     subtitle.mode != PlaybackSubtitleModeV3.BURN_IN &&
                     item.delivery == SUBTITLE_DELIVERY_SIDECAR
                 ) item.url.orEmpty() else "",
@@ -109,6 +121,7 @@ internal fun PlaybackPlanV3.toSessionResponse(
                 nativeContainerTrackId = subtitle.embedded?.containerTrackId.takeIf {
                     item.trackId == subtitle.trackId && item.combinedIndex == selectedSubtitleIndex
                 },
+                hlsRendition = rendition,
                 serverTrackId = item.trackId,
                 serverDelivery = item.delivery.takeIf {
                     it == SUBTITLE_DELIVERY_SIDECAR ||
@@ -181,6 +194,7 @@ internal fun PlaybackPlanV3.toSessionResponse(
         requestedMediaFileId = requestedMediaFileId ?: mediaFileId,
         effectiveMediaFileId = effectiveFileId,
         effectiveRecipe = effectiveRecipe,
+        sourceFile = source,
     )
     return PlaybackSessionResponse(
         sessionId = sessionId,

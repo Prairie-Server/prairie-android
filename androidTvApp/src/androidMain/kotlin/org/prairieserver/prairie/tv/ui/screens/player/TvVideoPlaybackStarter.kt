@@ -36,6 +36,7 @@ import org.prairieserver.prairie.model.playback.isExplicitStartOver
 import org.prairieserver.prairie.playback.firstPlaybackPart
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartRequestPosition
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartPosition
+import org.prairieserver.prairie.model.playback.videoQualityPreference
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.orNullIfBlank
 import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
@@ -104,9 +105,15 @@ class TvVideoPlaybackStarter(
             }
 
             val serverUrl = playbackSessionManager.getServerUrl()
-            val preferredQuality = request.preferredQualityOverride
-                ?: playerSettingsStore.preferredQualityFlow.first()
-            val playbackQualityIntent = request.playbackQualityIntent ?: preferredQuality
+            // Never "original" for video: older servers read it as never convert.
+            val preferredQuality = videoQualityPreference(
+                request.preferredQualityOverride ?: playerSettingsStore.preferredQualityFlow.first(),
+            )
+            val playbackQualityIntent = videoQualityPreference(request.playbackQualityIntent) ?: preferredQuality
+            // What a renewal may carry over: a quality picked in the player or
+            // named by the route, never one that came from the saved settings.
+            val carriedQuality = videoQualityPreference(request.playbackQualityIntent)
+                ?: videoQualityPreference(request.preferredQualityOverride)
             val room = request.room
             if (room != null && watchDetail.versions.none { it.fileId == room.fileId }) {
                 return failure(
@@ -249,6 +256,8 @@ class TvVideoPlaybackStarter(
                     deferPublication = true,
                     expectedMetadataOwner = expectedMetadataOwner,
                     allowAlternateVersions = allowAlternateVersions,
+                    // Watch Party playback stays on the saved address, admission included.
+                    allowsLocalRoute = request.roomId.isNullOrBlank() && room == null,
                 )
             ) {
                 is ApiResult.Success -> r.data
@@ -339,7 +348,7 @@ class TvVideoPlaybackStarter(
                         } else {
                             request.subtitleTrackIndex
                         },
-                        qualityPreference = playbackQualityIntent,
+                        qualityPreference = carriedQuality,
                         startPosition = sourceStartPos,
                         clientPlaybackContext = readyV3.clientPlaybackContext,
                         allowAlternateVersions = allowAlternateVersions,

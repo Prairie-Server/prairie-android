@@ -31,6 +31,8 @@ import java.io.File
  * - An explicitly registered OkHttp fetcher on [PrairieOkHttp.imageClient] so
  *   artwork shares the API clients' warm connection pool instead of a
  *   service-loader-built default client.
+ * - Concurrent requests for the same URL share one download
+ *   ([SharedDownloadFetcherFactory]).
  * - Memory cache stays at Coil's heap-proportional default.
  *
  * API decoding resolves artwork against its supplying response origin before
@@ -43,7 +45,7 @@ fun buildPrairieImageLoader(context: PlatformContext, cacheDir: File): ImageLoad
         .crossfade(true)
         .eventListenerFactory { DiagnosticsImageEventListener() }
         .components {
-            add(OkHttpNetworkFetcherFactory(callFactory = { PrairieOkHttp.imageClient }))
+            add(SharedDownloadFetcherFactory(OkHttpNetworkFetcherFactory(callFactory = { PrairieOkHttp.imageClient })))
         }
         .diskCache {
             DiskCache.Builder()

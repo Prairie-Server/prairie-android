@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.network.api
 
+import org.prairieserver.prairie.network.localroute.stayOnSavedAddress
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -227,6 +228,9 @@ class DefaultExternalSignInApi(
     }) {
         client.post("/api/v2/account/identities/link-network") {
             authScope(scope); freshPrairieAuth(); singleAttempt()
+            // The server links only a request that came through the network
+            // provider's own address, never one on the local route.
+            stayOnSavedAddress()
             contentType(ContentType.Application.Json)
             setBody(LinkNetworkRequestV2(installationId = installationId, password = password))
         }

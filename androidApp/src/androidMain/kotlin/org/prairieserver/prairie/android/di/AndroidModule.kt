@@ -17,6 +17,9 @@ import org.prairieserver.prairie.common.cast.PrairieCastNsdBrowser
 import org.prairieserver.prairie.common.pairing.PairingDeviceId
 import org.prairieserver.prairie.common.pairing.CompanionDeviceLoginApprover
 import org.prairieserver.prairie.common.pairing.CompanionPairingCoordinator
+import org.prairieserver.prairie.common.discovery.LanServerDiscovery
+import org.prairieserver.prairie.common.discovery.LanServerProbe
+import org.prairieserver.prairie.common.discovery.NsdLanServiceBrowser
 import org.prairieserver.prairie.common.pairing.CompanionPairingNsdBrowser
 import org.prairieserver.prairie.common.pairing.CompanionPairingServerStore
 import org.prairieserver.prairie.common.pairing.CompanionPairingTransportFactory
@@ -171,12 +174,33 @@ val androidModule = module {
             syncScheduler = get(),
         )
     }
+    single<org.prairieserver.prairie.repository.ArtworkLayout> {
+        val resources = androidContext().resources
+        val scope = this
+        org.prairieserver.prairie.android.ui.util.PhoneArtworkLayout(
+            screen = {
+                org.prairieserver.prairie.android.ui.util.PhoneArtworkLayout.Screen(
+                    resources.configuration.screenWidthDp,
+                    resources.configuration.screenHeightDp,
+                    resources.displayMetrics.density,
+                )
+            },
+            // The saved card size, seeded from its local cache before the
+            // first reads (startup's Home warm-up runs before the UI loads it).
+            posterScale = {
+                val cards = scope.get<org.prairieserver.prairie.common.settings.CardPresentationStore>()
+                cards.seedFromCache()
+                cards.state.value.presentation.posterSize.posterScale
+            },
+        )
+    }
     single<org.prairieserver.prairie.repository.port.HomeCachePort> {
         val tokenManager: TokenManager = get()
         org.prairieserver.prairie.common.data.repository.RoomHomeCacheRepository(
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
             identityTransitions = get(),
+            artwork = get(),
         )
     }
     single<org.prairieserver.prairie.repository.port.CatalogCachePort> {
@@ -185,6 +209,7 @@ val androidModule = module {
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
             identityTransitions = get(),
+            artwork = get(),
         )
     }
     single<org.prairieserver.prairie.repository.port.DownloadDeletionPort> {
@@ -233,6 +258,16 @@ val androidModule = module {
     }
     single { PrairieCastNsdBrowser(androidContext()) }
     single { CompanionPairingNsdBrowser(androidContext()) }
+    // Prairie servers on the local network, for server setup. One per screen visit.
+    single { LanServerProbe() }
+    factory {
+        val probe = get<LanServerProbe>()
+        LanServerDiscovery(
+            browser = NsdLanServiceBrowser(androidContext()),
+            probeIdentity = probe::identity,
+            fetchName = probe::name,
+        )
+    }
     single<CompanionPairingServerStore> { RegistryCompanionPairingServerStore(get(), get()) }
     single<CompanionDeviceLoginApprover> {
         val authRepository = get<org.prairieserver.prairie.repository.AuthRepository>()
@@ -288,6 +323,14 @@ val androidModule = module {
             context = androidContext(),
             notificationsRepository = get(),
             tokenManager = get(),
+            targets = org.prairieserver.prairie.android.push.PushTargetResolver(
+                installations = { get<AndroidPushRegistrar>().installations() },
+                authorities = get(),
+                registry = get(),
+                entriesWithIdentity = { serverId, candidates ->
+                    get<org.prairieserver.prairie.repository.ServerIdentityRepository>().entriesFor(serverId, candidates)
+                },
+            ),
         )
     }
     single { PushMessageHandler(presenter = get()) }
@@ -337,10 +380,11 @@ val androidModule = module {
     // playback session so the raw phone stream is never cast.
     single { PrairieCastSessionManager(androidContext()) }
     single {
+        // No network evidence: the phone's measured throughput describes its
+        // own link, not the receiver's, so cast starts carry no estimate.
         CastPlaybackPreparer(
             playbackRepository = get(),
             tokenManager = get(),
-            networkEvidenceProvider = get(),
         )
     }
     factory<VideoPlaybackStarter>(named("mobileVideoPlaybackStarter")) {
@@ -353,6 +397,7 @@ val androidModule = module {
             sessionLifecycle = get(),
             reachabilityMonitor = get(),
             userItemStatePort = get(),
+            networkEvidenceProvider = get(),
         )
     }
     factory {
@@ -456,6 +501,7 @@ val androidModule = module {
             seekIntervalStore = get(),
             activeProfileStore = get(),
             shuffleFeatureStore = get(),
+            networkEvidenceProvider = get(),
         )
     }
     viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get(), catalogLanguage = get()) }
@@ -512,12 +558,9 @@ val androidModule = module {
     viewModel { HistoryViewModel(get(), get()) }
     viewModel { CollectionsViewModel(get()) }
     viewModel { params -> CollectionDetailViewModel(get(), get(), params.get()) }
-    viewModel { RequestsViewModel(get(), get()) }
+    viewModel { RequestsViewModel(get()) }
     viewModel { RequestSearchViewModel(get()) }
     viewModel { MyRequestsViewModel(get()) }
-    viewModel { params ->
-        org.prairieserver.prairie.viewmodel.RequestApprovalsViewModel(get(), loadOnInit = params.getOrNull<Boolean>() ?: true)
-    }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {
@@ -538,7 +581,11 @@ val androidModule = module {
         )
     }
     single {
-        org.prairieserver.prairie.android.auth.SignOutTeardown(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get())
+        org.prairieserver.prairie.android.auth.SignOutTeardown(
+            get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(),
+            unregisterPush = { get<AndroidPushRegistrar>().unregisterDevice(it) },
+            restorePush = { get<AndroidPushRegistrar>().restoreRegistration(it) },
+        )
     }
     single {
         org.prairieserver.prairie.android.auth.ProfileSwitchTeardown(get(), get(), get(), get(), get(), get(), get())
@@ -594,7 +641,13 @@ val androidModule = module {
     viewModel { ProfileSelectionViewModel(get(), get(), profileVerificationRecovery = getOrNull()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }
-    viewModel { ServerListViewModel(get(), get(), get(), get(), get()) }
+    viewModel {
+        ServerListViewModel(
+            get(), get(), get(), get(), get(),
+            unregisterPush = { get<AndroidPushRegistrar>().unregisterDevice(it) },
+            restorePush = { get<AndroidPushRegistrar>().restoreRegistration(it) },
+        )
+    }
     viewModel { params ->
         val args = params.get<Pair<String?, String?>>()
         val authRepository = get<org.prairieserver.prairie.repository.AuthRepository>()

@@ -1,15 +1,18 @@
 package org.prairieserver.prairie.repository
 
-import org.prairieserver.prairie.model.request.AdminRequestAction
-import org.prairieserver.prairie.model.request.AdminRequestCapabilities
 import org.prairieserver.prairie.model.request.CreateMediaRequest
 import org.prairieserver.prairie.model.request.MediaRequest
+import org.prairieserver.prairie.model.request.RequestFollowEvent
 import org.prairieserver.prairie.model.request.RequestMediaDetail
 import org.prairieserver.prairie.model.request.RequestMediaPage
+import org.prairieserver.prairie.model.request.RequestState
 import org.prairieserver.prairie.model.request.RequestsDiscoverResponse
 import org.prairieserver.prairie.model.request.RequestsFeatureStatus
+import org.prairieserver.prairie.model.request.applyingFollow
+import org.prairieserver.prairie.model.request.applyingFollowUpdate
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.RequestsApi
+import org.prairieserver.prairie.network.map
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
@@ -58,13 +61,12 @@ class RequestsRepository(
     /** The most recent create or cancel of the signed-in user's own request. */
     val lastUpdate: StateFlow<RequestEvent?> = _lastUpdate.asStateFlow()
 
-    private val _lastModeration = MutableStateFlow<RequestEvent?>(null)
-    /**
-     * The most recent admin decision (approve, decline, retry) on anyone's
-     * request. Kept apart from [lastUpdate], whose consumers treat every record
-     * as the signed-in user's own.
-     */
-    val lastModeration: StateFlow<RequestEvent?> = _lastModeration.asStateFlow()
+    private val _lastFollow = MutableStateFlow<RequestFollowEvent?>(null)
+    /** The most recent follow or unfollow, so cards and pages showing the title agree. */
+    val lastFollow: StateFlow<RequestFollowEvent?> = _lastFollow.asStateFlow()
+
+    /** Each title's latest follow or unfollow this session, for reads that were out when it landed. */
+    private val follows = mutableMapOf<RequestDetailCache.Key, RequestFollowEvent>()
 
     suspend fun status(): ApiResult<RequestsFeatureStatus> = api.status()
 
@@ -80,7 +82,7 @@ class RequestsRepository(
     ): ApiResult<RequestMediaPage> = api.search(query, mediaType, page)
 
     suspend fun detail(mediaType: String, tmdbId: Int): ApiResult<RequestMediaDetail> =
-        read({ api.detail(mediaType, tmdbId) }) { cache.store(it) }
+        read({ fetchDetail(mediaType, tmdbId) }) { cache.store(it) }
 
     suspend fun get(id: String): ApiResult<MediaRequest> = api.get(id)
 
@@ -131,33 +133,16 @@ class RequestsRepository(
     suspend fun cancel(id: String): ApiResult<MediaRequest> =
         mutate({ api.cancel(id) }, ::publish)
 
-    suspend fun adminCapabilities(): ApiResult<AdminRequestCapabilities> = api.adminCapabilities()
+    /** Get notified when a title someone else requested becomes available. */
+    suspend fun follow(mediaType: String, tmdbId: Int): ApiResult<RequestState> =
+        mutate({ api.follow(mediaType, tmdbId) }) { publishFollow(mediaType, tmdbId, following = true, state = it) }
 
-    suspend fun adminRequests(
-        status: String? = null,
-        outcome: String? = null,
-        mediaType: String? = null,
-        tmdbId: Int? = null,
-    ): ApiResult<List<MediaRequest>> = when (val result = read({ api.adminRequests(status, outcome, mediaType, tmdbId) })) {
-        is ApiResult.Success -> ApiResult.Success(result.data.requests)
-        is ApiResult.Error -> result
-        is ApiResult.NetworkError -> result
-    }
-
-    /** How many requests match, up to one page, and whether more follow. */
-    suspend fun adminRequestCount(status: String? = null, outcome: String? = null): ApiResult<AdminRequestCount> =
-        when (val result = read({ api.adminRequestsFirstPage(status, outcome) })) {
-            is ApiResult.Success -> ApiResult.Success(AdminRequestCount(result.data.requests.size, result.data.page.hasMore))
-            is ApiResult.Error -> result
-            is ApiResult.NetworkError -> result
-        }
-
-    suspend fun adminAction(id: String, action: AdminRequestAction, reason: String? = null): ApiResult<MediaRequest> =
-        mutate({ api.adminAction(id, action, reason) }, ::publishModeration)
+    suspend fun unfollow(mediaType: String, tmdbId: Int): ApiResult<Unit> =
+        mutate({ api.unfollow(mediaType, tmdbId) }) { publishFollow(mediaType, tmdbId, following = false, state = null) }
 
     /** Warms the first rows' details so opening them lands on a finished page. */
     fun prefetch(records: List<MediaRequest>) {
-        cache.prefetch(records) { key -> api.detail(key.mediaType, key.tmdbId) }
+        cache.prefetch(records) { key -> fetchDetail(key.mediaType, key.tmdbId) }
     }
 
     fun reset() {
@@ -165,7 +150,8 @@ class RequestsRepository(
         mineReadAt = null
         _mine.value = emptyList()
         _lastUpdate.value = null
-        _lastModeration.value = null
+        _lastFollow.value = null
+        follows.clear()
         cache.clear()
     }
 
@@ -201,12 +187,32 @@ class RequestsRepository(
         _lastUpdate.value = RequestEvent(request, ++eventSequence)
     }
 
-    private fun publishModeration(request: MediaRequest) {
-        cache.unpinModeration(request)
-        // An admin deciding on their own request: their own lists update too.
-        if (cache.ownRecord(request.cacheKey())?.id == request.id) publish(request)
-        _lastModeration.value = RequestEvent(request, ++eventSequence)
+    private fun publishFollow(mediaType: String, tmdbId: Int, following: Boolean, state: RequestState?) {
+        val key = RequestDetailCache.Key(mediaType, tmdbId)
+        val event = RequestFollowEvent(mediaType, tmdbId, following, state, ++eventSequence)
+        follows[key] = event
+        cache.patchRequestState(key) { it.applyingFollow(event) }
+        _lastFollow.value = event
     }
+
+    /**
+     * The title's detail with the follows and unfollows that landed while the
+     * read was out: one sent before a follow can answer after it, and must not
+     * bring back the state the follow replaced.
+     */
+    private suspend fun fetchDetail(mediaType: String, tmdbId: Int): ApiResult<RequestMediaDetail> {
+        val since = eventSequence
+        return api.detail(mediaType, tmdbId).map { it.withFollowsAfter(since) }
+    }
+
+    private fun RequestMediaDetail.withFollowsAfter(since: Long): RequestMediaDetail =
+        follows.values.filter { it.sequence > since }.fold(this) { detail, event ->
+            val own = event.mediaType == detail.mediaType && event.tmdbId == detail.tmdbId
+            detail.copy(
+                request = if (own) detail.request.applyingFollow(event) else detail.request,
+                recommendations = detail.recommendations.applyingFollowUpdate(event),
+            )
+        }
 
     private fun upsertMine(request: MediaRequest) {
         _mine.update { list ->
@@ -222,6 +228,3 @@ class RequestsRepository(
         private val SessionChanged = ApiResult.Error(0, "identity_changed", "The acting account or profile changed.")
     }
 }
-
-/** A count of admin requests, read one page deep: [hasMore] means there are more than [count]. */
-data class AdminRequestCount(val count: Int, val hasMore: Boolean)

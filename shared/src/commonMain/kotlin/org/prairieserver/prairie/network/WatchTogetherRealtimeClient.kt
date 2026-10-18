@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.network
 
+import org.prairieserver.prairie.network.localroute.stayOnSavedAddress
 import org.prairieserver.prairie.model.watchtogether.RoomPlaybackState
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.model.watchtogether.Suggestion
@@ -147,7 +148,7 @@ private class KtorWatchTogetherSocketConnector(
         val ticket = when (val minted = safeApiV2Call<WsTicketResponse>(ApiV2Gate.Unrestricted) {
             client.post {
                 url { encodedPath = "${roomPath(request.roomId)}/ws-ticket" }
-                authScope(request.authScope); requirePrairieAuth()
+                authScope(request.authScope); requirePrairieAuth(); stayOnSavedAddress()
                 header(ROOM_TOKEN_HEADER, request.roomToken)
             }.also { check(it.status.value !in 200..299 || it.status == HttpStatusCode.OK) }
         }) {
@@ -357,7 +358,8 @@ class DefaultWatchTogetherRealtimeClient private constructor(
                 sessionId = sessionId,
                 positionSeconds = positionSeconds,
                 isPaused = isPaused,
-                commandId = commandId?.takeIf { isReady && it.isNotBlank() },
+                // The last completed command; with isReady it acknowledges that command.
+                commandId = commandId?.takeIf { it.isNotBlank() },
                 isReady = isReady.takeIf { it && !commandId.isNullOrBlank() },
             ),
         ),

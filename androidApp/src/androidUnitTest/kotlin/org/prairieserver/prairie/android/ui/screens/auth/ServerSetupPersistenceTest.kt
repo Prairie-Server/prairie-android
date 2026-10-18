@@ -30,6 +30,7 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.AuthApi
 import org.prairieserver.prairie.network.apiv2.ApiV2ProbeResult
+import org.prairieserver.prairie.common.discovery.DiscoveredServer
 import org.prairieserver.prairie.common.network.CleartextConsentStore
 import org.prairieserver.prairie.model.auth.SetupStatusResponse
 import org.prairieserver.prairie.model.auth.SignupStatusResponse
@@ -233,6 +234,43 @@ class ServerSetupPersistenceTest {
 
         assertEquals(listOf("https://secure.silo"), registry.switchedTo)
         assertEquals(ServerContract.V2, registry.activeEntry.value?.contract)
+    }
+
+    @Test
+    fun foundHttpServerAsksForConsentBeforeSavingLikeATypedAddress() = runTest(dispatcher) {
+        val tokenManager = RecordingTokenManager()
+        val viewModel = viewModelFor(tokenManager)
+
+        viewModel.connectTo(DiscoveredServer(serverId = "srv", name = "Den", url = "http://192.168.1.5:8090"))
+        awaitSettled(viewModel)
+
+        assertEquals("http://192.168.1.5:8090", viewModel.uiState.value.pendingCleartextUrl)
+        assertEquals(emptyList(), tokenManager.serverUrlWrites)
+        assertNull(viewModel.uiState.value.navigateTo)
+
+        viewModel.confirmCleartextConnection()
+        awaitSettled(viewModel)
+
+        assertEquals(listOf("http://192.168.1.5:8090"), tokenManager.serverUrlWrites)
+        assertEquals(ServerSetupDestination.Login(signupEnabled = true), viewModel.uiState.value.navigateTo)
+    }
+
+    @Test
+    fun foundServerFailureStaysOffTheAddressField() = runTest(dispatcher) {
+        val tokenManager = RecordingTokenManager()
+        val viewModel = ServerSetupViewModel(
+            authRepository = repositoryFor(tokenManager),
+            cleartextConsentStore = FakeCleartextConsentStore(),
+            getSetupStatus = { ApiResult.NetworkError(IOException("gone")) },
+            getSignupStatus = { ApiResult.Success(SignupStatusResponse(enabled = true)) },
+        )
+
+        viewModel.connectTo(DiscoveredServer(serverId = "srv", name = "Den", url = "http://192.168.1.5:8090"))
+        awaitSettled(viewModel)
+
+        assertNull(viewModel.uiState.value.error)
+        assertEquals("Could not reach a Prairie server at that address.", viewModel.uiState.value.discoveryError)
+        assertEquals(emptyList(), tokenManager.serverUrlWrites)
     }
 
     private fun viewModelFor(

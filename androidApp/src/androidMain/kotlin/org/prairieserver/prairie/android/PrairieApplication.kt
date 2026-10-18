@@ -115,6 +115,17 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
         }.onFailure {
             android.util.Log.w("PrairieApplication", "Home realtime starter init failed", it)
         }
+        // Use the active server's local address at home (LocalRouteController).
+        // Guarded — without it every request stays on the saved address.
+        runCatching {
+            org.prairieserver.prairie.common.network.LocalRouteStarter.create(
+                context = this@PrairieApplication,
+                registry = koinApp.koin.get(),
+                tokenManager = koinApp.koin.get(),
+            ).start(androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle)
+        }.onFailure {
+            android.util.Log.w("PrairieApplication", "Local route starter init failed", it)
+        }
         // Drain the user-state outbox (Track B) on launch + when connectivity
         // returns. Guarded — never load-bearing for cold start.
         runCatching {

@@ -115,6 +115,7 @@ import org.prairieserver.prairie.playback.stats.displayLine
 import org.prairieserver.prairie.playback.stats.planRows
 import org.prairieserver.prairie.common.player.SleepTimerState
 import org.prairieserver.prairie.domain.player.IntroSkipMode
+import org.prairieserver.prairie.model.settings.QualityChoices
 import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
@@ -203,6 +204,8 @@ internal fun TvPlayerHud(
     episodeNumber: Int?,
     audioTracks: List<PlayerTrackEntry>,
     videoQualities: List<VideoQualityOption>,
+    /** The session's quality preference, named when no row is lit. */
+    videoQualityPreference: String? = null,
     fileVersions: List<org.prairieserver.prairie.model.catalog.FileVersion> = emptyList(),
     selectedFileId: Int? = null,
     onSelectFileVersion: (Int) -> Unit = {},
@@ -582,6 +585,7 @@ internal fun TvPlayerHud(
                     }
                     HudTab.Video -> HudVideoPane(
                         videoQualities = videoQualities,
+                        videoQualityPreference = videoQualityPreference,
                         onSelectVideoQuality = onSelectVideoQuality,
                         fileVersions = if (versionAndSpeedControlsVisible) fileVersions else emptyList(),
                         selectedFileId = selectedFileId,
@@ -1202,6 +1206,7 @@ private fun onOffLabel(value: Boolean): String = if (value) "On" else "Off"
 @Composable
 private fun HudVideoPane(
     videoQualities: List<VideoQualityOption>,
+    videoQualityPreference: String?,
     onSelectVideoQuality: (String) -> Unit,
     fileVersions: List<org.prairieserver.prairie.model.catalog.FileVersion>,
     selectedFileId: Int?,
@@ -1232,8 +1237,8 @@ private fun HudVideoPane(
     // actually focusable. A disabled row is not focusable, so pointing the
     // requester at it would cancel the move in from the rail.
     val hasVersionRow = fileVersions.size > 1
-    // The quality menu exists whenever a plan does: even a single entry
-    // lists Auto + Original.
+    // The quality menu exists whenever the plan lists a rung: even a single
+    // one shows Auto + that rung.
     val hasQualityRow = videoQualities.isNotEmpty()
     val entryRow = when {
         hasVersionRow -> "version"
@@ -1290,7 +1295,8 @@ private fun HudVideoPane(
                     val selectedQuality = videoQualities.firstOrNull { it.isSelected }
                     HudFocusedSettingRow(
                         label = "Quality",
-                        value = selectedQuality?.label ?: "Auto",
+                        // No row lit: a saved resolution the source plays under.
+                        value = selectedQuality?.label ?: QualityChoices.resolutionLabel(videoQualityPreference),
                         enabled = enabled,
                         entryFocusRequester = entryFocusRequester.takeIf { entryRow == "quality" },
                         onActivate = {
@@ -2035,7 +2041,17 @@ private fun delaySecondsLabel(valueMs: Int): String {
  * Labels arrive as "English — SRT · Forced · External" from
  * [subtitleChoiceLabel], or "English • SRT" from a player-only track.
  */
-internal data class TvSubtitleRowParts(val title: String, val chips: List<String>, val detail: String?)
+/**
+ * A subtitle row split for layout. [aiKind] names how an AI track was made
+ * ("Translation", "Transcription"); the row shows it as an "AI" chip plus the
+ * first detail word, since the narrow pane has no room for a longer chip.
+ */
+internal data class TvSubtitleRowParts(
+    val title: String,
+    val chips: List<String>,
+    val detail: String?,
+    val aiKind: String? = null,
+)
 
 internal fun tvSubtitleRowParts(label: String): TvSubtitleRowParts {
     val separator = listOf(" — ", " • ").firstOrNull { it in label }
@@ -2047,11 +2063,12 @@ internal fun tvSubtitleRowParts(label: String): TvSubtitleRowParts {
         ?.filter(String::isNotEmpty)
         .orEmpty()
     val chips = facts.mapNotNull { fact -> TvSubtitleChipNames[fact.lowercase(java.util.Locale.US)] }
+    val aiKind = facts.firstNotNullOfOrNull { fact -> TvSubtitleAiKinds[fact.lowercase(java.util.Locale.US)] }
     val detail = facts
         .filter { fact -> fact.lowercase(java.util.Locale.US) !in TvSubtitleChipNames }
         .joinToString(" · ")
         .ifBlank { null }
-    return TvSubtitleRowParts(title = title.trim(), chips = chips.distinct(), detail = detail)
+    return TvSubtitleRowParts(title = title.trim(), chips = chips.distinct(), detail = detail, aiKind = aiKind)
 }
 
 private val TvSubtitleChipNames = mapOf(
@@ -2059,6 +2076,12 @@ private val TvSubtitleChipNames = mapOf(
     "sdh" to "SDH",
     "cc" to "CC",
     "ai translation" to "AI",
+    "ai transcription" to "AI",
+)
+
+private val TvSubtitleAiKinds = mapOf(
+    "ai translation" to "Translation",
+    "ai transcription" to "Transcription",
 )
 
 /**
@@ -2080,7 +2103,9 @@ private fun HudSubtitleTrackRow(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val colors = hudRowColors(focused = isFocused, current = row.checked)
     val parts = remember(row.label) { tvSubtitleRowParts(row.label) }
+    // The AI kind leads so it survives the detail's ellipsis.
     val detail = listOfNotNull(
+        parts.aiKind,
         row.status ?: syncStatus,
         parts.detail,
     ).joinToString(" · ").ifBlank { null }

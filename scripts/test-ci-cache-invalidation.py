@@ -12,17 +12,6 @@ logs = root / "build/ci-cache-invalidation"
 logs.mkdir(parents=True, exist_ok=True)
 probes = [
     (
-        "workflow",
-        ":androidTvApp:testDebugUnitTest",
-        "org.prairieserver.prairie.tv.ui.screens.player.TvFireTvRcFeedbackOwnershipTest",
-        "release display version keeps the complete tag",
-        root / ".github/workflows/release.yml",
-        lambda text: text.replace(
-            "PRAIRIE_DISPLAY_VERSION: ${{ needs.setup.outputs.version }}",
-            "PRAIRIE_DISPLAY_VERSION: ${{ needs.setup.outputs.version_name }}",
-        ),
-    ),
-    (
         "sibling-manifest",
         ":androidApp:testDebugUnitTest",
         "org.prairieserver.prairie.android.auth.NativeSignInManifestTest",

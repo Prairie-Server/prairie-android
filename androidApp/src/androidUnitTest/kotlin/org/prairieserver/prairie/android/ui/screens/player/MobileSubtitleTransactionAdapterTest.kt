@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.TestScope
 import org.prairieserver.prairie.model.playback.CommittedSubtitle
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleModeV3
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
+import org.prairieserver.prairie.model.playback.SubtitleHlsRendition
 import org.prairieserver.prairie.model.playback.SubtitleIdentity
 import org.prairieserver.prairie.model.playback.SubtitleMediaIdentity
 import org.prairieserver.prairie.network.ApiResult
@@ -745,6 +746,23 @@ class MobileSubtitleTransactionAdapterTest {
 
         assertEquals(SubtitleIdentity.Off, harness.adapter.snapshot.committedIdentity)
         assertEquals(listOf(SubtitleIdentity.Off), harness.persistence.persisted.map { it.identity })
+    }
+
+    @Test
+    fun `only a quality pick asks the port to change the quality`() = runTest {
+        val harness = harness(backgroundScope)
+
+        // A track change keeps the session's quality and cap.
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+        assertFalse(harness.port.requests.last().qualityChanged)
+        harness.port.failStage(ApiResult.NetworkError(IllegalStateException("offline")))
+        runCurrent()
+
+        // The harness commits "auto"; picking it again changes nothing.
+        harness.adapter.selectQuality("720p-medium")
+        runCurrent()
+        assertTrue(harness.port.requests.last().qualityChanged)
     }
 
     @Test
@@ -1568,6 +1586,53 @@ class MobileSubtitleTransactionAdapterTest {
         assertEquals(listOf(native), harness.persistence.persisted.map { it.identity })
     }
 
+    @Test
+    fun `rendition decision commits only after the manifest track is selected`() = runTest {
+        val harness = harness(backgroundScope)
+        val rendition = renditionIdentity(4)
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+        harness.port.completeStage(
+            candidate("rendition", 4, mode = PlaybackSubtitleModeV3.CONVERT, hasSidecar = false, selectedSubtitleIdentity = rendition),
+        )
+        runCurrent()
+        assertEquals(rendition, harness.adapter.snapshot.localMountIdentity)
+        assertTrue(harness.persistence.persisted.isEmpty())
+        harness.adapter.reportMountedSelection(rendition, selected = true, snapshotKey = "subs:Subtitles", settled = true)
+        runCurrent()
+        assertEquals(rendition, harness.adapter.snapshot.committedIdentity)
+        assertEquals(listOf(rendition), harness.persistence.persisted.map { it.identity })
+    }
+
+    @Test
+    fun `rendition mount timeout requests the sidecar through the rendition failure path`() = runTest {
+        val nativeFailures = mutableListOf<Int>()
+        val renditionFailures = mutableListOf<Int>()
+        val harness = harness(
+            backgroundScope,
+            onEmbeddedFailure = nativeFailures::add,
+            onHlsRenditionFailure = renditionFailures::add,
+        )
+        val rendition = renditionIdentity(4)
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+        harness.port.completeStage(candidate("rendition", 4, hasSidecar = false, selectedSubtitleIdentity = rendition))
+        runCurrent()
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertEquals(listOf(4), renditionFailures)
+        assertTrue(nativeFailures.isEmpty())
+        assertNull(harness.adapter.snapshot.localMountIdentity)
+        assertEquals(SubtitleIdentity.Off, harness.adapter.snapshot.committedIdentity)
+        assertTrue(harness.persistence.persisted.isEmpty())
+    }
+
+    private fun renditionIdentity(index: Int) = SubtitleIdentity.Embedded(
+        index,
+        SubtitleMediaIdentity(trackId = "file:42:subtitle:$index", language = "eng", codecFamily = "subrip"),
+        hlsRendition = SubtitleHlsRendition("subs", "Subtitles"),
+    )
+
     private fun harness(
         scope: CoroutineScope,
         sessionId: String? = "s1",
@@ -1575,6 +1640,7 @@ class MobileSubtitleTransactionAdapterTest {
         adoption: AdoptionControl = AdoptionControl(),
         durablePersistenceScope: CoroutineScope = scope,
         onEmbeddedFailure: (Int) -> Unit = {},
+        onHlsRenditionFailure: (Int) -> Unit = {},
     ): Harness {
         val port = FakeStagedPort()
         val persistence = RecordingPersistence()
@@ -1585,6 +1651,7 @@ class MobileSubtitleTransactionAdapterTest {
             persistencePort = persistence,
             durablePersistenceScope = durablePersistenceScope,
             onEmbeddedSubtitleFailure = onEmbeddedFailure,
+            onHlsRenditionSubtitleFailure = onHlsRenditionFailure,
             onCommittedPlayback = { adoptionRequest ->
                 adoption.started += 1
                 adoption.requestedSourcePositions += adoptionRequest.requestedSourcePositionSeconds

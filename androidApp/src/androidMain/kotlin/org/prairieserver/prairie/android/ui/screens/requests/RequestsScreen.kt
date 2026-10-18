@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.HowToReg
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,7 +34,6 @@ import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
 import org.prairieserver.prairie.android.ui.components.rememberShimmerProgress
 import org.prairieserver.prairie.android.ui.components.skeleton
 import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
-import org.prairieserver.prairie.common.requests.RequestColors
 import org.prairieserver.prairie.common.requests.RequestRouter
 import org.prairieserver.prairie.common.requests.rememberRequestRouter
 import org.prairieserver.prairie.model.request.RequestMediaResult
@@ -52,7 +50,6 @@ import org.prairieserver.prairie.viewmodel.RequestsViewModel
 fun RequestsScreen(
     onBackClick: () -> Unit,
     onMyRequestsClick: () -> Unit,
-    onApprovalsClick: () -> Unit,
     onRequestDetailClick: (mediaType: String, tmdbId: Int) -> Unit,
     onLibraryItemClick: (String) -> Unit,
     viewModel: RequestsViewModel = koinViewModel(),
@@ -93,7 +90,7 @@ fun RequestsScreen(
                     modifier = Modifier.padding(top = 80.dp),
                 )
             }
-            else -> discover(state, router, onMyRequestsClick, onApprovalsClick)
+            else -> discover(state, router, onMyRequestsClick)
         }
     }
 }
@@ -102,28 +99,11 @@ private fun LazyListScope.discover(
     state: RequestsUiState,
     router: RequestRouter,
     onMyRequestsClick: () -> Unit,
-    onApprovalsClick: () -> Unit,
 ) {
     val moving = state.inProgressCount + state.needsAttentionCount
-    if (moving > 0 || state.pendingApprovals > 0) {
+    if (moving > 0) {
         item(key = "summary", contentType = "summary") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (moving > 0) {
-                    RequestSummaryCard(title = summaryTitle(state), parts = summaryParts(state), onClick = onMyRequestsClick)
-                }
-                if (state.pendingApprovals > 0) {
-                    RequestSummaryCard(
-                        title = when {
-                            state.morePendingApprovals -> "${state.pendingApprovals}+ requests need your approval"
-                            state.pendingApprovals == 1 -> "1 request needs your approval"
-                            else -> "${state.pendingApprovals} requests need your approval"
-                        },
-                        leadingIcon = Icons.Outlined.HowToReg,
-                        leadingTint = RequestColors.Amber,
-                        onClick = onApprovalsClick,
-                    )
-                }
-            }
+            RequestSummaryCard(title = summaryTitle(state), parts = summaryParts(state), onClick = onMyRequestsClick)
         }
     }
     if (state.myRequests.isNotEmpty()) {

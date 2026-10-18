@@ -482,6 +482,25 @@ class EncryptedTokenManagerImpl(
         }
     }
 
+    override suspend fun signOutServer(serverId: String?, loginId: String?): Boolean =
+        tokenWriteMutex.withLock {
+            fun stillActiveLocked() = activeServerId == serverId && serverId?.let { durableLoginIdLocked(it) } == loginId
+            if (!mutex.withLock { ensureCacheMatchesRegistryLocked(); stillActiveLocked() }) return@withLock false
+            identityTransitions.changing(
+                kind = IdentityTransitionKind.SIGN_OUT,
+                target = { currentSignOutTarget() },
+            ) {
+                mutex.withLock {
+                    ensureCacheMatchesRegistryLocked()
+                    // A server switch takes no token-write lock, so it can land
+                    // between the check above and this transition.
+                    if (!stillActiveLocked()) return@withLock false
+                    clearCurrentScopeLocked()
+                    true
+                }
+            }
+        }
+
     override suspend fun beginTemporaryScope(scope: TemporaryAuthScope) {
         identityTransitions.changing(IdentityTransitionKind.TEMPORARY_SCOPE_BEGIN) {
             mutex.withLock { temporaryScope = scope }
@@ -508,6 +527,23 @@ class EncryptedTokenManagerImpl(
             val scope = snapshotCurrentScopeLocked() ?: return@withLock null
             if (scope.credentialGenerationId != null || scope.profileId.isNullOrBlank()) return@withLock null
             DurableLoginAuthority(durableLoginIdLocked(scope.serverId) ?: return@withLock null, scope)
+        }
+    }
+
+    override suspend fun savedLoginAuthority(
+        serverId: String,
+        profileId: String,
+        profileToken: String?,
+    ): DurableLoginAuthority? = tokenWriteMutex.withLock {
+        mutex.withLock {
+            ensureCacheMatchesRegistryLocked()
+            val url = registry.entries.value.firstOrNull { it.id == serverId }?.url
+            if (url.isNullOrBlank()) return@withLock null
+            val loginId = durableLoginIdLocked(serverId) ?: return@withLock null
+            DurableLoginAuthority(
+                loginId,
+                AuthScopeSnapshot.savedLogin(serverId, url, profileId, profileToken, identityTransitions.generation.value),
+            )
         }
     }
 

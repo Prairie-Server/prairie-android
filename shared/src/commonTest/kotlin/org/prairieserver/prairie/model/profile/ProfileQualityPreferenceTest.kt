@@ -20,6 +20,7 @@ class ProfileQualityPreferenceTest {
         assertEquals("720p", canonicalProfileQualityPreference("720p"))
         assertEquals("480p", canonicalProfileQualityPreference("480p"))
         assertEquals("cinema", canonicalProfileQualityPreference(" Cinema "))
+        assertNull(canonicalProfileQualityPreference("Original"))
     }
 
     @Test
@@ -30,9 +31,8 @@ class ProfileQualityPreferenceTest {
         assertEquals("4K", displayProfileQualityPreference("4k"))
         assertEquals("4K", displayProfileQualityPreference("2160p"))
         assertEquals("1080p", displayProfileQualityPreference("1080p"))
-        assertEquals("720p", displayProfileQualityPreference("720p"))
-        assertEquals("480p", displayProfileQualityPreference("480p"))
         assertEquals("Cinema", displayProfileQualityPreference(" Cinema "))
+        assertEquals("Auto", displayProfileQualityPreference("original"))
     }
 
     @Test

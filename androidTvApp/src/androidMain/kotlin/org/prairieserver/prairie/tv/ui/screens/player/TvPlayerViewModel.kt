@@ -19,7 +19,9 @@ import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.common.player.PlaybackAnalyticsListener
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
+import org.prairieserver.prairie.common.player.isPlaybackSessionEnded
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
+import org.prairieserver.prairie.common.player.inPlayerQualityPair
 import org.prairieserver.prairie.common.player.PlaybackTeardownGate
 import org.prairieserver.prairie.common.player.video.MountedAudioTrack
 import org.prairieserver.prairie.common.player.video.AudioReconcileAction
@@ -87,6 +89,8 @@ import org.prairieserver.prairie.model.catalog.TimeRange
 import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.playback.AutoSubtitleCandidate
+import org.prairieserver.prairie.model.playback.SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION
+import org.prairieserver.prairie.model.playback.SUBTITLE_SELECTION_FAILURE_CLASSIFICATIONS
 import org.prairieserver.prairie.model.playback.executableMedia3ClientTransformations
 import org.prairieserver.prairie.model.playback.AutoSubtitleContext
 import org.prairieserver.prairie.model.playback.inventoryAutoSubtitleCandidates
@@ -95,6 +99,7 @@ import org.prairieserver.prairie.model.playback.selectedCandidate
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
 import org.prairieserver.prairie.model.playback.PlaybackAvailableQualityV3
 import org.prairieserver.prairie.model.playback.PlaybackEffectiveRecipeV3
+import org.prairieserver.prairie.model.playback.PlaybackSourceDescriptorV3
 import org.prairieserver.prairie.model.playback.activePlaybackQualityId
 import org.prairieserver.prairie.model.playback.playbackQualityMenu
 import org.prairieserver.prairie.model.playback.PlayMethod
@@ -109,6 +114,8 @@ import org.prairieserver.prairie.model.playback.SubtitleMediaIdentity
 import org.prairieserver.prairie.model.playback.enrichAuthoritativePlaybackSubtitleChoices
 import org.prairieserver.prairie.model.playback.resolvedSelectedSubtitleIndex
 import org.prairieserver.prairie.model.playback.mergeDownloadedSubtitles
+import org.prairieserver.prairie.model.playback.videoQualityPreference
+import org.prairieserver.prairie.playback.ADMIN_ENDED_PLAYBACK_NOTICE
 import org.prairieserver.prairie.playback.PlaybackMarkersUpdate
 import org.prairieserver.prairie.playback.PlaybackSubtitleReady
 import org.prairieserver.prairie.playback.PlaybackSubtitleTimingChanged
@@ -210,9 +217,10 @@ internal fun authoritativePlaybackQualityOptions(
     available: List<PlaybackAvailableQualityV3>,
     selectedLabel: String?,
     delivered: PlaybackEffectiveRecipeV3? = null,
+    source: PlaybackSourceDescriptorV3? = null,
 ): List<VideoQualityOption> {
     val menu = playbackQualityMenu(available)
-    val activeId = activePlaybackQualityId(menu, selectedLabel, delivered)
+    val activeId = activePlaybackQualityId(menu, selectedLabel, delivered, source)
     return menu.map { option ->
         VideoQualityOption(
             id = option.id,
@@ -612,8 +620,11 @@ enum class VideoFillMode {
     Stretch,
 }
 
+/** The in-player notice for an AI subtitle job that failed out of sight. */
+internal fun aiFailureNotice(message: String): String = "AI subtitles failed. $message"
+
 /** A transient remote "display_message"; [id] makes repeats re-trigger the toast. */
-data class RemoteMessage(val id: Long, val text: String)
+data class RemoteMessage(val id: Long, val text: String, val durationMs: Long = 5_000L)
 
 /** The resolved next episode for auto-advance / "Up next". */
 data class NextEpisodeState(
@@ -831,10 +842,12 @@ class TvPlayerViewModel(
      * resolution file because of the server's version sort order.
      */
     private var preferredFileId: Int? = launchArgs.preferredFileId
-    private var preferredQuality: String? = launchArgs.preferredQuality
+    // A legacy "original" route reads as Auto, which plays the source when it can.
+    private var preferredQuality: String? = videoQualityPreference(launchArgs.preferredQuality)
     // Explicit session-level video-quality intent chosen in the player's
-    // Quality menu. Null uses [preferredQuality] as the default output ceiling.
-    // Menu ids may be full ladder rung ids (`1080p-high`); V3 replan uses
+    // Quality menu: a plan entry's label, or "auto". Null uses
+    // [preferredQuality] as the default output ceiling. Menu ids may be full
+    // ladder rung ids (`1080p-high`); V3 replan uses
     // [org.prairieserver.prairie.playback.toV3QualityPreference].
     private var qualityOverride: String? = null
     /** Live server ladder (or fallback) used to build the Quality picker. */
@@ -848,6 +861,7 @@ class TvPlayerViewModel(
      */
     private var planQualities: List<PlaybackAvailableQualityV3> = emptyList()
     private var planDelivered: PlaybackEffectiveRecipeV3? = null
+    private var planSource: PlaybackSourceDescriptorV3? = null
 
     // Blank means solo, exactly as the screen treats it.
     private val roomId: String? = launchArgs.roomId?.takeIf { it.isNotBlank() }
@@ -999,9 +1013,19 @@ class TvPlayerViewModel(
         val playbackState: Int,
         val suppressed: Boolean,
         val sampledAtMs: Long,
+        val playbackSpeed: Double?,
     )
 
     private var roomPlayerSample: TvRoomPlayerSample? = null
+
+    // When the latest transport mount was applied. A sample read before it
+    // describes the replaced item and must not be mapped through the new
+    // plan's timeline.
+    private var roomMountAppliedAtMs = Long.MIN_VALUE
+
+    // Counts applied transport mounts, so the room can tell new media from a
+    // native seek within the mounted item.
+    private var roomMountGeneration = 0L
     private val _roomObservation = MutableStateFlow(RoomPlayerObservation())
 
     /** What the player is actually doing, for the room binding. */
@@ -1100,6 +1124,12 @@ class TvPlayerViewModel(
         // from the video group, plus a synthetic "Auto". Distinct from
         // [videoTracks] (group-level): only this drives the HUD Quality picker.
         val videoQualities: List<VideoQualityOption> = emptyList(),
+        /**
+         * The preference the session plays at: a pick, the route's, or the
+         * saved settings. With no row lit (a saved resolution the source
+         * plays under) the HUD names it instead of Auto.
+         */
+        val videoQualityPreference: String? = null,
         // Scrubber preview state — `isScrubbing` flips on the first arrow
         // press from the focused scrubber, `scrubPreviewSec` shadows the
         // intended seek target so the overlay can render a preview puck
@@ -1255,10 +1285,12 @@ class TvPlayerViewModel(
 
     private val subtitleTransactions = TvSubtitleTransactionAdapter(
         scope = viewModelScope,
+        // An Auto picked in the player takes the saved cap. The TV has no
+        // cellular pair.
         stagedPort = PlaybackSessionManagerTvSubtitleStagedReplanPort(
             playbackSessionManager,
             sessionLifecycle,
-        ),
+        ) { preference -> playerSettingsStore.inPlayerQualityPair(preference, cellular = false) },
         settlementScope = TvSubtitleSettlementOwner.scope,
         persistencePort = object : TvSubtitlePersistencePort {
             override suspend fun persist(
@@ -1380,6 +1412,14 @@ class TvPlayerViewModel(
                 subtitleTrackIndexOverride = serverIndex,
             )
         },
+        onHlsRenditionSubtitleFailure = { serverIndex ->
+            startProtocolV3Replan(
+                classification = SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION,
+                notice = "Embedded subtitles couldn't load. Retrying with a sidecar.",
+                state = _uiState.value,
+                subtitleTrackIndexOverride = serverIndex,
+            )
+        },
         onCommittedPlaybackFailure = { message ->
             _uiState.update { it.copy(error = message) }
         },
@@ -1417,9 +1457,18 @@ class TvPlayerViewModel(
     // ---- Remote session-control surface (driven by TvPlaybackRealtimeController) ----
     // Stop is screen-local (stopPlaybackAndExit) and the lifecycle `notice` is
     // read-only, so expose thin channels here for the control socket to drive.
-    private val _remoteStopRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    /** Screen collects this and runs its teardown/exit. */
-    val remoteStopRequests: SharedFlow<Unit> = _remoteStopRequests
+    private val _roomAudioTrackChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /**
+     * Emits when the viewer switched audio track within the mounted stream in
+     * a room, so the binding measures rate support again (a replan mounts new
+     * media, which already does).
+     */
+    val roomAudioTrackChanges: SharedFlow<Unit> = _roomAudioTrackChanges
+
+    private val _remoteStopRequests = MutableSharedFlow<String?>(extraBufferCapacity = 1)
+    /** Screen collects this and runs its teardown/exit, showing the notice when there is one. */
+    val remoteStopRequests: SharedFlow<String?> = _remoteStopRequests
 
     private var remoteMessageCounter = 0L
     private val _remoteMessage = MutableStateFlow<RemoteMessage?>(null)
@@ -1693,6 +1742,11 @@ class TvPlayerViewModel(
             }
         }
         viewModelScope.launch {
+            sessionLifecycle.sessionEndedEvents.collect { endedSessionId ->
+                if (_uiState.value.sessionId == endedSessionId) leaveServerEndedSession()
+            }
+        }
+        viewModelScope.launch {
             sessionLifecycle.missingSessionEvents.collect { renewal ->
                 val state = _uiState.value
                 if (
@@ -1856,9 +1910,11 @@ class TvPlayerViewModel(
             sessionId = state.sessionId,
             positionSeconds = state.position,
             audioTrackIndex = selectedAudio,
-            qualityPreference = org.prairieserver.prairie.playback.toV3QualityPreference(
-                qualityOverride ?: preferredQuality ?: "auto",
-            ),
+            // Only a pick (or the route's quality). Defaulting to "auto" here
+            // sent Auto on every subtitle change, over a saved resolution, and
+            // the commit then recorded it as the viewer's pick.
+            qualityPreference = (qualityOverride ?: preferredQuality)
+                ?.let(org.prairieserver.prairie.playback::toV3QualityPreference),
             subtitleTracks = state.subtitleUrls,
             audioTracks = version?.audioTracks.orEmpty(),
             outputRouteGeneration = capabilityDetector.outputRouteGeneration.value,
@@ -1943,12 +1999,14 @@ class TvPlayerViewModel(
                     ?: ready.plan.effectiveRecipe.height?.let { "${it}p" },
                 videoQualities = tvQualityMenu(
                     available = ready.plan.availableQualities,
-                    selectedLabel = adoption.committed.qualityPreference,
+                    selectedLabel = adoption.committed.qualityPreference ?: sessionQualityPreference(),
                     delivered = ready.plan.effectiveRecipe,
                     sourceResolution = version?.resolution
                         ?: ready.plan.effectiveRecipe.height?.let { "${it}p" },
                     playMethod = ready.session.playMethod?.name?.lowercase(),
+                    source = ready.plan.source,
                 ),
+                videoQualityPreference = adoption.committed.qualityPreference ?: sessionQualityPreference(),
                 container = ready.plan.stream.container ?: version?.container ?: state.container,
                 duration = duration,
                 serverDuration = duration,
@@ -2049,6 +2107,8 @@ class TvPlayerViewModel(
             // absent, which at worst costs an unnecessary reanchor.
             playerWindowIsSeekable = false
             playerWindowEndPlayerMs = -1L
+            roomMountAppliedAtMs = SystemClock.elapsedRealtime()
+            roomMountGeneration++
             pendingNativeSeekAfterMount?.let { targetSeconds ->
                 pendingNativeSeekAfterMount = null
                 // Re-evaluate against the plan that actually won the load;
@@ -2114,6 +2174,9 @@ class TvPlayerViewModel(
         // Capture this pipeline's generation; a later loadContent bump makes
         // this one inert before it can touch _uiState.
         val generation = ++contentLoadGeneration
+        // The previous load's AI job poll goes inert with the generation, so
+        // its phase (progress or failure) must not carry into this content.
+        _aiTranslate.update { it.copy(phase = AiJobPhase.Idle) }
         if (recoveryStartParams != null) {
             pendingInitialSubtitleIndex = recoveryStartParams.subtitleTrackIndex
             // A recovery restores the selection the session was already
@@ -2417,13 +2480,13 @@ class TvPlayerViewModel(
                                     ?: result.versions.firstOrNull()?.trickplay,
                                 videoQualities = tvQualityMenu(
                                     available = result.playbackPlanV3?.availableQualities.orEmpty(),
-                                    selectedLabel = qualityOverride
-                                        ?: preferredQuality
-                                        ?: PlaybackQuality.Auto.wireValue,
+                                    selectedLabel = sessionQualityPreference(),
                                     delivered = result.playbackPlanV3?.effectiveRecipe,
                                     sourceResolution = result.fileResolution,
                                     playMethod = result.playMethod?.name?.lowercase(),
+                                    source = result.playbackPlanV3?.source,
                                 ),
+                                videoQualityPreference = sessionQualityPreference(),
                                 mediaFileId = result.mediaFileId,
                                 startPosition = result.startPositionSeconds,
                                 position = result.sourceStartPositionSeconds,
@@ -2738,7 +2801,7 @@ class TvPlayerViewModel(
             // replans stay dropped — onPlayerError re-raises those. Embedded
             // mount failures have no player-error retry, so retain those too.
             if (classification in PlaybackSessionManager.USER_INVALIDATION_CLASSIFICATIONS ||
-                classification == "subtitle_embedded_failed"
+                classification in SUBTITLE_SELECTION_FAILURE_CLASSIFICATIONS
             ) {
                 queuedRecoveryReplan = QueuedRecoveryReplan(
                     classification = classification,
@@ -2871,10 +2934,11 @@ class TvPlayerViewModel(
                                     capabilities = decision.capabilities,
                                     audioTrackIndex = returnedAudioIndex,
                                     subtitleTrackIndex = returnedSubtitleIndex ?: -1,
+                                    // A renewal carries only a pick; the saved
+                                    // settings are read again.
                                     qualityPreference = qualityPreference
                                         ?: qualityOverride
-                                        ?: preferredQuality
-                                        ?: PlaybackQuality.Auto.wireValue,
+                                        ?: preferredQuality,
                                     startPosition = decision.session.position,
                                     clientPlaybackContext = decision.clientPlaybackContext,
                                 ),
@@ -2921,14 +2985,13 @@ class TvPlayerViewModel(
                                 selectedFileResolution = effectiveResolution,
                                 videoQualities = tvQualityMenu(
                                     available = decision.plan.availableQualities,
-                                    selectedLabel = qualityPreference
-                                        ?: qualityOverride
-                                        ?: preferredQuality
-                                        ?: PlaybackQuality.Auto.wireValue,
+                                    selectedLabel = qualityPreference ?: sessionQualityPreference(),
                                     delivered = decision.plan.effectiveRecipe,
                                     sourceResolution = effectiveResolution,
                                     playMethod = decision.session.playMethod?.name?.lowercase(),
+                                    source = decision.plan.source,
                                 ),
+                                videoQualityPreference = qualityPreference ?: sessionQualityPreference(),
                                 container = effectiveContainer,
                                 duration = effectiveDuration,
                                 serverDuration = effectiveDuration,
@@ -2959,7 +3022,7 @@ class TvPlayerViewModel(
                         )
                     }
                     is VideoSessionStartV3.Terminal -> {
-                        if (classification == "subtitle_embedded_failed") {
+                        if (classification in SUBTITLE_SELECTION_FAILURE_CLASSIFICATIONS) {
                             onReplanRequestFailed(classification, notice, decision.message)
                             return@launch
                         }
@@ -3005,7 +3068,7 @@ class TvPlayerViewModel(
                     }
                     VideoSessionStartV3.ServerUpgradeRequired -> {
                         cancelPendingCatalogSubtitle()
-                        if (classification == "subtitle_embedded_failed") {
+                        if (classification in SUBTITLE_SELECTION_FAILURE_CLASSIFICATIONS) {
                             onReplanRequestFailed(classification, notice, "Server upgrade required")
                             return@launch
                         }
@@ -3020,7 +3083,11 @@ class TvPlayerViewModel(
                 }
                 is ApiResult.Error -> {
                     cancelPendingCatalogSubtitle()
-                    onReplanRequestFailed(classification, notice, result.message)
+                    if (result.isPlaybackSessionEnded()) {
+                        leaveServerEndedSession()
+                    } else {
+                        onReplanRequestFailed(classification, notice, result.message)
+                    }
                 }
                 is ApiResult.NetworkError -> {
                     cancelPendingCatalogSubtitle()
@@ -3058,7 +3125,7 @@ class TvPlayerViewModel(
      */
     private fun onReplanRequestFailed(classification: String, notice: String, detail: String?) {
         if (classification in PlaybackSessionManager.USER_INVALIDATION_CLASSIFICATIONS ||
-            classification == "subtitle_embedded_failed"
+            classification in SUBTITLE_SELECTION_FAILURE_CLASSIFICATIONS
         ) {
             Log.w(TAG, "Invalidation replan failed ($classification): $detail")
             _uiState.update { it.copy(isLoading = false, isBuffering = false) }
@@ -3498,6 +3565,9 @@ class TvPlayerViewModel(
     private fun confirmDesiredAudio(desired: DesiredAudio) {
         if (desired.confirmed) return
         desiredAudio = desired.copy(confirmed = true)
+        // The new track is mounted and selected: only now can its output path
+        // (PCM or passthrough) be measured for rate support.
+        if (roomId != null) _roomAudioTrackChanges.tryEmit(Unit)
         _uiState.update {
             it.copy(desiredAudioOrdinal = desired.catalogOrdinal, desiredAudioConfirmed = true)
         }
@@ -4023,9 +4093,8 @@ class TvPlayerViewModel(
             ?: SubtitleIdentity.Off
         val returnedAudioIndex = decision.plan.selectedTracks.audio?.index
             ?: decision.session.audioTrackIndex
-        val committedQualityPreference = qualityOverride
-            ?: preferredQuality
-            ?: PlaybackQuality.Auto.wireValue
+        // A renewal carries only a pick; the saved settings are read again.
+        val committedQualityPreference = qualityOverride ?: preferredQuality
         seekRecoveryRollbackInvalidated = false
         if (!isCurrentSeekRecovery(request)) return
         val adopted = sessionLifecycle.adoptActiveSessionIfCurrent(
@@ -4199,14 +4268,16 @@ class TvPlayerViewModel(
     }
 
     /**
-     * Whether [sourceSeconds] is reachable without new media: a plain native
-     * seek of the mounted item, between a second behind the playhead and the
-     * buffered position. Anything uncertain answers false.
+     * Whether [sourceSeconds] is reachable without rebuilding the stream: a
+     * plain native seek of the mounted item, no further ahead than the
+     * buffered position, and behind the playhead anywhere in a seekable
+     * window (otherwise within a second). Anything uncertain answers false.
      */
     fun isRoomPositionBuffered(sourceSeconds: Double): Boolean {
         if (roomId == null || !sourceSeconds.isFinite() || sourceSeconds < 0.0) return false
         val sample = roomPlayerSample ?: return false
         if (SystemClock.elapsedRealtime() - sample.sampledAtMs > ROOM_SAMPLE_MAX_AGE_MS) return false
+        if (sample.sampledAtMs <= roomMountAppliedAtMs) return false
         if (sample.playbackState != androidx.media3.common.Player.STATE_READY &&
             sample.playbackState != androidx.media3.common.Player.STATE_BUFFERING
         ) {
@@ -4225,6 +4296,7 @@ class TvPlayerViewModel(
             targetPlayerSeconds = targetPlayerSeconds,
             currentPlayerSeconds = sample.positionMs.coerceAtLeast(0L) / 1000.0,
             bufferedPlayerSeconds = sample.bufferedPositionMs.coerceAtLeast(0L) / 1000.0,
+            seekableBehindPlayhead = playerWindowIsSeekable,
         )
     }
 
@@ -4236,6 +4308,7 @@ class TvPlayerViewModel(
         isPlaying: Boolean,
         playbackState: Int,
         suppressed: Boolean,
+        playbackSpeed: Double? = null,
     ) {
         if (roomId == null) return
         roomPlayerSample = TvRoomPlayerSample(
@@ -4246,6 +4319,7 @@ class TvPlayerViewModel(
             playbackState = playbackState,
             suppressed = suppressed,
             sampledAtMs = SystemClock.elapsedRealtime(),
+            playbackSpeed = playbackSpeed?.takeIf { it.isFinite() && it > 0.0 },
         )
         publishRoomObservation()
     }
@@ -4319,9 +4393,9 @@ class TvPlayerViewModel(
     }
 
     /** A short in-player message (Watch Party notices share the remote-message toast). */
-    fun showPlayerMessage(text: String) {
+    fun showPlayerMessage(text: String, durationMs: Long = 5_000L) {
         if (text.isBlank()) return
-        _remoteMessage.value = RemoteMessage(++remoteMessageCounter, text)
+        _remoteMessage.value = RemoteMessage(++remoteMessageCounter, text, durationMs)
     }
 
     private fun roomSeekPending(state: UiState): Boolean =
@@ -4342,7 +4416,9 @@ class TvPlayerViewModel(
         // Engine truth mapped to source time. While a new mount takes over, the
         // old item's position cannot be mapped through the new timeline, so
         // the last known value stands (and seekPending says it is not a decision).
-        val position = if (sample != null && hasMedia && !transportMountGate.suppressPositionReports) {
+        val sampled = sample != null && hasMedia && !transportMountGate.suppressPositionReports &&
+            sample.sampledAtMs > roomMountAppliedAtMs
+        val position = if (sample != null && sampled) {
             val raw = sample.positionMs.coerceAtLeast(0L) / 1000.0
             val mapped = state.playbackPlan?.timeline?.sourcePositionForPlayer(raw) ?: raw
             state.serverDuration.takeIf { it > 0.0 }?.let(mapped::coerceAtMost) ?: mapped
@@ -4359,6 +4435,9 @@ class TvPlayerViewModel(
             state = tvRoomPlayerState(sample?.playbackState, hasMedia),
             seekPending = roomSeekPending(state),
             suspended = roomHolds.isNotEmpty() || sample?.suppressed == true,
+            sampledAtMs = sample?.sampledAtMs?.takeIf { sampled },
+            playbackSpeed = sample?.playbackSpeed?.takeIf { sampled },
+            mountGeneration = roomMountGeneration,
         )
     }
 
@@ -4370,7 +4449,17 @@ class TvPlayerViewModel(
     fun remoteUnpause() = setPaused(false)
     fun remoteTogglePlayPause() = onPlayPause()
     fun remoteSeek(positionSeconds: Double) = seekImmediate(positionSeconds)
-    fun remoteStop() { _remoteStopRequests.tryEmit(Unit) }
+    fun remoteStop(notice: String? = null) { _remoteStopRequests.tryEmit(notice) }
+
+    /**
+     * The server ended this session for good: an administrator stopped it
+     * while the control socket could not reach this player. Leave the way a
+     * remote stop does rather than renewing into a fresh session.
+     */
+    private fun leaveServerEndedSession() {
+        Log.i(TAG, "The server ended this playback session; leaving playback")
+        remoteStop(ADMIN_ENDED_PLAYBACK_NOTICE)
+    }
     fun remoteDisplayMessage(message: String) {
         _remoteMessage.value = RemoteMessage(++remoteMessageCounter, message)
     }
@@ -5533,8 +5622,11 @@ class TvPlayerViewModel(
         }
     }
 
-    fun beginScrub() {
-        _uiState.update { it.copy(isScrubbing = true, scrubPreviewSec = it.position, showControls = true) }
+    /** Start scrubbing from [originSec], or the playback position when null. */
+    fun beginScrub(originSec: Double? = null) {
+        _uiState.update {
+            it.copy(isScrubbing = true, scrubPreviewSec = originSec ?: it.position, showControls = true)
+        }
     }
 
     fun updateScrubPreview(sec: Double) {
@@ -5606,6 +5698,14 @@ class TvPlayerViewModel(
     }
 
     /**
+     * The preference the session plays at: a pick, the route's, or the saved
+     * setting the session started with. Auto lights in the menu only when
+     * this is "auto".
+     */
+    private fun sessionQualityPreference(): String? =
+        qualityOverride ?: preferredQuality ?: playbackSessionManager.activeVideoQualityPair()?.qualityPreference
+
+    /**
      * Switch the in-player video quality (tvOS / web ladder parity): pin a
      * session-level [qualityOverride] (full menu id, including high variants)
      * and request a protocol-v3 replan at the current position. Ladder rung
@@ -5613,7 +5713,7 @@ class TvPlayerViewModel(
      * for the replan while the menu keeps the selected rung highlighted.
      */
     fun switchQuality(wireValue: String): Boolean {
-        val current = qualityOverride ?: preferredQuality ?: PlaybackQuality.Auto.wireValue
+        val current = sessionQualityPreference() ?: PlaybackQuality.Auto.wireValue
         if (wireValue == current) return false
         val state = _uiState.value
         if (planQualities.isNotEmpty()) {
@@ -5659,9 +5759,11 @@ class TvPlayerViewModel(
         delivered: PlaybackEffectiveRecipeV3?,
         sourceResolution: String?,
         playMethod: String?,
+        source: PlaybackSourceDescriptorV3? = null,
     ): List<VideoQualityOption> {
         planQualities = available
         planDelivered = delivered
+        planSource = source
         return transcodeQualityLadder(
             sourceResolution,
             selectedLabel ?: PlaybackQuality.Auto.wireValue,
@@ -5682,7 +5784,7 @@ class TvPlayerViewModel(
         sourceBitrateKbps: Int = 0,
     ): List<VideoQualityOption> {
         if (planQualities.isNotEmpty()) {
-            return authoritativePlaybackQualityOptions(planQualities, selectedWire, planDelivered)
+            return authoritativePlaybackQualityOptions(planQualities, selectedWire, planDelivered, planSource)
         }
         val nativeHeight = org.prairieserver.prairie.playback.sourceHeightForFile(
             ladder = qualityLadder,
@@ -5789,7 +5891,8 @@ class TvPlayerViewModel(
 
     fun openAiTranslateDialog() {
         refreshAiQuota() // spec: quota refreshed on open
-        _aiTranslate.update { it.copy(phase = AiJobPhase.Idle) }
+        // Keep the phase: a running job shows its progress and a failure keeps
+        // its reason; the form stays usable for a new request in both cases.
         _uiState.update { it.copy(showAiTranslateDialog = true) }
     }
 
@@ -6165,8 +6268,12 @@ class TvPlayerViewModel(
                         }
                     }
                 }
-                is SubtitlesRepository.SubtitleJobOutcome.Failed -> _aiTranslate.update {
-                    it.copy(phase = AiJobPhase.Failed(outcome.message ?: "Translation failed"))
+                is SubtitlesRepository.SubtitleJobOutcome.Failed -> {
+                    val message = outcome.message ?: "Translation failed"
+                    _aiTranslate.update { it.copy(phase = AiJobPhase.Failed(message)) }
+                    // The dialog may have been closed while the job ran; a reason
+                    // is a full sentence, so it stays up long enough to read on a TV.
+                    if (!_uiState.value.showAiTranslateDialog) showPlayerMessage(aiFailureNotice(message), 10_000L)
                 }
                 SubtitlesRepository.SubtitleJobOutcome.Cancelled -> _aiTranslate.update {
                     it.copy(phase = AiJobPhase.Idle)

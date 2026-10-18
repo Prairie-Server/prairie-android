@@ -57,10 +57,12 @@ import org.prairieserver.prairie.model.playback.PlaybackStreamProtocol
 import org.prairieserver.prairie.model.playback.PlaybackStreamV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleArtifactV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleDecisionV3
+import org.prairieserver.prairie.model.playback.PlaybackSubtitleHlsRenditionV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleInventoryItemV3
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleModeV3
 import org.prairieserver.prairie.model.playback.PlaybackTerminalV3
 import org.prairieserver.prairie.model.playback.PlaybackTrackIdentityV3
+import org.prairieserver.prairie.model.playback.SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION
 import org.prairieserver.prairie.model.playback.SelectedPlaybackTracksV3
 import org.prairieserver.prairie.model.playback.SubtitleFidelityPreference
 import org.prairieserver.prairie.network.ApiResult
@@ -755,6 +757,110 @@ class PlaybackSessionManagerStagedReplanTest {
         assertIs<ApiResult.Success<VideoSessionStartV3.Ready>>(committed)
         assertEquals("s1", harness.manager.activeSessionIdForTest())
         assertEquals(emptyList(), harness.stoppedSessions)
+    }
+
+    @Test
+    fun `hls rendition candidate commits without sidecar artifact`() = runTest {
+        val harness = Harness(
+            replanResponse = { _, _ -> response(renditionPlan("s2")) },
+        )
+        harness.start()
+
+        val staged = harness.stageSidecar()
+        val committed = assertIs<ApiResult.Success<VideoSessionStartV3.Ready>>(
+            harness.manager.commitStagedVideoReplan(staged),
+        ).data
+
+        val selected = committed.session.subtitleUrls!!.single { it.index == 4 }
+        assertEquals("subs", selected.hlsRendition?.groupId)
+        assertEquals("", selected.url)
+        assertEquals(emptyList(), harness.stoppedSessions)
+    }
+
+    @Test
+    fun `off candidate that still carries a rendition is rejected`() = runTest {
+        val harness = Harness(
+            replanResponse = { _, _ ->
+                response(
+                    renditionPlan("s2").let { plan ->
+                        plan.copy(
+                            selectedTracks = plan.selectedTracks.copy(subtitle = null),
+                            subtitle = plan.subtitle.copy(mode = PlaybackSubtitleModeV3.OFF, trackId = null),
+                        )
+                    },
+                )
+            },
+        )
+        harness.start()
+
+        val staged = harness.manager.stageActiveVideoSessionReplan(
+            classification = "subtitle_track_changed",
+            positionSeconds = 42.0,
+            audioTrackIndex = 0,
+            subtitleTrackIndex = null,
+        )
+
+        assertIs<ApiResult.Error>(staged)
+        assertEquals("s1", harness.manager.activeSessionIdForTest())
+    }
+
+    @Test
+    fun `rendition failure recovers through failure recovery for the sidecar plan`() = runTest {
+        val harness = Harness(
+            replanResponse = { index, _ -> response(if (index == 0) renditionPlan("s2") else replanPlan("s3")) },
+        )
+        harness.start()
+        assertIs<ApiResult.Success<VideoSessionStartV3.Ready>>(
+            harness.manager.commitStagedVideoReplan(harness.stageSidecar()),
+        )
+
+        val recovered = assertIs<ApiResult.Success<VideoSessionStartV3>>(
+            harness.manager.replanActiveVideoSession(
+                classification = SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION,
+                positionSeconds = 43.0,
+                audioTrackIndex = 0,
+                subtitleTrackIndex = 4,
+            ),
+        ).data
+
+        val ready = assertIs<VideoSessionStartV3.Ready>(recovered)
+        assertEquals(sidecarArtifact("s1", 4), ready.plan.subtitle.artifact)
+        val request = harness.replanBodies[1]
+        assertEquals("failure_recovery", request["operation"]!!.jsonPrimitive.content)
+        assertEquals(
+            SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION,
+            request["failure"]!!.jsonObject["classification"]!!.jsonPrimitive.content,
+        )
+        assertTrue(
+            "v3:test:rendition-s2" in request["attempted_plan_keys"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(4, request["selected_tracks"]!!.jsonObject["subtitle"]!!.jsonObject["index"]!!.jsonPrimitive.int)
+        assertEquals(emptyList(), harness.stoppedSessions)
+    }
+
+    @Test
+    fun `rejected rendition recovery keeps the healthy session`() = runTest {
+        val harness = Harness(
+            replanResponse = { index, _ ->
+                if (index == 0) response(renditionPlan("s2")) else response(renditionPlan("s2"))
+            },
+        )
+        harness.start()
+        assertIs<ApiResult.Success<VideoSessionStartV3.Ready>>(
+            harness.manager.commitStagedVideoReplan(harness.stageSidecar()),
+        )
+
+        // The server repeating the failed plan is a loop. A subtitle retry
+        // reports it as an error rather than a terminal that ends playback.
+        val result = harness.manager.replanActiveVideoSession(
+            classification = SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION,
+            positionSeconds = 43.0,
+            audioTrackIndex = 0,
+            subtitleTrackIndex = 4,
+        )
+
+        assertIs<ApiResult.Error>(result)
+        assertEquals("s1", harness.manager.activeSessionIdForTest())
     }
 
     @Test
@@ -1781,6 +1887,20 @@ class PlaybackSessionManagerStagedReplanTest {
         fun replanPlan(planId: String, sessionId: String = "s1") = sidecarPlan(sessionId).copy(
             planId = "plan-$planId", planAttemptKey = "v3:test:$planId",
         )
+
+        fun renditionPlan(planId: String, sessionId: String = "s1") = replanPlan(planId, sessionId).let { plan ->
+            plan.copy(
+                planId = "plan-rendition-$planId",
+                planAttemptKey = "v3:test:rendition-$planId",
+                delivery = PlaybackDelivery.SERVER_TRANSCODE_HLS,
+                stream = plan.stream.copy(url = "/api/v2/playback/transcode/$sessionId/master.m3u8"),
+                subtitle = plan.subtitle.copy(
+                    mode = PlaybackSubtitleModeV3.RENDER,
+                    artifact = null,
+                    hlsRendition = PlaybackSubtitleHlsRenditionV3("subs", "Subtitles", "vtt", "text/vtt"),
+                ),
+            )
+        }
 
         fun basePlan(
             sessionId: String = "s1",

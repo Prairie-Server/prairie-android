@@ -8,7 +8,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.errorMessage
 
 /**
- * Sorts a failed create, cancel, or moderation into the two outcomes the UI
+ * Sorts a failed create or cancel into the two outcomes the UI
  * treats differently. All of them are `non_retryable`: the server keeps no
  * request identity, so a resend after an uncertain outcome can act twice.
  *
@@ -44,7 +44,6 @@ object RequestMutationFailure {
 object RequestActionCopy {
     const val UnconfirmedSubmit = "We couldn't confirm the request. Check My Requests before trying again."
     const val UnconfirmedCancel = "We couldn't confirm the cancellation. Refresh your requests to check it."
-    const val UnconfirmedModeration = "We couldn't confirm that decision. Refresh to see where the request stands."
 
     /**
      * Copy for a definite failure. v2 folds "already requested", "already
@@ -58,11 +57,18 @@ object RequestActionCopy {
         else -> result.errorMessage(fallback)
     }
 
+    /** The server refused because the feature is off: the caller should re-read its capability. */
+    fun isCapabilityOff(result: ApiResult<*>): Boolean = result is ApiResult.Error && result.error in CapabilityOff
+
     private val CapabilityOff = setOf("capability_disabled", "capability_not_configured", "capability_unsupported")
+
+    /** Confirmations for following a title someone else requested (the web's toasts). */
+    const val Followed = "We'll let you know when it's available"
+    const val Unfollowed = "Notification turned off"
 }
 
 /**
- * A cancel, approve, decline, or retry sent without a usable answer. A timed-out
+ * A cancel sent without a usable answer. A timed-out
  * call can still be running on the server when the next read comes back, so an
  * unchanged request proves nothing: the hold lasts until the request changes or
  * leaves the list. It lapses after [Lifetime], read or not, so a call that never
@@ -87,17 +93,6 @@ class RequestActionHold(
     companion object {
         val Lifetime: Duration = 60.seconds
     }
-}
-
-/** Where one row's admin action is, so the row can animate it. */
-sealed interface RequestRowActionPhase {
-    val action: AdminRequestAction
-
-    /** The button spins. */
-    data class Working(override val action: AdminRequestAction) : RequestRowActionPhase
-
-    /** The button shows its result, then the row leaves the list. */
-    data class Succeeded(override val action: AdminRequestAction) : RequestRowActionPhase
 }
 
 /**
@@ -129,3 +124,27 @@ fun RequestMediaResult.applying(record: MediaRequest): RequestMediaResult =
 
 fun List<RequestMediaResult>.applyingRequestUpdate(record: MediaRequest): List<RequestMediaResult> =
     map { it.applying(record) }
+
+/**
+ * The viewer started or stopped following one title. [state] is the server's
+ * answer to a follow; an unfollow answers with no body, so it is null and only
+ * [following] changes.
+ */
+data class RequestFollowEvent(
+    val mediaType: String,
+    val tmdbId: Int,
+    val following: Boolean,
+    val state: RequestState?,
+    val sequence: Long,
+)
+
+/**
+ * This state after the viewer's follow or unfollow: the server's answer to a
+ * follow when there is one, keeping the request id it may leave out, or just
+ * the flag for an unfollow, which answers with no body.
+ */
+fun RequestState.applyingFollow(event: RequestFollowEvent): RequestState =
+    event.state?.let { it.copy(requestId = it.requestId ?: requestId) } ?: copy(following = event.following)
+
+fun List<RequestMediaResult>.applyingFollowUpdate(event: RequestFollowEvent): List<RequestMediaResult> =
+    map { if (it.mediaType == event.mediaType && it.tmdbId == event.tmdbId) it.copy(request = it.request.applyingFollow(event)) else it }

@@ -69,6 +69,7 @@ import org.prairieserver.prairie.common.player.Playability
 import org.prairieserver.prairie.common.player.PlaybackAnalyticsListener
 import org.prairieserver.prairie.common.network.PrairieClientBuildIdentity
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
+import org.prairieserver.prairie.common.player.PlaybackNetworkSnapshot
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.SleepTimerController
@@ -278,6 +279,60 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
             viewModel.loadContent(contentId = "other", preferredFileId = 2)
             starter.awaitRequestCount(3)
             assertNull(starter.request(2).preferredQualityOverride)
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
+    fun trackPicksHeldForANetworkMoveKeepTheirRouteIntent() = runTest(dispatcher) {
+        val starter = DeferredNonCooperativeStarter()
+        val fixture = playerViewModel(starter, backgroundScope)
+        val store = ViewModelStore().also { it.put("player", fixture.viewModel) }
+        try {
+            val viewModel = fixture.viewModel
+            val sidecar = org.prairieserver.prairie.model.playback.PlayerSubtitleInfo(
+                index = 3,
+                language = "en",
+                url = "/api/v2/stream/s1/subtitles/3.vtt",
+            )
+            viewModel.mutableUiState().update {
+                it.copy(
+                    contentId = "movie",
+                    subtitleTracks = listOf(sidecar),
+                    audioTracks = listOf(AudioTrack(index = 0), AudioTrack(index = 1)),
+                )
+            }
+            val routeIntent = viewModel.privateField<MobilePlayerRouteIntentState>("routeIntentState")
+            routeIntent.beginLoad(
+                contentId = "movie",
+                fileId = null,
+                quality = null,
+                audioTrackIndex = null,
+                subtitleTrackIndex = null,
+                resumePositionSeconds = null,
+                preserveCurrent = false,
+            )
+            // An earlier pick has set up the track transaction for this title.
+            viewModel.onSelectAudio(0)
+            runCurrent()
+            assertFalse(routeIntent.current!!.subtitleTrackIsExplicit)
+
+            val move = kotlinx.coroutines.CompletableDeferred<Unit>()
+            viewModel.privateField<PicksDuringNetworkMove>("picksDuringNetworkMove")
+                .holdUntilDone(backgroundScope.async { move.await() })
+            viewModel.onSelectSubtitle(0)
+            viewModel.onSelectAudio(1)
+            // The move lands and publishes the tracks it committed, with no
+            // transaction in flight.
+            viewModel.landNetworkMove(org.prairieserver.prairie.model.playback.SubtitleIdentity.Off)
+            move.complete(Unit)
+            runCurrent()
+
+            val intent = routeIntent.current!!
+            assertTrue(intent.subtitleTrackIsExplicit, "the subtitle pick is the viewer's")
+            assertEquals(1, intent.audioTrackIndex)
+            assertTrue(intent.audioTrackIsExplicit, "the audio pick is the viewer's")
         } finally {
             store.clear()
         }
@@ -717,6 +772,23 @@ class PlayerViewModelLoadOwnershipIntegrationTest {
             it.isAccessible = true
             it.get(this) as MutableStateFlow<PlayerViewModel.PlayerUiState>
         }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> PlayerViewModel.privateField(name: String): T =
+        PlayerViewModel::class.java.getDeclaredField(name).let {
+            it.isAccessible = true
+            it.get(this) as T
+        }
+
+    /** What a network move's adoption does: resets the track transaction to the tracks it committed. */
+    private fun PlayerViewModel.landNetworkMove(committedSubtitle: org.prairieserver.prairie.model.playback.SubtitleIdentity) {
+        val context = PlayerViewModel::class.java
+            .getDeclaredMethod("mobileSubtitleContext", PlayerViewModel.PlayerUiState::class.java)
+            .apply { isAccessible = true }
+            .invoke(this, uiState.value) as MobileSubtitlePlaybackContext
+        privateField<MobileSubtitleTransactionAdapter>("mobileSubtitleTransactions")
+            .resetContent(context, committedSubtitle)
+    }
 
     private fun PlayerViewModel.setPickedQuality(quality: String) {
         PlayerViewModel::class.java.getDeclaredField("sessionQualityOverride").let {
@@ -1437,6 +1509,98 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
     }
 
     @Test
+    fun mobileDataStartsAtTheCellularPair() = runTest(dispatcher) {
+        assertStartsAtTheCellularPair(
+            PlaybackNetworkSnapshot(connected = true, metered = true, transport = "cellular", cellular = true),
+        )
+    }
+
+    @Test
+    fun aVpnOverWifiStartsAtTheMainPair() = runTest(dispatcher) {
+        var allocation: MobileVideoSessionAllocation? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            // Android marks most VPNs metered; Tailscale at home is still Wi-Fi.
+            network = PlaybackNetworkSnapshot(connected = true, metered = true, transport = "wifi", vpn = true),
+            onAllocation = { allocation = it },
+        )
+
+        assertEquals("auto", allocation?.qualityPreference)
+        assertNull(allocation?.maxBitrateKbps)
+    }
+
+    @Test
+    fun aRenewalCarriesNoQualityThatCameFromTheSettings() = runTest(dispatcher) {
+        // Settings for mobile data: 720p at 2 Mbps. A renewal reads them again
+        // for the connection it is on rather than pinning 720p.
+        var adopted: StartParams? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            network = PlaybackNetworkSnapshot(connected = true, metered = true, transport = "cellular", cellular = true),
+            onAdoption = { adopted = it },
+        )
+
+        assertNull(adopted?.qualityPreference)
+    }
+
+    @Test
+    fun aRenewalCarriesAQualityPickedInThePlayer() = runTest(dispatcher) {
+        var allocation: MobileVideoSessionAllocation? = null
+        var adopted: StartParams? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            preferredQualityOverride = "1080p",
+            onAllocation = { allocation = it },
+            onAdoption = { adopted = it },
+        )
+
+        assertEquals("1080p", allocation?.qualityPreference)
+        assertEquals("1080p", adopted?.qualityPreference)
+    }
+
+    @Test
+    fun aMeteredWifiNetworkStartsAtTheCellularPair() = runTest(dispatcher) {
+        // A phone hotspot, or Wi-Fi the user marked metered.
+        assertStartsAtTheCellularPair(PlaybackNetworkSnapshot(connected = true, metered = true, transport = "wifi"))
+    }
+
+    private suspend fun TestScope.assertStartsAtTheCellularPair(network: PlaybackNetworkSnapshot) {
+        var allocation: MobileVideoSessionAllocation? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            network = network,
+            onAllocation = { allocation = it },
+        )
+
+        // The store's cellular defaults: the 720p preset.
+        assertEquals("720p", allocation?.qualityPreference)
+        assertEquals(2_000, allocation?.maxBitrateKbps)
+    }
+
+    @Test
+    fun unmeteredNetworksStartAtTheMainPair() = runTest(dispatcher) {
+        var allocation: MobileVideoSessionAllocation? = null
+
+        start(
+            effective = "",
+            profile = Profile(id = PROFILE_ID, name = "Profile"),
+            network = PlaybackNetworkSnapshot(connected = true, metered = false, transport = "wifi"),
+            onAllocation = { allocation = it },
+        )
+
+        assertEquals("auto", allocation?.qualityPreference)
+        assertNull(allocation?.maxBitrateKbps)
+    }
+
+    @Test
     fun unknownSourceDurationStaysUnknownAtTheStarterBoundary() = runTest(dispatcher) {
         val ready = start(
             effective = "",
@@ -1457,6 +1621,8 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
         onAllocation: (MobileVideoSessionAllocation) -> Unit = {},
         readyStart: VideoSessionStartV3.Ready = allocatedReady("subtitle-session"),
         onAdoption: (StartParams) -> Unit = {},
+        network: PlaybackNetworkSnapshot = PlaybackNetworkSnapshot(),
+        preferredQualityOverride: String? = null,
     ): VideoPlaybackStartResult.Ready {
         val client = catalogClient(effective, versionFields)
         val tokenManager = FakeTokenManager()
@@ -1488,6 +1654,7 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
                 ApiResult.Success(readyStart)
             },
             sessionAdopter = { params, _ -> onAdoption(params) },
+            networkEvidenceProvider = { network },
         )
 
         val result = starter.start(
@@ -1498,6 +1665,7 @@ class MobileVideoPlaybackStarterSubtitlePreferenceTest {
                 resumePositionOverride = null,
                 audioTrackIndex = explicitAudioTrackIndex,
                 subtitleTrackIndex = explicitSubtitleTrackIndex,
+                preferredQualityOverride = preferredQualityOverride,
             ),
         )
         assertTrue(result is VideoPlaybackStartResult.Ready, "expected a ready start, got $result")
@@ -1729,7 +1897,6 @@ private class FakePlayerSettingsStore(
     override suspend fun setResumeRewindSeconds(value: Int) = Unit
     override suspend fun setPassOutThreshold(value: Int) = Unit
     override suspend fun setPreferredQuality(value: String) = Unit
-    override suspend fun setQuality(resolution: String, bitrateKbps: Int?) = Unit
     override suspend fun setAudioLanguage(value: String) = Unit
     override suspend fun setVideoGravity(value: String) = Unit
     override suspend fun setOrientationMode(value: String) = Unit

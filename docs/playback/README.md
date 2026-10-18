@@ -100,6 +100,28 @@ and let the server replan with its sidecar path. Tracks without a probed
 container ID keep using sidecars; metadata similarity is not exact identity
 evidence.
 
+## HLS subtitle renditions
+
+Android sends `hls_subtitle_renditions_v1` when its HLS delivery carries
+`native_hls_playback_v1`, so the Cast context never negotiates it. A
+`server_transcode_hls` plan with `subtitle.hls_rendition` carries the selected
+embedded text track as a WebVTT `SUBTITLES` rendition of its multivariant
+playlist. The selected inventory row keeps its server URL on the wire, but the
+client projects it with `hls_rendition` and no URL, so it is never mounted as a
+sidecar; other rows keep their URLs.
+
+Media3 1.11.0's `HlsPlaylistParser` names an `EXT-X-MEDIA` rendition
+`GROUP-ID:NAME` (`subs:Subtitles`) and labels it `NAME`; `HlsMediaPeriod` keeps
+both, and a merged source adds a numeric child prefix. Phone and TV select that
+exact ID, falling back to a single non-sidecar track labelled `NAME`. Language
+never identifies the rendition, which declares none, and an unlabelled in-band
+CEA-608 track never matches. Like a native embedded decision, the preference
+commits only after the track is selected. A mount that fails replans
+`failure_recovery` with `subtitle_hls_rendition_failed`; the failed plan key
+makes the server return the sidecar plan. Rendition cues carry
+`X-TIMESTAMP-MAP`, so Media3's timestamp adjuster aligns them and they receive
+only the user delay, like embedded cues.
+
 Sidecar cues use absolute source timestamps. Android subtracts the plan's
 `timeline_offset_seconds` once, alongside the user's subtitle delay. Embedded
 cues already follow the extractor timeline and receive only the user delay.

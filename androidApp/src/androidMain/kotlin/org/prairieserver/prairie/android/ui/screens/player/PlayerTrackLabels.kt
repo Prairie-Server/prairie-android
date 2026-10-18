@@ -49,7 +49,7 @@ internal fun subtitleTrackPresentation(
     )
     val title = parts.languageName ?: parts.descriptor ?: "Subtitle ${index + 1}"
     val chips = buildList {
-        if (parts.aiGenerated) add("AI")
+        parts.aiKind?.let { add(it.displayName) }
         if (parts.forced) add("Forced")
         if (parts.sdh) add("SDH")
     }

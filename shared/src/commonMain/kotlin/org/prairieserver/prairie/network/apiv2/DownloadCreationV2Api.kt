@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.network.apiv2
 
+import org.prairieserver.prairie.network.localroute.stayOnSavedAddress
 import io.ktor.client.HttpClient
 import io.ktor.client.request.*
 import io.ktor.http.*
@@ -42,6 +43,8 @@ class DownloadCreationV2Api(
         val result = ownedV2Call<CreatedDownloadsV2, CreatedDownloadsV2>(gate, tokens, scope, OwnerPolicy.IDENTITY, HttpStatusCode.Accepted, { owner ->
             client.post("/api/v2/downloads") {
                 authScope(owner!!); requirePrairieAuth(); singleAttempt()
+                // Downloads stay on the saved address, end to end.
+                stayOnSavedAddress()
                 // The auth plugin attaches X-Prairie-Device-Id for the current device;
                 // adding it here too sends two values, which the server stores as
                 // "id,id" and the receipt guard then rejects. `device` is only the
