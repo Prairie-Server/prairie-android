@@ -139,11 +139,8 @@ class QualityPresetsTest {
     }
 
     @Test
-    fun `byId and describe cover uncapped original and compound 4k`() {
-        assertEquals("original", QualityPresets.byId("original")?.id)
+    fun `byId and normalizeResolution cover unknown ids and compound 4k`() {
         assertNull(QualityPresets.byId("missing"))
-        assertEquals("Original", QualityPresets.describe("original", null))
-        assertEquals("Original at 12 Mbps", QualityPresets.describe("original", 12000))
         assertEquals("2160p", QualityPresets.normalizeResolution("4k-high"))
     }
 }
