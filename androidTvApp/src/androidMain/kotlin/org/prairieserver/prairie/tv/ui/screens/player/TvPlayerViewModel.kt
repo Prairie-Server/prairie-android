@@ -1914,7 +1914,7 @@ class TvPlayerViewModel(
             // sent Auto on every subtitle change, over a saved resolution, and
             // the commit then recorded it as the viewer's pick.
             qualityPreference = (qualityOverride ?: preferredQuality)
-                ?.let(org.prairieserver.prairie.playback::toV3QualityPreference),
+                ?.let { org.prairieserver.prairie.playback.toV3QualityPreference(it) },
             subtitleTracks = state.subtitleUrls,
             audioTracks = version?.audioTracks.orEmpty(),
             outputRouteGeneration = capabilityDetector.outputRouteGeneration.value,

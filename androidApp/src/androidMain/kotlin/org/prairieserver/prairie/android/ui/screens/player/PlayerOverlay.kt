@@ -177,7 +177,6 @@ fun PlayerOverlay(
                     name = option.label,
                     bitrateLabel = option.sublabel.ifBlank { null },
                     bitrateKbps = option.bitrateKbps,
-                    preservesSource = option.isOriginal,
                 )
             }
         } else {
