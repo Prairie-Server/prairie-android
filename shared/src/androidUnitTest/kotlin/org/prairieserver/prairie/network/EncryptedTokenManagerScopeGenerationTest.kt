@@ -411,6 +411,46 @@ class EncryptedTokenManagerScopeGenerationTest {
         AuthScopeSnapshot(serverId, null, "https://$serverId.example", null, credentialGenerationId = credentialGenerationId)
 
     @Test
+    fun aSavedLoginLendsAnInactiveServersCredentialsOnlyUntilTheNextIdentityTransition() = runTest {
+        val transitions = DefaultIdentityTransitionBarrier()
+        val manager = EncryptedTokenManagerImpl(
+            inMemoryPreferences(*savedSession("server-a", null), *savedSession("server-b", null)),
+            FakeServerRegistry(),
+            transitions,
+        )
+
+        val inactive = checkNotNull(manager.savedLoginAuthority("server-b", "kids", "kids-proof"))
+        assertEquals(manager.loginSessionId("server-b"), inactive.loginId)
+        assertEquals("https://server-b.example", inactive.scope.serverUrl)
+        assertEquals("server-b-access", manager.getAccessTokenForScope(inactive.scope))
+
+        transitions.changing(IdentityTransitionKind.PROFILE_SWITCH) {}
+        assertNull(manager.getAccessTokenForScope(inactive.scope))
+
+        manager.clearTokens()
+        assertNull(manager.savedLoginAuthority("server-a", "kids", "kids-proof"), "signed out there")
+    }
+
+    @Test
+    fun aSignOutClearsOnlyTheServerAndLoginItWasMeantFor() = runTest {
+        val registry = FakeServerRegistry()
+        val manager = EncryptedTokenManagerImpl(
+            inMemoryPreferences(*savedSession("server-a", null), *savedSession("server-b", null)),
+            registry,
+        )
+        val loginA = manager.loginSessionId("server-a")
+
+        registry.switchExternally("server-b")
+        assertFalse(manager.signOutServer("server-a", loginA), "server-b became active first")
+        assertEquals("server-b-access", manager.getAccessToken())
+
+        registry.switchExternally("server-a")
+        assertTrue(manager.signOutServer("server-a", loginA))
+        assertNull(manager.getAccessToken())
+        assertNull(manager.loginSessionId("server-a"))
+    }
+
+    @Test
     fun theActiveServersNearExpiryAsksForARefresh() = runTest {
         val near = EncryptedTokenManagerImpl(inMemoryPreferences(*savedSession("server-a", 10_000L)), FakeServerRegistry())
         assertTrue(near.accessTokenExpiresWithin(scope("server-a"), marginMs = 60_000L))

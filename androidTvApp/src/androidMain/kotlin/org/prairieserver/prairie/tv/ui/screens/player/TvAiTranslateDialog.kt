@@ -68,6 +68,9 @@ fun TvAiTranslateDialog(
 ) {
     val subtitlesAvailable = aiState.status.enabled && subtitleSources.isNotEmpty()
     val audioAvailable = aiState.status.transcribeEnabled && audioSources.isNotEmpty()
+    // Translating a transcript needs translation too; without it audio jobs
+    // stay in the spoken language.
+    val canTranslateTranscript = aiState.status.enabled
 
     var mode by remember(subtitlesAvailable, audioAvailable) {
         mutableStateOf(if (subtitlesAvailable) TvAiTranslateMode.Subtitles else TvAiTranslateMode.Audio)
@@ -269,22 +272,32 @@ fun TvAiTranslateDialog(
                                 )
                             }
 
-                            val targetLanguageLabel =
-                                tvLanguageDisplayName(TvSubtitleLanguageOptions[targetPos])
-                            TvDialogCyclerRow(
-                                title = "Target language",
-                                value = targetLanguageLabel,
-                                onPrevious = {
-                                    targetPos = (targetPos - 1 + TvSubtitleLanguageOptions.size) %
-                                        TvSubtitleLanguageOptions.size
-                                },
-                                onNext = {
-                                    targetPos = (targetPos + 1) % TvSubtitleLanguageOptions.size
-                                },
-                                modifier = Modifier.semantics {
-                                    contentDescription = "Target language, $targetLanguageLabel"
-                                },
-                            )
+                            if (mode == TvAiTranslateMode.Subtitles || canTranslateTranscript) {
+                                val targetLanguageLabel =
+                                    tvLanguageDisplayName(TvSubtitleLanguageOptions[targetPos])
+                                TvDialogCyclerRow(
+                                    title = "Target language",
+                                    value = targetLanguageLabel,
+                                    onPrevious = {
+                                        targetPos = (targetPos - 1 + TvSubtitleLanguageOptions.size) %
+                                            TvSubtitleLanguageOptions.size
+                                    },
+                                    onNext = {
+                                        targetPos = (targetPos + 1) % TvSubtitleLanguageOptions.size
+                                    },
+                                    modifier = Modifier.semantics {
+                                        contentDescription = "Target language, $targetLanguageLabel"
+                                    },
+                                )
+                            } else {
+                                Text(
+                                    text = "Subtitles are written in the spoken language. " +
+                                        "AI translation is turned off on this server.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.66f),
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                )
+                            }
 
                             // Quota applies to transcribe kinds only; admins are
                             // exempt (limited=false → no line).
@@ -343,12 +356,16 @@ fun TvAiTranslateDialog(
                                             audioSourcePos.coerceIn(0, audioSources.lastIndex),
                                         ]
                                         val sameLanguage = tvIsSameLanguage(src.language, targetLanguage)
-                                        onSubmit(
-                                            if (sameLanguage) "transcribe" else "transcribe_translate",
-                                            src.index,
-                                            src.language,
-                                            targetLanguage,
-                                        )
+                                        if (!canTranslateTranscript) {
+                                            onSubmit("transcribe", src.index, src.language, "")
+                                        } else {
+                                            onSubmit(
+                                                if (sameLanguage) "transcribe" else "transcribe_translate",
+                                                src.index,
+                                                src.language,
+                                                targetLanguage,
+                                            )
+                                        }
                                     }
                                 },
                             )

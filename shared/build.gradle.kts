@@ -161,6 +161,15 @@ kover {
                     // Live server identity/connection probe (needs a real server).
                     "org.prairieserver.prairie.network.api.DefaultServerIdentityApi",
                     "org.prairieserver.prairie.network.api.DefaultServerIdentityApi$*",
+                    // ponytail: LocalRouteProbe issues real TLS+HTTP requests; only android-shared's
+                    // LocalRouteTransportTest (MockWebServer) exercises it, and Kover does not count
+                    // that module here. Upgrade path: add mockwebserver to shared androidUnitTest and
+                    // test readOffer/confirms there. The pinning classes are covered by shared tests.
+                    "org.prairieserver.prairie.network.localroute.LocalRouteProbe*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteTransport*",
+                    "org.prairieserver.prairie.network.localroute.SharedPreferencesLocalRouteStore*",
+                    "org.prairieserver.prairie.network.localroute.AndroidLocalRouteEnvironment*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteEnvironmentKt*",
                 )
             }
         }

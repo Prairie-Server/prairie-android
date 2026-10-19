@@ -2,6 +2,7 @@ package org.prairieserver.prairie.network
 
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
+import org.prairieserver.prairie.network.localroute.localRoute
 
 /**
  * Android platform HttpClient using the OkHttp engine.
@@ -11,6 +12,9 @@ import io.ktor.client.engine.okhttp.*
  * new `OkHttpClient` for each Ktor client (force-resetting the dispatcher in
  * the process), and per-client dispatchers keep API, diagnostics, and image
  * traffic from queueing behind each other.
+ *
+ * Every client can take the active server's local route
+ * ([org.prairieserver.prairie.network.localroute.LocalRouteInterceptor]).
  */
 actual fun createPlatformHttpClient(retryOnConnectionFailure: Boolean): HttpClient {
     return HttpClient(OkHttp) {
@@ -19,6 +23,7 @@ actual fun createPlatformHttpClient(retryOnConnectionFailure: Boolean): HttpClie
                 dispatcher(PrairieOkHttp.newDispatcher())
                 connectionPool(PrairieOkHttp.connectionPool)
                 retryOnConnectionFailure(retryOnConnectionFailure)
+                localRoute()
             }
         }
     }

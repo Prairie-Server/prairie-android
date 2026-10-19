@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.repository
 
+import org.prairieserver.prairie.model.personal.UserLibrary
 import org.prairieserver.prairie.model.profile.CreateProfileRequest
 import org.prairieserver.prairie.model.profile.Profile
 import org.prairieserver.prairie.model.profile.UpdateProfileRequest
@@ -68,6 +69,10 @@ open class ProfileRepository(
             )
         return profileApi.updateProfile(profileId, request)
     }
+
+    /** The account's libraries, for the profile forms' library allowlist. */
+    open suspend fun listAssignableLibraries(): ApiResult<List<UserLibrary>> =
+        profileApi.listAssignableLibraries()
 
     /** Deletes a profile by ID, as the household manager while manage mode is on. */
     suspend fun deleteProfile(id: String): ApiResult<Unit> =

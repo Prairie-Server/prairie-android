@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.requests
 
-import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
+import android.os.Build
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -27,8 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -79,7 +80,6 @@ import org.prairieserver.prairie.common.requests.rememberRequestRouter
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.catalog.ExternalRatings
 import org.prairieserver.prairie.model.catalog.ItemDetail
-import org.prairieserver.prairie.model.request.AdminRequestAction
 import org.prairieserver.prairie.model.request.MediaRequest
 import org.prairieserver.prairie.model.request.RequestDisplayState
 import org.prairieserver.prairie.model.request.RequestMediaDetail
@@ -115,30 +115,15 @@ fun RequestDetailScreen(
     val state by viewModel.uiState.collectAsState()
     val router = rememberRequestRouter(koinInject(), onLibraryItemClick, onRequestDetailClick)
     val scroll = remember { DetailScrollState() }
-    var confirmingDecline by remember { mutableStateOf(false) }
     val view = LocalView.current
 
-    // Counters the view model keeps; remembered so a return or rotation
+    // A counter the view model keeps; remembered so a return or rotation
     // doesn't replay the last action's haptic.
-    val accepted = state.submittedCount + state.moderatedCount
+    val accepted = state.submittedCount
     var seenAccepted by rememberSaveable { mutableStateOf(accepted) }
     LaunchedEffect(accepted) {
         if (accepted > seenAccepted) view.performHapticFeedback(confirmHaptic())
         seenAccepted = accepted
-    }
-
-    if (confirmingDecline) {
-        PrairieConfirmDialog(
-            title = "Decline this request?",
-            body = "The person who asked for it will see it as declined.",
-            confirmLabel = "Decline",
-            dismissLabel = "Keep",
-            onConfirm = {
-                confirmingDecline = false
-                viewModel.moderate(AdminRequestAction.Decline)
-            },
-            onDismiss = { confirmingDecline = false },
-        )
     }
 
     Box(modifier = Modifier.fillMaxSize().background(PrairieBackground)) {
@@ -161,10 +146,8 @@ fun RequestDetailScreen(
                                 else -> Unit
                             }
                         },
-                        onModerate = { action ->
-                            if (action == AdminRequestAction.Decline) confirmingDecline = true else viewModel.moderate(action)
-                        },
                         onCancel = viewModel::cancel,
+                        onToggleFollow = viewModel::toggleFollow,
                         router = router,
                     )
                 }
@@ -182,8 +165,8 @@ private fun RequestDetailContent(
     state: RequestDetailUiState,
     scroll: DetailScrollState,
     onPrimary: () -> Unit,
-    onModerate: (AdminRequestAction) -> Unit,
     onCancel: () -> Unit,
+    onToggleFollow: () -> Unit,
     router: RequestRouter,
 ) {
     val itemDetail = remember(detail) { detail.toHeroDetail() }
@@ -225,7 +208,7 @@ private fun RequestDetailContent(
                         dominantColor = dominantColor,
                         directorText = detail.creditText(),
                         actions = {
-                            RequestDetailActions(state = state, onPrimary = onPrimary, onModerate = onModerate, onCancel = onCancel)
+                            RequestDetailActions(state = state, onPrimary = onPrimary, onCancel = onCancel, onToggleFollow = onToggleFollow)
                         },
                     )
                 }
@@ -248,17 +231,20 @@ private fun RequestDetailContent(
     }
 }
 
-/** The primary action, its hint or error, the status card, admin decisions, and Cancel. */
+/** The primary action, Notify me, its hint or error, the status card, and Cancel. */
 @Composable
 private fun RequestDetailActions(
     state: RequestDetailUiState,
     onPrimary: () -> Unit,
-    onModerate: (AdminRequestAction) -> Unit,
     onCancel: () -> Unit,
+    onToggleFollow: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PrimaryActionButton(state = state, onClick = onPrimary)
-        val message = state.actionErrorMessage
+        if (state.canFollow) {
+            FollowButton(state = state, onClick = onToggleFollow)
+        }
+        val message = state.actionErrorMessage ?: state.shownFollowNotice
         if (message != null) {
             Text(
                 text = message,
@@ -278,42 +264,7 @@ private fun RequestDetailActions(
         }
         val progress = state.progress
         if (progress != null && state.showsStatus) {
-            RequestStatusCard(progress = progress, record = state.displayedRecord)
-        }
-        val actions = state.moderationActions
-        if (actions.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                actions.forEach { action ->
-                    val prominent = action != AdminRequestAction.Decline
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 44.dp)
-                            .clip(CircleShape)
-                            .background(if (prominent) Color.White else RequestChromeSelectedFill)
-                            .clickable { onModerate(action) },
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = when (action) {
-                                AdminRequestAction.Approve -> Icons.Filled.Check
-                                AdminRequestAction.Decline -> Icons.Filled.Close
-                                AdminRequestAction.Retry -> Icons.Filled.Refresh
-                            },
-                            contentDescription = null,
-                            tint = if (prominent) Color.Black else PrairieOnSurface,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = action.name,
-                            fontSize = 15.sp,
-                            fontWeight = if (prominent) FontWeight.Bold else FontWeight.SemiBold,
-                            color = if (prominent) Color.Black else PrairieOnSurface,
-                        )
-                    }
-                }
-            }
+            RequestStatusCard(progress = progress, record = state.record)
         }
         if (state.canCancel) {
             Text(
@@ -329,6 +280,41 @@ private fun RequestDetailActions(
                     .padding(vertical = 12.dp),
             )
         }
+    }
+}
+
+/**
+ * Someone else already requested the title: hear when it lands instead of
+ * requesting it again. A quiet secondary action, like Cancel, whose label
+ * flips in place.
+ */
+@Composable
+private fun FollowButton(state: RequestDetailUiState, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = !state.isFollowPending, onClick = onClick),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (state.isFollowPending) {
+            CircularProgressIndicator(color = PrairieSecondaryText, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+        } else {
+            Icon(
+                imageVector = if (state.isFollowing) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
+                contentDescription = null,
+                tint = PrairieOnSurface,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Text(
+            text = state.followActionTitle,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = PrairieOnSurface,
+        )
     }
 }
 
@@ -497,3 +483,6 @@ private fun RequestMediaDetail.creditText(): String? = when {
     creators.isNotEmpty() -> "Created by ${creators.take(2).joinToString(", ")}"
     else -> null
 }
+
+private fun confirmHaptic(): Int =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.LONG_PRESS

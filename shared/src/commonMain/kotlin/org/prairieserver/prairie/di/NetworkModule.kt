@@ -29,6 +29,8 @@ val networkModule = module {
     single { ApiV2Probe(get()) }
     single { ImageCapabilitiesApi(get(), get(), get()) }
     single { org.prairieserver.prairie.repository.ImageCapabilitiesSession(get(), get(), get()) }
+    // The apps bind an ArtworkLayout; without one, reads carry no artwork widths.
+    single { org.prairieserver.prairie.repository.ArtworkSizing(getOrNull(), get()) }
     single { AuthApi(get(), get()) }
     single { OnboardingApi(get(), get(), get()) }
     single<DeviceLoginApi> { DefaultDeviceLoginApi(get(), get()) }

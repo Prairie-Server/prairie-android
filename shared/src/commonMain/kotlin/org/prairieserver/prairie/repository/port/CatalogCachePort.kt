@@ -7,12 +7,16 @@ import org.prairieserver.prairie.model.catalog.SeasonsResponse
 import org.prairieserver.prairie.model.personal.UserLibrary
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.repository.ArtworkSurface
 
 /**
  * Ownership captured before a cacheable network request starts. Identity-scoped
  * cache implementations must reject the write when this generation is stale.
+ * [artworkFingerprint] is the artwork cache fingerprint captured with it
+ * ([org.prairieserver.prairie.repository.ArtworkSizing.cacheFingerprint]); a read
+ * that carries artwork is cached under it, not under the layout at write time.
  */
-data class CatalogCacheWriteLease(val identityGeneration: Long)
+data class CatalogCacheWriteLease(val identityGeneration: Long, val artworkFingerprint: String? = null)
 
 /** The durable cache owner, without credentials or a device session. */
 data class CatalogCacheScope(val serverId: String, val profileId: String)
@@ -33,8 +37,12 @@ interface CatalogCachePort {
     /** Drop localized details, seasons, and episodes for the active profile. */
     suspend fun invalidateDetailMetadata(scope: CatalogCacheScope? = null) {}
 
-    /** V2 library-section cache entries require the exact initiating authority. */
-    suspend fun cacheLibrarySectionsV2(libraryId: Int, sections: List<ResolvedSection>, owner: org.prairieserver.prairie.network.AuthScopeSnapshot) {}
+    /**
+     * V2 library-section cache entries require the exact initiating authority.
+     * [artworkFingerprint] is the artwork cache fingerprint captured before the read.
+     */
+    suspend fun cacheLibrarySectionsV2(libraryId: Int, sections: List<ResolvedSection>, owner: org.prairieserver.prairie.network.AuthScopeSnapshot,
+        artworkFingerprint: String? = null) {}
     suspend fun getCachedLibrarySectionsV2(libraryId: Int, owner: org.prairieserver.prairie.network.AuthScopeSnapshot): List<ResolvedSection>? = null
 
     suspend fun cacheLibraries(libraries: List<UserLibrary>) {}
@@ -76,7 +84,10 @@ interface CatalogCachePort {
     }
     suspend fun getCachedItemDetail(contentId: String): ItemDetail? = null
 
-    /** Cache a series' season list + a season's episode list (offline series detail). */
+    /**
+     * Cache a series' season list + a season's episode list (offline series
+     * detail). Episodes are kept per [ArtworkSurface] they are drawn on.
+     */
     suspend fun cacheSeasons(seriesId: String, response: SeasonsResponse) {}
     suspend fun cacheSeasons(
         seriesId: String,
@@ -92,10 +103,15 @@ interface CatalogCachePort {
         seasonNumber: Int,
         response: EpisodesResponse,
         lease: CatalogCacheWriteLease,
+        surface: ArtworkSurface = ArtworkSurface.EPISODES,
     ) {
         cacheEpisodes(seriesId, seasonNumber, response)
     }
-    suspend fun getCachedEpisodes(seriesId: String, seasonNumber: Int): EpisodesResponse? = null
+    suspend fun getCachedEpisodes(
+        seriesId: String,
+        seasonNumber: Int,
+        surface: ArtworkSurface = ArtworkSurface.EPISODES,
+    ): EpisodesResponse? = null
 }
 
 /** Network-only default. */

@@ -66,6 +66,13 @@ data class ItemDetailUiState(
     val episodes: List<EpisodeListItem> = emptyList(),
     /** Episode selected inside a series page. Its full detail powers the hero play target and selectors. */
     val selectedEpisodeContentId: String? = null,
+    /**
+     * Set when a series opened for one of its episodes cannot load (refused,
+     * missing, or offline with nothing cached). The page shows that episode's
+     * own detail instead, as the episode-to-series redirect keeps the episode
+     * when its parent cannot open.
+     */
+    val episodeFallbackContentId: String? = null,
     val selectedEpisodeDetail: ItemDetail? = null,
     val isLoadingSelectedEpisodeDetail: Boolean = false,
     /** Parent-series portrait art used when an episode's own artwork is a wide still. */
@@ -166,7 +173,10 @@ class ItemDetailViewModel(
         savedStateHandle.get<String>("episodeContentId")?.takeIf { it.isNotBlank() }
     private var pendingInitialEpisodeContentId: String? = initialEpisodeContentId
 
-    private val _uiState = MutableStateFlow(ItemDetailUiState())
+    // A route that names its episode starts with it selected, so the series
+    // hero opens on that episode instead of showing the series overview until
+    // the season's episodes arrive.
+    private val _uiState = MutableStateFlow(ItemDetailUiState(selectedEpisodeContentId = initialEpisodeContentId))
     val uiState: StateFlow<ItemDetailUiState> = kotlinx.coroutines.flow.combine(_uiState, personalDataRepository.memberships.actions) { state, actions ->
         var projected = state
         actions.values.filter { it.baseline != null && it.intent.key.itemId == contentId && personalDataRepository.memberships.current(it.intent) }.forEach {
@@ -174,7 +184,7 @@ class ItemDetailViewModel(
                 projected.copy(isFavorite = it.baseline!!.present) else projected.copy(isInWatchlist = it.baseline!!.present)
         }
         projected
-    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, ItemDetailUiState())
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, _uiState.value)
     private var episodeLoadJob: Job? = null
     private var selectedEpisodeLoadJob: Job? = null
     private var allEpisodeFileIdsJob: Job? = null
@@ -480,21 +490,25 @@ class ItemDetailViewModel(
                 }
                 is ApiResult.Error -> {
                     _uiState.update {
+                        // The durable cache still holds a title the server
+                        // now refuses; drop the copy seedCachedDetail painted
+                        // so the screen shows the error, not stale actions.
+                        val detail = if (dropsDetailOn(result)) null else it.detail
                         it.copy(
                             isLoading = false,
-                            // The durable cache still holds a title the server
-                            // now refuses; drop the copy seedCachedDetail painted
-                            // so the screen shows the error, not stale actions.
-                            detail = if (dropsDetailOn(result)) null else it.detail,
+                            detail = detail,
                             error = result.message.ifBlank { "Failed to load details" },
+                            episodeFallbackContentId = initialEpisodeContentId.takeIf { detail == null },
                         )
                     }
                 }
                 is ApiResult.NetworkError -> {
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             isLoading = false,
                             error = "Network error. Check your connection.",
+                            // Offline, the episode may still be cached when its series is not.
+                            episodeFallbackContentId = initialEpisodeContentId.takeIf { state.detail == null },
                         )
                     }
                 }
@@ -981,10 +995,16 @@ class ItemDetailViewModel(
                             episodes.map { row -> current[row.contentId]?.let(row::withTranslatedDescription) ?: row }
                         } else episodes
                         val cache = it.episodesBySeason + (seasonNumber to rows)
+                        // A route's episode is selected before its season loads, so
+                        // its detail can arrive first. Give it the row's description,
+                        // as a detail loaded after the rows gets.
+                        val selectedRow = rows.firstOrNull { row -> row.contentId == it.selectedEpisodeContentId }
                         it.copy(
                             isLoadingEpisodes = false,
                             episodesBySeason = cache,
                             episodes = if (it.selectedSeasonNumber == seasonNumber) rows else it.episodes,
+                            selectedEpisodeDetail = selectedRow?.let { row -> it.selectedEpisodeDetail?.withEpisodeDescription(row) }
+                                ?: it.selectedEpisodeDetail,
                         )
                     }
                     ensureSeriesEpisodeSelection(episodes)

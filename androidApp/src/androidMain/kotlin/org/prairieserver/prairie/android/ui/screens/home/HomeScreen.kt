@@ -41,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -62,8 +63,11 @@ import org.prairieserver.prairie.android.ui.theme.prairiePageBackdrop
 import org.prairieserver.prairie.android.ui.components.PrairieWordmark
 import org.prairieserver.prairie.android.ui.components.TabTopBarActions
 import org.prairieserver.prairie.android.ui.components.TopBarIconButton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
@@ -91,7 +95,7 @@ import org.prairieserver.prairie.repository.CatalogRepository
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
-private data class ContinueWatchingWarmTarget(
+private data class SeriesWarmTarget(
     val seriesId: String,
     val seasonNumber: Int?,
     val episodeContentId: String,
@@ -159,12 +163,14 @@ fun HomeScreen(
     val catalogLanguage: CatalogLanguageRevision = koinInject()
     val languageRevision by catalogLanguage.revision.collectAsState()
     val heroHandoff = LocalHeroSourceHandoff.current
-    val continueWatchingWarmTargets = remember(regularSections) {
+    val tapWarmupScope = rememberCoroutineScope()
+    val seriesWarmTargets = remember(regularSections) {
         regularSections
             .asSequence()
             .filter { section ->
                 section.sectionType == "continue_watching" ||
-                    section.sectionType == "in_progress"
+                    section.sectionType == "in_progress" ||
+                    section.sectionType == "next_up"
             }
             .flatMap { it.items.asSequence() }
             .mapNotNull { item ->
@@ -172,7 +178,7 @@ fun HomeScreen(
                 if (!item.type.equals("episode", ignoreCase = true) || seriesId == null) {
                     null
                 } else {
-                    ContinueWatchingWarmTarget(
+                    SeriesWarmTarget(
                         seriesId = seriesId,
                         seasonNumber = item.seasonNumber,
                         episodeContentId = item.contentId,
@@ -188,12 +194,12 @@ fun HomeScreen(
     var warmedSeriesArtwork by remember(activeServerId, profileScopeId, languageRevision) {
         mutableStateOf<Map<String, WarmedSeriesArtwork>>(emptyMap())
     }
-    LaunchedEffect(activeServerId, profileScopeId, languageRevision, continueWatchingWarmTargets) {
-        // Warm each Continue Watching destination in row order. Within one
+    LaunchedEffect(activeServerId, profileScopeId, languageRevision, seriesWarmTargets) {
+        // Warm each Continue Watching and Next Up series in row order. Within one
         // title, its parent detail, exact episode and selector data run in
         // parallel. CatalogRepository keeps these calls alive/single-flight if
         // the user taps while this effect is still awaiting them.
-        for (target in continueWatchingWarmTargets) {
+        for (target in seriesWarmTargets) {
             coroutineScope {
                 val parentDetail = async {
                     catalogRepository.warmItemDetail(target.seriesId)
@@ -389,34 +395,47 @@ fun HomeScreen(
                                 section = section,
                                 onItemClick = { contentId ->
                                     val item = section.items.firstOrNull { it.contentId == contentId }
-                                    if (opensUnifiedSeriesDetail && item != null) {
-                                        item.seriesId
-                                            ?.takeIf {
-                                                item.type.equals("episode", ignoreCase = true) &&
-                                                    it.isNotBlank()
+                                    val seriesId = item
+                                        ?.takeIf { it.type.equals("episode", ignoreCase = true) }
+                                        ?.seriesId
+                                        ?.takeIf { it.isNotBlank() }
+                                    // An episode page only redirects to its series
+                                    // (seriesDetailRedirect), so open the series
+                                    // directly. Outside Continue Watching this needs
+                                    // the season number, which the redirect requires too.
+                                    if (
+                                        item != null && seriesId != null &&
+                                        (opensUnifiedSeriesDetail || item.seasonNumber != null)
+                                    ) {
+                                        val knownParent = regularSections
+                                            .asSequence()
+                                            .flatMap { it.items.asSequence() }
+                                            .firstOrNull { it.contentId == seriesId }
+                                        val artwork = warmedSeriesArtwork[seriesId]
+                                            ?: knownParent?.let {
+                                                WarmedSeriesArtwork(
+                                                    url = it.backdropUrl ?: it.posterUrl,
+                                                    thumbhash = it.backdropThumbhash
+                                                        ?: it.posterThumbhash,
+                                                )
                                             }
-                                            ?.let { seriesId ->
-                                                val knownParent = regularSections
-                                                    .asSequence()
-                                                    .flatMap { it.items.asSequence() }
-                                                    .firstOrNull { it.contentId == seriesId }
-                                                val artwork = warmedSeriesArtwork[seriesId]
-                                                    ?: knownParent?.let {
-                                                        WarmedSeriesArtwork(
-                                                            url = it.backdropUrl ?: it.posterUrl,
-                                                            thumbhash = it.backdropThumbhash
-                                                                ?: it.posterThumbhash,
-                                                        )
-                                                    }
-                                                // MediaRow initially hands off the episode
-                                                // still. Replace it with the actual parent
-                                                // series artwork before navigation so the
-                                                // loading frame matches a direct series tap.
-                                                artwork?.let {
-                                                    heroHandoff?.pendingArtworkUrl = it.url
-                                                    heroHandoff?.pendingArtworkThumbhash = it.thumbhash
-                                                }
-                                            }
+                                        // MediaRow hands off the episode still, which
+                                        // the series page never shows. Load with the
+                                        // series artwork instead, or with none until
+                                        // Home knows it, so the hero never swaps
+                                        // one picture for another.
+                                        heroHandoff?.pendingArtworkUrl = artwork?.url
+                                        heroHandoff?.pendingArtworkThumbhash = artwork?.thumbhash
+                                        // The series page reads this route cache-first,
+                                        // which only Home's warm-up keeps fresh. For a
+                                        // row it has not warmed, start those reads now
+                                        // so the page joins them.
+                                        val target = SeriesWarmTarget(seriesId, item.seasonNumber, item.contentId)
+                                        if (warmedSeriesArtwork[seriesId] == null || target !in seriesWarmTargets) {
+                                            tapWarmupScope.startSeriesWarmup(catalogRepository, target)
+                                        }
+                                        onContinueWatchingItemClick(item)
+                                    } else if (opensUnifiedSeriesDetail && item != null) {
                                         onContinueWatchingItemClick(item)
                                     } else {
                                         onItemClick(contentId)
@@ -585,4 +604,19 @@ private fun HomeFloatingChrome(
             )
         }
     }
+}
+
+/**
+ * Starts [target]'s live reads ahead of navigation, so its series page joins
+ * them instead of reading an older cached copy. Each read registers before
+ * its first suspension unless another request holds the repository's lock,
+ * and the repository keeps it running after Home leaves composition.
+ */
+private fun CoroutineScope.startSeriesWarmup(catalogRepository: CatalogRepository, target: SeriesWarmTarget) {
+    launch(start = CoroutineStart.UNDISPATCHED) { catalogRepository.warmItemDetail(target.seriesId) }
+    launch(start = CoroutineStart.UNDISPATCHED) { catalogRepository.warmSeasons(target.seriesId) }
+    target.seasonNumber?.let { seasonNumber ->
+        launch(start = CoroutineStart.UNDISPATCHED) { catalogRepository.warmEpisodes(target.seriesId, seasonNumber) }
+    }
+    launch(start = CoroutineStart.UNDISPATCHED) { catalogRepository.warmItemDetail(target.episodeContentId) }
 }

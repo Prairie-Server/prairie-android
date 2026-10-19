@@ -14,6 +14,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.prairieserver.prairie.common.player.PlaybackQualityPair
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.PlaybackTrackSelectionWriteCoordinator
 import org.prairieserver.prairie.common.player.StagedVideoReplan
@@ -62,6 +63,8 @@ internal data class MobileSubtitleStageRequest(
     val audioTrackIndex: Int?,
     val qualityPreference: String?,
     val subtitleTrackIndex: Int,
+    /** Picks a quality other than the committed one. */
+    val qualityChanged: Boolean = false,
 )
 
 internal data class MobileStagedSubtitleCandidate(
@@ -175,6 +178,7 @@ internal class MobileSubtitleTransactionAdapter(
     ) -> MobileSubtitleAdoptionResult = { MobileSubtitleAdoptionResult.Adopted },
     private val onCommittedPlaybackFailure: suspend (String) -> Unit = {},
     private val onEmbeddedSubtitleFailure: (Int) -> Unit = {},
+    private val onHlsRenditionSubtitleFailure: (Int) -> Unit = {},
 ) {
     private data class PendingLocalSelection(
         val generation: Long,
@@ -700,6 +704,7 @@ internal class MobileSubtitleTransactionAdapter(
             audioTrackIndex = requested.audioTrackIndex,
             qualityPreference = requested.qualityPreference,
             subtitleTrackIndex = requested.identity.serverTrackIndex(),
+            qualityChanged = changesQuality(requested),
         )
         val staged = try {
             stagedPort.stage(request)
@@ -989,11 +994,14 @@ internal class MobileSubtitleTransactionAdapter(
         transition.pending?.let(stagedRequests::trySend)
     }
 
+    /** Whether [pending] picks a quality other than the committed one. */
+    private fun changesQuality(pending: org.prairieserver.prairie.model.playback.PendingSubtitle): Boolean =
+        pending.qualityPreferenceSpecified &&
+            pending.qualityPreference != transition.committed.qualityPreference
+
     private fun fail(generation: Long, message: String) {
         val failedPending = transition.pending?.takeIf { it.generation == generation }
-        val failedQualityChange = failedPending != null &&
-            failedPending.qualityPreferenceSpecified &&
-            failedPending.qualityPreference != transition.committed.qualityPreference
+        val failedQualityChange = failedPending != null && changesQuality(failedPending)
         val failedLocalOwner = pendingLocalSelection?.takeIf { owner ->
             owner.proposedState.pending?.generation == generation
         }
@@ -1029,7 +1037,7 @@ internal class MobileSubtitleTransactionAdapter(
         if (!ownedSelection && !ownedRestore) return
         val failedIdentity = (if (ownedSelection) pendingLocalSelection?.identity else pendingLocalRestore?.identity)
             as? SubtitleIdentity.Embedded
-        if (failedIdentity?.containerTrackId != null) {
+        if (failedIdentity?.isServerSelected == true) {
             // An adopted native plan is not a mounted subtitle. Clear a failed
             // restore now so a failed sidecar recovery cannot leave it selected.
             // Keep the requested index for recovery and do not persist Off.
@@ -1042,7 +1050,11 @@ internal class MobileSubtitleTransactionAdapter(
             failureMessage = "Embedded subtitles couldn't load. Retrying with a sidecar."
             qualityChangeFailed = false
             publish()
-            onEmbeddedSubtitleFailure(failedIdentity.serverIndex)
+            if (failedIdentity.hlsRendition != null) {
+                onHlsRenditionSubtitleFailure(failedIdentity.serverIndex)
+            } else {
+                onEmbeddedSubtitleFailure(failedIdentity.serverIndex)
+            }
             return
         }
         invalidateLocalMount()
@@ -1197,6 +1209,12 @@ internal class MobileSubtitleTransactionAdapter(
 
 internal class PlaybackSessionManagerMobileSubtitleStagedReplanPort(
     private val manager: PlaybackSessionManager,
+    /**
+     * The pair an Auto picked in the player sends; null for other picks.
+     * Asked only when the request changes the quality: a track change keeps
+     * the session's quality and cap.
+     */
+    private val inPlayerQuality: suspend (String?) -> PlaybackQualityPair? = { null },
 ) : MobileSubtitleStagedReplanPort {
     override suspend fun stage(
         request: MobileSubtitleStageRequest,
@@ -1208,6 +1226,7 @@ internal class PlaybackSessionManagerMobileSubtitleStagedReplanPort(
             audioTrackIndex = request.audioTrackIndex,
             subtitleTrackIndex = request.subtitleTrackIndex,
             qualityPreference = request.qualityPreference,
+            qualityPair = if (request.qualityChanged) inPlayerQuality(request.qualityPreference) else null,
         )
     ) {
         is ApiResult.Success -> {
@@ -1304,8 +1323,8 @@ private fun MobileStagedSubtitleCandidate.validationFailure(
         return validationFailure(returnedIdentity)
     }
     if (selectedSubtitleIdentity is SubtitleIdentity.Embedded &&
-        selectedSubtitleIdentity.containerTrackId != null &&
-        selectedSubtitleIndex == expectedSubtitleIndex && subtitleMode == PlaybackSubtitleModeV3.RENDER && !hasSidecar
+        selectedSubtitleIndex == expectedSubtitleIndex &&
+        selectedSubtitleIdentity.matchesServerSelectedPlan(subtitleMode, hasSidecar)
     ) return null
     return when (requested.identity) {
         is SubtitleIdentity.Embedded,
@@ -1386,8 +1405,9 @@ private fun MobileStagedSubtitleCandidate.validationFailure(
             "The candidate did not burn in the requested subtitle."
         else -> null
     }
-    is SubtitleIdentity.Embedded -> if (identity.containerTrackId != null &&
-        selectedSubtitleIndex == identity.serverIndex && subtitleMode == PlaybackSubtitleModeV3.RENDER && !hasSidecar
+    is SubtitleIdentity.Embedded -> if (
+        selectedSubtitleIndex == identity.serverIndex &&
+        identity.matchesServerSelectedPlan(subtitleMode, hasSidecar)
     ) null else "The candidate omitted the exact embedded subtitle."
     is SubtitleIdentity.Downloaded,
     is SubtitleIdentity.LocalMedia3,

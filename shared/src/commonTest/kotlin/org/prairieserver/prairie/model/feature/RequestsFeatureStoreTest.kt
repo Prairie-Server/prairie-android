@@ -5,8 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.prairieserver.prairie.model.request.AdminRequestAction
-import org.prairieserver.prairie.model.request.AdminRequestCapabilities
 import org.prairieserver.prairie.model.request.CreateMediaRequest
 import org.prairieserver.prairie.model.request.MediaRequest
 import org.prairieserver.prairie.model.request.RequestMediaDetail
@@ -30,27 +28,6 @@ class RequestsFeatureStoreTest {
         store.refresh()
 
         assertFalse(store.isEnabled.value)
-    }
-
-    @Test
-    fun moderationFollowsTheAdminCapabilityProbe() = runTest {
-        val admin = RequestsFeatureStore(
-            RequestsRepository(
-                FakeRequestsApi(
-                    ApiResult.Success(available()),
-                    capabilities = ApiResult.Success(AdminRequestCapabilities(available = true)),
-                ),
-            ),
-        )
-        val member = RequestsFeatureStore(RequestsRepository(FakeRequestsApi(ApiResult.Success(available()))))
-
-        admin.refresh()
-        member.refresh()
-
-        assertTrue(admin.canModerate.value)
-        assertFalse(member.canModerate.value)
-        admin.reset()
-        assertFalse(admin.canModerate.value)
     }
 
     @Test
@@ -110,7 +87,6 @@ private fun available(allowed: Boolean = true) =
 
 private class FakeRequestsApi(
     vararg statusResults: ApiResult<RequestsFeatureStatus>,
-    private val capabilities: ApiResult<AdminRequestCapabilities> = ApiResult.Error(403, "forbidden", ""),
 ) : RequestsApi {
     private val statusResults = statusResults.toMutableList()
 
@@ -150,17 +126,5 @@ private class FakeRequestsApi(
         ApiResult.NetworkError(IllegalStateException("not used"))
 
     override suspend fun cancel(id: String): ApiResult<MediaRequest> =
-        ApiResult.NetworkError(IllegalStateException("not used"))
-
-    override suspend fun adminCapabilities(): ApiResult<AdminRequestCapabilities> = capabilities
-
-    override suspend fun adminRequests(
-        status: String?,
-        outcome: String?,
-        mediaType: String?,
-        tmdbId: Int?,
-    ): ApiResult<RequestsListResponse> = ApiResult.NetworkError(IllegalStateException("not used"))
-
-    override suspend fun adminAction(id: String, action: AdminRequestAction, reason: String?): ApiResult<MediaRequest> =
         ApiResult.NetworkError(IllegalStateException("not used"))
 }

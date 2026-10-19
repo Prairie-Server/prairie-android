@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.servers
 
+import org.prairieserver.prairie.network.localroute.LocalRoute
+import org.prairieserver.prairie.network.localroute.LocalRoutes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.discovery.DiscoveryHit
@@ -40,6 +42,8 @@ data class TvServerListUiState(
     val scanStatus: String? = null,
     val scanError: String? = null,
     val isConnecting: Boolean = false,
+    /** The server whose requests use its local route right now, if any. */
+    val onLocalNetworkId: String? = null,
 )
 
 /**
@@ -53,6 +57,7 @@ class TvServerListViewModel(
     private val lanDiscovery: LanDiscovery,
     private val profileLaunchPreferences: ProfileLaunchPreferences,
     private val activeProfileReset: TvActiveProfileReset,
+    private val localRoute: StateFlow<LocalRoute?> = LocalRoutes.state.active,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvServerListUiState())
@@ -93,14 +98,15 @@ class TvServerListViewModel(
             combine(
                 serverRegistry.entries,
                 serverRegistry.activeServerId,
-            ) { entries, activeId ->
+                localRoute,
+            ) { entries, activeId, route ->
                 val sorted = entries.sortedWith(
                     compareByDescending<ServerEntry> { it.id == activeId }
                         .thenByDescending { it.lastUsedAtEpochMs },
                 )
-                sorted to activeId
-            }.collect { (sorted, activeId) ->
-                _uiState.update { it.copy(servers = sorted, activeId = activeId) }
+                Triple(sorted, activeId, route?.serverId?.takeIf { it == activeId })
+            }.collect { (sorted, activeId, onLocalNetworkId) ->
+                _uiState.update { it.copy(servers = sorted, activeId = activeId, onLocalNetworkId = onLocalNetworkId) }
             }
         }
     }

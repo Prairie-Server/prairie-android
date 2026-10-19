@@ -20,7 +20,14 @@ import org.prairieserver.prairie.common.player.FinalPlaybackPosition
 import org.prairieserver.prairie.common.player.FinalPlaybackPositionWriter
 import org.prairieserver.prairie.common.player.Playability
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
+import org.prairieserver.prairie.common.player.isPlaybackSessionEnded
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
+import org.prairieserver.prairie.common.player.FollowedSession
+import org.prairieserver.prairie.common.player.NetworkQualityFollower
+import org.prairieserver.prairie.common.player.PlaybackNetworkEvidenceProvider
+import org.prairieserver.prairie.common.player.PlaybackQualityPair
+import org.prairieserver.prairie.common.player.inPlayerQualityPair
+import org.prairieserver.prairie.common.player.usesCellularQuality
 import org.prairieserver.prairie.common.player.PlaybackTeardownGate
 import org.prairieserver.prairie.common.player.VideoSessionStartV3
 import org.prairieserver.prairie.common.player.subtitlesForVideoMediaMount
@@ -65,9 +72,12 @@ import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.catalog.TimeRange
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.playback.PlayMethod
+import org.prairieserver.prairie.model.playback.SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
 import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
+import org.prairieserver.prairie.model.playback.PLAYBACK_QUALITY_AUTO
 import org.prairieserver.prairie.model.playback.playbackQualityMenu
+import org.prairieserver.prairie.model.playback.videoQualityPreference
 import org.prairieserver.prairie.model.playback.executableMedia3ClientTransformations
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
 import org.prairieserver.prairie.model.playback.CommittedSubtitle
@@ -78,6 +88,7 @@ import org.prairieserver.prairie.model.playback.mergeDownloadedSubtitles
 import org.prairieserver.prairie.model.playback.rebaseDownloadedSubtitleUrl
 import org.prairieserver.prairie.model.playback.resolvedSelectedSubtitleIndex
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartPosition
+import org.prairieserver.prairie.playback.ADMIN_ENDED_PLAYBACK_NOTICE
 import org.prairieserver.prairie.playback.PlaybackMarkersUpdate
 import org.prairieserver.prairie.playback.PlaybackSubtitleReady
 import org.prairieserver.prairie.playback.PlaybackSubtitleTimingChanged
@@ -147,6 +158,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -311,6 +323,8 @@ class PlayerViewModel(
     private val activeProfileStore: org.prairieserver.prairie.model.profile.ActiveProfileStore? = null,
     // Shuffle: the server picks what plays next. Optional for the same reason.
     private val shuffleFeatureStore: org.prairieserver.prairie.model.feature.ShuffleFeatureStore? = null,
+    // The network, for the cellular quality pair. Optional for the same reason.
+    private val networkEvidenceProvider: PlaybackNetworkEvidenceProvider = PlaybackNetworkEvidenceProvider.None,
 ) : ViewModel() {
 
     // Last load request, replayed by the "Can't reach server" Retry / Try Anyway.
@@ -451,6 +465,12 @@ class PlayerViewModel(
         val playbackPlan: PlaybackExecutionPlan? = null,
         /** The quality preference the playing plan was built for; null is Auto. */
         val committedQualityPreference: String? = null,
+        /**
+         * The preference the session plays at when the viewer picked none:
+         * the route's, or the saved settings for the connection it started
+         * on. The Quality menu lights Auto only when this is "auto".
+         */
+        val sessionQualityPreference: String? = null,
         val requestHeaders: Map<String, String> = emptyMap(),
         val delivery: PlaybackDelivery? = null,
         val streamUrl: String? = null,
@@ -574,7 +594,13 @@ class PlayerViewModel(
 
     private val mobileSubtitleTransactions = MobileSubtitleTransactionAdapter(
         scope = viewModelScope,
-        stagedPort = PlaybackSessionManagerMobileSubtitleStagedReplanPort(playbackSessionManager),
+        // An Auto picked in the player takes the saved cap for the connection.
+        stagedPort = PlaybackSessionManagerMobileSubtitleStagedReplanPort(playbackSessionManager) { preference ->
+            playerSettingsStore.inPlayerQualityPair(
+                preference,
+                cellular = networkEvidenceProvider.snapshot().usesCellularQuality,
+            )
+        },
         persistencePort = object : MobileSubtitlePersistencePort {
             override suspend fun persist(
                 committed: CommittedSubtitle,
@@ -606,6 +632,14 @@ class PlayerViewModel(
                 subtitleTrackIndexOverride = serverIndex,
             )
         },
+        onHlsRenditionSubtitleFailure = { serverIndex ->
+            startProtocolV3Replan(
+                classification = SUBTITLE_HLS_RENDITION_FAILED_CLASSIFICATION,
+                notice = "Embedded subtitles couldn't load. Retrying with a sidecar.",
+                state = _uiState.value,
+                subtitleTrackIndexOverride = serverIndex,
+            )
+        },
         onCommittedPlaybackFailure = ::recoverFromSubtitleAdoptionFailure,
     )
 
@@ -632,13 +666,16 @@ class PlayerViewModel(
     // The control socket can stop the session and display a message; neither has a
     // VM-owned channel today (teardown is screen-local, notice is lifecycle-owned),
     // so expose thin ones here.
-    private val _remoteStopRequests = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+    private val _remoteStopRequests = kotlinx.coroutines.flow.MutableSharedFlow<String?>(
         replay = 0,
         extraBufferCapacity = 1,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
     )
-    /** PlayerScreen collects this and tears the screen down (mirrors a back press). */
-    val remoteStopRequests: kotlinx.coroutines.flow.SharedFlow<Unit> = _remoteStopRequests.asSharedFlow()
+    /**
+     * PlayerScreen collects this and tears the screen down (mirrors a back press),
+     * showing the notice when there is one.
+     */
+    val remoteStopRequests: kotlinx.coroutines.flow.SharedFlow<String?> = _remoteStopRequests.asSharedFlow()
 
     private var remoteMessageCounter = 0L
     private val _remoteMessage = MutableStateFlow<RemoteMessage?>(null)
@@ -766,6 +803,7 @@ class PlayerViewModel(
     // once that flight completes so the selection isn't silently dropped;
     // last-write-wins because only the newest selection matters.
     private var queuedInvalidationReplan: MobileRecoveryReplan? = null
+    private val picksDuringNetworkMove = PicksDuringNetworkMove()
 
     private enum class ServerSeekRecoveryMode {
         REANCHOR,
@@ -981,6 +1019,32 @@ class PlayerViewModel(
                 .distinctUntilChanged()
                 .collect { org.prairieserver.prairie.common.player.ActivePlaybackFile.set(it) }
         }
+        // The Quality menu reads the session's own preference, which comes
+        // from the saved settings unless the viewer picked one.
+        viewModelScope.launch {
+            _uiState
+                .map { it.sessionId to it.playbackPlan?.planId }
+                .distinctUntilChanged()
+                .collect {
+                    val preference = playbackSessionManager.activeVideoQualityPair()?.qualityPreference
+                    _uiState.update { it.copy(sessionQualityPreference = preference) }
+                }
+        }
+        // Mobile data or a metered network plays at the cellular quality pair
+        // (the starter picks it); moving between networks mid-playback moves
+        // the session to the other pair. Restarted per session, so one that
+        // started just before the network changed is still moved.
+        viewModelScope.launch {
+            val follower = NetworkQualityFollower(networkEvidenceProvider.updates, playerSettingsStore)
+            _uiState
+                .map { it.sessionId }
+                .distinctUntilChanged()
+                .collectLatest { sessionId ->
+                    if (sessionId != null) {
+                        follower.follow(playing = ::networkFollowedQuality, replan = ::replanForNetworkQuality)
+                    }
+                }
+        }
         // Subtitle sync applies to server playback only; offline and local
         // files have no inventory sync keys.
         viewModelScope.launch {
@@ -1053,6 +1117,11 @@ class PlayerViewModel(
                         }
                     }
                 }
+            }
+        }
+        viewModelScope.launch {
+            sessionLifecycle.sessionEndedEvents.collect { endedSessionId ->
+                if (_uiState.value.sessionId == endedSessionId) leaveServerEndedSession()
             }
         }
         viewModelScope.launch {
@@ -2042,7 +2111,9 @@ class PlayerViewModel(
         failedTrackType: Int? = null,
         audioTrackIndexOverride: Int? = null,
         subtitleTrackIndexOverride: Int? = null,
-    ) {
+        /** A new quality pair for the network; see [replanForNetworkQuality]. */
+        qualityPair: PlaybackQualityPair? = null,
+    ): Job? {
         val queuedRequest = MobileRecoveryReplan(classification, notice, subtitleTrackIndexOverride)
         if (recoveryJob?.isActive == true || serverSeekRecoveryInFlight) {
             // Never silently drop a user selection: queue it (newest wins) and
@@ -2052,16 +2123,16 @@ class PlayerViewModel(
             if (queuedRequest.shouldQueue) {
                 queuedInvalidationReplan = queuedRequest
             }
-            return
+            return null
         }
         if (mobileSubtitleTransactions.hasActiveTransaction) {
             if (classification in PlaybackSessionManager.USER_INVALIDATION_CLASSIFICATIONS) {
                 queuedInvalidationReplan = queuedRequest
-                return
+                return null
             }
             mobileSubtitleTransactions.invalidate()
         }
-        val fileId = state.versions.getOrNull(state.selectedVersionIndex)?.fileId ?: return
+        val fileId = state.versions.getOrNull(state.selectedVersionIndex)?.fileId ?: return null
         val recoveryGeneration = playbackRecoveryGeneration
         recoveryJob = viewModelScope.launch {
             val selectedSubtitleTrackIndex = subtitleTrackIndexOverride ?: selectedServerSubtitleTrackIndex(
@@ -2101,6 +2172,7 @@ class PlayerViewModel(
                 diagnostics = diagnostics,
                 capabilities = capabilities,
                 clientPlaybackContext = playbackContext,
+                qualityPair = qualityPair,
             )
             // Returning on a stale generation is not enough on its own. By the
             // time this call returns, the manager has already committed and
@@ -2343,9 +2415,13 @@ class PlayerViewModel(
                         }
                     }
                 }
-                is ApiResult.Error -> onReplanRequestFailed(classification, notice, result.message)
+                is ApiResult.Error -> if (result.isPlaybackSessionEnded()) {
+                    leaveServerEndedSession()
+                } else {
+                    onReplanRequestFailed(classification, notice, result.message, quiet = qualityPair != null)
+                }
                 is ApiResult.NetworkError ->
-                    onReplanRequestFailed(classification, notice, result.exception.message)
+                    onReplanRequestFailed(classification, notice, result.exception.message, quiet = qualityPair != null)
             }
         }.also { job ->
             // Cancellation means a content change / reset already cleared the
@@ -2355,6 +2431,7 @@ class PlayerViewModel(
                 refreshRoomObservation()
             }
         }
+        return recoveryJob
     }
 
     private fun redriveQueuedInvalidationReplan() {
@@ -2370,16 +2447,58 @@ class PlayerViewModel(
         )
     }
 
+    /** See [settingsFollowedQuality]. */
+    private fun networkFollowedQuality(): FollowedSession? {
+        val state = _uiState.value
+        return settingsFollowedQuality(
+            sessionId = state.sessionId,
+            playsDownload = state.isLocalFilePlayback(),
+            inRoom = inRoom,
+            pickedQuality = currentMobileQualityPreference(),
+            active = playbackSessionManager.activeVideoQualityPair(),
+        )
+    }
+
+    /**
+     * Moves [session] to the quality pair of the network it is now on and
+     * returns once the move has finished. It does nothing when playback is
+     * no longer [session] as the follower read it, or while another replan
+     * or a track or quality change is in flight; the follower tries again
+     * from what it finds then. Picks made during the move wait for it.
+     */
+    private suspend fun replanForNetworkQuality(session: FollowedSession, pair: PlaybackQualityPair) {
+        if (networkFollowedQuality() != session) return
+        if (recoveryJob?.isActive == true || serverSeekRecoveryInFlight ||
+            mobileSubtitleTransactions.hasActiveTransaction
+        ) {
+            return
+        }
+        val move = startProtocolV3Replan(
+            classification = "quality_changed",
+            notice = "Changing quality for this network.",
+            state = _uiState.value,
+            qualityPair = pair,
+        ) ?: return
+        picksDuringNetworkMove.holdUntilDone(move)
+        move.join()
+    }
+
     /**
      * A replan HTTP failure is only fatal when the replan was recovering a
      * broken route. For a user track/quality/route change the old route is
      * still mounted and healthy, so a benign 409 or a network blip must not
      * tear playback down with a fatal error banner.
      */
-    private fun onReplanRequestFailed(classification: String, notice: String, detail: String?) {
+    private fun onReplanRequestFailed(
+        classification: String,
+        notice: String,
+        detail: String?,
+        /** The viewer made no change (a network move), so nothing is shown. */
+        quiet: Boolean = false,
+    ) {
         if (classification in PlaybackSessionManager.USER_INVALIDATION_CLASSIFICATIONS) {
             Log.w(TAG, "Invalidation replan failed ($classification): $detail")
-            showVersionSwitchMessage("Couldn't apply the change — playback continues unchanged.")
+            if (!quiet) showVersionSwitchMessage("Couldn't apply the change — playback continues unchanged.")
             _uiState.update { it.copy(isLoading = false, isBuffering = false) }
         } else {
             nextUpTransitionGate.cancel()
@@ -2436,6 +2555,7 @@ class PlayerViewModel(
         playbackRecoveryGeneration++
         cancelRecoveryJob()
         queuedInvalidationReplan = null
+        picksDuringNetworkMove.clear()
         seekRecoveryJob?.cancel()
         seekRecoveryJob = null
         serverSeekRecoveryInFlight = false
@@ -2785,7 +2905,11 @@ class PlayerViewModel(
         quickSkipAccumulator.cancel()
     }
 
-    private fun beginAndExecuteSeek(position: Double, immediate: Boolean = false) {
+    private fun beginAndExecuteSeek(
+        position: Double,
+        immediate: Boolean = false,
+        mountedSeekableSourceRange: ClosedRange<Double>? = null,
+    ) {
         val state = _uiState.value
         val target = position
             .takeIf { it.isFinite() }
@@ -2801,7 +2925,7 @@ class PlayerViewModel(
             nowMs = nowMs,
         )
         _uiState.update { it.copy(position = target) }
-        executeSeekTarget(target, immediate)
+        executeSeekTarget(target, immediate, mountedSeekableSourceRange)
     }
 
     private fun armSeekPresentation(originSourceMs: Long, targetSourceMs: Long, nowMs: Long) {
@@ -2815,7 +2939,11 @@ class PlayerViewModel(
         if (activeSeekId == null) activeSeekId = ++seekSequence
     }
 
-    private fun executeSeekTarget(targetSourceSec: Double, immediate: Boolean = false) {
+    private fun executeSeekTarget(
+        targetSourceSec: Double,
+        immediate: Boolean = false,
+        mountedSeekableSourceRange: ClosedRange<Double>? = null,
+    ) {
         val state = _uiState.value
         val mountPending = positionReportsBlockedForPendingLoad || awaitingMediaMountGeneration != null
         if (mountPending && (state.sessionId == null || state.playbackPlan == null)) {
@@ -2850,7 +2978,7 @@ class PlayerViewModel(
             return
         }
         val timeline = state.playbackPlan?.timeline
-        val decision = timeline?.decideSeek(targetSourceSec)
+        val decision = timeline?.decideSeek(targetSourceSec, mountedSeekableSourceRange)
         when (decision) {
             is PlaybackSeekDecision.ServerReanchor -> {
                 Log.i(
@@ -3345,6 +3473,19 @@ class PlayerViewModel(
 
     /** The latest server refusal of the room's file, until the screen takes it to the room. */
     val roomRefusal: StateFlow<RoomRefusal?> = _roomRefusal.asStateFlow()
+    private val _aiJobFailure = MutableStateFlow<AiJobFailure?>(null)
+    private var aiJobFailureCounter = 0L
+
+    /**
+     * The latest failed AI subtitle job, held until the overlay takes it, so a
+     * failure during picture-in-picture or casting (no overlay) is not lost.
+     */
+    val aiJobFailure: StateFlow<AiJobFailure?> = _aiJobFailure.asStateFlow()
+
+    /** The overlay took [failure]; a newer failure stays pending. */
+    fun consumeAiJobFailure(failure: AiJobFailure) {
+        _aiJobFailure.compareAndSet(failure, null)
+    }
     private val _roomQualityChanges = MutableSharedFlow<Unit>(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -3352,6 +3493,17 @@ class PlayerViewModel(
 
     /** Emits when this viewer's quality changed, so the binding restarts its reload pacing. */
     val roomQualityChanges: SharedFlow<Unit> = _roomQualityChanges.asSharedFlow()
+    private val _roomAudioTrackChanges = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
+     * Emits when this viewer switched audio track within the mounted stream,
+     * so the binding measures rate support again (a replan mounts new media,
+     * which already does).
+     */
+    val roomAudioTrackChanges: SharedFlow<Unit> = _roomAudioTrackChanges.asSharedFlow()
     private val _roomObservation = MutableStateFlow(RoomPlayerObservation())
 
     /** What the player is actually doing, for the room binding. */
@@ -3365,6 +3517,9 @@ class PlayerViewModel(
     private var roomEnginePlayWhenReady = false
     private var roomEngineIsPlaying = false
     private var roomEngineState = RoomPlayerState.Idle
+    private var roomEngineSampledAtMs: Long? = null
+    private var roomEngineSeekable = false
+    private var roomEngineSpeed: Double? = null
 
     // The session the current room epoch committed. Cleared at every room
     // load so the binding never attaches the outgoing session under the new
@@ -3448,7 +3603,14 @@ class PlayerViewModel(
             Log.i(TAG, "room_seek action=ignore_during_load target_source_seconds=$sourceSeconds")
             return
         }
-        seekImmediate(sourceSeconds)
+        // A target the binding saw as buffered stays a plain Media3 seek even
+        // when the published seek window is open-ended, as on TV.
+        cancelPendingQuickSkip()
+        beginAndExecuteSeek(
+            sourceSeconds,
+            immediate = true,
+            mountedSeekableSourceRange = roomBufferedSourceRange(_uiState.value),
+        )
     }
 
     /** Applies the room's play or pause. A local suspension holds a Play until the viewer resumes. */
@@ -3473,18 +3635,46 @@ class PlayerViewModel(
             targetSourceSeconds = sourceSeconds,
             playerPositionSeconds = roomEnginePlayerSec,
             bufferedPlayerSeconds = roomEngineBufferedPlayerSec,
+            mountedSeekableSourceRange = roomBufferedSourceRange(state),
+            seekableBehindPlayhead = roomEngineSeekable,
         )
     }
 
-    /** A Media3 sample while in a room: position, buffer, and play state as the engine reports them. */
+    /**
+     * The source-time extent the mounted, seekable item provably holds: from
+     * its start to the buffered position. Room seeks and
+     * [isRoomPositionBuffered] pass it to `decideSeek` so a target inside it
+     * is a plain seek even when the published window is open-ended. Null
+     * while media is changing or nothing is known.
+     */
+    private fun roomBufferedSourceRange(state: PlayerUiState): ClosedRange<Double>? {
+        if (roomMediaTransitioning(state) || roomEngineState == RoomPlayerState.Idle) return null
+        // A growing progressive copy-remux is not seekable as a whole; its
+        // buffer says nothing about where a native seek may land (TV guards
+        // the same way through the window's seekability).
+        if (!roomEngineSeekable) return null
+        val timeline = state.playbackPlan?.timeline ?: return null
+        if (roomEngineBufferedPlayerSec < roomEnginePlayerSec) return null
+        val start = timeline.sourcePositionForPlayer(0.0) ?: return null
+        val end = timeline.sourcePositionForPlayer(roomEngineBufferedPlayerSec) ?: return null
+        return if (end >= start) start..end else null
+    }
+
+    /**
+     * A Media3 sample while in a room: position, buffer, play state,
+     * seekability, and actual speed as the engine reports them.
+     */
     fun onRoomEngineSample(
         positionMs: Long,
         bufferedPositionMs: Long,
         playWhenReady: Boolean,
         isPlaying: Boolean,
         playbackState: Int,
+        currentItemSeekable: Boolean = false,
+        playbackSpeed: Double? = null,
     ) {
         if (!inRoom) return
+        roomEngineSeekable = currentItemSeekable
         roomEnginePlayWhenReady = playWhenReady
         roomEngineIsPlaying = isPlaying
         roomEngineState = roomPlayerState(playbackState)
@@ -3495,6 +3685,9 @@ class PlayerViewModel(
             val playerSec = positionMs / 1000.0
             val serverDuration = state.serverDuration.takeIf { it > 0.0 }
             roomEnginePlayerSec = playerSec
+            roomEngineSampledAtMs = SystemClock.elapsedRealtime()
+            // Speed of the media the room sees, not of media being replaced.
+            roomEngineSpeed = playbackSpeed?.takeIf { it.isFinite() && it > 0.0 }
             roomEngineBufferedPlayerSec = bufferedPositionMs.coerceAtLeast(0L) / 1000.0
             // onPositionChanged's source mapping, without the presentation
             // guard that holds the scrubber on a pending seek target.
@@ -3509,6 +3702,9 @@ class PlayerViewModel(
         roomEnginePlayerSec = state.startPosition
         roomEngineBufferedPlayerSec = state.startPosition
         roomEngineSourceSec = state.position
+        roomEngineSampledAtMs = null
+        roomEngineSeekable = false
+        roomEngineSpeed = null
         refreshRoomObservation()
     }
 
@@ -3552,9 +3748,11 @@ class PlayerViewModel(
     /** One rung down the current file's quality ladder, or null when there is none. */
     fun lowerRoomQualityLabel(): String? {
         if (!inRoom) return null
+        val plan = _uiState.value.playbackPlan
         return lowerQualityRung(
-            available = _uiState.value.playbackPlan?.availableQualities.orEmpty(),
+            available = plan?.availableQualities.orEmpty(),
             selectedLabel = currentMobileQualityPreference(),
+            sourceHeight = plan?.sourceFile?.height ?: 0,
         )?.label
     }
 
@@ -3570,11 +3768,12 @@ class PlayerViewModel(
      * Quality menu pick: replans at [id], a plan entry's label sent verbatim,
      * or auto to hand the choice back to the server. The active row is a no-op.
      */
-    fun onSelectQuality(id: String) {
+    fun onSelectQuality(id: String) = picksDuringNetworkMove.applyAfterMove {
+        // Checked when applied, against the plan playing then.
         val state = _uiState.value
         val menu = playbackQualityMenu(state.playbackPlan?.availableQualities.orEmpty())
-        if (menu.none { it.id == id }) return
-        if (id == state.activeQualityId(menu)) return
+        if (menu.none { it.id == id }) return@applyAfterMove
+        if (id == state.activeQualityId(menu)) return@applyAfterMove
         mobileSubtitleTransactions.updatePlaybackContext(mobileSubtitleContext(state))
         mobileSubtitleTransactions.selectQuality(id)
     }
@@ -3617,6 +3816,9 @@ class PlayerViewModel(
             state = roomEngineState,
             seekPending = roomMediaTransitioning(state),
             suspended = roomSuspensions.isNotEmpty(),
+            sampledAtMs = roomEngineSampledAtMs,
+            playbackSpeed = roomEngineSpeed,
+            mountGeneration = state.mediaMountGeneration,
         )
     }
 
@@ -3624,7 +3826,17 @@ class PlayerViewModel(
     fun remoteUnpause() { _uiState.update { it.copy(isPaused = false) } }
     fun remoteTogglePlayPause() { onPlayPause() }
     fun remoteSeek(positionSeconds: Double) { seekImmediate(positionSeconds) }
-    fun remoteStop() { _remoteStopRequests.tryEmit(Unit) }
+    fun remoteStop(notice: String? = null) { _remoteStopRequests.tryEmit(notice) }
+
+    /**
+     * The server ended this session for good: an administrator stopped it
+     * while the control socket could not reach this player. Leave the way a
+     * remote stop does rather than renewing into a fresh session.
+     */
+    private fun leaveServerEndedSession() {
+        Log.i(TAG, "The server ended this playback session; leaving playback")
+        remoteStop(ADMIN_ENDED_PLAYBACK_NOTICE)
+    }
     // Carry a monotonic id so an identical message repeated within the toast
     // window still re-triggers (StateFlow would dedup equal values otherwise).
     fun remoteDisplayMessage(message: String) {
@@ -3980,13 +4192,19 @@ class PlayerViewModel(
             .getOrNull(index)
             ?.let(::mobileSubtitleIdentity)
             ?: SubtitleIdentity.Off
-        routeIntentState.beginSubtitleSelection(
-            contentId = state.contentId,
-            routeOrdinal = catalogSubtitleRouteOrdinal(state, identity),
-            identity = identity,
-        )
-        mobileSubtitleTransactions.updatePlaybackContext(mobileSubtitleContext(state))
-        mobileSubtitleTransactions.select(identity)
+        // The route intent is begun as the pick is staged: a network move in
+        // flight publishes its own tracks when it lands, which would clear an
+        // intent begun before it.
+        picksDuringNetworkMove.applyAfterMove {
+            val current = _uiState.value
+            routeIntentState.beginSubtitleSelection(
+                contentId = current.contentId,
+                routeOrdinal = catalogSubtitleRouteOrdinal(current, identity),
+                identity = identity,
+            )
+            mobileSubtitleTransactions.updatePlaybackContext(mobileSubtitleContext(current))
+            mobileSubtitleTransactions.select(identity)
+        }
     }
 
     internal fun isCurrentSubtitleMount(mount: MobileSubtitleMount?): Boolean =
@@ -4041,8 +4259,20 @@ class PlayerViewModel(
         ) {
             return
         }
-        mobileSubtitleTransactions.updatePlaybackContext(mobileSubtitleContext(state))
-        mobileSubtitleTransactions.selectAudio(serverIndex)
+        picksDuringNetworkMove.applyAfterMove {
+            // The intent begun above serves the local paths. Begin it again as
+            // the pick is staged: a network move it waited for published its
+            // own tracks when it landed, which cleared that one.
+            if (userInitiated) {
+                routeIntentState.beginAudioSelection(
+                    contentId = state.contentId,
+                    routeOrdinal = index,
+                    serverIndex = serverIndex,
+                )
+            }
+            mobileSubtitleTransactions.updatePlaybackContext(mobileSubtitleContext(_uiState.value))
+            mobileSubtitleTransactions.selectAudio(serverIndex)
+        }
     }
 
     // ---- Desired audio ------------------------------------------------------
@@ -4125,6 +4355,9 @@ class PlayerViewModel(
                 if (!desired.confirmed) {
                     desiredAudio = desired.copy(confirmed = true)
                     commitLocalAudio(desired)
+                    // The new track is mounted and selected: only now can its
+                    // output path (PCM or passthrough) be measured for rate support.
+                    if (inRoom) _roomAudioTrackChanges.tryEmit(Unit)
                 }
             }
 
@@ -4595,8 +4828,10 @@ class PlayerViewModel(
                             doRefreshSubtitles(autoSelectSubtitleId = outcome.resultSubtitleId)
                             if (ownsRequest()) _subtitleTools.update { it.copy(activeJob = null, jobJustCompleted = true) }
                         }
-                        is SubtitlesRepository.SubtitleJobOutcome.Failed -> _subtitleTools.update {
-                            it.copy(activeJob = null, translateError = outcome.message ?: "Job failed")
+                        is SubtitlesRepository.SubtitleJobOutcome.Failed -> {
+                            val message = outcome.message ?: "Job failed"
+                            _subtitleTools.update { it.copy(activeJob = null, translateError = message) }
+                            _aiJobFailure.value = AiJobFailure(++aiJobFailureCounter, message)
                         }
                         SubtitlesRepository.SubtitleJobOutcome.Cancelled -> _subtitleTools.update {
                             it.copy(activeJob = null)
@@ -5938,6 +6173,28 @@ private const val MAX_LOCAL_AUDIO_ATTEMPTS = 3
  * A downloaded file mounted by the offline-first path: a local URI with no
  * server session or playback plan behind it.
  */
+/**
+ * The session the network follower moves, playing at [active]; null when
+ * there is no server session, it plays a download, it is in a Watch Party, or
+ * the viewer picked a fixed rung in the player (or the route named one), which
+ * a network change must not override. Auto picked in the player is not a
+ * fixed pick: the session keeps following, with only its cap moving.
+ */
+internal fun settingsFollowedQuality(
+    sessionId: String?,
+    playsDownload: Boolean,
+    inRoom: Boolean,
+    pickedQuality: String?,
+    active: PlaybackQualityPair?,
+): FollowedSession? {
+    if (sessionId == null || playsDownload || inRoom || active == null) return null
+    return when (videoQualityPreference(pickedQuality)) {
+        null -> FollowedSession(sessionId, active)
+        PLAYBACK_QUALITY_AUTO -> FollowedSession(sessionId, active, autoPicked = true)
+        else -> null
+    }
+}
+
 internal fun PlayerViewModel.PlayerUiState.isLocalFilePlayback(): Boolean {
     val url = streamUrl ?: return false
     return sessionId == null && playbackPlan == null &&
@@ -5973,3 +6230,6 @@ internal fun keepsPickedQuality(
         currentRoom.roomId == room.roomId &&
         currentRoom.selectionRevision == room.selectionRevision
 }
+
+/** A failed AI subtitle job's reason; [id] keeps repeated identical reasons distinct. */
+data class AiJobFailure(val id: Long, val message: String)

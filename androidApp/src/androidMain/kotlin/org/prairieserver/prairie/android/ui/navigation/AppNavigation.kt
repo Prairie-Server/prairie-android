@@ -114,7 +114,6 @@ import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionScr
 import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvPlayerScreen
 import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvScreen
 import org.prairieserver.prairie.android.ui.screens.requests.MyRequestsScreen
-import org.prairieserver.prairie.android.ui.screens.requests.RequestApprovalsScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDetailScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestsScreen
 import org.prairieserver.prairie.android.ui.screens.search.MobileSearchMediaType
@@ -889,7 +888,9 @@ fun AppNavigation(
                     val switching = switchTo != null
                     // Same teardown as every other sign-out, which also has
                     // the next provider sign-in offer another account.
-                    if (signOutFirst) signOutTeardown.signOut(flushFirst = false, startSignIn = startSignIn)
+                    // Nobody was signed out (another server or login became active
+                    // meanwhile): don't open the sign-in this was preparing.
+                    if (signOutFirst && !signOutTeardown.signOut(flushFirst = false, startSignIn = startSignIn)) return@launch
                     onRequeueExternalRoute(pairDeviceRoute(pendingCode ?: code))
                     navController.navigate(Route.Login.route) {
                         if (switching || signOutFirst) popUpTo(0) { inclusive = true }
@@ -1122,7 +1123,7 @@ fun AppNavigation(
                 onChangeServer = { navController.navigate(Route.ServerList.route) },
                 onSignOut = {
                     navScope.launch {
-                        signOutTeardown.signOut()
+                        if (!signOutTeardown.signOut()) return@launch
                         navController.navigate(Route.Login.route) {
                             popUpTo(0) { inclusive = true }
                         }
@@ -1221,6 +1222,18 @@ fun AppNavigation(
             LaunchedEffect(Unit) {
                 navController.navigate(Route.Settings.route) {
                     popUpTo("settings/card_overlays") { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+        }
+        // The request Approvals screen was removed (request administration is
+        // web admin only); a saved back stack from an older build can still
+        // hold its route, so keep a hidden redirect to Requests rather than
+        // crash on restore. Registered, never rendered.
+        composable("requests/approvals") {
+            LaunchedEffect(Unit) {
+                navController.navigate(Route.Requests.route) {
+                    popUpTo("requests/approvals") { inclusive = true }
                     launchSingleTop = true
                 }
             }
@@ -1390,21 +1403,12 @@ fun AppNavigation(
             RequestsScreen(
                 onBackClick = { navController.popBackStack() },
                 onMyRequestsClick = { navController.navigate(Route.MyRequests.route) },
-                onApprovalsClick = { navController.navigate(Route.RequestApprovals.route) },
                 onRequestDetailClick = openRequestDetail,
                 onLibraryItemClick = openRequestLibraryItem,
             )
         }
         composable(Route.MyRequests.route) {
             MyRequestsScreen(
-                onBackClick = { navController.popBackStack() },
-                onApprovalsClick = { navController.navigate(Route.RequestApprovals.route) },
-                onRequestDetailClick = openRequestDetail,
-                onLibraryItemClick = openRequestLibraryItem,
-            )
-        }
-        composable(Route.RequestApprovals.route) {
-            RequestApprovalsScreen(
                 onBackClick = { navController.popBackStack() },
                 onRequestDetailClick = openRequestDetail,
                 onLibraryItemClick = openRequestLibraryItem,
@@ -1533,13 +1537,16 @@ fun AppNavigation(
             var resolvedSeriesId by rememberSaveable(initialContentId) { mutableStateOf<String?>(null) }
             var resolvedSeason by rememberSaveable(initialContentId) { mutableStateOf<Int?>(null) }
             var resolvedEpisodeId by rememberSaveable(initialContentId) { mutableStateOf<String?>(null) }
-            val resolvedContentId = resolvedSeriesId ?: initialContentId
+            // The reverse: a series opened for one of its episodes that cannot
+            // load shows that episode, which then stays put.
+            var fallbackEpisodeId by rememberSaveable(initialContentId) { mutableStateOf<String?>(null) }
+            val resolvedContentId = fallbackEpisodeId ?: resolvedSeriesId ?: initialContentId
             SideEffect {
                 // A redirected episode now displays Series. External links
                 // must compare against this identity, not the original args.
                 backStackEntry.savedStateHandle[DisplayedDetailContentIdKey] = resolvedContentId
             }
-            val detailViewModel: ItemDetailViewModel = if (resolvedSeriesId == null) {
+            val detailViewModel: ItemDetailViewModel = if (resolvedContentId == initialContentId) {
                 koinViewModel()
             } else {
                 koinViewModel(
@@ -1603,6 +1610,13 @@ fun AppNavigation(
                     resolvedEpisodeId = episodeId
                     resolvedSeriesId = seriesId
                 },
+                onEpisodeFallback = { episodeId ->
+                    resolvedSeason = null
+                    resolvedEpisodeId = null
+                    resolvedSeriesId = null
+                    fallbackEpisodeId = episodeId
+                },
+                allowSeriesRedirect = fallbackEpisodeId == null,
                 onShuffleStarted = { shuffle ->
                     navController.navigate(
                         org.prairieserver.prairie.android.ui.screens.shuffle.shufflePlayerRoute(shuffle, libraryId),

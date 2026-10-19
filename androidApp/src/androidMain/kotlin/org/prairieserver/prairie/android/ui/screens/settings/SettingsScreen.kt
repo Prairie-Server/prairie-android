@@ -60,7 +60,7 @@ import org.prairieserver.prairie.common.diagnostics.DiagnosticsAvailabilityUi
 import org.prairieserver.prairie.common.network.clientVersionLabel
 import org.prairieserver.prairie.common.settings.CardPresentationSupport
 import org.prairieserver.prairie.model.settings.LanguageOptions
-import org.prairieserver.prairie.model.settings.QualityPresets
+import org.prairieserver.prairie.model.settings.QualityChoices
 import org.prairieserver.prairie.model.settings.SettingKeys
 import org.prairieserver.prairie.update.AppUpdateChecker
 import org.prairieserver.prairie.update.AppUpdateStatus
@@ -147,7 +147,8 @@ fun SettingsScreen(
         "profile selection", "profiles", "who's watching", "launch", "pin",
     )
     val matchesPlayback = search.matches(
-        "playback", "quality", "audio", "dolby vision", "picture-in-picture", "episodes", "next up",
+        "playback", "quality", "resolution", "bitrate", "cellular", "mobile data", "audio", "dolby vision",
+        "picture-in-picture", "episodes", "next up",
         "skip", "intros", "credits", "rewind", "still watching", "skip interval", "audiobooks",
         "spoilers", "unwatched", "blur", "descriptions",
     )
@@ -273,7 +274,7 @@ fun SettingsScreen(
                             SettingsNavigationRow(
                                 label = "Playback",
                                 icon = Icons.Filled.PlayArrow,
-                                value = QualityPresets.describe(state.qualityResolution, state.maxBitrateKbps),
+                                value = QualityChoices.summary(state.qualityResolution, state.maxBitrateKbps),
                                 onClick = onOpenPlayback,
                             )
                         }

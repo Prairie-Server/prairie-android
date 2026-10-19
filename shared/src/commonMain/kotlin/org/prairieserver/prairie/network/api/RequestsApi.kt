@@ -1,13 +1,10 @@
 package org.prairieserver.prairie.network.api
 
-import org.prairieserver.prairie.model.request.AdminRequestAction
-import org.prairieserver.prairie.model.request.AdminRequestActionBody
-import org.prairieserver.prairie.model.request.AdminRequestCapabilities
 import org.prairieserver.prairie.model.request.CreateMediaRequest
 import org.prairieserver.prairie.model.request.MediaRequest
 import org.prairieserver.prairie.model.request.RequestMediaDetail
 import org.prairieserver.prairie.model.request.RequestMediaPage
-import org.prairieserver.prairie.model.request.RequestMediaType
+import org.prairieserver.prairie.model.request.RequestState
 import org.prairieserver.prairie.model.request.RequestsDiscoverResponse
 import org.prairieserver.prairie.model.request.RequestsFeatureStatus
 import org.prairieserver.prairie.model.request.RequestsListResponse
@@ -19,9 +16,11 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.authScope
 import org.prairieserver.prairie.network.ApiResult
 import io.ktor.client.HttpClient
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -60,33 +59,17 @@ interface RequestsApi {
     suspend fun cancel(id: String): ApiResult<MediaRequest>
 
     /**
-     * `GET /api/v2/admin/requests/capabilities`. Answers only for an admin
-     * acting as the account's primary profile; anyone else gets a problem,
-     * which callers read as "can't moderate".
+     * `PUT /api/v2/requests/follows/{media_type}/{tmdb_id}`: notify the viewer
+     * when a title someone else requested becomes available. Answers with the
+     * title's request state. Idempotent. Fakes that don't exercise following
+     * inherit these refusals.
      */
-    suspend fun adminCapabilities(): ApiResult<AdminRequestCapabilities>
+    suspend fun follow(mediaType: String, tmdbId: Int): ApiResult<RequestState> =
+        ApiResult.Error(0, "capability_unsupported", "Following is not supported.")
 
-    /**
-     * Every request matching the filter, across all users, loaded completely
-     * or not at all. [tmdbId] narrows the list to one title through `q`, which
-     * also matches titles containing the number, so callers still match the id.
-     */
-    suspend fun adminRequests(
-        status: String? = null,
-        outcome: String? = null,
-        mediaType: String? = null,
-        tmdbId: Int? = null,
-    ): ApiResult<RequestsListResponse>
-
-    /**
-     * The first page of [adminRequests] and whether more follow: enough for a
-     * count badge without reading the whole queue.
-     */
-    suspend fun adminRequestsFirstPage(status: String? = null, outcome: String? = null): ApiResult<RequestsListResponse> =
-        adminRequests(status, outcome)
-
-    /** Approve, decline, or retry someone's request. `non_retryable`: never resent after an uncertain outcome. */
-    suspend fun adminAction(id: String, action: AdminRequestAction, reason: String? = null): ApiResult<MediaRequest>
+    /** `DELETE` of the same path: stop the notification. Answers 204 whether or not the viewer followed. */
+    suspend fun unfollow(mediaType: String, tmdbId: Int): ApiResult<Unit> =
+        ApiResult.Error(0, "capability_unsupported", "Following is not supported.")
 }
 
 class DefaultRequestsApi(
@@ -145,31 +128,6 @@ class DefaultRequestsApi(
         }
     }
 
-    override suspend fun adminRequests(
-        status: String?,
-        outcome: String?,
-        mediaType: String?,
-        tmdbId: Int?,
-    ): ApiResult<RequestsListResponse> =
-        pagedRequests("/api/v2/admin/requests", OwnerPolicy.PROFILE, maxPages = 40, limit = null) {
-            parameter("status", status)
-            parameter("outcome", outcome)
-            parameter("media_type", mediaType?.takeIf { it == RequestMediaType.Movie || it == RequestMediaType.Series })
-            parameter("q", tmdbId?.toString())
-        }
-
-    override suspend fun adminRequestsFirstPage(status: String?, outcome: String?): ApiResult<RequestsListResponse> {
-        val pinned = tokenManager?.snapshotCurrentScope()
-        return ownedV2Call<RequestsListResponse, RequestsListResponse>(gate, tokenManager, pinned, OwnerPolicy.PROFILE, null, { owner ->
-            client.get("/api/v2/admin/requests") {
-                owner?.let { authScope(it) }
-                parameter("status", status)
-                parameter("outcome", outcome)
-                parameter("limit", 50)
-            }
-        }) { it }
-    }
-
     /**
      * Follows `page.next_cursor` under one captured owner. A failed page, a
      * missing or repeated cursor, or the page bound fails the whole load
@@ -223,18 +181,11 @@ class DefaultRequestsApi(
         }
     }
 
-    override suspend fun adminCapabilities(): ApiResult<AdminRequestCapabilities> = safeApiV2Call(gate) {
-        client.get("/api/v2/admin/requests/capabilities")
+    override suspend fun follow(mediaType: String, tmdbId: Int): ApiResult<RequestState> = safeApiV2Call(gate) {
+        client.put("/api/v2/requests/follows/$mediaType/$tmdbId")
     }
 
-    override suspend fun adminAction(
-        id: String,
-        action: AdminRequestAction,
-        reason: String?,
-    ): ApiResult<MediaRequest> = safeApiV2Call(gate) {
-        client.post("/api/v2/admin/requests/$id/${action.path}") {
-            contentType(ContentType.Application.Json)
-            setBody(AdminRequestActionBody(reason = reason?.takeIf { it.isNotBlank() }))
-        }
+    override suspend fun unfollow(mediaType: String, tmdbId: Int): ApiResult<Unit> = safeApiV2Call(gate) {
+        client.delete("/api/v2/requests/follows/$mediaType/$tmdbId")
     }
 }

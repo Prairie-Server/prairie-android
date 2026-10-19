@@ -66,10 +66,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -201,6 +204,60 @@ fun AdaptiveDetailHero(
 }
 
 /**
+ * The text and actions beside an expanded hero's portrait, in a column at
+ * least [minHeight] (the poster's height) tall: text at the top, actions at
+ * the bottom so Play ends level with the poster. When the text does not quite
+ * fit, the title gives up the difference (it is weighted in [text]) and the
+ * column stays the poster's height. When it would lose more than
+ * [TitleSqueezeAllowance], as with a request's Notify me line and status
+ * card, the column grows to fit the whole text and actions instead.
+ */
+@Composable
+private fun PosterAlignedHeroColumn(
+    minHeight: Dp,
+    gap: Dp,
+    modifier: Modifier = Modifier,
+    text: @Composable () -> Unit,
+    actions: @Composable () -> Unit,
+) {
+    Layout(
+        modifier = modifier,
+        content = {
+            text()
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                actions()
+            }
+        },
+    ) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val actionsPlaceable = measurables[1].measure(Constraints(maxWidth = width))
+        val besidePoster = (minHeight.roundToPx() - gap.roundToPx() - actionsPlaceable.height).coerceAtLeast(0)
+        val naturalText = measurables[0].maxIntrinsicHeight(width)
+        val textHeight = if (naturalText - besidePoster <= TitleSqueezeAllowance.roundToPx()) {
+            besidePoster
+        } else {
+            naturalText
+        }
+        val textPlaceable = measurables[0].measure(Constraints.fixed(width, textHeight))
+        val height = constraints.constrainHeight(
+            maxOf(minHeight.roundToPx(), textHeight + gap.roundToPx() + actionsPlaceable.height),
+        )
+        layout(width, height) {
+            textPlaceable.placeRelative(0, 0)
+            actionsPlaceable.placeRelative(
+                (width - actionsPlaceable.width) / 2,
+                height - actionsPlaceable.height,
+            )
+        }
+    }
+}
+
+private val TitleSqueezeAllowance = 48.dp
+
+/**
  * Expanded-window detail hero inspired by the reference foldable layout:
  * artwork ends at the shared poster/action baseline, then fades into the
  * opaque title-derived page surface used by the centered editorial column.
@@ -277,21 +334,15 @@ private fun ExpandedDetailHero(
                     }
                 }
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(if (hasPortrait) Modifier.height(posterHeight) else Modifier),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // Beside a portrait, the text block takes only the height
-                    // the actions leave, so Play stays level with the poster.
-                    // Only the title gives up height: it is weighted, so the
-                    // facts and ratings rows are measured first and never clip,
-                    // and a logo scales down to what is left.
+                val textBlock: @Composable () -> Unit = {
+                    // Beside a portrait only the title gives up height: it is
+                    // weighted, so the facts and ratings rows are measured
+                    // first and never clip, and a logo scales down to what is
+                    // left.
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(if (hasPortrait) Modifier.weight(1f).clipToBounds() else Modifier),
+                            .then(if (hasPortrait) Modifier.clipToBounds() else Modifier),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -314,11 +365,27 @@ private fun ExpandedDetailHero(
                         }
                         DetailRatingsRow(ratings = detail.titleRatings())
                     }
-                    Spacer(modifier = Modifier.height(if (hasPortrait) 12.dp else 20.dp))
+                }
+                if (hasPortrait) {
                     // Expanded/tablet only: Play and its bottom action row end
-                    // no lower than the portrait. The compact phone branch is
+                    // level with the portrait. The compact phone branch is
                     // intentionally unchanged.
-                    actions()
+                    PosterAlignedHeroColumn(
+                        minHeight = posterHeight,
+                        gap = 12.dp,
+                        modifier = Modifier.weight(1f),
+                        text = textBlock,
+                        actions = actions,
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        textBlock()
+                        Spacer(modifier = Modifier.height(20.dp))
+                        actions()
+                    }
                 }
             }
         }

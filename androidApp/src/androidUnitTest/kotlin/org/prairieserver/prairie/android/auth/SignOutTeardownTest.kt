@@ -4,14 +4,18 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
+import org.prairieserver.prairie.android.push.PushRemoval
+import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.model.profile.ActiveProfileStore
-import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.TokenManagerImpl
 import org.prairieserver.prairie.network.api.AuthApi
 import org.prairieserver.prairie.network.api.ProfileApi
@@ -23,56 +27,127 @@ import org.prairieserver.prairie.repository.RequestsRepository
 import java.lang.reflect.Proxy
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * An explicit sign-out asks the server's next provider sign-in to offer
- * another account (`prompt=select_account`): the provider's browser session
- * outlives the Prairie one, and would otherwise sign the same person straight
- * back in.
- */
 class SignOutTeardownTest {
     private val http = HttpClient(MockEngine { respond("", HttpStatusCode.NoContent) })
 
     @AfterTest fun tearDown() = http.close()
 
+    /**
+     * An explicit sign-out asks the server's next provider sign-in to offer
+     * another account (`prompt=select_account`): the provider's browser session
+     * outlives the Prairie one, and would otherwise sign the same person straight
+     * back in.
+     */
     @Test
     fun signingOutAsksTheSignedOutServerForAnAccountChoice() = runTest {
-        val tokens = TokenManagerImpl()
-        val coordinator = NativeSignInCoordinator(
-            InMemoryPendingNativeSignInStore(),
-            idle(),
-            backgroundScope,
-            InMemoryAccountChoiceStore(),
-        )
-        val registry = idle<ServerRegistry>(mapOf("getActiveServerId" to MutableStateFlow<String?>("home")))
-        val teardown = SignOutTeardown(
-            authRepository = AuthRepository(AuthApi(http, ApiV2Gate.Unrestricted), tokens),
-            playerSettingsStore = idle(),
-            libraryPlaybackPrefsStore = idle(),
-            overlayPrefsStore = idle(),
-            activeProfileStore = ActiveProfileStore(ProfileRepository(ProfileApi(http, ApiV2Gate.Unrestricted), tokens)),
-            cardPresentationStore = idle(),
-            seekIntervalStore = idle(),
-            titleArtStore = idle(),
-            episodeSpoilerStore = idle(),
-            requestsFeatureStore = RequestsFeatureStore(RequestsRepository(idle())),
-            metadataAiFeatureStore = MetadataAiFeatureStore(MetadataAiRepository(idle())),
-            serverRegistry = registry,
-            nativeSignIn = coordinator,
-        )
+        val coordinator = nativeSignIn()
         assertFalse(coordinator.accountChoiceRequested("home"))
 
-        teardown.signOut()
+        teardown(TokenManagerImpl(), coordinator).signOut()
 
         assertTrue(coordinator.accountChoiceRequested("home"))
         assertFalse(coordinator.accountChoiceRequested("cabin"), "only the server signed out of")
     }
 
-    /** Collaborators the sign-out doesn't depend on: they answer nothing and emit nothing. */
+    @Test
+    fun theServersPushRegistrationIsRemovedWhileItsCredentialsStillExist() = runTest {
+        val tokens = TokenManagerImpl().apply { saveTokens("access", "refresh", 3600) }
+        val removedWith = mutableMapOf<String, String?>()
+
+        teardown(tokens, nativeSignIn(), unregisterPush = { removedWith[it] = tokens.getAccessToken(); null }).signOut()
+
+        assertEquals<Map<String, String?>>(mapOf("home" to "access"), removedWith)
+        assertNull(tokens.getAccessToken())
+    }
+
+    @Test
+    fun switchingServersWhileTheSignOutWaitsSignsNobodyOutAndKeepsTheirPushes() = runTest {
+        for (during in listOf("settings flush", "push removal")) {
+            val tokens = TokenManagerImpl().apply { saveTokens("access", "refresh", 3600) }
+            val active = MutableStateFlow<String?>("home")
+            val removed = mutableListOf<String>()
+            val restored = mutableListOf<String>()
+
+            val signedOut = teardown(
+                tokens, nativeSignIn(), active,
+                onFlush = { if (during == "settings flush") active.value = "cabin" },
+                unregisterPush = {
+                    removed += it
+                    if (during == "push removal") active.value = "cabin"
+                    PushRemoval(it, Any(), ApiResult.Success(Unit))
+                },
+                restorePush = { restored += it.serverId },
+            ).signOut()
+
+            assertFalse(signedOut, during)
+            assertEquals("access", tokens.getAccessToken(), "cabin, active by then, keeps its account ($during)")
+            // Home keeps its login, so whatever push registration it lost is put back.
+            assertEquals<List<String>>(removed, restored, during)
+        }
+    }
+
+    @Test
+    fun aPushRemovalThatFailsStillSignsOutButCancellationSignsNobodyOut() = runTest {
+        val tokens = TokenManagerImpl().apply { saveTokens("access", "refresh", 3600) }
+
+        assertFailsWith<CancellationException> {
+            teardown(tokens, nativeSignIn(), unregisterPush = { throw CancellationException("left") }).signOut()
+        }
+        assertEquals("access", tokens.getAccessToken())
+
+        assertTrue(teardown(tokens, nativeSignIn(), unregisterPush = { error("unreadable push records") }).signOut())
+        assertNull(tokens.getAccessToken())
+    }
+
+    private fun TestScope.nativeSignIn() = NativeSignInCoordinator(
+        InMemoryPendingNativeSignInStore(),
+        idle(),
+        backgroundScope,
+        InMemoryAccountChoiceStore(),
+    )
+
+    private fun teardown(
+        tokens: TokenManagerImpl,
+        coordinator: NativeSignInCoordinator,
+        activeServerId: MutableStateFlow<String?> = MutableStateFlow("home"),
+        onFlush: () -> Unit = {},
+        unregisterPush: suspend (String) -> PushRemoval? = { null },
+        restorePush: suspend (PushRemoval) -> Unit = {},
+    ) = SignOutTeardown(
+        authRepository = AuthRepository(AuthApi(http, ApiV2Gate.Unrestricted), tokens),
+        playerSettingsStore = idle<PlayerSettingsStore>(mapOf("flushPendingDeviceSettings" to onFlush)),
+        libraryPlaybackPrefsStore = idle(),
+        overlayPrefsStore = idle(),
+        activeProfileStore = ActiveProfileStore(ProfileRepository(ProfileApi(http, ApiV2Gate.Unrestricted), tokens)),
+        cardPresentationStore = idle(),
+        seekIntervalStore = idle(),
+        titleArtStore = idle(),
+        episodeSpoilerStore = idle(),
+        requestsFeatureStore = RequestsFeatureStore(RequestsRepository(idle())),
+        metadataAiFeatureStore = MetadataAiFeatureStore(MetadataAiRepository(idle())),
+        serverRegistry = idle(mapOf("getActiveServerId" to activeServerId)),
+        nativeSignIn = coordinator,
+        unregisterPush = unregisterPush,
+        restorePush = restorePush,
+    )
+
+    /**
+     * Collaborators the sign-out doesn't depend on: they answer nothing and emit
+     * nothing, except a [values] entry, which is returned, or run when it is a
+     * function.
+     */
     private inline fun <reified T> idle(values: Map<String, Any> = emptyMap()): T =
         Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, _ ->
-            values[method.name] ?: if (Flow::class.java.isAssignableFrom(method.returnType)) emptyFlow<Any>() else Unit
+            when (val value = values[method.name]) {
+                is Function0<*> -> value().let { Unit }
+                null -> if (Flow::class.java.isAssignableFrom(method.returnType)) emptyFlow<Any>() else Unit
+                else -> value
+            }
         } as T
 }

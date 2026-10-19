@@ -3,11 +3,14 @@ package org.prairieserver.prairie.android.ui.screens.player
 import android.util.Log
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
+import org.prairieserver.prairie.common.player.PlaybackNetworkEvidenceProvider
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.StartParams
 import org.prairieserver.prairie.common.player.TrackSelectionPresets
 import org.prairieserver.prairie.common.player.VideoSessionStartV3
+import org.prairieserver.prairie.common.player.qualityPair
+import org.prairieserver.prairie.common.player.usesCellularQuality
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartRequest
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStartResult
 import org.prairieserver.prairie.common.player.video.VideoPlaybackStarter
@@ -29,6 +32,7 @@ import org.prairieserver.prairie.model.playback.combinedSubtitleSelectionIndexes
 import org.prairieserver.prairie.model.playback.applyResumeRewind
 import org.prairieserver.prairie.model.playback.resolvePlaybackStartRequestPosition
 import org.prairieserver.prairie.model.playback.resolvedSelectedSubtitleIndex
+import org.prairieserver.prairie.model.playback.videoQualityPreference
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.orNullIfBlank
 import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
@@ -57,6 +61,7 @@ internal data class MobileVideoSessionAllocation(
     val maxBitrateKbps: Int? = null,
     val expectedMetadataOwner: org.prairieserver.prairie.network.AuthScopeSnapshot? = null,
     val allowAlternateVersions: Boolean? = null,
+    val allowsLocalRoute: Boolean = false,
 )
 
 internal fun interface MobileVideoSessionAllocator {
@@ -134,6 +139,8 @@ internal class MobileVideoPlaybackStarter(
     private val userItemStatePort: UserItemStatePort? = null,
     private val sessionAllocator: MobileVideoSessionAllocator? = null,
     private val sessionAdopter: MobileVideoSessionAdopter? = null,
+    /** Picks the cellular quality pair on mobile data or a metered network. */
+    private val networkEvidenceProvider: PlaybackNetworkEvidenceProvider = PlaybackNetworkEvidenceProvider.None,
 ) : VideoPlaybackStarter {
 
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult {
@@ -192,15 +199,29 @@ internal class MobileVideoPlaybackStarter(
                 ?: cachedDetail?.posterUrl?.takeIf { it.isNotBlank() }
 
             val serverUrl = playbackSessionManager.getServerUrl()
-            val preferredQuality = request.preferredQualityOverride
-                ?: playerSettingsStore.preferredQualityFlow.first()
-            val playbackQualityIntent = request.playbackQualityIntent ?: preferredQuality
+            // On mobile data or a metered network the cellular pair stands in
+            // for the main one; the player follows later network changes. A
+            // quality picked in the player or named by the route replaces only
+            // the resolution.
+            val qualityPair = playerSettingsStore.qualityPair(
+                cellular = networkEvidenceProvider.snapshot().usesCellularQuality,
+            )
+            // Never "original" for video: older servers read it as never convert.
+            val preferredQuality = videoQualityPreference(
+                request.preferredQualityOverride ?: qualityPair.qualityPreference,
+            )
+            val playbackQualityIntent = videoQualityPreference(request.playbackQualityIntent) ?: preferredQuality
+            // What a renewal may carry over: a quality picked in the player or
+            // named by the route, never one that came from the saved settings,
+            // which a renewal reads again for the connection it is on.
+            val carriedQuality = videoQualityPreference(request.playbackQualityIntent)
+                ?: videoQualityPreference(request.preferredQualityOverride)
             // The bandwidth half of the quality choice. Quality is two axes and
             // the server applies the cap only from what the request carries —
             // nothing on the playback path reads the stored setting — so
             // sending the resolution alone lets a capped preset ("1080p Low")
             // stream at the bandwidth the user explicitly declined.
-            val maxBitrateKbps = playerSettingsStore.maxBitrateKbpsFlow.first()
+            val maxBitrateKbps = qualityPair.bandwidthCapKbps
             val configuredAudioLanguage = playerSettingsStore.audioLanguageFlow
                 .first().ifBlank { null }
             val room = request.room
@@ -304,6 +325,8 @@ internal class MobileVideoPlaybackStarter(
 
             if (!ownerCurrent() || profileId != expectedMetadataOwner.profileId || serverUrl != expectedMetadataOwner.serverUrl)
                 return failure(request.contentId, "identity_changed: The metadata viewer changed before playback admission.", diagnosticsCode = PlaybackDiagnosticsCode.START_REQUEST)
+            // Watch Party playback stays on the saved address, admission included.
+            val allowsLocalRoute = request.roomId.isNullOrBlank() && room == null
             val v3Start = when (
                 val r = sessionAllocator?.allocate(
                     MobileVideoSessionAllocation(
@@ -318,6 +341,7 @@ internal class MobileVideoPlaybackStarter(
                         maxBitrateKbps = maxBitrateKbps,
                         expectedMetadataOwner = expectedMetadataOwner,
                         allowAlternateVersions = allowAlternateVersions,
+                        allowsLocalRoute = allowsLocalRoute,
                     ),
                 ) ?: playbackSessionManager.startVideoSessionV3(
                     fileId = version.fileId,
@@ -331,6 +355,7 @@ internal class MobileVideoPlaybackStarter(
                     maxBitrateKbps = maxBitrateKbps,
                     expectedMetadataOwner = expectedMetadataOwner,
                     allowAlternateVersions = allowAlternateVersions,
+                    allowsLocalRoute = allowsLocalRoute,
                 )
             ) {
                 is ApiResult.Success -> r.data
@@ -405,7 +430,7 @@ internal class MobileVideoPlaybackStarter(
                 audioTrackIndex = initialTracks.audioTrackIndex ?: resolved.audioTrackIndex,
                 subtitleTrackIndex = initialTracks.subtitleTrackIndex
                     ?: readyV3.plan.resolvedSelectedSubtitleIndex(),
-                qualityPreference = playbackQualityIntent,
+                qualityPreference = carriedQuality,
                 startPosition = sourceStartPos,
                 clientPlaybackContext = readyV3.clientPlaybackContext,
                 allowAlternateVersions = allowAlternateVersions,

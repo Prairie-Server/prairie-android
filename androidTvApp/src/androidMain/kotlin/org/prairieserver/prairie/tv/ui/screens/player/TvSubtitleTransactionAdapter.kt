@@ -14,6 +14,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.prairieserver.prairie.common.player.PlaybackQualityPair
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.PlaybackSessionLifecycle
 import org.prairieserver.prairie.common.player.PlaybackTrackSelectionWriteCoordinator
@@ -92,6 +93,8 @@ internal data class TvSubtitleStageRequest(
     val subtitleTrackIndex: Int,
     val outputRouteGeneration: Long = 0L,
     val classification: String = "subtitle_track_changed",
+    /** Picks a quality other than the committed one, whatever else changes with it. */
+    val qualityChanged: Boolean = false,
     val capabilities: ClientCodecCapabilities,
     val clientPlaybackContext: ClientPlaybackContext,
 )
@@ -266,6 +269,7 @@ internal class TvSubtitleTransactionAdapter(
     ) -> Boolean = { _, _ -> true },
     private val onCommittedPlaybackFailure: suspend (String) -> Unit = {},
     private val onEmbeddedSubtitleFailure: (Int) -> Unit = {},
+    private val onHlsRenditionSubtitleFailure: (Int) -> Unit = {},
     /**
      * Whether the player currently exposes any text track to mount against.
      * The mount deadline must not run while the answer is "none": a freshly
@@ -1184,6 +1188,7 @@ internal class TvSubtitleTransactionAdapter(
         val requestSessionId = requestContext.sessionId ?: return
         if (transition.pending?.generation != requested.generation) return
 
+        val qualityChanged = requested.qualityPreference != transition.committed.qualityPreference
         val request = TvSubtitleStageRequest(
             generation = requested.generation,
             contentId = requestContext.contentId,
@@ -1200,12 +1205,12 @@ internal class TvSubtitleTransactionAdapter(
             classification = when {
                 desiredOutputRouteGeneration != committedOutputRouteGeneration ->
                     "output_route_changed"
-                requested.qualityPreference != transition.committed.qualityPreference ->
-                    "quality_changed"
+                qualityChanged -> "quality_changed"
                 requested.audioTrackIndex != transition.committed.audioTrackIndex ->
                     "audio_track_changed"
                 else -> "subtitle_track_changed"
             },
+            qualityChanged = qualityChanged,
         )
         val staged = try {
             stagedPort.stage(request)
@@ -2156,7 +2161,14 @@ internal class TvSubtitleTransactionAdapter(
         if (!ownedSelection && !ownedRestore) return
         val failedIdentity = (if (ownedSelection) pendingLocalSelection?.identity else pendingLocalRestore?.identity)
             as? SubtitleIdentity.Embedded
-        if (failedIdentity?.containerTrackId != null) {
+        if (failedIdentity?.isServerSelected == true) {
+            val requestSidecar = {
+                if (failedIdentity.hlsRendition != null) {
+                    onHlsRenditionSubtitleFailure(failedIdentity.serverIndex)
+                } else {
+                    onEmbeddedSubtitleFailure(failedIdentity.serverIndex)
+                }
+            }
             val selection = pendingLocalSelection.takeIf { ownedSelection }
             if (selection?.committedPlayback != null) {
                 // Regular replans wait for publication settlement. Restore the
@@ -2170,7 +2182,7 @@ internal class TvSubtitleTransactionAdapter(
                     ) {
                         failureMessage = "Embedded subtitles couldn't load. Retrying with a sidecar."
                         publish()
-                        onEmbeddedSubtitleFailure(failedIdentity.serverIndex)
+                        requestSidecar()
                     }
                 }
             } else {
@@ -2184,7 +2196,7 @@ internal class TvSubtitleTransactionAdapter(
                 invalidateLocalMount()
                 failureMessage = "Embedded subtitles couldn't load. Retrying with a sidecar."
                 publish()
-                onEmbeddedSubtitleFailure(failedIdentity.serverIndex)
+                requestSidecar()
             }
             return
         }
@@ -2368,6 +2380,12 @@ internal class TvSubtitleTransactionAdapter(
 internal class PlaybackSessionManagerTvSubtitleStagedReplanPort(
     private val manager: PlaybackSessionManager,
     private val lifecycle: PlaybackSessionLifecycle,
+    /**
+     * The pair an Auto picked in the player sends; null for other picks.
+     * Asked only when the request changes the quality: a track change keeps
+     * the session's quality and cap.
+     */
+    private val inPlayerQuality: suspend (String?) -> PlaybackQualityPair? = { null },
 ) : TvSubtitleStagedReplanPort {
     override suspend fun stage(request: TvSubtitleStageRequest): ApiResult<TvStagedSubtitleCandidate> {
         val input = when (val mapped = request.toManagerStageInput()) {
@@ -2390,6 +2408,7 @@ internal class PlaybackSessionManagerTvSubtitleStagedReplanPort(
                 qualityPreference = request.qualityPreference,
                 capabilities = input.capabilities,
                 clientPlaybackContext = input.clientPlaybackContext,
+                qualityPair = if (request.qualityChanged) inPlayerQuality(request.qualityPreference) else null,
             )
         ) {
             is ApiResult.Success -> {
@@ -2535,8 +2554,8 @@ private fun TvStagedSubtitleCandidate.validationFailure(
         return validationFailure(returnedIdentity)
     }
     if (selectedSubtitleIdentity is SubtitleIdentity.Embedded &&
-        selectedSubtitleIdentity.containerTrackId != null &&
-        selectedSubtitleIndex == expectedSubtitleIndex && subtitleMode == PlaybackSubtitleModeV3.RENDER && !hasSidecar
+        selectedSubtitleIndex == expectedSubtitleIndex &&
+        selectedSubtitleIdentity.matchesServerSelectedPlan(subtitleMode, hasSidecar)
     ) return null
     return when (requested.identity) {
         is SubtitleIdentity.Embedded,
@@ -2616,8 +2635,9 @@ private fun TvStagedSubtitleCandidate.validationFailure(
             "The candidate did not burn in the requested subtitle."
         else -> null
     }
-    is SubtitleIdentity.Embedded -> if (identity.containerTrackId != null &&
-        selectedSubtitleIndex == identity.serverIndex && subtitleMode == PlaybackSubtitleModeV3.RENDER && !hasSidecar
+    is SubtitleIdentity.Embedded -> if (
+        selectedSubtitleIndex == identity.serverIndex &&
+        identity.matchesServerSelectedPlan(subtitleMode, hasSidecar)
     ) null else "The candidate omitted the exact embedded subtitle."
     is SubtitleIdentity.Downloaded,
     is SubtitleIdentity.LocalMedia3,

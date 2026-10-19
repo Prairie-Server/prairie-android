@@ -4,6 +4,8 @@ import org.prairieserver.prairie.network.apiv2.ApiV2Gate
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
+import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
@@ -59,22 +61,33 @@ class HomeViewModelCacheIdentityTest {
         Dispatchers.resetMain()
     }
 
+    /**
+     * Serves Home on the test's own dispatcher. MockEngine otherwise answers on
+     * a real IO thread, so a response still in flight when a test returns
+     * resumes its view model on Dispatchers.Main after tearDown reset it, and
+     * kotlinx-coroutines-test pins that exception on whichever test runs next.
+     */
+    private fun homeClient(handler: MockRequestHandler) = HttpClient(
+        MockEngine(MockEngineConfig().apply {
+            dispatcher = this@HomeViewModelCacheIdentityTest.dispatcher
+            addHandler(handler)
+        }),
+    ) {
+        install(ContentNegotiation) { json(PrairieJson) }
+    }
+
     @Test
     fun homeResponseStartedBeforeProfileSwitchIsNotCachedForNewProfile() = runTest(dispatcher) {
         val requestEntered = CompletableDeferred<Unit>()
         val releaseResponse = CompletableDeferred<Unit>()
-        val client = HttpClient(
-            MockEngine {
-                requestEntered.complete(Unit)
-                releaseResponse.await()
-                respond(
-                    """{"sections":[{"id":"old","section_type":"row","title":"Profile A","items":[]}]}""",
-                    HttpStatusCode.OK,
-                    headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-            },
-        ) {
-            install(ContentNegotiation) { json(PrairieJson) }
+        val client = homeClient {
+            requestEntered.complete(Unit)
+            releaseResponse.await()
+            respond(
+                """{"sections":[{"id":"old","section_type":"row","title":"Profile A","items":[]}]}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
         }
         val identityTransitions = DefaultIdentityTransitionBarrier()
         val cache = RecordingHomeCache()
@@ -98,16 +111,12 @@ class HomeViewModelCacheIdentityTest {
 
     @Test
     fun homeReportsCacheAndNetworkProvenanceWithoutContentMetadata() = runTest(dispatcher) {
-        val client = HttpClient(
-            MockEngine {
-                respond(
-                    """{"sections":[{"id":"private-section","section_type":"row","title":"Private Title","items":[]}]}""",
-                    HttpStatusCode.OK,
-                    headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-            },
-        ) {
-            install(ContentNegotiation) { json(PrairieJson) }
+        val client = homeClient {
+            respond(
+                """{"sections":[{"id":"private-section","section_type":"row","title":"Private Title","items":[]}]}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
         }
         val observations = mutableListOf<HomeLoadObservation>()
         val viewModel = HomeViewModel(
@@ -136,23 +145,19 @@ class HomeViewModelCacheIdentityTest {
         val realtimeEntered = CompletableDeferred<Unit>()
         val releaseRealtime = CompletableDeferred<Unit>()
         val followUpEntered = CompletableDeferred<Unit>()
-        val client = HttpClient(
-            MockEngine {
-                when (++requests) {
-                    2 -> {
-                        realtimeEntered.complete(Unit)
-                        releaseRealtime.await()
-                    }
-                    3 -> followUpEntered.complete(Unit)
+        val client = homeClient {
+            when (++requests) {
+                2 -> {
+                    realtimeEntered.complete(Unit)
+                    releaseRealtime.await()
                 }
-                respond(
-                    """{"sections":[]}""",
-                    HttpStatusCode.OK,
-                    headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-            },
-        ) {
-            install(ContentNegotiation) { json(PrairieJson) }
+                3 -> followUpEntered.complete(Unit)
+            }
+            respond(
+                """{"sections":[]}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
         }
         val viewModel = HomeViewModel(
             sectionRepository = SectionRepository(SectionApi(client, home = HomeSectionsV2Api(client, tokens, ApiV2Gate.Unrestricted, decodeDispatcher = dispatcher))),
@@ -182,7 +187,7 @@ class HomeViewModelCacheIdentityTest {
     private class RecordingHomeCache : HomeCachePort {
         var sections: List<ResolvedSection>? = null
 
-        override suspend fun cacheHomeV2(sections: List<ResolvedSection>, owner: AuthScopeSnapshot, stillCurrent: () -> Boolean) {
+        override suspend fun cacheHomeV2(sections: List<ResolvedSection>, owner: AuthScopeSnapshot, artworkFingerprint: String?, stillCurrent: () -> Boolean) {
             this.sections = sections
         }
     }

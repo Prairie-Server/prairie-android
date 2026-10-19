@@ -19,6 +19,8 @@ import org.prairieserver.prairie.model.playback.DELIVERY_CLASS_HLS
 import org.prairieserver.prairie.model.playback.DELIVERY_CLASS_ORIGINAL_HTTP
 import org.prairieserver.prairie.model.playback.DELIVERY_CLASS_PROGRESSIVE
 import org.prairieserver.prairie.model.playback.NATIVE_HLS_PLAYBACK_V1_FEATURE
+import org.prairieserver.prairie.model.playback.HLS_SUBTITLE_RENDITIONS_V1_FEATURE
+import org.prairieserver.prairie.model.playback.playbackClientFeaturesV3
 import org.prairieserver.prairie.model.playback.CLIENT_SELECTED_AUDIO_TRACK_V1_CLAIM
 import org.prairieserver.prairie.model.playback.CLIENT_DV8_BASE_LAYER_FALLBACK_V1_CLAIM
 import kotlin.test.Test
@@ -57,6 +59,10 @@ class PlaybackCapabilityDetectorDolbyVisionTest {
             assertFalse(
                 NATIVE_HLS_PLAYBACK_V1_FEATURE in playbackContext.deliveries.getValue(DELIVERY_CLASS_PROGRESSIVE).features,
                 "$formFactor must not apply the HLS sample-entry contract to progressive delivery",
+            )
+            assertTrue(
+                HLS_SUBTITLE_RENDITIONS_V1_FEATURE in playbackClientFeaturesV3(playbackContext),
+                "$formFactor selects HLS subtitle renditions in Media3",
             )
         }
     }

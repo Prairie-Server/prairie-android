@@ -201,6 +201,29 @@ class TvWatchPartyPlayerTest {
     }
 
     @Test
+    fun `a seekable window reaches any earlier point but not past the buffer`() {
+        // A member 3 s ahead of a paused room seeks back in place.
+        assertTrue(
+            tvRoomPositionBuffered(
+                targetPlayerSeconds = 97.0, currentPlayerSeconds = 100.0, bufferedPlayerSeconds = 130.0,
+                seekableBehindPlayhead = true,
+            ),
+        )
+        assertTrue(
+            tvRoomPositionBuffered(
+                targetPlayerSeconds = 0.0, currentPlayerSeconds = 100.0, bufferedPlayerSeconds = 130.0,
+                seekableBehindPlayhead = true,
+            ),
+        )
+        assertFalse(
+            tvRoomPositionBuffered(
+                targetPlayerSeconds = 131.0, currentPlayerSeconds = 100.0, bufferedPlayerSeconds = 130.0,
+                seekableBehindPlayhead = true,
+            ),
+        )
+    }
+
+    @Test
     fun `inconsistent or unknown positions are never buffered`() {
         assertFalse(tvRoomPositionBuffered(targetPlayerSeconds = 100.0, currentPlayerSeconds = 100.0, bufferedPlayerSeconds = 90.0))
         assertFalse(tvRoomPositionBuffered(targetPlayerSeconds = Double.NaN, currentPlayerSeconds = 100.0, bufferedPlayerSeconds = 130.0))
@@ -223,8 +246,7 @@ class TvWatchPartyPlayerTest {
     fun `the lower quality offer is one rung below the current height`() {
         val ladder = listOf(
             VideoQualityOption(id = "auto", label = "Auto", isSelected = false),
-            VideoQualityOption(id = "original", label = "Original", isSelected = true, resolution = "1080p"),
-            VideoQualityOption(id = "1080p", label = "1080p", isSelected = false, resolution = "1080p"),
+            VideoQualityOption(id = "1080p", label = "1080p", isSelected = true, resolution = "1080p"),
             VideoQualityOption(id = "720p", label = "720p", isSelected = false, resolution = "720p"),
             VideoQualityOption(id = "480p", label = "480p", isSelected = false, resolution = "480p"),
         )

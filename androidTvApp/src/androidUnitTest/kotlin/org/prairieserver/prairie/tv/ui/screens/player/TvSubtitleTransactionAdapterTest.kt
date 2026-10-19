@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.TestScope
 import org.prairieserver.prairie.model.playback.CommittedSubtitle
 import org.prairieserver.prairie.model.playback.PlaybackSubtitleModeV3
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
+import org.prairieserver.prairie.model.playback.SubtitleHlsRendition
 import org.prairieserver.prairie.model.playback.SubtitleIdentity
 import org.prairieserver.prairie.model.playback.SubtitleMediaIdentity
 import org.prairieserver.prairie.network.ApiResult
@@ -144,6 +145,27 @@ class TvSubtitleTransactionAdapterTest {
         assertEquals(listOf("old-server-sidecar"), harness.port.committed)
         assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
         assertEquals(listOf(42.0), adoption.requestedSourcePositions)
+    }
+
+    @Test
+    fun `a subtitle change with no quality picked neither sends nor records one`() = runTest {
+        // The player passes no quality until the viewer picks one, so the
+        // session keeps the quality it started at (the saved settings).
+        val harness = harness(backgroundScope, isLocallyMountable = { false }, qualityPreference = null)
+
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+        assertNull(harness.port.requests.single().qualityPreference)
+
+        harness.port.completeStage(candidate("no-pick", 4))
+        runCurrent()
+        confirmPendingPlayerBoundary(harness, "no-pick-mounted")
+        runCurrent()
+
+        assertEquals(sidecar(4), harness.adapter.snapshot.committedIdentity)
+        // The player records a committed quality as the viewer's pick, which
+        // renewals and recoveries then carry.
+        assertNull(harness.adapter.snapshot.transition.committed.qualityPreference)
     }
 
     @Test
@@ -2301,6 +2323,75 @@ class TvSubtitleTransactionAdapterTest {
         assertEquals(listOf(native), harness.persistence.persisted.map { it.identity })
     }
 
+    @Test
+    fun `rendition decision commits only after the manifest track is selected`() = runTest {
+        val harness = harness(backgroundScope)
+        val rendition = renditionIdentity(4)
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+        harness.port.completeStage(
+            candidate("rendition", 4, mode = PlaybackSubtitleModeV3.CONVERT, hasSidecar = false, selectedSubtitleIdentity = rendition),
+        )
+        runCurrent()
+        assertEquals(rendition, harness.adapter.snapshot.localMountIdentity)
+        assertTrue(harness.persistence.persisted.isEmpty())
+        harness.adapter.reportMountedSelection(rendition, selected = true, snapshotKey = "subs:Subtitles", settled = true)
+        runCurrent()
+        assertEquals(rendition, harness.adapter.snapshot.committedIdentity)
+        assertEquals(listOf(rendition), harness.persistence.persisted.map { it.identity })
+    }
+
+    @Test
+    fun `rendition fallback waits for rollback and uses the rendition failure path`() = runTest {
+        val nativeFailures = mutableListOf<Int>()
+        val renditionFailures = mutableListOf<Int>()
+        val harness = harness(
+            backgroundScope,
+            onEmbeddedFailure = nativeFailures::add,
+            onHlsRenditionFailure = renditionFailures::add,
+        )
+        harness.port.abandonGate = kotlinx.coroutines.CompletableDeferred()
+        harness.adapter.select(sidecar(4))
+        runCurrent()
+        harness.port.completeStage(
+            candidate("rendition", 4, hasSidecar = false, selectedSubtitleIdentity = renditionIdentity(4), sessionId = "s2"),
+        )
+        runCurrent()
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertTrue(renditionFailures.isEmpty())
+        harness.port.abandonGate!!.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("s2"), harness.port.abandoned)
+        assertEquals(listOf(4), renditionFailures)
+        assertTrue(nativeFailures.isEmpty())
+        assertEquals(sidecar(3), harness.adapter.snapshot.committedIdentity)
+        assertTrue(harness.persistence.persisted.isEmpty())
+    }
+
+    @Test
+    fun `failed rendition restore clears the unmounted committed subtitle`() = runTest {
+        val renditionFailures = mutableListOf<Int>()
+        val harness = harness(backgroundScope, onHlsRenditionFailure = renditionFailures::add)
+        val rendition = renditionIdentity(4)
+        harness.adapter.resetContent(context(), committedIdentity = rendition)
+        val prior = harness.adapter.snapshot.transition.committed
+        harness.adapter.restoreCommittedLocalMount()
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(listOf(4), renditionFailures)
+        assertEquals(prior.copy(identity = SubtitleIdentity.Off), harness.adapter.snapshot.transition.committed)
+        assertNull(harness.adapter.snapshot.localMountIdentity)
+        assertTrue(harness.persistence.persisted.isEmpty())
+    }
+
+    private fun renditionIdentity(index: Int) = SubtitleIdentity.Embedded(
+        index,
+        SubtitleMediaIdentity(trackId = "file:42:subtitle:$index", language = "eng", codecFamily = "subrip"),
+        hlsRendition = SubtitleHlsRendition("subs", "Subtitles"),
+    )
+
     private fun harness(
         scope: CoroutineScope,
         sessionId: String? = "s1",
@@ -2308,12 +2399,14 @@ class TvSubtitleTransactionAdapterTest {
         adoption: AdoptionControl = AdoptionControl(),
         durablePersistenceScope: CoroutineScope = scope,
         onEmbeddedFailure: (Int) -> Unit = {},
+        onHlsRenditionFailure: (Int) -> Unit = {},
         isLocallyMountable: (SubtitleIdentity) -> Boolean = { identity ->
             identity !is SubtitleIdentity.ServerSidecar
         },
         persistenceCoordinator: PlaybackTrackSelectionWriteCoordinator =
             PlaybackTrackSelectionWriteCoordinator(),
         persistence: RecordingPersistence = RecordingPersistence(),
+        qualityPreference: String? = "auto",
     ): Harness {
         val port = FakeStagedPort()
         val committedPlaybacks = mutableListOf<TvSubtitleCommittedPlayback>()
@@ -2323,6 +2416,7 @@ class TvSubtitleTransactionAdapterTest {
             persistencePort = persistence,
             durablePersistenceScope = durablePersistenceScope,
             onEmbeddedSubtitleFailure = onEmbeddedFailure,
+            onHlsRenditionSubtitleFailure = onHlsRenditionFailure,
             persistenceCoordinator = persistenceCoordinator,
             onCommittedPlayback = { adoptionRequest ->
                 adoption.started += 1
@@ -2339,7 +2433,7 @@ class TvSubtitleTransactionAdapterTest {
             isLocallyMountable = isLocallyMountable,
         )
         adapter.resetContent(
-            context(sessionId = sessionId, tracks = tracks),
+            context(sessionId = sessionId, tracks = tracks, qualityPreference = qualityPreference),
             committedIdentity = sidecar(3),
         )
         return Harness(adapter, port, persistence, committedPlaybacks)
@@ -2422,6 +2516,7 @@ class TvSubtitleTransactionAdapterTest {
         sessionId: String? = "s1",
         tracks: List<PlayerSubtitleInfo> = emptyList(),
         outputRouteGeneration: Long = 0L,
+        qualityPreference: String? = "auto",
     ): TvSubtitlePlaybackContext = TvSubtitlePlaybackContext(
         contentId = contentId,
         mediaFileId = mediaFileId,
@@ -2429,7 +2524,7 @@ class TvSubtitleTransactionAdapterTest {
         sessionId = sessionId,
         positionSeconds = 42.0,
         audioTrackIndex = 2,
-        qualityPreference = "auto",
+        qualityPreference = qualityPreference,
         subtitleTracks = tracks,
         outputRouteGeneration = outputRouteGeneration,
         writeScope = tvTestPlaybackWriteScope,

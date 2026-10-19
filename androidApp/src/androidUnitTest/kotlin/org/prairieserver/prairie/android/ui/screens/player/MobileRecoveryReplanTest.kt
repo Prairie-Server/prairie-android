@@ -38,6 +38,13 @@ class MobileRecoveryReplanTest {
     }
 
     @Test
+    fun aSessionTheServerEndedIsNeverTreatedAsASubtitleFallback() {
+        val native = MobileRecoveryReplan("subtitle_embedded_failed", "Retrying", 4)
+        val ended = ApiResult.Error(code = 410, error = "playback_session_ended", message = "Playback session ended")
+        assertFalse(native.isNonfatalFailure(ended))
+    }
+
+    @Test
     fun successfulSubtitleFallbackStillReachesSessionAdoption() {
         val ready = VideoSessionStartV3.Ready(
             session = PlaybackSessionResponse("s2", 1, mediaFileId = 42, playMethod = PlayMethod.DIRECT, streamUrl = "/stream/s2"),

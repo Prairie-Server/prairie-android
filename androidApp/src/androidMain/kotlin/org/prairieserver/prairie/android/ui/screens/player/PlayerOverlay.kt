@@ -54,10 +54,13 @@ import org.prairieserver.prairie.common.player.video.markerSkipTarget
 import org.prairieserver.prairie.common.player.video.ManualMarkerKind
 import androidx.compose.ui.res.stringResource
 import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.common.player.NoticeTone
+import org.prairieserver.prairie.common.player.PlayerNotice
 import org.prairieserver.prairie.common.player.SessionState
 import org.prairieserver.prairie.common.player.SleepTimerState
 import org.prairieserver.prairie.model.playback.PlaybackQualityOption
 import org.prairieserver.prairie.model.playback.playbackQualityMenu
+import org.prairieserver.prairie.model.playback.playbackQualityValueLabel
 import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.watchtogether.RoomTransportIntent
@@ -65,6 +68,9 @@ import org.prairieserver.prairie.watchtogether.roomTransportAuthorized
 import androidx.compose.material.icons.filled.Close
 import org.prairieserver.prairie.playback.statusLabelFor
 import org.prairieserver.prairie.playback.timingActionsFor
+
+/** How long a failed AI subtitle job stays on screen when its sheet was closed. */
+private const val AI_FAILURE_NOTICE_MS = 8_000L
 
 /**
  * Full-screen overlay composable that layers gesture handling, transport controls,
@@ -86,6 +92,12 @@ fun PlayerOverlay(
     // The party's current status line (waiting, catching up, host away,
     // reconnecting); null shows the member count.
     roomStatus: String? = null,
+    // This member's unanswered room seek target: skips start from it and the
+    // timeline holds on it until the room's command lands.
+    roomPendingSeekSeconds: Double? = null,
+    // Where a room skip starts from the live position, read at press time:
+    // the pending room seek target, else the position itself.
+    roomSeekOrigin: (Double) -> Double = { it },
     isFastForwardHoldActive: Boolean = false,
     orientationLockSupported: Boolean = true,
     alwaysShowControls: Boolean = false,
@@ -165,7 +177,6 @@ fun PlayerOverlay(
                     name = option.label,
                     bitrateLabel = option.sublabel.ifBlank { null },
                     bitrateKbps = option.bitrateKbps,
-                    preservesSource = option.isOriginal,
                 )
             }
         } else {
@@ -185,6 +196,7 @@ fun PlayerOverlay(
     // In a party, Back opens the party panel (PlayerScreen); solo backs out.
     val handleBack: () -> Unit = onBack
     val gatedSeek: (Double) -> Unit = { pos -> if (seekEnabled) onSeek(pos) }
+    val shownPosition = roomPendingSeekSeconds?.takeIf { inRoom } ?: state.position
     // Resolved profile-wide video intervals; read at press time so a change
     // made in settings applies to the next skip without restarting playback.
     val seekIntervals by viewModel.seekIntervals.collectAsState()
@@ -192,8 +204,10 @@ fun PlayerOverlay(
         if (seekEnabled) {
             val step = viewModel.seekIntervals.value.forwardSeconds.toDouble()
             if (inRoom) {
-                val forward = state.position + step
-                gatedSeek(if (state.duration > 0.0) forward.coerceAtMost(state.duration) else forward)
+                // Read at press time: a second skip before the composition
+                // shows the first one's target must still build on it.
+                val live = viewModel.uiState.value
+                gatedSeek(roomSkipTarget(roomSeekOrigin(live.position), step, live.duration))
             } else {
                 viewModel.onSkipBy(step)
             }
@@ -202,8 +216,12 @@ fun PlayerOverlay(
     val gatedSkipBackward: () -> Unit = {
         if (seekEnabled) {
             val step = viewModel.seekIntervals.value.backSeconds.toDouble()
-            if (inRoom) gatedSeek((state.position - step).coerceAtLeast(0.0))
-            else viewModel.onSkipBy(-step)
+            if (inRoom) {
+                val live = viewModel.uiState.value
+                gatedSeek(roomSkipTarget(roomSeekOrigin(live.position), -step, live.duration))
+            } else {
+                viewModel.onSkipBy(-step)
+            }
         }
     }
     val gatedPlayPause: () -> Unit = { if (playPauseEnabled) onPlayPause() }
@@ -254,6 +272,28 @@ fun PlayerOverlay(
         if (remoteMessage != null) {
             kotlinx.coroutines.delay(5_000)
             viewModel.clearRemoteMessage()
+        }
+    }
+
+    // An AI job that fails while its sheet is closed would otherwise go unseen.
+    // It uses the notice surface, which fits the whole reason in landscape.
+    var aiFailureNotice by remember { mutableStateOf<PlayerNotice?>(null) }
+    val aiJobFailure by viewModel.aiJobFailure.collectAsState()
+    LaunchedEffect(aiJobFailure) {
+        aiJobFailure?.let { failure ->
+            // An open sheet shows the reason itself.
+            if (!aiTranslateVisible) {
+                aiFailureNotice = PlayerNotice("AI subtitles failed. ${failure.message}", NoticeTone.Warning)
+            }
+            viewModel.consumeAiJobFailure(failure)
+        }
+    }
+    // A session notice outranks the failure below, so the countdown runs only
+    // while the failure is the notice on screen.
+    LaunchedEffect(aiFailureNotice, notice) {
+        if (aiFailureNotice != null && notice == null) {
+            kotlinx.coroutines.delay(AI_FAILURE_NOTICE_MS)
+            aiFailureNotice = null
         }
     }
 
@@ -348,7 +388,8 @@ fun PlayerOverlay(
                 .padding(top = 16.dp, start = 16.dp),
             contentAlignment = Alignment.TopStart,
         ) {
-            PlayerNoticeOverlay(notice = notice)
+            // A session notice (reconnecting, suspended) outranks an AI failure.
+            PlayerNoticeOverlay(notice = notice ?: aiFailureNotice)
         }
 
         // Subtitle sync card (top-right, below the top bar's actions): follows
@@ -436,13 +477,13 @@ fun PlayerOverlay(
                 subtitle = state.subtitle,
                 eyebrow = playerEyebrow(state),
                 tracksValue = playerTracksValue(state),
-                chapterValue = chapterTitleAt(state.chapters, state.position),
-                qualityValue = playerQualityLabel(qualityOptions, activeQualityId),
+                chapterValue = chapterTitleAt(state.chapters, shownPosition),
+                qualityValue = playbackQualityValueLabel(qualityOptions, activeQualityId, state.qualityPreference),
                 pictureInPictureAvailable = pictureInPictureAvailable,
                 onEnterPictureInPicture = onEnterPictureInPicture,
                 isPlaying = state.isPlaying,
                 isPaused = state.isPaused,
-                position = state.position,
+                position = shownPosition,
                 duration = state.duration,
                 bufferedPosition = state.bufferedPosition,
                 chapters = state.chapters,
@@ -733,7 +774,7 @@ fun PlayerOverlay(
             // A party hides speed (session-only 1x) and the version picker.
             showPlaybackSpeed = !inRoom,
             showQuality = hasQualityMenu,
-            qualityLabel = playerQualityLabel(qualityOptions, activeQualityId),
+            qualityLabel = playbackQualityValueLabel(qualityOptions, activeQualityId, state.qualityPreference),
             onOpenQuality = {
                 settingsSheetVisible = false
                 qualitySheetVisible = true
@@ -799,7 +840,7 @@ fun PlayerOverlay(
                     )
                 },
                 streamUrl = state.streamUrl,
-                qualityPreference = playerQualityLabel(qualityOptions, activeQualityId),
+                qualityPreference = playbackQualityValueLabel(qualityOptions, activeQualityId, state.qualityPreference),
             ),
         )
 
@@ -961,9 +1002,6 @@ internal fun mobileVideoGravityLabel(value: String): String = when (value) {
  * and tracks sheets show when opened, so the menu can state the current pick
  * without the user having to open anything.
  */
-internal fun playerQualityLabel(options: List<PlaybackQualityOption>, activeId: String?): String =
-    options.firstOrNull { it.id == activeId }?.name ?: "Auto"
-
 internal fun playerVersionLabel(
     versions: List<org.prairieserver.prairie.model.catalog.FileVersion>,
     selectedIndex: Int,

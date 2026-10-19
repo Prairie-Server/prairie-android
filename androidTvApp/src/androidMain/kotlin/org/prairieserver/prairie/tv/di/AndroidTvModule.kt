@@ -128,12 +128,27 @@ val androidTvModule = module {
             syncScheduler = get(),
         )
     }
+    single<org.prairieserver.prairie.repository.ArtworkLayout> {
+        val resources = androidContext().resources
+        val scope = this
+        org.prairieserver.prairie.tv.ui.theme.TvArtworkLayout(
+            displayDensity = { resources.displayMetrics.density },
+            // The saved card size, seeded from its local cache before the
+            // first reads (startup's Home warm-up runs before the UI loads it).
+            posterScale = {
+                val cards = scope.get<org.prairieserver.prairie.common.settings.CardPresentationStore>()
+                cards.seedFromCache()
+                cards.state.value.presentation.posterSize.posterScale
+            },
+        )
+    }
     single<org.prairieserver.prairie.repository.port.HomeCachePort> {
         val tokenManager: TokenManager = get()
         org.prairieserver.prairie.common.data.repository.RoomHomeCacheRepository(
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
             identityTransitions = get(),
+            artwork = get(),
         )
     }
     single<org.prairieserver.prairie.repository.port.CatalogCachePort> {
@@ -142,6 +157,7 @@ val androidTvModule = module {
             db = get(),
             snapshotProvider = { tokenManager.snapshotCurrentScope() },
             identityTransitions = get(),
+            artwork = get(),
         )
     }
     single<org.prairieserver.prairie.repository.port.DownloadDeletionPort> {
@@ -385,6 +401,16 @@ val androidTvModule = module {
             identityProbe = { url -> identityApi.probeIdentity(url) },
         )
     }
+    // Prairie servers on the local network, for server setup. One per screen visit.
+    single { org.prairieserver.prairie.common.discovery.LanServerProbe() }
+    factory {
+        val probe = get<org.prairieserver.prairie.common.discovery.LanServerProbe>()
+        org.prairieserver.prairie.common.discovery.LanServerDiscovery(
+            browser = org.prairieserver.prairie.common.discovery.NsdLanServiceBrowser(androidContext()),
+            probeIdentity = probe::identity,
+            fetchName = probe::name,
+        )
+    }
     // The advertised state comes from the screen that starts it: server setup
     // advertises st=setup, the sign-in screen st=login with its server's
     // identity (srv) so only phones holding that server offer it.
@@ -468,19 +494,16 @@ val androidTvModule = module {
     }
 
     // Content ViewModels
-    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get(), catalogLanguage = get()) }
+    // Starts hidden: the screens that show its rows report when they are on screen.
+    viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get(), catalogLanguage = get(), startShown = false) }
     viewModel { org.prairieserver.prairie.tv.ui.screens.home.TvUpcomingViewModel(get()) }
     viewModel { RecommendationsViewModel(get(), catalogLanguage = get()) }
-    // The Requests page reads the approval queue itself, so the hub doesn't
-    // count it; it loads its view models when it composes.
+    // The Requests page loads its view models when it composes.
     viewModel { params ->
-        RequestsViewModel(get(), get(), countsPendingApprovals = false, loadOnInit = params.getOrNull<Boolean>() ?: true)
+        RequestsViewModel(get(), loadOnInit = params.getOrNull<Boolean>() ?: true)
     }
     viewModel { RequestSearchViewModel(get()) }
     viewModel { params -> MyRequestsViewModel(get(), loadOnInit = params.getOrNull<Boolean>() ?: true) }
-    viewModel { params ->
-        org.prairieserver.prairie.viewmodel.RequestApprovalsViewModel(get(), loadOnInit = params.getOrNull<Boolean>() ?: true)
-    }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {

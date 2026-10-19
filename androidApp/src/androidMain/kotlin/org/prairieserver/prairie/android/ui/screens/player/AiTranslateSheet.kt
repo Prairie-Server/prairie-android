@@ -83,6 +83,9 @@ fun AiTranslateSheet(
     val sourceTracks = remember(subtitleTracks) { subtitleTracks.filter(::isTranslatableSource) }
     val canTranslate = aiStatus?.enabled == true && sourceTracks.isNotEmpty()
     val canTranscribe = aiStatus?.transcribeEnabled == true && audioTracks.isNotEmpty()
+    // Translating a transcript needs translation too; without it audio jobs
+    // stay in the spoken language.
+    val canTranslateTranscript = aiStatus?.enabled == true
 
     var mode by remember(canTranslate, canTranscribe) {
         mutableStateOf(if (canTranslate) AiMode.Subtitles else AiMode.Audio)
@@ -192,14 +195,23 @@ fun AiTranslateSheet(
                         )
                     }
 
-                    PickerRow(
-                        label = "Target language",
-                        options = LanguageNames.dropdownOptions.map { it.second },
-                        selected = LanguageNames.dropdownOptions
-                            .indexOfFirst { it.first == targetLanguage }
-                            .coerceAtLeast(0),
-                        onSelect = { targetLanguage = LanguageNames.dropdownOptions[it].first },
-                    )
+                    if (mode == AiMode.Subtitles || canTranslateTranscript) {
+                        PickerRow(
+                            label = "Target language",
+                            options = LanguageNames.dropdownOptions.map { it.second },
+                            selected = LanguageNames.dropdownOptions
+                                .indexOfFirst { it.first == targetLanguage }
+                                .coerceAtLeast(0),
+                            onSelect = { targetLanguage = LanguageNames.dropdownOptions[it].first },
+                        )
+                    } else {
+                        Text(
+                            text = TRANSCRIBE_ONLY_NOTE,
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        )
+                    }
 
                     if (mode == AiMode.Audio && quota != null) {
                         Text(
@@ -223,7 +235,11 @@ fun AiTranslateSheet(
                         onClick = {
                             if (mode == AiMode.Audio) {
                                 val audio = audioTracks.getOrNull(audioPos) ?: return@Button
-                                val kind = transcribeKindFor(audio.language, targetLanguage)
+                                val kind = if (canTranslateTranscript) {
+                                    transcribeKindFor(audio.language, targetLanguage)
+                                } else {
+                                    SubtitleAiJobKind.Transcribe
+                                }
                                 onSubmit(
                                     kind,
                                     audioPos, // audio source_index = list position (web parity)

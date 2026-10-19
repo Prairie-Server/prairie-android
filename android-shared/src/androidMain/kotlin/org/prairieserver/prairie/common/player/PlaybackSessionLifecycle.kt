@@ -73,6 +73,14 @@ class PlaybackSessionLifecycle(
     val missingSessionEvents: SharedFlow<MissingSessionRenewal> = _missingSessionEvents.asSharedFlow()
 
     /**
+     * Session ids the server ended for good (410 `playback_session_ended`):
+     * an administrator stopped the session while this player could not be told
+     * over its control socket. The owner leaves playback instead of renewing.
+     */
+    private val _sessionEndedEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val sessionEndedEvents: SharedFlow<String> = _sessionEndedEvents.asSharedFlow()
+
+    /**
      * Mutex protects the small set of mutable transitions we make from
      * different coroutine paths (start, recovery, outage). State transitions
      * still publish through StateFlow which is itself thread-safe — the lock
@@ -692,6 +700,11 @@ class PlaybackSessionLifecycle(
                 // params. Left unguarded, a late answer about episode A does
                 // all of that to episode B.
                 if (!ownsProgressReply(sess.sessionId)) continue
+                if (result.isPlaybackSessionEnded()) {
+                    Log.i(TAG, "reportProgress: the server ended this session; leaving playback")
+                    _sessionEndedEvents.tryEmit(sess.sessionId)
+                    continue
+                }
                 if (sessionManager.isSequenced(sess.sessionId)) {
                     // The journal resends the pending sample on the next tick,
                     // so one failed tick loses nothing. Warn only once failures
@@ -1010,3 +1023,11 @@ data class StartParams(
     /** Watch Party starts pin the file (false); renewals must keep that. */
     val allowAlternateVersions: Boolean? = null,
 )
+
+/**
+ * Whether the server ended the playback session for good: 410
+ * `playback_session_ended`, its answer once an administrator stopped a player
+ * that could not be told directly. Renewing would undo that stop.
+ */
+fun ApiResult<*>.isPlaybackSessionEnded(): Boolean =
+    this is ApiResult.Error && code == 410 && error == "playback_session_ended"

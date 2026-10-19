@@ -158,14 +158,14 @@ internal class TvWatchPartyScreenController(
      * the room's permission decision; Stop and terminate end only this
      * device's engagement. Returns whether the command was accepted.
      */
-    fun onRemoteTransport(action: PlaybackAction, exit: () -> Unit): Boolean = when (action) {
+    fun onRemoteTransport(action: PlaybackAction, exit: (notice: String?) -> Unit): Boolean = when (action) {
         PlaybackAction.Pause -> setPlaying(play = false)
         PlaybackAction.Unpause -> setPlaying(play = true)
         PlaybackAction.TogglePlayPause -> togglePlayPause()
         is PlaybackAction.SeekTo -> seek(action.positionSeconds)
-        PlaybackAction.Stop -> {
+        is PlaybackAction.Stop -> {
             leave()
-            exit()
+            exit(action.notice)
             true
         }
         else -> false
@@ -211,6 +211,7 @@ internal class TvWatchPartyScreenController(
             isPlaying = player.isPlaying,
             playbackState = player.playbackState,
             suppressed = player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE,
+            playbackSpeed = player.playbackParameters.speed.toDouble(),
         )
     }
 }
@@ -380,6 +381,11 @@ internal fun TvWatchPartyEffects(
         }
     }
 
+    // An in-place audio track switch may change the output path: rate support is measured again.
+    LaunchedEffect(watchParty) {
+        viewModel.roomAudioTrackChanges.collect { watchParty.playback.binding.onAudioTrackChanged() }
+    }
+
     LaunchedEffect(watchParty) {
         watchParty.playback.notices.collect { notice ->
             viewModel.showPlayerMessage(watchPartyNoticeText(notice))
@@ -449,22 +455,28 @@ internal fun tvRoomStartContext(
 }
 
 /**
- * Whether reaching [targetPlayerSeconds] needs no new media: it must lie
- * between a second behind the playhead and the buffered position of the
- * mounted item, all in player time.
+ * Whether [targetPlayerSeconds] is reachable without rebuilding the stream:
+ * no further ahead than the buffered position of the mounted item, and
+ * behind the playhead either within [behindToleranceSeconds] or, when the
+ * mounted window is seekable ([seekableBehindPlayhead]), anywhere in it. All
+ * in player time.
  */
 internal fun tvRoomPositionBuffered(
     targetPlayerSeconds: Double,
     currentPlayerSeconds: Double,
     bufferedPlayerSeconds: Double,
     behindToleranceSeconds: Double = 1.0,
+    seekableBehindPlayhead: Boolean = false,
 ): Boolean {
     if (!targetPlayerSeconds.isFinite() || !currentPlayerSeconds.isFinite() || !bufferedPlayerSeconds.isFinite()) {
         return false
     }
     if (bufferedPlayerSeconds < currentPlayerSeconds) return false
-    return targetPlayerSeconds >= currentPlayerSeconds - behindToleranceSeconds &&
-        targetPlayerSeconds <= bufferedPlayerSeconds
+    if (targetPlayerSeconds > bufferedPlayerSeconds) return false
+    // Behind the playhead, a seekable item reaches any earlier point with a
+    // native seek, as on Apple and web.
+    return targetPlayerSeconds >= currentPlayerSeconds - behindToleranceSeconds ||
+        (seekableBehindPlayhead && targetPlayerSeconds >= 0.0)
 }
 
 /** The room player state for a Media3 playback state. */
@@ -488,7 +500,7 @@ internal fun tvPrairieCastPlaybackSpeed(inWatchParty: Boolean, requested: Double
 
 /**
  * One step down the same file's quality ladder: the highest rung below the
- * current height. With no known height (Auto or Original), the top rung.
+ * current height. With no known height (Auto), the top rung.
  */
 internal fun tvLowerQualityOption(
     options: List<VideoQualityOption>,

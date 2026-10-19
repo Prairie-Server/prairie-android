@@ -63,6 +63,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import org.prairieserver.prairie.model.profile.AssignableLibraries
+import org.prairieserver.prairie.model.profile.ProfileAccessLimits
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 import org.prairieserver.prairie.common.ui.components.isEmojiAvatar
@@ -84,6 +86,7 @@ private val ProfileEditorGridHeight = 154.dp
 private val ProfileEditorGridGap = 6.dp
 private val ProfileStyleChipGap = 4.dp
 private val ProfileEditorSectionGap = 8.dp
+private val ProfileEditorBottomPadding = 48.dp
 private val ProfileAvatarCellHeight = 46.dp
 private val ProfileAvatarImageSize = 42.dp
 private val ProfileTextEntryHeight = 52.dp
@@ -113,8 +116,8 @@ data class TvProfileFormState(
     val avatarStyleId: String,
     val selectedAvatarSeed: String?,
     val avatarBatch: Int,
-    val isChild: Boolean,
-    val maxContentRating: String?,
+    val access: ProfileAccessLimits,
+    val libraries: AssignableLibraries,
     val pinEnabled: Boolean,
     val pin: String,
     val qualityPreference: String?,
@@ -132,7 +135,10 @@ data class TvProfileFormCallbacks(
     val onAvatarPresetSelected: (TvProfileAvatarPresets.Preset) -> Unit,
     val onAvatarShuffle: () -> Unit,
     val onChildToggled: (Boolean) -> Unit,
-    val onContentRatingSelected: (String) -> Unit,
+    val onContentRatingSelected: (String?) -> Unit,
+    val onLibraryRestrictionsToggled: (Boolean) -> Unit,
+    val onLibraryToggled: (Int, Boolean) -> Unit,
+    val onRetryLibraries: () -> Unit,
     val onPinToggled: (Boolean) -> Unit,
     val onPinChanged: (String) -> Unit,
     val onQualitySelected: (String) -> Unit,
@@ -159,6 +165,13 @@ fun TvProfileForm(
     val pinFocusRequester = remember { FocusRequester() }
     val childFocusRequester = remember { FocusRequester() }
     val submitFocusRequester = remember { FocusRequester() }
+    val access = state.access
+    val accessFocus = rememberTvProfileAccessFocus(
+        access = access,
+        libraries = state.libraries,
+        childFocusRequester = childFocusRequester,
+        submitFocusRequester = submitFocusRequester,
+    )
     val formScrollState = rememberScrollState()
     var editingTextField by remember { mutableStateOf<ProfileTextField?>(null) }
     // Local validation feedback: without it, Save on a blank name is a silent
@@ -226,22 +239,27 @@ fun TvProfileForm(
                     avatar = previewAvatar,
                     name = state.name.ifBlank { "Your Name" },
                     hasPin = state.pinEnabled,
-                    isChild = state.isChild,
+                    isChild = access.isChild,
                 )
 
                 Spacer(modifier = Modifier.width(ProfileEditorColumnGap))
 
+                // One scroll for the whole column: moving down into the child
+                // limits scrolls the avatar grid away instead of squeezing the
+                // rest of the form into the space under it.
                 Column(
                     modifier = Modifier
                         .width(ProfileEditorColumnWidth)
-                        .fillMaxSize(),
+                        .fillMaxSize()
+                        .verticalScroll(formScrollState)
+                        .padding(bottom = ProfileEditorBottomPadding),
                     verticalArrangement = Arrangement.spacedBy(ProfileEditorSectionGap),
                 ) {
                     TvProfileFormSection(title = "Style") {
                         Row(horizontalArrangement = Arrangement.spacedBy(ProfileStyleChipGap)) {
                             TvProfileAvatarPresets.styles.forEach { style ->
-                                TvAvatarStyleChip(
-                                    style = style,
+                                TvChoiceChip(
+                                    label = style.label,
                                     isSelected = style.id == state.avatarStyleId,
                                     onSelect = { callbacks.onAvatarStyleSelected(style.id) },
                                 )
@@ -307,9 +325,6 @@ fun TvProfileForm(
                     }
 
                     Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(formScrollState),
                         verticalArrangement = Arrangement.spacedBy(ProfileEditorSectionGap),
                     ) {
                         TvProfileFormSection(title = "Name") {
@@ -378,15 +393,24 @@ fun TvProfileForm(
                             )
                         }
 
-                        TvChildProfileRow(
-                            isOn = state.isChild,
-                            onToggle = { callbacks.onChildToggled(!state.isChild) },
+                        TvSwitchRow(
+                            title = "Child Profile",
+                            subtitle = "Fills in kid-friendly limits below",
+                            isOn = access.isChild,
+                            onToggle = { callbacks.onChildToggled(!access.isChild) },
                             modifier = Modifier
                                 .focusRequester(childFocusRequester)
                                 .focusProperties {
                                     up = pinFocusRequester
-                                    down = submitFocusRequester
+                                    down = accessFocus.rating
                                 },
+                        )
+
+                        TvProfileAccessControls(
+                            access = access,
+                            libraries = state.libraries,
+                            focus = accessFocus,
+                            callbacks = callbacks,
                         )
 
                         val errorText = state.error
@@ -404,7 +428,7 @@ fun TvProfileForm(
                             icon = Icons.Filled.Check,
                             variant = TvPillVariant.Filled,
                             focusRequester = submitFocusRequester,
-                            upFocusRequester = childFocusRequester,
+                            upFocusRequester = accessFocus.beforeSubmit,
                             onClick = {
                                 when {
                                     state.isSubmitting -> Unit
@@ -463,7 +487,7 @@ fun TvProfileForm(
 }
 
 @Composable
-private fun TvProfileFormSection(
+internal fun TvProfileFormSection(
     title: String,
     trailing: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
@@ -651,10 +675,11 @@ private fun TvProfileTextEntryField(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvAvatarStyleChip(
-    style: TvProfileAvatarPresets.Style,
+internal fun TvChoiceChip(
+    label: String,
     isSelected: Boolean,
     onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(14.dp)
     val interactionSource = remember { MutableInteractionSource() }
@@ -672,6 +697,7 @@ private fun TvAvatarStyleChip(
             pressedContentColor = Color.Black,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        modifier = modifier,
         border = ClickableSurfaceDefaults.border(
             border = Border(
                 border = BorderStroke(
@@ -687,7 +713,7 @@ private fun TvAvatarStyleChip(
         ),
     ) {
         Text(
-            text = style.label,
+            text = label,
             fontSize = 14.sp,
             lineHeight = 18.sp,
             fontWeight = FontWeight.Medium,
@@ -794,10 +820,12 @@ private fun TvInitialsHint() {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvChildProfileRow(
+internal fun TvSwitchRow(
+    title: String,
     isOn: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
 ) {
     val shape = RoundedCornerShape(12.dp)
     val interactionSource = remember { MutableInteractionSource() }
@@ -839,18 +867,22 @@ private fun TvChildProfileRow(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = "Child Profile",
+                    text = title,
                     fontSize = 20.sp,
                     lineHeight = 25.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = "Restricts content to kid-friendly ratings",
-                    fontSize = 16.sp,
-                    lineHeight = 20.sp,
-                    color = Color.White.copy(alpha = 0.55f),
-                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 16.sp,
+                        lineHeight = 20.sp,
+                        color = Color.White.copy(alpha = 0.55f),
+                    )
+                }
             }
             Box(
                 modifier = Modifier

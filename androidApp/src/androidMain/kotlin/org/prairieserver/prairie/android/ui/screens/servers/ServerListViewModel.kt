@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.servers
 
+import org.prairieserver.prairie.network.localroute.LocalRoute
+import org.prairieserver.prairie.network.localroute.LocalRoutes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.discovery.DiscoveryHit
@@ -20,6 +22,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.android.auth.ActiveProfileReset
+import org.prairieserver.prairie.android.push.AndroidPushRegistrar
+import org.prairieserver.prairie.android.push.PushRemoval
+import org.prairieserver.prairie.android.push.tolerateFailure
 
 /**
  * Where to land after a successful server switch or discovery connect. The list
@@ -39,6 +44,8 @@ data class ServerListUiState(
     val scanStatus: String? = null,
     val scanError: String? = null,
     val isConnecting: Boolean = false,
+    /** The server whose requests use its local route right now, if any. */
+    val onLocalNetworkId: String? = null,
 )
 
 /**
@@ -54,6 +61,11 @@ class ServerListViewModel(
     private val authRepository: AuthRepository,
     private val lanDiscovery: LanDiscovery,
     private val activeProfileReset: ActiveProfileReset,
+    /** Removes this device's push registration on a server ([AndroidPushRegistrar.unregisterDevice]). */
+    private val unregisterPush: suspend (serverEntryId: String) -> PushRemoval? = { null },
+    /** Undoes that removal when the server then stays saved ([AndroidPushRegistrar.restoreRegistration]). */
+    private val restorePush: suspend (PushRemoval) -> Unit = {},
+    private val localRoute: StateFlow<LocalRoute?> = LocalRoutes.state.active,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServerListUiState())
@@ -93,14 +105,15 @@ class ServerListViewModel(
             combine(
                 serverRegistry.entries,
                 serverRegistry.activeServerId,
-            ) { entries, activeId ->
+                localRoute,
+            ) { entries, activeId, route ->
                 val sorted = entries.sortedWith(
                     compareByDescending<ServerEntry> { it.id == activeId }
                         .thenByDescending { it.lastUsedAtEpochMs },
                 )
-                sorted to activeId
-            }.collect { (sorted, activeId) ->
-                _uiState.update { it.copy(servers = sorted, activeId = activeId) }
+                Triple(sorted, activeId, route?.serverId?.takeIf { it == activeId })
+            }.collect { (sorted, activeId, onLocalNetworkId) ->
+                _uiState.update { it.copy(servers = sorted, activeId = activeId, onLocalNetworkId = onLocalNetworkId) }
             }
         }
     }
@@ -299,7 +312,18 @@ class ServerListViewModel(
     fun onRemove(serverId: String) {
         viewModelScope.launch {
             val wasActive = serverRegistry.activeServerId.value == serverId
-            serverRegistry.remove(serverId)
+            // While the server's credentials still exist: removal wipes them.
+            // Failing to remove the registration never stops the removal;
+            // cancellation still does, before anything is removed.
+            var removal: PushRemoval? = null
+            tolerateFailure { removal = unregisterPush(serverId) }
+            try {
+                serverRegistry.remove(serverId)
+            } catch (failure: Exception) {
+                // Not removed, so it keeps its login, and its pushes with it.
+                if (failure !is CancellationException) removal?.let { tolerateFailure { restorePush(it) } }
+                throw failure
+            }
 
             // Removing the ACTIVE server promotes the next-MRU entry inside
             // the registry, which never probes: without this the promoted

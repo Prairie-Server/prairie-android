@@ -1,9 +1,12 @@
 package org.prairieserver.prairie.android.ui.screens.player
 
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
+import org.prairieserver.prairie.player.AiSubtitleKind
+import org.prairieserver.prairie.player.aiSubtitleKind
 import org.prairieserver.prairie.player.formatSubtitleTrackDisplayLabel
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class SubtitleTrackDisplayLabelTest {
 
@@ -35,5 +38,50 @@ class SubtitleTrackDisplayLabelTest {
         )
 
         assertEquals("Dutch • AI Translation • SRT", label)
+    }
+
+    @Test
+    fun sharedFormatterMarksAiTranscriptions() {
+        val label = formatSubtitleTrackDisplayLabel(
+            rawLabel = "English (AI transcribed) (transcribed)",
+            language = "en",
+            codecOrMime = "srt",
+            isForced = false,
+            index = 2,
+        )
+
+        assertEquals("English • AI Transcription • SRT", label)
+    }
+
+    @Test
+    fun trackSheetChipsTellTranslationsFromTranscriptions() {
+        fun chips(label: String, language: String) = subtitleTrackPresentation(
+            PlayerSubtitleInfo(index = 3, language = language, codec = "srt", label = label, forced = null, url = "/s.vtt"),
+            index = 3,
+        ).chips
+
+        assertEquals(listOf("AI Translation"), chips("English → German (AI) (translated)", "de"))
+        assertEquals(listOf("AI Transcription"), chips("English (AI transcribed) (transcribed)", "en"))
+        assertEquals(listOf("AI Transcription"), chips("English (AI transcribed)", "en"))
+        assertEquals(emptyList(), chips("English (opensubtitles)", "en"))
+    }
+
+    @Test
+    fun onlyTheServerAiMarkerMakesATranslation() {
+        assertNull(aiSubtitleKind("AI.srt"))
+        assertNull(aiSubtitleKind("Commentary AI"))
+        assertEquals(AiSubtitleKind.TRANSLATION, aiSubtitleKind("English → German (AI)"))
+    }
+
+    @Test
+    fun aiTracksWithoutALanguageKeepTheServerLabel() {
+        fun title(label: String) = subtitleTrackPresentation(
+            PlayerSubtitleInfo(index = 0, language = null, codec = "srt", label = label, forced = null, url = "/s.vtt"),
+            index = 0,
+        ).title
+
+        assertEquals("English → German", title("English → German (AI) (translated)"))
+        assertEquals("English", title("English (AI transcribed)"))
+        assertEquals("English → Portuguese (Brazil)", title("English → Portuguese (Brazil) (AI) (translated)"))
     }
 }

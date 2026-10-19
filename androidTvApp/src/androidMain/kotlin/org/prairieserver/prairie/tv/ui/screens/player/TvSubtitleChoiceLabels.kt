@@ -1,6 +1,8 @@
 package org.prairieserver.prairie.tv.ui.screens.player
 
 import org.prairieserver.prairie.model.playback.PlayerSubtitleInfo
+import org.prairieserver.prairie.player.aiSubtitleKind
+import org.prairieserver.prairie.player.aiSubtitleSourceLabel
 import org.prairieserver.prairie.player.trackLanguageDisplayName
 import java.util.Locale
 
@@ -19,9 +21,18 @@ internal fun subtitleChoiceLabel(row: PlayerSubtitleInfo, position: Int): String
         row.codec?.trim()?.takeIf { it.isNotBlank() }
             ?: row.url.substringBefore('?').substringBefore('#').substringAfterLast('.', ""),
     )
-    val title = meaningfulSubtitleRowTitle(row, language, format)
+    // An AI track names how it was made instead of its release-style title,
+    // keeping the server label only when there is no language to show.
+    val rawLabel = row.catalogLabel ?: row.label
+    val aiKind = aiSubtitleKind(rawLabel)
+    val title = when {
+        aiKind == null -> meaningfulSubtitleRowTitle(row, language, format)
+        language == null -> aiSubtitleSourceLabel(rawLabel)
+        else -> null
+    }
     val base = language ?: title ?: "Track ${position + 1}"
     val detail = buildList {
+        aiKind?.let { add(it.displayName) }
         if (title != null && title != base) add(title)
         if (format != null) add(format)
         if (row.forced == true) add("Forced")

@@ -21,6 +21,45 @@ class TvSubtitleChoiceLabelsTest {
     )
 
     @Test
+    fun aiRowsNameHowTheTrackWasMade() {
+        assertEquals(
+            "German — AI Translation · SRT · Downloaded",
+            subtitleChoiceLabel(row(language = "de", codec = "srt", label = "English → German (AI)", source = "downloaded"), 0),
+        )
+        assertEquals(
+            "English — AI Transcription · SRT · Downloaded",
+            subtitleChoiceLabel(row(language = "en", codec = "srt", label = "English (AI transcribed)", source = "downloaded"), 1),
+        )
+    }
+
+    @Test
+    fun aiRowsWithoutALanguageKeepTheServerLabel() {
+        assertEquals(
+            "English → German — AI Translation · SRT",
+            subtitleChoiceLabel(row(codec = "srt", label = "English → German (AI)"), 0),
+        )
+        assertEquals(
+            "English — AI Transcription · SRT",
+            subtitleChoiceLabel(row(codec = "srt", label = "English (AI transcribed)"), 1),
+        )
+    }
+
+    @Test
+    fun hudRowsChipTheAiKind() {
+        val translated = tvSubtitleRowParts(
+            subtitleChoiceLabel(row(language = "de", codec = "srt", label = "English → German (AI)", source = "downloaded"), 0),
+        )
+        val transcribed = tvSubtitleRowParts(
+            subtitleChoiceLabel(row(language = "en", codec = "srt", label = "English (AI transcribed)", source = "downloaded"), 1),
+        )
+        assertEquals(listOf("AI"), translated.chips)
+        assertEquals("Translation", translated.aiKind)
+        assertEquals(listOf("AI"), transcribed.chips)
+        assertEquals("Transcription", transcribed.aiKind)
+        assertEquals("SRT · Downloaded", transcribed.detail)
+    }
+
+    @Test
     fun sidecarFilenameLabelsNeverExposeTheShowOrReleaseName() {
         val label = subtitleChoiceLabel(
             row(

@@ -4,6 +4,7 @@ import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.recommendation.DiscoverResponse
 import org.prairieserver.prairie.model.recommendation.TasteProfile
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.network.ArtworkWidths
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.network.TokenManagerImpl
 import org.prairieserver.prairie.network.apiv2.ApiV2Gate
@@ -20,12 +21,13 @@ class RecommendationApi(client: HttpClient,
 
     suspend fun captureDiscoverAuthority() = discover.capture()
     suspend fun isDiscoverAuthorityCurrent(owner: AuthScopeSnapshot) = discover.current(owner)
-    suspend fun getDiscover(owner: AuthScopeSnapshot): ApiResult<DiscoverResponse> = discover.read(owner)
+    suspend fun getDiscover(owner: AuthScopeSnapshot, widths: ArtworkWidths? = null): ApiResult<DiscoverResponse> =
+        discover.read(owner, widths)
 
     suspend fun getTasteProfile(owner: AuthScopeSnapshot): ApiResult<TasteProfile> = taste.read(owner)
 
     suspend fun captureSimilarAuthority() = similar.capture()
     suspend fun isSimilarAuthorityCurrent(owner: AuthScopeSnapshot) = similar.current(owner)
-    suspend fun getSimilar(contentId: String, limit: Int = 12, owner: AuthScopeSnapshot): ApiResult<List<BrowseItem>> =
-        similar.list(contentId, limit, owner)
+    suspend fun getSimilar(contentId: String, limit: Int = 12, owner: AuthScopeSnapshot,
+        widths: ArtworkWidths? = null): ApiResult<List<BrowseItem>> = similar.list(contentId, limit, owner, widths)
 }

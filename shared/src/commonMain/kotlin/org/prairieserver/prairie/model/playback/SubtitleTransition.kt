@@ -18,7 +18,24 @@ sealed interface SubtitleIdentity {
         val media: SubtitleMediaIdentity,
         /** Exact server-probed container identity; never permit metadata fallback. */
         val containerTrackId: String? = null,
-    ) : SubtitleIdentity
+        /**
+         * The HLS `SUBTITLES` rendition a transcode plan carries this track in.
+         * Like [containerTrackId] it is an exact server decision the player
+         * selects from its own media, never from a sidecar.
+         */
+        val hlsRendition: SubtitleHlsRendition? = null,
+    ) : SubtitleIdentity {
+        /** The server chose this exact track inside the media; it has no sidecar to fall back to locally. */
+        val isServerSelected: Boolean
+            get() = containerTrackId != null || hlsRendition != null
+
+        /** Whether a staged plan in [mode], with or without a sidecar, carries this exact server selection. */
+        fun matchesServerSelectedPlan(mode: PlaybackSubtitleModeV3, hasSidecar: Boolean): Boolean = !hasSidecar && when {
+            hlsRendition != null -> mode == PlaybackSubtitleModeV3.RENDER || mode == PlaybackSubtitleModeV3.CONVERT
+            containerTrackId != null -> mode == PlaybackSubtitleModeV3.RENDER
+            else -> false
+        }
+    }
 
     data class Downloaded(
         val downloadId: Int,

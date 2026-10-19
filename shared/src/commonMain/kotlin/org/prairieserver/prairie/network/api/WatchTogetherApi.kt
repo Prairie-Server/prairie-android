@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.network.api
 
+import org.prairieserver.prairie.network.localroute.stayOnSavedAddress
 import org.prairieserver.prairie.model.watchtogether.AddSuggestionRequest
 import org.prairieserver.prairie.model.watchtogether.CreateRoomRequest
 import org.prairieserver.prairie.model.watchtogether.JoinRoomRequest
@@ -416,6 +417,8 @@ class DefaultWatchTogetherApi(
     private fun HttpRequestBuilder.pin(scope: AuthScopeSnapshot, roomToken: String? = null) {
         authScope(scope)
         requirePrairieAuth()
+        // Watch Party stays on the saved address, as its socket and playback do.
+        stayOnSavedAddress()
         roomToken?.let { header(ROOM_TOKEN_HEADER, it) }
     }
 }

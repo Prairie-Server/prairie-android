@@ -12,6 +12,10 @@ private val BITMAP_CODECS = setOf(
     "pgs", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub", "dvb_subtitle", "dvbsub",
 )
 
+/** Shown in place of the target language when the server cannot translate. */
+internal const val TRANSCRIBE_ONLY_NOTE =
+    "Subtitles are written in the spoken language. AI translation is turned off on this server."
+
 /** True when the server can use [track] as an AI translation source. */
 internal fun isTranslatableSource(track: PlayerSubtitleInfo): Boolean {
     val codec = track.codec?.lowercase().orEmpty()
