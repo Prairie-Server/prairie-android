@@ -69,6 +69,7 @@ class ServerListViewModelRemovalTest {
             serverRegistry = registry(),
             tokenManager = tokens,
             authRepository = AuthRepository(AuthApi(http, ApiV2Gate.Unrestricted), tokens),
+            lanDiscovery = org.prairieserver.prairie.discovery.LanDiscovery(org.prairieserver.prairie.network.api.HealthApi(http)),
             activeProfileReset = ActiveProfileReset(
                 profiles, idle(), ProfileLaunchPreferences(launchPreferences), idle(),
                 ActiveProfileStore(profiles), idle(), idle(), idle(), idle(),
