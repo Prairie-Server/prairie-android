@@ -161,6 +161,22 @@ kover {
                     // Live server identity/connection probe (needs a real server).
                     "org.prairieserver.prairie.network.api.DefaultServerIdentityApi",
                     "org.prairieserver.prairie.network.api.DefaultServerIdentityApi$*",
+                    // Local-route OkHttp/TLS/probe glue that lives in shared/androidMain (the
+                    // source-set filter leaks it); exercised by android-shared unit tests.
+                    "org.prairieserver.prairie.network.localroute.LocalRouteInterceptor*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteConnectionCheck*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteAttempt*",
+                    "org.prairieserver.prairie.network.localroute.RouteFailureBody*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteProbe*",
+                    "org.prairieserver.prairie.network.localroute.PinOnlyTrustManager*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteTls*",
+                    "org.prairieserver.prairie.network.localroute.PinningTrustManager*",
+                    "org.prairieserver.prairie.network.localroute.PinningHostnameVerifier*",
+                    "org.prairieserver.prairie.network.localroute.HandshakeTimeoutSocketFactory*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteTransport*",
+                    "org.prairieserver.prairie.network.localroute.SharedPreferencesLocalRouteStore*",
+                    "org.prairieserver.prairie.network.localroute.AndroidLocalRouteEnvironment*",
+                    "org.prairieserver.prairie.network.localroute.LocalRouteEnvironmentKt*",
                 )
             }
         }
