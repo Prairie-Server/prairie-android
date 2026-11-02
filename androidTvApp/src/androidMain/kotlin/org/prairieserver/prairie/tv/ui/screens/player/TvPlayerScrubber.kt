@@ -1,5 +1,10 @@
 package org.prairieserver.prairie.tv.ui.screens.player
 
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +59,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -109,6 +115,8 @@ fun TvPlayerScrubber(
     scrubPreviewSec: Double,
     chapters: List<ChapterInfo>,
     cancelOnBlur: Boolean,
+    /** The server's preview of [scrubPreviewSec], shown above the puck while scrubbing; null keeps the bar alone. */
+    previewThumbnail: ImageBitmap? = null,
     // Detected marker bands [startSec, endSec] drawn on the track when known.
     // Null = no band. Mirrors tvOS TVPlayerScrubber.introRegion.
     introRangeSec: ClosedRange<Double>? = null,
@@ -444,6 +452,49 @@ fun TvPlayerScrubber(
             // show where the preview is, so the full [TvHoldSeekIndicator]
             // overlay stays reserved for the hidden-controls session where
             // nothing else is on screen.
+            // The server's preview of the target in a card with its time,
+            // above the puck (and the auto-seek chip), after tvOS
+            // `TVScrubPreviewLayer`. It overlays the overlay's text rather
+            // than taking layout space, so it comes and goes without moving it.
+            if (isScrubbing && previewThumbnail != null) {
+                var cardSize by remember { mutableStateOf(IntSize.Zero) }
+                val liftPx = with(density) { (if (autoSeekRate != 0) 52.dp else 22.dp).toPx() }
+                val cardShape = RoundedCornerShape(10.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .wrapContentSize(unbounded = true)
+                        .onSizeChanged { cardSize = it }
+                        .offset {
+                            val maxX = (barWidthPx - cardSize.width).roundToInt().coerceAtLeast(0)
+                            val x = (barWidthPx * totalProgress - cardSize.width / 2f).roundToInt().coerceIn(0, maxX)
+                            // Centred on the bar before the offset: lift the
+                            // bottom edge [liftPx] above the bar's middle.
+                            IntOffset(x, -(liftPx + cardSize.height / 2f).roundToInt())
+                        }
+                        .shadow(9.dp, cardShape, clip = false)
+                        .clip(cardShape)
+                        .background(TvPlayerChrome.Smoke)
+                        .border(1.dp, TvPlayerChrome.PanelStroke, cardShape)
+                        .padding(5.dp),
+                ) {
+                    Image(
+                        bitmap = previewThumbnail,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(160.dp, 90.dp)
+                            .clip(RoundedCornerShape(7.dp)),
+                    )
+                    Text(
+                        text = formatScrubberTime(scrubPreviewSec),
+                        style = TvPlayerType.Time,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+
             if (autoSeekRate != 0) {
                 var chipWidthPx by remember { mutableStateOf(0) }
                 val chipLiftPx = with(density) { 40.dp.roundToPx() }

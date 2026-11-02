@@ -42,6 +42,10 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.model.catalog.BrowseItem
+import org.prairieserver.prairie.model.catalog.boxSetCard
+import org.prairieserver.prairie.model.catalog.boxSetFilmCount
+import org.prairieserver.prairie.model.catalog.cardCaption
+import org.prairieserver.prairie.model.catalog.watchedFraction
 import org.prairieserver.prairie.overlays.OverlayDataExtractor
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
@@ -300,14 +304,21 @@ fun TvCatalogGrid(
                         }
                     }
                 }
+                // A box set card opens the box set and has no item menu.
+                val boxSet = item.boxSetCard
                 TvMediaCard(
                     hideArtwork = hideArtwork,
                     title = item.title,
-                    posterUrl = item.posterUrl,
-                    posterThumbhash = item.posterThumbhash,
+                    posterUrl = item.posterUrl ?: boxSet?.posterUrl,
+                    posterThumbhash = item.posterThumbhash ?: boxSet?.posterThumbhash,
                     year = item.year.takeIf { it > 0 },
-                    userState = userState,
-                    mediaType = item.type,
+                    userState = userState.takeIf { boxSet == null },
+                    progress = boxSet?.watchedFraction,
+                    mediaType = if (boxSet != null) "movie" else item.type,
+                    badge = if (boxSet != null) "Box set" else null,
+                    cornerLabel = boxSet?.let { boxSetFilmCount(it.movieCount) },
+                    caption = boxSet?.cardCaption(),
+                    sleeves = org.prairieserver.prairie.tv.ui.theme.BoxSetSleeves.takeIf { boxSet != null },
                     onClick = { onBrowseItemClick?.invoke(item) ?: onItemClick(item.contentId) },
                     fillWidth = true,
                     artworkAspectRatio = artworkAspectRatioForItem(item),
@@ -330,8 +341,8 @@ fun TvCatalogGrid(
                                 it.hasFocus,
                             )
                         },
-                    overlay = OverlayDataExtractor.fromBrowseItem(item),
-                    actions = actions,
+                    overlay = OverlayDataExtractor.fromBrowseItem(item).takeIf { boxSet == null },
+                    actions = if (boxSet != null) TvMediaCardActions() else actions,
                 )
             }
         }

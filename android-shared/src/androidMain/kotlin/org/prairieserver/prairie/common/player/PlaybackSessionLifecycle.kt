@@ -90,6 +90,9 @@ class PlaybackSessionLifecycle(
     private val mutex = Mutex()
 
     @Volatile private var lastStartParams: StartParams? = null
+
+    /** The playing session's start pinned its file (`allow_alternate_versions: false`). */
+    val sessionPinsVersion: Boolean get() = lastStartParams?.allowAlternateVersions == false
     @Volatile private var lastReportedPosition: Double? = null
     @Volatile private var lastReportedDuration: Double = 0.0
     /** Durable content-time coordinate; differs from session time for multipart audio. */
@@ -243,7 +246,13 @@ class PlaybackSessionLifecycle(
                 reporterJob = null
             }
             _notice.value = null
-            lastStartParams = params
+            // A replan, seek or subtitle change keeps the session, and the
+            // server keeps its start's version pin through it; so must a renewal.
+            lastStartParams = if (lastAdoptedSessionId == session.sessionId && params.allowAlternateVersions == null) {
+                params.copy(allowAlternateVersions = lastStartParams?.allowAlternateVersions)
+            } else {
+                params
+            }
             lastReportedPosition = params.startPosition ?: session.position
             lastReportedDuration = session.durationSeconds ?: 0.0
             lastPersistencePosition = params.startPosition ?: session.position
@@ -1020,7 +1029,11 @@ data class StartParams(
     val qualityPreference: String? = null,
     val startPosition: Double? = null,
     val clientPlaybackContext: ClientPlaybackContext,
-    /** Watch Party starts pin the file (false); renewals must keep that. */
+    /**
+     * False pins the file: a Watch Party start or a version the viewer chose.
+     * Renewals must keep it; a same-session adoption without it keeps the
+     * session's.
+     */
     val allowAlternateVersions: Boolean? = null,
 )
 

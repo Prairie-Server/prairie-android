@@ -104,6 +104,16 @@ sealed class TvRoute(val route: String) {
         }
     }
 
+    /** A movie box set: one TMDB collection's movies in one library. */
+    data class BoxSet(val boxSetId: String, val libraryId: String) :
+        TvRoute("box_set/${boxSetId.routeEncode()}?libraryId=${libraryId.routeEncode()}") {
+        companion object {
+            const val ROUTE = "box_set/{boxSetId}?libraryId={libraryId}"
+            const val ARG_BOX_SET_ID = "boxSetId"
+            const val ARG_LIBRARY_ID = "libraryId"
+        }
+    }
+
     /**
      * Playback route. An optional `fileId` query param lets the detail screen
      * pre-select a specific file version (e.g. 4K vs 1080p). When absent, the
@@ -113,6 +123,8 @@ sealed class TvRoute(val route: String) {
     data class Player(
         val contentId: String,
         val fileId: Int? = null,
+        /** The viewer picked [fileId] in a version picker: the start pins it. */
+        val versionChosen: Boolean = false,
         val quality: String? = null,
         val roomId: String? = null,
         val resumePositionSeconds: Double? = null,
@@ -149,6 +161,7 @@ sealed class TvRoute(val route: String) {
             val query = buildList {
                 libraryId?.let { add("libraryId=$it") }
                 if (fileId != null) add("fileId=$fileId")
+                if (fileId != null && versionChosen) add("$ARG_VERSION_CHOSEN=true")
                 VideoPlayerRouteArgs.normalizeQuality(quality)?.let { value ->
                     add("quality=${value.routeEncode()}")
                 }
@@ -173,7 +186,8 @@ sealed class TvRoute(val route: String) {
         },
     ) {
         companion object {
-            const val ROUTE = "player/{contentId}?libraryId={libraryId}&fileId={fileId}&quality={quality}&roomId={roomId}" +
+            const val ROUTE = "player/{contentId}?libraryId={libraryId}&fileId={fileId}&versionChosen={versionChosen}" +
+                "&quality={quality}&roomId={roomId}" +
                 "&audioTrackIndex={audioTrackIndex}&audioPicked={audioPicked}" +
                 "&subtitleTrackIndex={subtitleTrackIndex}" +
                 "&subtitleAutoResolved={subtitleAutoResolved}" +
@@ -183,6 +197,7 @@ sealed class TvRoute(val route: String) {
                 "&castLaunch={castLaunch}"
             const val ARG_CONTENT_ID = "contentId"
             const val ARG_FILE_ID = "fileId"
+            const val ARG_VERSION_CHOSEN = "versionChosen"
             const val ARG_QUALITY = "quality"
             const val ARG_ROOM_ID = "roomId"
             const val ARG_AUDIO_TRACK_INDEX = "audioTrackIndex"
@@ -279,6 +294,28 @@ sealed class TvRoute(val route: String) {
             const val ARG_TITLE = "title"
             const val ARG_LIBRARY_TYPE = "libraryType"
             const val ARG_SOURCE = "collectionSource"
+            const val ARG_MEDIA_SCOPE = "mediaScope"
+        }
+    }
+
+    /**
+     * A Home row's full page ([libraryId] null) or a library row's, opened
+     * from the row's "Explore all" card and titled with the row's title.
+     */
+    data class SectionBrowse(
+        val sectionId: String,
+        val title: String,
+        val libraryId: Int? = null,
+        val mediaScope: String? = null,
+    ) : TvRoute(
+        "section/${sectionId.routeEncode()}?title=${title.routeEncode()}" +
+            "&libraryId=${libraryId?.toString().orEmpty()}&mediaScope=${mediaScope.orEmpty().routeEncode()}",
+    ) {
+        companion object {
+            const val ROUTE = "section/{sectionId}?title={title}&libraryId={libraryId}&mediaScope={mediaScope}"
+            const val ARG_SECTION_ID = "sectionId"
+            const val ARG_TITLE = "title"
+            const val ARG_LIBRARY_ID = "libraryId"
             const val ARG_MEDIA_SCOPE = "mediaScope"
         }
     }

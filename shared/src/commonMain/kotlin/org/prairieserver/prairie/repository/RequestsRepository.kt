@@ -10,6 +10,7 @@ import org.prairieserver.prairie.model.request.RequestsDiscoverResponse
 import org.prairieserver.prairie.model.request.RequestsFeatureStatus
 import org.prairieserver.prairie.model.request.applyingFollow
 import org.prairieserver.prairie.model.request.applyingFollowUpdate
+import org.prairieserver.prairie.model.request.RequestDiscoverySection
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.RequestsApi
 import org.prairieserver.prairie.network.map
@@ -72,8 +73,8 @@ class RequestsRepository(
 
     suspend fun discover(): ApiResult<RequestsDiscoverResponse> = api.discover()
 
-    suspend fun discoverSection(section: String, page: Int = 1): ApiResult<RequestMediaPage> =
-        api.discoverSection(section, page)
+    suspend fun discoverRow(rowKey: String, page: Int = 1): ApiResult<RequestDiscoverySection> =
+        api.discoverRow(rowKey, page)
 
     suspend fun search(
         query: String,

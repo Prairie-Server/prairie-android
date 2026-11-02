@@ -211,7 +211,7 @@ internal fun TvCastCard(
     onClick: () -> Unit = {},
 ) {
     val shape = CircleShape
-    val cardFocus = prairieCardDefaults(shape = shape, focusedScale = 1.05f)
+    val cardFocus = prairieCardDefaults(shape = shape)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 

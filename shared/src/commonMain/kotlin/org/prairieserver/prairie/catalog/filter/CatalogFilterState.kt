@@ -168,15 +168,15 @@ object CatalogFilterQueryBuilder {
                 )
                 CatalogFacet.DynamicRange -> CatalogQueryGroup(
                     match = "any",
-                    rules = values.map { CatalogQueryRule(field = it, op = "is", value = "true") },
+                    rules = values.map { CatalogQueryRule(field = it, op = "is", value = true) },
                 )
                 CatalogFacet.WatchStatus -> {
                     val (field, value) = when (values.first()) {
-                        "unwatched" -> "watched" to "false"
-                        "watched" -> "watched" to "true"
-                        "inProgress" -> "in_progress" to "true"
-                        "favorited" -> "favorited" to "true"
-                        "watchlist" -> "in_watchlist" to "true"
+                        "unwatched" -> "watched" to false
+                        "watched" -> "watched" to true
+                        "inProgress" -> "in_progress" to true
+                        "favorited" -> "favorited" to true
+                        "watchlist" -> "in_watchlist" to true
                         else -> continue
                     }
                     CatalogQueryGroup(

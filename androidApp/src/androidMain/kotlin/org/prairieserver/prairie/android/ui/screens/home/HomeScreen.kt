@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.home
 
+import org.prairieserver.prairie.model.catalog.seriesHeroBackdrop
 import org.prairieserver.prairie.domain.settings.CatalogLanguageRevision
 import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
 import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
@@ -123,6 +124,8 @@ fun HomeScreen(
     onItemClick: (String) -> Unit,
     onContinueWatchingItemClick: (SectionItem) -> Unit,
     onPlayClick: (String, Double?) -> Unit,
+    /** Opens a row's full page ("Explore all"). */
+    onExploreSection: ((org.prairieserver.prairie.model.section.ResolvedSection) -> Unit)? = null,
     onBottomNavMinimizedChange: (Boolean) -> Unit = {},
     viewModel: HomeViewModel,
     activeProfile: Profile?,
@@ -419,6 +422,9 @@ fun HomeScreen(
                                                         ?: it.posterThumbhash,
                                                 )
                                             }
+                                            ?: item.seriesHeroBackdrop()?.let {
+                                                WarmedSeriesArtwork(url = it.url, thumbhash = it.thumbhash)
+                                            }
                                         // MediaRow hands off the episode still, which
                                         // the series page never shows. Load with the
                                         // series artwork instead, or with none until
@@ -458,6 +464,7 @@ fun HomeScreen(
                                 onToggleFavorite = viewModel::toggleFavorite,
                                 onToggleWatchlist = viewModel::toggleWatchlist,
                                 onRemoveFromHome = viewModel::dismissFromHome,
+                                onExploreAllClick = onExploreSection?.let { open -> { open(section) } },
                             )
                         }
 

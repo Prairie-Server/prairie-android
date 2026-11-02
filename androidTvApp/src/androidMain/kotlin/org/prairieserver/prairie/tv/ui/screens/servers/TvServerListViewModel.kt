@@ -11,20 +11,15 @@ import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
-import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
-import org.prairieserver.prairie.tv.profiles.TvActiveProfileReset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-enum class TvServerSwitchDestination { Home, ProfileSelection, Login, Setup }
 
 data class TvServerListUiState(
     val servers: List<ServerEntry> = emptyList(),
@@ -37,6 +32,8 @@ data class TvServerListUiState(
      * to manual URL entry. One-shot; cleared by [onEmptyRegistryConsumed].
      */
     val emptyRegistry: Boolean = false,
+    /** Set once when removing a server failed to save; cleared by [onRemoveFailedConsumed]. */
+    val removeFailed: Boolean = false,
     val discovered: List<DiscoveryHit> = emptyList(),
     val isScanning: Boolean = false,
     val scanStatus: String? = null,
@@ -48,15 +45,14 @@ data class TvServerListUiState(
 
 /**
  * TV-side counterpart of [org.prairieserver.prairie.android.ui.screens.servers.ServerListViewModel].
- * Shares the same wire-up against [ServerRegistry] / [TokenManager] / LAN discovery.
+ * Shares the same wire-up against [ServerRegistry] / LAN discovery; only the
+ * presentation differs.
  */
 class TvServerListViewModel(
     private val serverRegistry: ServerRegistry,
-    private val tokenManager: TokenManager,
     private val authRepository: AuthRepository,
+    private val resolver: TvServerResolver,
     private val lanDiscovery: LanDiscovery,
-    private val profileLaunchPreferences: ProfileLaunchPreferences,
-    private val activeProfileReset: TvActiveProfileReset,
     private val localRoute: StateFlow<LocalRoute?> = LocalRoutes.state.active,
 ) : ViewModel() {
 
@@ -201,7 +197,7 @@ class TvServerListViewModel(
 
             // Land on the deepest screen the new server's stored credentials
             // can reach — preserves the signed-in user when tokens are present.
-            val destination = switchDestination()
+            val destination = resolver.activeDestination()
 
             _uiState.update {
                 it.copy(pendingSwitchToId = null, switchedTo = destination)
@@ -277,57 +273,29 @@ class TvServerListViewModel(
         _uiState.update { it.copy(emptyRegistry = false) }
     }
 
-    fun onRemove(serverId: String) {
-        viewModelScope.launch {
-            val wasActive = serverRegistry.activeServerId.value == serverId
-            serverRegistry.remove(serverId)
-
-            if (!wasActive) return@launch
-
-            val promotedId = serverRegistry.activeServerId.value
-            if (promotedId == null) {
-                // No server left — stay on the list (scan / add manually).
-                _uiState.update { it.copy(emptyRegistry = true) }
-                return@launch
-            }
-
-            // The registry already points at the promoted server, but only the
-            // full switch path also moves the token scope and probes the
-            // promoted server's identity and v2 contract verdict (it is
-            // idempotent when the registry is already there).
-            authRepository.switchToServer(promotedId)
-
-            // Land on the deepest screen the promoted server's stored
-            // credentials can reach — preserves that server's session if tokens
-            // are present, otherwise falls back to Login.
-            val destination = switchDestination()
-
-            _uiState.update { it.copy(switchedTo = destination) }
-        }
+    fun onRemoveFailedConsumed() {
+        _uiState.update { it.copy(removeFailed = false) }
     }
 
-    /**
-     * The deepest screen the now-active server's stored credentials reach.
-     *
-     * Profile Selection covers a server switch too (prairie-apple design §7.5):
-     * when it would ask at launch (Every Time, or a timed choice that has run
-     * out), the server's saved profile is cleared and Who's Watching shows
-     * instead. Otherwise switching servers would reopen a protected profile
-     * there without its PIN. Clearing before navigating keeps the picker from
-     * loading under an identity that is about to change.
-     */
-    private suspend fun switchDestination(): TvServerSwitchDestination {
-        val accessToken = tokenManager.getAccessToken()
-        val activeEntry = serverRegistry.activeEntry.value
-        val profileId = activeEntry?.profileId ?: tokenManager.getProfileId()
-        return when {
-            accessToken.isNullOrBlank() -> TvServerSwitchDestination.Login
-            profileId.isNullOrBlank() -> TvServerSwitchDestination.ProfileSelection
-            profileLaunchPreferences.requiresSelectionAtLaunch() -> {
-                activeProfileReset.clearActiveProfile()
-                TvServerSwitchDestination.ProfileSelection
+    fun onRemove(serverId: String) {
+        viewModelScope.launch {
+            when (val removal = resolver.remove(serverId)) {
+                TvServerResolver.Removal.Failed -> _uiState.update { it.copy(removeFailed = true) }
+                // Removing a *non-active* server is a passive list edit — the
+                // shell behind us is unaffected, so leave navigation as is.
+                // Removing the active one is a session change: the navigator
+                // must tear down the shell still showing the removed server.
+                is TvServerResolver.Removal.Removed -> {
+                    val destination = removal.destination ?: return@launch
+                    if (serverRegistry.activeServerId.value == null) {
+                        // Prairie: no server left — stay on the list (scan /
+                        // add manually) instead of bouncing to URL entry.
+                        _uiState.update { it.copy(emptyRegistry = true) }
+                    } else {
+                        _uiState.update { it.copy(switchedTo = destination) }
+                    }
+                }
             }
-            else -> TvServerSwitchDestination.Home
         }
     }
 }

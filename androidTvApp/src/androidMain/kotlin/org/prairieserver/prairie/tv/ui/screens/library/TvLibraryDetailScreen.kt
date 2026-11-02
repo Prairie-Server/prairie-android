@@ -1,5 +1,11 @@
 package org.prairieserver.prairie.tv.ui.screens.library
 
+import org.prairieserver.prairie.model.section.ResolvedSection
+import org.prairieserver.prairie.model.catalog.CatalogBoxSet
+import org.prairieserver.prairie.model.catalog.boxSetCard
+import org.prairieserver.prairie.model.catalog.boxSetFilmCount
+import org.prairieserver.prairie.model.catalog.cardCaption
+import org.prairieserver.prairie.model.catalog.watchedFraction
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -63,7 +69,6 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.AudiobookGroup
 import org.prairieserver.prairie.model.section.LibraryCollection
@@ -106,8 +111,13 @@ fun TvLibraryDetailScreen(
     libraryTitle: String,
     libraryType: String,
     mediaScope: String? = null,
+    /** Browse with box set cards in place of a TMDB collection's movies. */
+    boxSetsEnabled: Boolean = false,
     onItemClick: (contentId: String) -> Unit,
+    onBoxSetClick: (CatalogBoxSet) -> Unit = {},
     onCollectionClick: (collectionId: String, title: String, isUserCollection: Boolean) -> Unit,
+    /** Opens a Recommended row's full page from its "Explore all" card. */
+    onExploreSection: ((ResolvedSection) -> Unit)? = null,
     onInitialContentFocus: () -> Unit = {},
     // When the screen is opened from the Skyline cascade with a committed
     // section pill, this drives the initial tab (Recommended / Library /
@@ -122,11 +132,17 @@ fun TvLibraryDetailScreen(
     // Plays the first pick of a shuffle started from the Library tab.
     onShuffleStarted: (org.prairieserver.prairie.model.shuffle.Shuffle) -> Unit = {},
     viewModel: TvLibraryDetailViewModel = koinViewModel(
-        key = "library-$libraryId-${mediaScope.orEmpty()}",
-        parameters = { parametersOf(libraryId, libraryTitle, libraryType, mediaScope) },
+        // Turning box sets on or off rebuilds the browse, which groups differently.
+        key = "library-$libraryId-${mediaScope.orEmpty()}${if (boxSetsEnabled) "-box-sets" else ""}",
+        parameters = { parametersOf(libraryId, libraryTitle, libraryType, mediaScope, boxSetsEnabled) },
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
+    // A browse grid card is a title or, in a box set library, a box set.
+    val openBrowseItem: (String) -> Unit = { contentId ->
+        val boxSet = state.browseItems.firstOrNull { it.contentId == contentId }?.boxSetCard
+        if (boxSet != null) onBoxSetClick(boxSet) else onItemClick(contentId)
+    }
     val shuffleLauncher = org.prairieserver.prairie.common.ui.rememberShuffleLauncher(
         org.koin.compose.koinInject(),
         onShuffleStarted,
@@ -169,12 +185,13 @@ fun TvLibraryDetailScreen(
                 onInitialContentFocus = onInitialContentFocus,
                 focusRequest = sectionRequestNonce,
                 onContentUpFallbackChanged = onContentUpFallbackChanged,
+                onExploreSection = onExploreSection,
             )
             // Browse is the tvOS `TVLibraryGridView` embed: Sort/Filter
             // control row over the grid, with the A–Z rail always on.
             TvLibraryTab.Browse -> LibraryTab(
                 state = state,
-                onItemClick = onItemClick,
+                onItemClick = openBrowseItem,
                 onNamePrefixChanged = viewModel::onNamePrefixChanged,
                 onGenreChanged = viewModel::onGenreChanged,
                 onLoadMore = viewModel::loadMoreBrowse,
@@ -190,7 +207,7 @@ fun TvLibraryDetailScreen(
             )
             TvLibraryTab.Genres -> LibraryTab(
                 state = state,
-                onItemClick = onItemClick,
+                onItemClick = openBrowseItem,
                 onNamePrefixChanged = viewModel::onNamePrefixChanged,
                 onGenreChanged = viewModel::onGenreChanged,
                 onLoadMore = viewModel::loadMoreBrowse,
@@ -200,7 +217,7 @@ fun TvLibraryDetailScreen(
             )
             TvLibraryTab.Alphabet -> LibraryTab(
                 state = state,
-                onItemClick = onItemClick,
+                onItemClick = openBrowseItem,
                 onNamePrefixChanged = viewModel::onNamePrefixChanged,
                 onGenreChanged = viewModel::onGenreChanged,
                 onLoadMore = viewModel::loadMoreBrowse,
@@ -211,7 +228,7 @@ fun TvLibraryDetailScreen(
             )
             TvLibraryTab.RecentlyAdded -> LibraryTab(
                 state = state,
-                onItemClick = onItemClick,
+                onItemClick = openBrowseItem,
                 onNamePrefixChanged = viewModel::onNamePrefixChanged,
                 onGenreChanged = viewModel::onGenreChanged,
                 onLoadMore = viewModel::loadMoreBrowse,
@@ -231,7 +248,7 @@ fun TvLibraryDetailScreen(
                 } else {
                     LibraryTab(
                         state = state,
-                        onItemClick = onItemClick,
+                        onItemClick = openBrowseItem,
                         onNamePrefixChanged = viewModel::onNamePrefixChanged,
                         onGenreChanged = viewModel::onGenreChanged,
                         onLoadMore = viewModel::loadMoreBrowse,
@@ -254,7 +271,7 @@ fun TvLibraryDetailScreen(
                 } else {
                     LibraryTab(
                         state = state,
-                        onItemClick = onItemClick,
+                        onItemClick = openBrowseItem,
                         onNamePrefixChanged = viewModel::onNamePrefixChanged,
                         onGenreChanged = viewModel::onGenreChanged,
                         onLoadMore = viewModel::loadMoreBrowse,
@@ -289,6 +306,7 @@ private fun RecommendedTab(
     onInitialContentFocus: () -> Unit,
     focusRequest: Int,
     onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)?,
+    onExploreSection: ((ResolvedSection) -> Unit)?,
 ) {
     val rows = remember(state.sections) {
         state.sections.filter { !it.featured && it.items.isNotEmpty() }
@@ -326,6 +344,7 @@ private fun RecommendedTab(
                     focusRequest = focusRequest,
                     onInitialContentFocus = onInitialContentFocus,
                     onContentUpFallbackChanged = onContentUpFallbackChanged,
+                    onExploreAllForSection = onExploreSection,
                 )
                 state.recommendedError?.let { message ->
                     Row(
@@ -684,13 +703,20 @@ private fun LibraryGrid(
                             }
                         }
                     }
+                    // A box set card opens the box set and has no item menu.
+                    val boxSet = item.boxSetCard
                     TvMediaCard(
                         title = item.title,
-                        posterUrl = item.posterUrl,
-                        posterThumbhash = item.posterThumbhash,
+                        posterUrl = item.posterUrl ?: boxSet?.posterUrl,
+                        posterThumbhash = item.posterThumbhash ?: boxSet?.posterThumbhash,
                         year = item.year.takeIf { it > 0 },
-                        userState = userState,
-                        mediaType = item.type,
+                        userState = userState.takeIf { boxSet == null },
+                        progress = boxSet?.watchedFraction,
+                        mediaType = if (boxSet != null) "movie" else item.type,
+                        badge = if (boxSet != null) "Box set" else null,
+                        cornerLabel = boxSet?.let { boxSetFilmCount(it.movieCount) },
+                        caption = boxSet?.cardCaption(),
+                        sleeves = org.prairieserver.prairie.tv.ui.theme.BoxSetSleeves.takeIf { boxSet != null },
                         width = TvCardWidth,
                         fillWidth = true,
                         onClick = { onItemClick(item.contentId) },
@@ -698,8 +724,8 @@ private fun LibraryGrid(
                         modifier = Modifier
                             .fillMaxWidth()
                             .onFocusChanged { onItemFocused(index, it.hasFocus) },
-                        overlay = org.prairieserver.prairie.overlays.OverlayDataExtractor.fromBrowseItem(item),
-                        actions = actions,
+                        overlay = org.prairieserver.prairie.overlays.OverlayDataExtractor.fromBrowseItem(item).takeIf { boxSet == null },
+                        actions = if (boxSet != null) org.prairieserver.prairie.tv.ui.components.TvMediaCardActions() else actions,
                     )
                 }
             }
@@ -873,12 +899,16 @@ private fun TvAudiobookGroupCard(
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
-    val caption = LocalCardPresentation.current.caption
 
+    val shape = RoundedCornerShape(8.dp)
+    val cardFocus = prairieCardDefaults(shape = shape)
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
             onClick = onClick,
-            shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
+            shape = CardDefaults.shape(shape = shape),
+            scale = cardFocus.scale,
+            border = cardFocus.border,
+            glow = cardFocus.glow,
             modifier = Modifier
                 .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
                 .fillMaxWidth()
@@ -909,29 +939,25 @@ private fun TvAudiobookGroupCard(
             }
         }
 
-        if (caption.showsTitle) {
-            Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
+        Text(
+            text = group.name,
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        audiobookGroupSubtitle(group)?.let { subtitle ->
             Text(
-                text = group.name,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White.copy(alpha = 0.92f),
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.68f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (caption.showsMetadata) {
-                audiobookGroupSubtitle(group)?.let { subtitle ->
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.68f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
         }
     }
 }
@@ -1168,13 +1194,12 @@ private fun TvCollectionCard(
     focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier,
 ) {
-    // Same focus treatment (scale + accent border + glow) and caption metrics
+    // Same focus treatment (lift + white outline + shadow) and caption metrics
     // as `TvMediaCard`, so collection posters sit alongside Browse posters
     // without reading as a different card family.
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val cardFocus = prairieCardDefaults(shape = TvCollectionCardShape)
-    val caption = LocalCardPresentation.current.caption
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
@@ -1215,23 +1240,20 @@ private fun TvCollectionCard(
 
         // Title-only caption, start-aligned like every other poster caption in
         // the app. The item count was dropped: it doubled the caption height
-        // and made the rows read differently from Browse. Gated like
-        // `TvMediaCard` so both card families agree in the same Library tab.
-        if (caption.showsTitle) {
-            Spacer(modifier = Modifier.height(11.dp))
+        // and made the rows read differently from Browse.
+        Spacer(modifier = Modifier.height(11.dp))
 
-            Text(
-                text = collection.name,
-                style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 15.5.sp,
-                    lineHeight = 18.5.sp,
-                ),
-                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.78f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        Text(
+            text = collection.name,
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontSize = 15.5.sp,
+                lineHeight = 18.5.sp,
+            ),
+            color = if (isFocused) Color.White else Color.White.copy(alpha = 0.78f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

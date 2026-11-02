@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.player
 
+import org.prairieserver.prairie.common.settings.reconcileStart
+import org.prairieserver.prairie.common.settings.audioResetToAutoPending
 import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
@@ -39,7 +41,6 @@ import org.prairieserver.prairie.model.playback.resolvePlaybackStartPosition
 import org.prairieserver.prairie.model.playback.videoQualityPreference
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.playback.orNullIfBlank
-import org.prairieserver.prairie.playback.resolveAudioTrackOrdinal
 import org.prairieserver.prairie.playback.selectPlaybackVersion
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.ProfileRepository
@@ -62,6 +63,8 @@ class TvVideoPlaybackStarter(
     private val sessionLifecycle: PlaybackSessionLifecycle,
     private val reachabilityMonitor: ServerReachabilityMonitor,
     private val userItemStatePort: UserItemStatePort,
+    /** Lays a series subtitle choice that has not landed yet over the server's answer. */
+    private val seriesTrackChoiceWriter: org.prairieserver.prairie.common.settings.SeriesTrackChoiceWriter? = null,
 ) : VideoPlaybackStarter {
 
     override suspend fun start(request: VideoPlaybackStartRequest): VideoPlaybackStartResult {
@@ -82,8 +85,21 @@ class TvVideoPlaybackStarter(
         var unpublishedSessionId: String? = null
         var lifecycleAdopted = false
         return try {
+            var audioResetToAuto = false
+            val landedBefore = seriesTrackChoiceWriter?.landedWrites ?: 0L
             val watchDetail = when (val r = catalogRepository.getWatchDetail(request.contentId, expectedMetadataOwner, request.libraryId)) {
-                is ApiResult.Success -> r.data
+                is ApiResult.Success -> {
+                    // An Auto set here and not landed: checked before and after
+                    // the flush, which can land it after its overlay is taken.
+                    val key = org.prairieserver.prairie.model.playback.seriesTrackChoiceKey(r.data.seriesId, r.data.contentId)
+                    suspend fun resetPending() = key?.let { seriesTrackChoiceWriter?.audioResetToAutoPending(it) } == true
+                    audioResetToAuto = resetPending()
+                    val reconciled = seriesTrackChoiceWriter?.reconcileStart(landedBefore, r.data) {
+                        (catalogRepository.getWatchDetail(request.contentId, expectedMetadataOwner, request.libraryId) as? ApiResult.Success)?.data
+                    } ?: r.data
+                    audioResetToAuto = audioResetToAuto || resetPending()
+                    reconciled
+                }
                 is ApiResult.Error -> return failure(
                     request.contentId,
                     "Failed to load content: ${r.message}",
@@ -122,13 +138,7 @@ class TvVideoPlaybackStarter(
                     diagnosticsCode = PlaybackDiagnosticsCode.NO_VERSIONS,
                 )
             }
-            // Room starts keep the file through every replan; renewals keep
-            // whatever the original start chose.
-            val allowAlternateVersions = if (room != null) {
-                false
-            } else {
-                request.recoveryStartParams?.allowAlternateVersions
-            }
+            val allowAlternateVersions = request.allowAlternateVersions()
             val resolvedEpisodeSelection = resolveTvPlaybackStartSelection(
                 // A room plays exactly its file; never a preferred or remembered one.
                 preferredFileId = room?.fileId ?: request.preferredFileId,
@@ -193,7 +203,8 @@ class TvVideoPlaybackStarter(
                 settingsLanguage = preferredAudioLanguage,
                 profileLanguage = activeProfile?.language,
             )
-            // Explicit, carried, and durable choices win. Otherwise resolve the
+            // Explicit and carried choices win, then the server's effective
+            // track (the profile's series choice). Otherwise resolve the
             // automatic language + quality policy against the detected device
             // capabilities before asking the server for a plan.
             val startAudioTrackIndex = resolveTvInitialAudioTrackIndex(
@@ -204,6 +215,8 @@ class TvVideoPlaybackStarter(
                 durableAudioFingerprint = durableAudioFingerprint,
                 preferredAudioLanguage = effectivePreferredAudioLanguage,
                 capabilities = capabilities,
+                serverAudioTrackIndex = version.effectiveAudioTrackIndex,
+                audioResetToAuto = audioResetToAuto,
             )
             // Skip-back-on-resume — see MobileVideoPlaybackStarter for the rationale.
             // Suppressed for Start Over / retry (request flag) and Watch Together
@@ -421,10 +434,12 @@ class TvVideoPlaybackStarter(
                 showForcedSubtitles = watchDetail.effectiveShowForcedSubtitles
                     ?: activeProfile?.showForcedSubtitles
                     ?: true,
+                preferredSubtitleTrackSignature = watchDetail.effectiveSubtitleTrackSignature,
                 intro = effectiveVersion?.intro,
                 credits = effectiveVersion?.credits,
                 recap = effectiveVersion?.recap,
                 preview = effectiveVersion?.preview,
+                markerSegments = effectiveVersion?.markerSegments,
                 chapters = effectiveVersion?.chapters.orEmpty(),
                 seriesId = watchDetail.seriesId,
                 seriesTitle = watchDetail.seriesTitle,
@@ -497,16 +512,23 @@ internal fun resolveTvInitialAudioTrackIndex(
     durableAudioFingerprint: String?,
     preferredAudioLanguage: String?,
     capabilities: ClientCodecCapabilities,
+    serverAudioTrackIndex: Int? = null,
+    audioResetToAuto: Boolean = false,
 ): Int? {
-    requestedAudioIndex?.let { return it }
-    carriedAudioIndex?.let { return it }
-    if (unresolvedCarriedChoice) return null
-    return resolveAudioTrackOrdinal(tracks, durableAudioFingerprint)
-        ?: TrackSelectionPresets.selectBestCompatibleAudioTrackOrdinal(
+    if (requestedAudioIndex == null && carriedAudioIndex == null && unresolvedCarriedChoice) return null
+    return org.prairieserver.prairie.common.player.resolveStartAudioTrackOrdinal(
+        explicitOrdinal = requestedAudioIndex ?: carriedAudioIndex,
+        tracks = tracks,
+        serverOrdinal = serverAudioTrackIndex,
+        localFingerprint = durableAudioFingerprint,
+        resetToAuto = audioResetToAuto,
+    ) {
+        TrackSelectionPresets.selectBestCompatibleAudioTrackOrdinal(
             tracks = tracks,
             preferredAudioLanguage = preferredAudioLanguage,
             capabilities = capabilities,
         )
+    }
 }
 
 internal fun resolveTvSourceStartPosition(

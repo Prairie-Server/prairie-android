@@ -20,6 +20,7 @@ import org.prairieserver.prairie.common.player.seek.PlaybackSeekDecision
 import org.prairieserver.prairie.common.player.seek.decideSeek
 import org.prairieserver.prairie.common.player.seek.playerPositionForSource
 import org.prairieserver.prairie.common.player.seek.sourcePositionForPlayer
+import org.prairieserver.prairie.domain.player.BufferingQualityMode
 import org.prairieserver.prairie.model.playback.CAPABILITY_EVIDENCE_DECLARED
 import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.ClientPlaybackContext
@@ -80,6 +81,10 @@ class CastPlaybackPreparer(
             tokenManager = tokenManager,
             networkEvidenceProvider = networkEvidenceProvider,
             passthroughSuppression = PassthroughSuppressionScope.None,
+            // The receiver is outside the buffering-quality controller: no
+            // estimate (the default), and none of this device's learned limits,
+            // which every request ignores as in never mode.
+            bufferingQualityMode = { BufferingQualityMode.NEVER },
         )
 
         val result = castSession.startVideoSessionV3(

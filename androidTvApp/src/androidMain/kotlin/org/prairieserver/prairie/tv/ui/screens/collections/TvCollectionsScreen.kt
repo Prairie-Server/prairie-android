@@ -50,6 +50,7 @@ import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.theme.Spacing
+import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 import org.prairieserver.prairie.tv.ui.theme.sectionEyebrow
 import org.prairieserver.prairie.tv.ui.theme.tvPageStartPadding
 import org.prairieserver.prairie.viewmodel.CollectionSection
@@ -248,9 +249,14 @@ private fun CollectionCard(
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
+    val shape = RoundedCornerShape(8.dp)
+    val cardFocus = prairieCardDefaults(shape = shape)
     Card(
         onClick = onClick,
-        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        shape = CardDefaults.shape(shape = shape),
+        scale = cardFocus.scale,
+        border = cardFocus.border,
+        glow = cardFocus.glow,
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .fillMaxWidth()

@@ -21,6 +21,7 @@ import org.prairieserver.prairie.common.player.PlaybackTrackSelectionWriteCoordi
 import org.prairieserver.prairie.common.player.StagedVideoReplan
 import org.prairieserver.prairie.common.player.VideoSessionStartV3
 import org.prairieserver.prairie.common.player.SubDiag
+import org.prairieserver.prairie.domain.player.BufferingQualityReplan
 import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.ClientPlaybackContext
@@ -39,6 +40,7 @@ import org.prairieserver.prairie.model.playback.SubtitleTransitionState
 import org.prairieserver.prairie.model.playback.UpdateAudioPreference
 import org.prairieserver.prairie.model.playback.UpdateQualityPreference
 import org.prairieserver.prairie.model.playback.isLocalDownloadedSubtitle
+import org.prairieserver.prairie.model.playback.isServerPick
 import org.prairieserver.prairie.model.playback.rebaseDownloadedSubtitleUrl
 import org.prairieserver.prairie.model.playback.reduceSubtitleTransition
 import org.prairieserver.prairie.model.playback.resolvedSelectedSubtitleIndex
@@ -97,6 +99,11 @@ internal data class TvSubtitleStageRequest(
     val qualityChanged: Boolean = false,
     val capabilities: ClientCodecCapabilities,
     val clientPlaybackContext: ClientPlaybackContext,
+    /**
+     * The buffering-quality controller's own `quality_change`, riding this
+     * request like a menu pick. Null for every viewer change.
+     */
+    val bufferingQuality: BufferingQualityReplan? = null,
 )
 
 internal data class TvSubtitleManagerStageInput(
@@ -161,6 +168,9 @@ internal interface TvSubtitleStagedReplanPort {
     suspend fun confirmCommitted(playback: TvSubtitleCommittedPlayback) = Unit
 
     suspend fun abandonCommitted(playback: TvSubtitleCommittedPlayback)
+
+    /** [playback] was abandoned before the player adopted it, so no plan summary will name its plan. */
+    fun forgetCommitted(playback: TvSubtitleCommittedPlayback) = Unit
 }
 
 internal interface TvSubtitlePersistencePort {
@@ -197,6 +207,19 @@ internal data class TvSubtitleTransactionSnapshot(
     val desiredOutputRouteGeneration: Long = committedOutputRouteGeneration,
     val subtitleTracks: List<PlayerSubtitleInfo> = emptyList(),
     val subtitleRefreshNonce: Long = 0L,
+    /**
+     * Names the owner of [localMountIdentity]. A new owner can ask for the
+     * same identity as the one before it, as the confirmation of a plan
+     * applied in place does for the track a local switch already selected,
+     * and the player has to report on it again.
+     */
+    val localMountGeneration: Long = 0L,
+    /**
+     * [localMountIdentity] is a switch on the playing stream still waiting
+     * for its replan. When such an owner ends without a successor, the player
+     * must go back to [committedIdentity], which only the view model can do.
+     */
+    val localMountInPlaceSwitch: Boolean = false,
 ) {
     val committedIdentity: SubtitleIdentity
         get() = transition.committed.identity
@@ -230,7 +253,11 @@ internal enum class TvSubtitleAdoptionResult {
 internal class TvSubtitlePlaybackAdoption internal constructor(
     val playback: TvSubtitleCommittedPlayback,
     val committed: CommittedSubtitle,
+    /** The subtitle the request asked for; [committed] can differ on another file. */
+    val requestedIdentity: SubtitleIdentity,
     val requestedSourcePositionSeconds: Double,
+    /** The request carried the buffering-quality controller's own replan. */
+    val bufferingQuality: Boolean,
     private val currentOwner: () -> Boolean,
     private val currentPendingIdentity: () -> SubtitleIdentity?,
 ) {
@@ -285,7 +312,29 @@ internal class TvSubtitleTransactionAdapter(
      * is what asks the server to materialise the artifact.
      */
     private val isLocallyMountable: (SubtitleIdentity) -> Boolean = { true },
+    /**
+     * Whether a pick of the second identity, made while the first is
+     * committed, can be shown on the stream the player already plays before
+     * the server answers (see `canSwitchSubtitleInPlace`).
+     */
+    private val canSwitchInPlace: (SubtitleIdentity, SubtitleIdentity) -> Boolean = { _, _ -> false },
+    /**
+     * A buffering-quality replan handed to [selectQuality] will not be
+     * adopted: its request failed, or a reset or content change dropped it
+     * before it went out. Not called for one that committed.
+     */
+    private val onBufferingQualityReplanFailed: () -> Unit = {},
 ) {
+    /**
+     * The buffering-quality replan waiting to ride the next quality request,
+     * and the staged generation it went out on.
+     */
+    private class BufferingQualityIntent(var replan: BufferingQualityReplan) {
+        var generation: Long? = null
+    }
+
+    private var bufferingQualityIntent: BufferingQualityIntent? = null
+
     private data class PendingLocalSelection(
         val generation: Long,
         val identity: SubtitleIdentity,
@@ -300,6 +349,11 @@ internal class TvSubtitleTransactionAdapter(
         val mountedBeforeAdoption: Boolean = false,
         val rollbackIncludesLifecycle: Boolean = true,
         val exposesMountBoundary: Boolean = true,
+        /**
+         * Selected on the playing stream ahead of its own replan, whose answer
+         * is applied without a remount when it keeps the transport.
+         */
+        val inPlaceSwitch: Boolean = false,
     )
 
     private enum class PublicationSettlementPhase {
@@ -408,6 +462,10 @@ internal class TvSubtitleTransactionAdapter(
                 desiredOutputRouteGeneration = desiredOutputRouteGeneration,
                 subtitleTracks = context?.subtitleTracks.orEmpty(),
                 subtitleRefreshNonce = subtitleRefreshNonce,
+                localMountGeneration = localMountGeneration,
+                localMountInPlaceSwitch = pendingLocalSelection
+                    ?.takeIf { it.identity == localIdentity && it.committedPlayback == null }
+                    ?.inPlaceSwitch == true,
             )
         }
 
@@ -496,6 +554,7 @@ internal class TvSubtitleTransactionAdapter(
     ) {
         resetAfterSettlement = null
         discardQueuedAfterSettlement = false
+        dropBufferingQualityIntent()
         if (commitInFlight) {
             resetDuringCommit = true
             queuedMutations.clear()
@@ -712,8 +771,36 @@ internal class TvSubtitleTransactionAdapter(
         mutate(UpdateAudioPreference(audioTrackIndex), explicit = true)
     }
 
-    fun selectQuality(qualityPreference: String?) {
+    /**
+     * [bufferingQuality] is set only for the buffering-quality controller's
+     * own replan: it rides the staged request so subtitle state survives as
+     * for a menu pick. Any later quality pick replaces it.
+     */
+    fun selectQuality(
+        qualityPreference: String?,
+        bufferingQuality: BufferingQualityReplan? = null,
+    ) {
+        if (bufferingQuality != null && context?.sessionId == null) {
+            // Without a session the pick commits locally and nothing is sent.
+            onBufferingQualityReplanFailed()
+            return
+        }
+        bufferingQualityIntent = bufferingQuality?.let(::BufferingQualityIntent)
         mutate(UpdateQualityPreference(qualityPreference), explicit = true)
+    }
+
+    /** The buffering replan that went out on [generation] failed. */
+    private fun failBufferingQualityIntent(generation: Long) {
+        if (bufferingQualityIntent?.generation != generation) return
+        bufferingQualityIntent = null
+        onBufferingQualityReplanFailed()
+    }
+
+    /** A reset or content change drops a buffering replan that has not committed. */
+    private fun dropBufferingQualityIntent() {
+        bufferingQualityIntent ?: return
+        bufferingQualityIntent = null
+        onBufferingQualityReplanFailed()
     }
 
     fun updateOutputRouteGeneration(generation: Long) {
@@ -779,6 +866,7 @@ internal class TvSubtitleTransactionAdapter(
     private fun invalidateNow() {
         resetAfterSettlement = null
         discardQueuedAfterSettlement = false
+        dropBufferingQualityIntent()
         adoptionGeneration += 1
         contentGeneration += 1
         refreshGeneration += 1
@@ -861,6 +949,23 @@ internal class TvSubtitleTransactionAdapter(
         ) {
             beginLocalRestore(identity)
         }
+    }
+
+    /**
+     * Disables text on the player for a committed Off. Returns false, and does
+     * nothing, when there is no playback context, the committed identity is not
+     * Off, or a transaction is in flight.
+     */
+    fun restoreCommittedOff(): Boolean {
+        if (
+            context == null ||
+            transition.committed.identity != SubtitleIdentity.Off ||
+            hasActiveTransaction
+        ) {
+            return false
+        }
+        beginLocalRestore(SubtitleIdentity.Off)
+        return true
     }
 
     fun beginRefresh(
@@ -1079,6 +1184,38 @@ internal class TvSubtitleTransactionAdapter(
     }
 
     /**
+     * Shows [identity] on the playing stream at once and sends its replan
+     * with it, when the stream already carries the track (or it is Off) and
+     * the pick changes nothing but the subtitle. The replan's answer is
+     * adopted without a remount when it keeps the transport; a failure
+     * restores the previous subtitle.
+     */
+    private fun beginInPlaceSwitch(
+        identity: SubtitleIdentity,
+        state: SubtitleTransitionState,
+    ): Boolean {
+        val selectionContext = context ?: return false
+        if (selectionContext.sessionId == null) return false
+        val pending = state.pending ?: return false
+        if (pending.identity != identity ||
+            pending.audioPreferenceSpecified ||
+            pending.qualityPreferenceSpecified ||
+            desiredOutputRouteGeneration != committedOutputRouteGeneration ||
+            !canSwitchInPlace(transition.committed.identity, identity) ||
+            (identity != SubtitleIdentity.Off && !isLocallyMountable(identity))
+        ) {
+            return false
+        }
+        beginLocalSelection(
+            identity = identity,
+            proposedState = state,
+            selectionContext = selectionContext,
+            inPlaceSwitch = true,
+        )
+        return true
+    }
+
+    /**
      * Commits a locally-mountable identity — an embedded (muxed) track the
      * stream already carries — without a server round trip.
      *
@@ -1087,10 +1224,11 @@ internal class TvSubtitleTransactionAdapter(
      * pending is force-validated against the synthetic `tv-local` candidate so
      * the state machine reaches committed with no server involved.
      *
-     * Returns false — meaning "you must replan after all" — when the pending
-     * also carries an audio, quality or output-route preference. Those can only
-     * be applied by the server, and short-circuiting it would drop them
-     * silently. Both callers must respect that: this is shared precisely
+     * Returns false — meaning "you must replan after all" — for a
+     * server-selected native track or rendition other than the committed
+     * one, and when the pending also carries an audio, quality or
+     * output-route preference. Those can only be applied by the server, and
+     * short-circuiting it would drop them silently. Both callers must respect that: this is shared precisely
      * because the two paths had drifted, and a subtitle press replayed out of
      * `queuedMutations` was replanning where a direct press did not.
      */
@@ -1103,6 +1241,8 @@ internal class TvSubtitleTransactionAdapter(
             SubDiag.log("commitLocal SKIP not mountable id=$identity")
             return false
         }
+        // A pick that cannot switch in place takes the replan.
+        if (identity.isServerPick(transition.committed.identity)) return false
         val pending = state.pending
         if (
             pending != null &&
@@ -1157,6 +1297,8 @@ internal class TvSubtitleTransactionAdapter(
             return
         }
 
+        if (beginInPlaceSwitch(identity, selected.state)) return
+
         if (
             identity.isClientOwnedSubtitle() &&
             selected.state.pending != null
@@ -1189,6 +1331,14 @@ internal class TvSubtitleTransactionAdapter(
         if (transition.pending?.generation != requested.generation) return
 
         val qualityChanged = requested.qualityPreference != transition.committed.qualityPreference
+        // A later intent merged into this one keeps the buffering replan only
+        // while it still asks for the quality that replan named.
+        val bufferingQuality = bufferingQualityIntent
+            ?.takeIf {
+                requested.qualityPreferenceSpecified &&
+                    requested.qualityPreference == it.replan.qualityPreference
+            }
+            ?.also { it.generation = requested.generation }
         val request = TvSubtitleStageRequest(
             generation = requested.generation,
             contentId = requestContext.contentId,
@@ -1203,14 +1353,20 @@ internal class TvSubtitleTransactionAdapter(
             capabilities = requestContext.capabilities,
             clientPlaybackContext = requestContext.clientPlaybackContext,
             classification = when {
+                // The manager sends a buffering replan as quality_change, so
+                // it is named as one even when the quality is unchanged (Auto
+                // stepping down under an estimate). A pick merged with an
+                // output change is a quality change too, which discards the
+                // kept step-down estimate.
+                bufferingQuality != null || qualityChanged -> "quality_changed"
                 desiredOutputRouteGeneration != committedOutputRouteGeneration ->
                     "output_route_changed"
-                qualityChanged -> "quality_changed"
                 requested.audioTrackIndex != transition.committed.audioTrackIndex ->
                     "audio_track_changed"
                 else -> "subtitle_track_changed"
             },
             qualityChanged = qualityChanged,
+            bufferingQuality = bufferingQuality?.replan,
         )
         val staged = try {
             stagedPort.stage(request)
@@ -1262,6 +1418,12 @@ internal class TvSubtitleTransactionAdapter(
             ),
         )
         if (validated.state == transition) {
+            // Superseded. A buffering lowering on this request has already
+            // reported its observation, so a later request that merges it
+            // repeats the estimate as a kept one, without the source.
+            bufferingQualityIntent?.takeIf { it.generation == requested.generation }?.let {
+                it.replan = it.replan.copy(bandwidthEstimateSource = null)
+            }
             discardCandidateBestEffort(candidate)
             return
         }
@@ -1330,7 +1492,9 @@ internal class TvSubtitleTransactionAdapter(
                 val adoption = TvSubtitlePlaybackAdoption(
                     playback = playback,
                     committed = validatedState.committed,
+                    requestedIdentity = requested.identity,
                     requestedSourcePositionSeconds = adoptionContext.positionSeconds,
+                    bufferingQuality = request.bufferingQuality != null,
                     currentOwner = {
                         ownerGeneration == adoptionGeneration &&
                             !resetDuringCommit
@@ -1509,6 +1673,8 @@ internal class TvSubtitleTransactionAdapter(
         playback: TvSubtitleCommittedPlayback,
         adoptionContext: TvSubtitlePlaybackContext,
     ) {
+        // Committed: the plan's adoption, not this adapter, reports it now.
+        if (bufferingQualityIntent?.generation == requestedGeneration) bufferingQualityIntent = null
         val rollbackOutputRouteGeneration = committedOutputRouteGeneration
         val freshRestore = pendingFreshRestore
             ?.takeIf { it.generation < validatedState.nextGeneration }
@@ -1642,11 +1808,16 @@ internal class TvSubtitleTransactionAdapter(
         return true
     }
 
+    /**
+     * Rolls back a committed playback the view model never saw: a reset or a
+     * lost context took it before adoption.
+     */
     private suspend fun abandonCommittedPlayback(
         playback: TvSubtitleCommittedPlayback,
     ): Boolean = withContext(NonCancellable) {
             try {
                 stagedPort.abandonCommitted(playback)
+                stagedPort.forgetCommitted(playback)
                 true
             } catch (_: Exception) {
                 // The manager owns authoritative cleanup; a cleanup transport
@@ -2079,6 +2250,7 @@ internal class TvSubtitleTransactionAdapter(
 
     private fun finishFailedCommit(generation: Long, message: String) {
         resetDuringCommit = false
+        failBufferingQualityIntent(generation)
         if (queuedMutations.isEmpty()) {
             fail(generation, message)
             return
@@ -2110,6 +2282,7 @@ internal class TvSubtitleTransactionAdapter(
             reduceSubtitleTransition(state, event).state
         }
         val finalIdentity = finalState.pending?.identity ?: finalState.committed.identity
+        if (beginInPlaceSwitch(finalIdentity, finalState)) return
         if (
             finalIdentity.requiresLocalMountConfirmation() &&
             commitLocallyMountableSelection(finalIdentity, finalState)
@@ -2137,18 +2310,20 @@ internal class TvSubtitleTransactionAdapter(
             ),
         )
         if (failed.state == transition && failed.effects.isEmpty()) return
+        failBufferingQualityIntent(generation)
         if (failedLocalOwner != null) {
             invalidateLocalMount()
         }
         transition = failed.state
         failureMessage = message
         val priorIdentity = transition.committed.identity
-        if (
-            failedLocalOwner?.mountedBeforeAdoption == true &&
-            priorIdentity.requiresLocalMountConfirmation() &&
-            isLocallyMountable(priorIdentity) &&
-            context?.sessionId != null
-        ) {
+        val switchedLocally = failedLocalOwner?.mountedBeforeAdoption == true ||
+            failedLocalOwner?.inPlaceSwitch == true
+        val restorable = priorIdentity == SubtitleIdentity.Off && failedLocalOwner?.inPlaceSwitch == true ||
+            priorIdentity.requiresLocalMountConfirmation() && isLocallyMountable(priorIdentity)
+        if (switchedLocally && restorable && context?.sessionId != null) {
+            // The switch already changed what the player shows; put back the
+            // subtitle the server still has, Off included.
             beginLocalRestore(priorIdentity)
         } else {
             publish()
@@ -2159,6 +2334,17 @@ internal class TvSubtitleTransactionAdapter(
         val ownedSelection = pendingLocalSelection?.generation == generation
         val ownedRestore = pendingLocalRestore?.generation == generation
         if (!ownedSelection && !ownedRestore) return
+        val inPlaceOwner = pendingLocalSelection?.takeIf { ownedSelection && it.inPlaceSwitch }
+        if (inPlaceOwner != null && inPlaceOwner.committedPlayback == null &&
+            inPlaceOwner.proposedState.pending != null
+        ) {
+            // The replan for this switch is still out, and its answer decides:
+            // the adoption confirms the mount again, and a miss then takes the
+            // usual path. Failing now would send a second replan beside it.
+            localMountTimeout?.cancel()
+            localMountTimeout = null
+            return
+        }
         val failedIdentity = (if (ownedSelection) pendingLocalSelection?.identity else pendingLocalRestore?.identity)
             as? SubtitleIdentity.Embedded
         if (failedIdentity?.isServerSelected == true) {
@@ -2205,8 +2391,11 @@ internal class TvSubtitleTransactionAdapter(
             requestCompensationSettlement(selection)
             return
         }
+        // Only restoreCommittedOff restores Off, for an Off nobody picked, so
+        // there is no selected subtitle to report as failed.
+        val restoringOff = ownedRestore && pendingLocalRestore?.identity == SubtitleIdentity.Off
         invalidateLocalMount()
-        failureMessage = "The selected subtitle could not be mounted."
+        if (!restoringOff) failureMessage = "The selected subtitle could not be mounted."
         publish()
     }
 
@@ -2220,6 +2409,7 @@ internal class TvSubtitleTransactionAdapter(
         rollbackContext: TvSubtitlePlaybackContext = selectionContext,
         rollbackOutputRouteGeneration: Long = committedOutputRouteGeneration,
         replayStateAfterRollback: SubtitleTransitionState? = null,
+        inPlaceSwitch: Boolean = false,
     ) {
         transition = transition.copy(
             pending = proposedState.pending,
@@ -2238,6 +2428,7 @@ internal class TvSubtitleTransactionAdapter(
             rollbackContext = rollbackContext,
             rollbackOutputRouteGeneration = rollbackOutputRouteGeneration,
             replayStateAfterRollback = replayStateAfterRollback,
+            inPlaceSwitch = inPlaceSwitch,
         )
         scheduleLocalMountTimeout(generation)
         publish()
@@ -2263,13 +2454,18 @@ internal class TvSubtitleTransactionAdapter(
         localMountTimeout?.cancel()
         localMountTimeout = scope.launch {
             var waited = 0L
+            // Only count against the mount once there is something to mount;
+            // the onTracksChanged callback may not arrive inside the window at
+            // all, so ask rather than wait to be told. The window starts at the
+            // first check that finds tracks (or now, if they are already
+            // there), so tracks published just before a check still get a
+            // whole window for their selection to confirm.
+            var tracksSeen = hasMountableTracks()
             while (true) {
                 delay(LOCAL_MOUNT_TIMEOUT_MS)
                 waited += LOCAL_MOUNT_TIMEOUT_MS
-                // Only count against the mount once there is something to
-                // mount; the onTracksChanged callback may not arrive inside the
-                // window at all, so ask rather than wait to be told.
-                if (hasMountableTracks() || waited >= MAX_LOCAL_MOUNT_WAIT_MS) break
+                if (tracksSeen || waited >= MAX_LOCAL_MOUNT_WAIT_MS) break
+                tracksSeen = hasMountableTracks()
             }
             SubDiag.log("mountDeadline FAIL gen=$generation")
             failLocalMount(generation)
@@ -2409,6 +2605,7 @@ internal class PlaybackSessionManagerTvSubtitleStagedReplanPort(
                 capabilities = input.capabilities,
                 clientPlaybackContext = input.clientPlaybackContext,
                 qualityPair = if (request.qualityChanged) inPlayerQuality(request.qualityPreference) else null,
+                bufferingQuality = request.bufferingQuality,
             )
         ) {
             is ApiResult.Success -> {
@@ -2503,6 +2700,10 @@ internal class PlaybackSessionManagerTvSubtitleStagedReplanPort(
         ) {
             "The staged subtitle session was no longer awaiting rollback."
         }
+    }
+
+    override fun forgetCommitted(playback: TvSubtitleCommittedPlayback) {
+        playback.ready?.let { manager.forgetPlanIdentity(it.plan.planId, it.planAttemptId) }
     }
 }
 

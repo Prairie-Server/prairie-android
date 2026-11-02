@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import org.prairieserver.prairie.model.profile.ActiveProfileStore
 import org.prairieserver.prairie.common.downloads.DownloadEnqueuer
 import org.prairieserver.prairie.common.downloads.DownloadSubscriptionEvaluatorFactory
 import org.prairieserver.prairie.common.downloads.DownloadSubscriptionWorker
@@ -25,11 +26,10 @@ import org.prairieserver.prairie.common.pairing.CompanionPairingServerStore
 import org.prairieserver.prairie.common.pairing.CompanionPairingTransportFactory
 import org.prairieserver.prairie.common.pairing.RegistryCompanionPairingServerStore
 import org.prairieserver.prairie.common.pairing.RepositoryCompanionDeviceLoginApprover
-import org.prairieserver.prairie.common.pairing.TlsPskPairingClientTransport
+import org.prairieserver.prairie.common.pairing.CompanionPairingTransports
 import org.prairieserver.prairie.common.player.AudioCapabilityManager
 import org.prairieserver.prairie.common.player.AudioTrackManager
 import org.prairieserver.prairie.common.player.AndroidSubtitlePresentation
-import org.prairieserver.prairie.common.player.PrairiePlayerFactory
 import org.prairieserver.prairie.common.player.PlaybackCapabilityDetector
 import org.prairieserver.prairie.common.player.PlaybackSessionManager
 import org.prairieserver.prairie.common.player.audio.PassthroughSuppressionScope
@@ -83,6 +83,7 @@ import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.viewmodel.FavoritesViewModel
 import org.prairieserver.prairie.viewmodel.HistoryViewModel
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
+import org.prairieserver.prairie.viewmodel.RequestDiscoverRowViewModel
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
@@ -95,6 +96,7 @@ import org.prairieserver.prairie.android.ui.screens.player.PlayerViewModel
 import org.prairieserver.prairie.android.ui.screens.search.SearchViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsViewModel
 import org.prairieserver.prairie.android.ui.screens.settings.diagnostics.DiagnosticsViewModel
+import org.prairieserver.prairie.android.cast.EncryptedPrefsPrairieCastRokuStore
 import org.prairieserver.prairie.android.cast.SharedPrefsPrairieCastLastTargetStore
 import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.cast.PrairieCastLastTargetStore
@@ -215,6 +217,9 @@ val androidModule = module {
     single<org.prairieserver.prairie.repository.port.DownloadDeletionPort> {
         org.prairieserver.prairie.common.data.repository.RoomDownloadDeletionStore(db = get(), authorities = get(), devices = get(), identityTransitions = get())
     }
+    single<org.prairieserver.prairie.repository.port.RevokedDownloadCleanupPort> {
+        org.prairieserver.prairie.common.downloads.RevokedDownloadCleanup(androidContext(), get(), get())
+    }
     single<org.prairieserver.prairie.repository.DownloadSubscriptionRepository> {
         org.prairieserver.prairie.common.data.repository.RoomDownloadSubscriptionRepository(db = get())
     }
@@ -274,11 +279,8 @@ val androidModule = module {
         // The nearby approval card names the account approving signs the TV in as.
         RepositoryCompanionDeviceLoginApprover(get(), get(), accountNameOf = { scope -> accountNameOn(authRepository, scope) })
     }
-    single<CompanionPairingTransportFactory> {
-        CompanionPairingTransportFactory { target ->
-            TlsPskPairingClientTransport.connect(target.host, target.port)
-        }
-    }
+    // TLS-PSK to Apple TV and Android TV, plain TCP to a Roku.
+    single<CompanionPairingTransportFactory> { CompanionPairingTransports }
     single {
         CompanionPairingCoordinator(
             serverStore = get(),
@@ -295,6 +297,7 @@ val androidModule = module {
     }
     single<PrairieCastLastTargetStore> { SharedPrefsPrairieCastLastTargetStore(androidContext()) }
     single {
+        val activeProfiles = get<ActiveProfileStore>()
         PrairieCastController(
             browser = get(),
             serverRegistry = get(),
@@ -306,6 +309,12 @@ val androidModule = module {
                 android.os.Build.MODEL?.trim()?.ifBlank { null } ?: "Android Phone"
             },
             deviceIdProvider = { PairingDeviceId.stable(androidContext()) },
+            profileNameProvider = { profileId ->
+                activeProfiles.activeProfile.value?.takeIf { it.id == profileId }?.name
+            },
+            serverIdentities = get(),
+            // Roku pairing keys live in the encrypted preferences.
+            rokuStore = EncryptedPrefsPrairieCastRokuStore(get()),
         )
     }
     single<AndroidPushTokenProvider> { FirebaseAndroidPushTokenProvider(androidContext()) }
@@ -352,21 +361,6 @@ val androidModule = module {
     }
     single { AudioCapabilityManager(androidContext()) }
     single { PlaybackCapabilityDetector(androidContext(), get(), get(), get()) }
-    single {
-        PrairiePlayerFactory(
-            context = androidContext(),
-            tokenManager = get(),
-            subtitleManager = get(),
-            httpDataSourceFactory = get(org.prairieserver.prairie.common.di.PLAYER_HTTP_DATA_SOURCE_FACTORY_QUALIFIER),
-            mediaAuthSession = get(),
-            bandwidthMeter = get(),
-            delayProcessor = get(),
-            subtitleOffsetHolder = get(),
-            libassBridge = get(),
-            playbackAnalytics = get(),
-        )
-    }
-    single { PlaybackSessionManager(get(), get(), get()) }
     single(AUDIOBOOK_PLAYBACK_SESSION_MANAGER_QUALIFIER) {
         PlaybackSessionManager(
             playbackRepository = get(),
@@ -398,6 +392,7 @@ val androidModule = module {
             reachabilityMonitor = get(),
             userItemStatePort = get(),
             networkEvidenceProvider = get(),
+            seriesTrackChoiceWriter = get(),
         )
     }
     factory {
@@ -502,6 +497,9 @@ val androidModule = module {
             activeProfileStore = get(),
             shuffleFeatureStore = get(),
             networkEvidenceProvider = get(),
+            throughputMeter = get(),
+            seriesTrackChoiceWriter = get(),
+            trickplayManifests = get(),
         )
     }
     viewModel { HomeViewModel(get(), get(), get(), get(), getOrNull(), get(), get(), catalogLanguage = get()) }
@@ -541,9 +539,12 @@ val androidModule = module {
         ItemDetailViewModel(
             get(), get(), get(), get(), get(), get(), get(), params.get(),
             getOrNull<org.prairieserver.prairie.repository.port.UserItemStatePort>() ?: org.prairieserver.prairie.repository.port.NoOpUserItemStatePort,
+            seriesTrackChoiceWriter = get(),
         )
     }
     viewModel { params -> PersonDetailViewModel(get(), params.get(), get()) }
+    // Box set id, then its library id.
+    viewModel { params -> org.prairieserver.prairie.viewmodel.BoxSetViewModel(get(), params[0], params[1]) }
     viewModel { params -> LibraryCollectionsViewModel(get(), params.get()) }
     viewModel { FavoritesViewModel(get(), get()) }
     viewModel { WatchlistViewModel(get(), get()) }
@@ -558,9 +559,11 @@ val androidModule = module {
     viewModel { HistoryViewModel(get(), get()) }
     viewModel { CollectionsViewModel(get()) }
     viewModel { params -> CollectionDetailViewModel(get(), get(), params.get()) }
+    viewModel { params -> org.prairieserver.prairie.viewmodel.SectionBrowseViewModel(get(), params.get()) }
     viewModel { RequestsViewModel(get()) }
     viewModel { RequestSearchViewModel(get()) }
     viewModel { MyRequestsViewModel(get()) }
+    viewModel { params -> RequestDiscoverRowViewModel(get(), params[0], params[1]) }
     // Platform supplies "today" and the IANA timezone; the shared ViewModel's
     // week math stays deterministic in commonTest (no Clock.System default).
     viewModel {
@@ -622,7 +625,7 @@ val androidModule = module {
         }
     }
     single { org.prairieserver.prairie.android.auth.ActiveProfileReset(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
-    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { DownloadsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { org.prairieserver.prairie.android.ui.screens.pairing.CompanionPairingViewModel(get(), get(), get()) }

@@ -84,6 +84,7 @@ import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.feature.RequestsFeatureStore
 import org.prairieserver.prairie.model.request.RequestMediaResult
 import org.prairieserver.prairie.model.request.RequestMediaType
+import org.prairieserver.prairie.model.request.withoutLibraryTitles
 import org.prairieserver.prairie.tv.ui.components.TvHideStockImeOnDispose
 import org.prairieserver.prairie.tv.ui.components.TvCatalogGrid
 import org.prairieserver.prairie.tv.ui.components.TvFilterChip
@@ -232,16 +233,19 @@ fun TvSearchScreen(
         }
     }
     val requestMediaType = state.mediaType.toRequestMediaType()
-    val visibleRequestResults = requestState.results
+    val matchingRequestResults = requestState.results
         .filterTvRequestResults()
         .filter { state.mediaType.allowsRequestResult(it) }
         .filter { state.showAudiobooks || it.mediaType != RequestMediaType.Audiobook }
+    val visibleRequestResults = matchingRequestResults.withoutLibraryTitles()
+    // Every match is already in the library results, so there is nothing to say here.
+    val onlyLibraryRequestMatches = matchingRequestResults.isNotEmpty() && visibleRequestResults.isEmpty()
     val canSearchRequests = requestsEnabled && state.query.trim().length >= 2
     val shouldShowRequestSection = canSearchRequests &&
         (visibleRequestResults.isNotEmpty() ||
             requestState.isLoading ||
             requestState.error != null ||
-            requestState.hasSubmittedQuery)
+            (requestState.hasSubmittedQuery && !onlyLibraryRequestMatches))
     val requestSearchSettled = !canSearchRequests || !requestState.isLoading
     // Same precedence as the post-search handoff below: people (the row
     // nearest the chips), results, then the error's "Try again", then the
@@ -352,10 +356,18 @@ fun TvSearchScreen(
             // the request row and carries on immediately.
             if (returnTarget?.sectionId == TvSearchRequestSectionId) return@LaunchedEffect
         }
+        // The same holds on the relaunch the refresh itself triggers: until the
+        // response lands, the preserved row can still hold a card it drops (a
+        // title that reached the library leaves this row). Leaving the row out
+        // makes the target absent while incomplete, so it waits as Pending
+        // under the usual bounds instead of matching Exact.
+        val awaitingRequestRefresh = returnRefreshed &&
+            requestState.isLoading &&
+            returnTarget?.sectionId == TvSearchRequestSectionId
 
         val sections = tvSearchReturnSections(
             catalogItems = state.items,
-            requestResults = visibleRequestResults,
+            requestResults = if (awaitingRequestRefresh) emptyList() else visibleRequestResults,
             // More pages can still arrive, so a target beyond the loaded
             // results is not yet absent.
             catalogComplete = !state.hasMore,
@@ -486,8 +498,16 @@ fun TvSearchScreen(
     LaunchedEffect(scrollHeaderIntoView) {
         if (scrollHeaderIntoView > 0) searchGridState.animateScrollToItem(0)
     }
+    // The shell's counter stays raised after it is handled, and this effect
+    // relaunches whenever the screen re-enters composition — a Back out of a
+    // result included. Remember which request was handled so a return does not
+    // replay it, scroll to the top and pull focus off the card being restored.
+    var handledBackToSearchFieldRequest by rememberSaveable {
+        mutableIntStateOf(backToSearchFieldRequest)
+    }
     LaunchedEffect(backToSearchFieldRequest) {
-        if (backToSearchFieldRequest <= 0) return@LaunchedEffect
+        if (backToSearchFieldRequest == handledBackToSearchFieldRequest) return@LaunchedEffect
+        handledBackToSearchFieldRequest = backToSearchFieldRequest
         searchGridState.animateScrollToItem(0)
         requestFocusUntilObserved(
             maxAttempts = TvFrameRelocationMaxAttempts,
@@ -750,16 +770,18 @@ fun TvSearchScreen(
                             index,
                         )
                     },
-                    // Same precedence as the handoff: UP from the request row
-                    // goes to the results, else the error's "Try again", else
-                    // the chips. Spatial search alone skipped the button and
-                    // landed on the chips or the field.
+                    // With results above, spatial search takes UP to the card
+                    // just above. Pinning it to the first result failed once
+                    // the grid scrolled that card out of composition, and the
+                    // shell parked focus on the top bar. Otherwise the same
+                    // precedence as the handoff: spatial search alone skipped
+                    // "Try again" and landed on the chips or the field.
                     cardModifier = Modifier.focusProperties {
-                        up = when {
-                            state.items.isNotEmpty() -> firstResultFocusRequester
-                            state.error != null -> feedbackActionFocusRequester
-                            state.people.isNotEmpty() -> firstPersonFocusRequester
-                            else -> firstFilterChipFocusRequester
+                        when {
+                            state.items.isNotEmpty() -> Unit
+                            state.error != null -> up = feedbackActionFocusRequester
+                            state.people.isNotEmpty() -> up = firstPersonFocusRequester
+                            else -> up = firstFilterChipFocusRequester
                         }
                     },
                     onOpenRequestDetail = onOpenRequestDetail,

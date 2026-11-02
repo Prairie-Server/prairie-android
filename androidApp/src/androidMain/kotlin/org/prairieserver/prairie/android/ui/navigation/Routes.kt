@@ -4,6 +4,7 @@ import android.net.Uri
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import org.prairieserver.prairie.common.player.video.VideoPlayerRouteArgs
+import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.section.LibraryCollection
 import org.prairieserver.prairie.model.section.SectionItem
 
@@ -139,6 +140,14 @@ sealed class Route(val route: String) {
     // --- Requests ---
     data object Requests : Route("requests")
     data object MyRequests : Route("requests/mine")
+    data class RequestDiscoverRow(
+        val key: String,
+        val title: String,
+    ) : Route("requests/discover/${Uri.encode(key)}?title=${Uri.encode(title)}") {
+        companion object {
+            const val ROUTE = "requests/discover/{key}?title={title}"
+        }
+    }
     data class RequestDetail(
         val mediaType: String,
         val tmdbId: Int,
@@ -192,6 +201,14 @@ sealed class Route(val route: String) {
         }
     }
 
+    /** A movie box set: one TMDB collection's movies in one library. */
+    data class BoxSet(val boxSetId: String, val libraryId: String) :
+        Route("box_set/${boxSetId.routeEncode()}?libraryId=${libraryId.routeEncode()}") {
+        companion object {
+            const val ROUTE = "box_set/{boxSetId}?libraryId={libraryId}"
+        }
+    }
+
     data class PersonDetail(val personId: Long) : Route("person/$personId") {
         companion object {
             const val ROUTE = "person/{personId}"
@@ -228,6 +245,28 @@ sealed class Route(val route: String) {
         }
     }
 
+    /**
+     * A Home row's full page ([libraryId] null) or a library row's, titled
+     * with the row's title. [mediaScope] keeps a mixed library's Movies or
+     * Series filter.
+     */
+    data class SectionBrowse(
+        val sectionId: String,
+        val title: String,
+        val libraryId: Int? = null,
+        val mediaScope: String? = null,
+    ) : Route(
+        buildString {
+            append("section/${sectionId.routeEncode()}?title=${title.routeEncode()}")
+            libraryId?.let { append("&libraryId=$it") }
+            mediaScope?.let { append("&mediaScope=${it.routeEncode()}") }
+        },
+    ) {
+        companion object {
+            const val ROUTE = "section/{sectionId}?title={title}&libraryId={libraryId}&mediaScope={mediaScope}"
+        }
+    }
+
     // --- Player / casting (fullscreen or hidden shell routes, no menu entries) ---
     data object PrairieCastRemote : Route("silocast/remote")
 
@@ -242,12 +281,15 @@ sealed class Route(val route: String) {
         val libraryId: Int? = null,
         /** The running shuffle this item is a pick of; picks play from the beginning. */
         val shuffleId: String? = null,
+        /** The viewer picked [fileId] in a version picker: the start pins it. */
+        val versionChosen: Boolean = false,
     ) : Route(
         buildString {
             append("player/${contentId.routeEncode()}")
             val queryParams = listOfNotNull(
                 libraryId?.let { "libraryId=$it" },
                 fileId?.let { "fileId=$it" },
+                "versionChosen=true".takeIf { versionChosen && fileId != null },
                 // normalizeQuality is a closed wire-value set, so no URI
                 // escaping (or Android framework dependency) is needed here.
                 VideoPlayerRouteArgs.normalizeQuality(quality)?.let { "quality=$it" },
@@ -266,7 +308,7 @@ sealed class Route(val route: String) {
     ) {
         companion object {
             const val ROUTE =
-                "player/{contentId}?libraryId={libraryId}&fileId={fileId}&quality={quality}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}&resumePosition={resumePosition}&roomId={roomId}&shuffleId={shuffleId}"
+                "player/{contentId}?libraryId={libraryId}&fileId={fileId}&versionChosen={versionChosen}&quality={quality}&audioTrackIndex={audioTrackIndex}&subtitleTrackIndex={subtitleTrackIndex}&resumePosition={resumePosition}&roomId={roomId}&shuffleId={shuffleId}"
         }
     }
 
@@ -384,6 +426,24 @@ fun libraryCollectionDetailRoute(
  * Preserve the episode as route state so opening (for example) S3E1 loads the
  * parent series, selects Season 3, and focuses that exact episode in its rail.
  */
+/**
+ * Detail route for a card on a row's full page, matching the row: an episode
+ * opens its series at that season and episode, as Home's rows do.
+ */
+internal fun sectionBrowseDetailRoute(item: BrowseItem, libraryId: Int?): String {
+    val seriesId = item.seriesId?.takeIf { it.isNotBlank() }
+    return if (item.type.equals("episode", ignoreCase = true) && seriesId != null && item.seasonNumber != null) {
+        Route.ItemDetail(
+            contentId = seriesId,
+            seasonNumber = item.seasonNumber,
+            episodeContentId = item.contentId,
+            libraryId = libraryId,
+        ).route
+    } else {
+        Route.ItemDetail(item.contentId, libraryId = libraryId).route
+    }
+}
+
 internal fun continueWatchingDetailRoute(item: SectionItem): String {
     val seriesId = item.seriesId?.takeIf { it.isNotBlank() }
     return if (item.type.equals("episode", ignoreCase = true) && seriesId != null) {

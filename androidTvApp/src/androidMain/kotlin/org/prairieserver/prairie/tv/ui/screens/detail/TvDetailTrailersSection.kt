@@ -52,7 +52,6 @@ import org.prairieserver.prairie.model.catalog.ItemExtra
 import org.prairieserver.prairie.model.catalog.ItemVideo
 import org.prairieserver.prairie.model.catalog.TrailerRailEntry
 import org.prairieserver.prairie.model.catalog.trailerRailDurationLabel
-import org.prairieserver.prairie.model.catalog.youtubeThumbnailUrl
 import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
 import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
@@ -163,14 +162,17 @@ private fun TvDetailTrailerCard(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            when (entry) {
-                is TrailerRailEntry.Remote -> AsyncImage(
-                    model = youtubeThumbnailUrl(entry.video.siteKey),
-                    contentDescription = entry.title,
+            val thumbnailUrl = entry.thumbnailUrl
+            if (thumbnailUrl != null) {
+                AsyncImage(
+                    model = thumbnailUrl,
+                    // The card's title text already names it.
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                is TrailerRailEntry.Local -> Icon(
+            } else {
+                Icon(
                     imageVector = Icons.Filled.Movie,
                     contentDescription = null,
                     tint = PrairieSecondaryText,

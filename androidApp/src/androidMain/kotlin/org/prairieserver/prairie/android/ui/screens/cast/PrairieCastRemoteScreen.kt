@@ -208,6 +208,8 @@ fun PrairieCastRemoteScreen(
                         posterUrl = artwork.posterUrl ?: artwork.backdropUrl,
                         posterThumbhash = artwork.posterThumbhash ?: artwork.backdropThumbhash,
                         error = state.error,
+                        volumeMuteOnly = state.volumeMuteOnly,
+                        showSpeed = !state.noPlaybackSpeed,
                         controller = controller,
                     )
                 }
@@ -219,6 +221,18 @@ fun PrairieCastRemoteScreen(
         PrairieCastTargetPickerSheet(
             onDismiss = { showTargetPicker = false },
             controller = controller,
+        )
+    }
+
+    state.pendingReplace?.let { pending ->
+        PrairieConfirmDialog(
+            title = stringResource(R.string.remote_replace_title),
+            body = pending.message,
+            confirmLabel = pending.confirmLabel,
+            dismissLabel = stringResource(R.string.remote_replace_cancel),
+            destructive = false,
+            onConfirm = controller::confirmReplace,
+            onDismiss = controller::cancelReplace,
         )
     }
 
@@ -534,6 +548,8 @@ private fun RemoteNowPlaying(
     posterUrl: String?,
     posterThumbhash: String?,
     error: String?,
+    volumeMuteOnly: Boolean,
+    showSpeed: Boolean,
     controller: PrairieCastController,
 ) {
     // 4 Hz tick drives the interpolated playhead between the TV's state
@@ -636,10 +652,14 @@ private fun RemoteNowPlaying(
             RemoteTransport(playback = playback, clockTick = clockTick, controller = controller)
 
             Spacer(modifier = Modifier.height(20.dp))
-            RemoteVolumeRow(playback = playback, controller = controller)
+            if (volumeMuteOnly) {
+                RemoteMuteToggle(playback = playback, controller = controller)
+            } else {
+                RemoteVolumeRow(playback = playback, controller = controller)
+            }
 
             Spacer(modifier = Modifier.height(20.dp))
-            RemoteSecondaryControls(playback = playback, controller = controller)
+            RemoteSecondaryControls(playback = playback, showSpeed = showSpeed, controller = controller)
 
             if (!error.isNullOrEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
@@ -870,6 +890,24 @@ private fun RemoteVolumeRow(
     }
 }
 
+/** A TV that can only mute (Roku, `volume_mute_only`) gets a toggle instead of a level slider. */
+@Composable
+private fun RemoteMuteToggle(
+    playback: PrairieCastPlaybackState,
+    controller: PrairieCastController,
+) {
+    OutlinedButton(onClick = { controller.setMuted(!playback.isMuted) }) {
+        Icon(
+            if (playback.isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+            contentDescription = null,
+            tint = RemoteOnSurface,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(if (playback.isMuted) "Unmute" else "Mute", color = RemoteOnSurface)
+    }
+}
+
 @Composable
 private fun remoteSliderColors() = SliderDefaults.colors(
     thumbColor = RemoteOnSurface,
@@ -884,13 +922,13 @@ private data class MenuEntry(
     val label: String,
     val selected: Boolean,
     val enabled: Boolean = true,
-    val isSectionHeader: Boolean = false,
     val onClick: () -> Unit = {},
 )
 
 @Composable
 private fun RemoteSecondaryControls(
     playback: PrairieCastPlaybackState,
+    showSpeed: Boolean,
     controller: PrairieCastController,
 ) {
     Row(
@@ -929,10 +967,9 @@ private fun RemoteSecondaryControls(
             )
         }
 
-        val hasSubtitleControls = playback.subtitleTracks.isNotEmpty() ||
-            playback.supportsSubtitleDelay == true ||
-            playback.supportsSubtitlePosition == true
-        if (hasSubtitleControls) {
+        // Subtitle delay and position stay on the TV's own player menu;
+        // from the couch the remote only switches the language.
+        if (playback.subtitleTracks.isNotEmpty()) {
             RemoteChipMenu(
                 icon = Icons.Outlined.ClosedCaption,
                 caption = "Subtitles",
@@ -941,18 +978,21 @@ private fun RemoteSecondaryControls(
             )
         }
 
-        RemoteChipMenu(
-            icon = Icons.Outlined.Speed,
-            caption = "Speed",
-            entries = listOf(0.75, 1.0, 1.25, 1.5, 2.0).map { speed ->
-                MenuEntry(
-                    label = "${speed}×",
-                    selected = kotlin.math.abs(playback.playbackSpeed - speed) < 0.01,
-                    onClick = { controller.setPlaybackSpeed(speed) },
-                )
-            },
-            modifier = Modifier.weight(1f),
-        )
+        // A TV that lists `no_playback_speed` (Roku) has no speed to change.
+        if (showSpeed) {
+            RemoteChipMenu(
+                icon = Icons.Outlined.Speed,
+                caption = "Speed",
+                entries = listOf(0.75, 1.0, 1.25, 1.5, 2.0).map { speed ->
+                    MenuEntry(
+                        label = "${speed}×",
+                        selected = kotlin.math.abs(playback.playbackSpeed - speed) < 0.01,
+                        onClick = { controller.setPlaybackSpeed(speed) },
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -960,52 +1000,21 @@ private fun subtitleMenuEntries(
     playback: PrairieCastPlaybackState,
     controller: PrairieCastController,
 ): List<MenuEntry> = buildList {
-    if (playback.subtitleTracks.isNotEmpty()) {
-        add(MenuEntry(label = "Track", selected = false, isSectionHeader = true))
+    add(
+        MenuEntry(
+            label = "Off",
+            selected = playback.selectedSubtitleTrackId == null,
+            onClick = { controller.selectSubtitleTrack(null) },
+        ),
+    )
+    playback.subtitleTracks.forEach { track ->
         add(
             MenuEntry(
-                label = "Off",
-                selected = playback.selectedSubtitleTrackId == null,
-                onClick = { controller.selectSubtitleTrack(null) },
+                label = track.title,
+                selected = playback.selectedSubtitleTrackId == track.trackId,
+                onClick = { controller.selectSubtitleTrack(track.trackId) },
             ),
         )
-        playback.subtitleTracks.forEach { track ->
-            add(
-                MenuEntry(
-                    label = track.title,
-                    selected = playback.selectedSubtitleTrackId == track.trackId,
-                    onClick = { controller.selectSubtitleTrack(track.trackId) },
-                ),
-            )
-        }
-    }
-    if (playback.supportsSubtitleDelay == true) {
-        add(MenuEntry(label = "Delay", selected = false, isSectionHeader = true))
-        val presets = listOf(-2_000, -1_500, -1_000, -500, -250, 0, 250, 500, 1_000, 1_500, 2_000)
-        val current = playback.subtitleSyncMs ?: 0
-        val options = if (presets.contains(current)) presets else (presets + current).sorted()
-        options.forEach { ms ->
-            add(
-                MenuEntry(
-                    label = subtitleDelayLabel(ms),
-                    selected = current == ms,
-                    onClick = { controller.setSubtitleSyncMs(ms) },
-                ),
-            )
-        }
-    }
-    if (playback.supportsSubtitlePosition == true) {
-        add(MenuEntry(label = "Position", selected = false, isSectionHeader = true))
-        // tvOS SubtitlePositionPreset raw values; it rejects anything else.
-        listOf("bottom" to "Bottom", "lower-third" to "Lower Third", "top" to "Top").forEach { (id, label) ->
-            add(
-                MenuEntry(
-                    label = label,
-                    selected = playback.subtitlePosition == id,
-                    onClick = { controller.setSubtitlePosition(id) },
-                ),
-            )
-        }
     }
 }
 
@@ -1042,38 +1051,24 @@ private fun RemoteChipMenu(
         }
         PrairieDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             entries.forEach { entry ->
-                if (entry.isSectionHeader) {
-                    Text(
-                        entry.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
-                } else {
-                    PrairieDropdownMenuItem(
-                        text = { Text(entry.label) },
-                        enabled = entry.enabled,
-                        leadingIcon = {
-                            if (entry.selected) {
-                                Icon(Icons.Filled.Check, contentDescription = "Selected", modifier = Modifier.size(18.dp))
-                            } else {
-                                Spacer(modifier = Modifier.size(18.dp))
-                            }
-                        },
-                        onClick = {
-                            expanded = false
-                            entry.onClick()
-                        },
-                    )
-                }
+                PrairieDropdownMenuItem(
+                    text = { Text(entry.label) },
+                    enabled = entry.enabled,
+                    leadingIcon = {
+                        if (entry.selected) {
+                            Icon(Icons.Filled.Check, contentDescription = "Selected", modifier = Modifier.size(18.dp))
+                        } else {
+                            Spacer(modifier = Modifier.size(18.dp))
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        entry.onClick()
+                    },
+                )
             }
         }
     }
-}
-
-private fun subtitleDelayLabel(milliseconds: Int): String {
-    if (milliseconds == 0) return "0.0s"
-    return String.format(java.util.Locale.US, "%+.1fs", milliseconds / 1000.0)
 }
 
 private fun formatHMS(seconds: Double): String {

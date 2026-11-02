@@ -1,4 +1,4 @@
-package org.prairieserver.prairie.android.ui.screens.auth
+package org.prairieserver.prairie.common.network
 
 import kotlin.test.Test
 import kotlin.test.assertFalse

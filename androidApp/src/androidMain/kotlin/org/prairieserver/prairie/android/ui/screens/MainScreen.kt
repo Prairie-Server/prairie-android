@@ -433,6 +433,9 @@ fun MainScreen(
                             onPlayClick = { contentId, resumePositionSeconds ->
                                 playVideo(contentId, resumePositionSeconds = resumePositionSeconds)
                             },
+                            onExploreSection = { section ->
+                                navController.navigate(Route.SectionBrowse(section.id, section.title).route)
+                            },
                             viewModel = homeViewModel,
                             activeProfile = headerState.activeProfile,
                             onSearchClick = { navController.navigate(Route.Search().route) },
@@ -470,9 +473,17 @@ fun MainScreen(
                             onItemClick = { contentId, libraryId ->
                                 navController.navigate(Route.ItemDetail(contentId, libraryId = libraryId).route)
                             },
+                            onBoxSetClick = { boxSet ->
+                                navController.navigate(Route.BoxSet(boxSet.id, boxSet.libraryId).route)
+                            },
                             onCollectionClick = { collection, libraryId, mediaScope ->
                                 navController.navigate(
                                     libraryCollectionDetailRoute(collection, libraryId, mediaScope),
+                                )
+                            },
+                            onExploreSection = { section, libraryId, mediaScope ->
+                                navController.navigate(
+                                    Route.SectionBrowse(section.id, section.title, libraryId, mediaScope).route,
                                 )
                             },
                             viewModel = requireNotNull(librariesViewModel),

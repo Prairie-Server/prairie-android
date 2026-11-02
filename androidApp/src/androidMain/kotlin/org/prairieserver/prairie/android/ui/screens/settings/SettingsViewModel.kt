@@ -16,6 +16,7 @@ import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.SeekIntervalSettingsModel
 import org.prairieserver.prairie.common.settings.SeekIntervalStore
 import org.prairieserver.prairie.common.player.AudiobookSettingsStore
+import org.prairieserver.prairie.domain.player.BufferingQualityMode
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.auth.User
@@ -25,16 +26,18 @@ import org.prairieserver.prairie.model.download.effectiveDefault
 import org.prairieserver.prairie.model.download.labelFor
 import org.prairieserver.prairie.repository.DownloadsRepository
 import org.prairieserver.prairie.model.notifications.NotificationPreferencesUpdate
-import org.prairieserver.prairie.model.settings.CardCaption
 import org.prairieserver.prairie.model.settings.CardPosterSize
 import org.prairieserver.prairie.model.settings.CardPresentation
-import org.prairieserver.prairie.model.settings.CardPresentationPreset
 import org.prairieserver.prairie.model.settings.CellularQuality
 import org.prairieserver.prairie.model.settings.QualityPresets
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.ServerRegistry
+import org.prairieserver.prairie.network.apiv2.PlaybackLearnedLimitV2
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.NotificationsRepository
+import org.prairieserver.prairie.repository.PlaybackConnectionRepository
+import org.prairieserver.prairie.common.player.probe.BandwidthProbeScheduler
+import org.prairieserver.prairie.common.settings.ConnectionSpeedSettingsModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,11 +93,24 @@ data class SettingsUiState(
     val audioLanguage: String = "",
     val audioLanguageSuggestions: List<String> = emptyList(),
     val introSkipMode: IntroSkipMode = IntroSkipMode.Default,
+    val bufferingQualityMode: BufferingQualityMode = BufferingQualityMode.Default,
+    /** The server's settings manifest is known to define the buffering mode: its row shows only then. */
+    val bufferingQualityModeSupported: Boolean = false,
+    /**
+     * The limit the server learned for this device on this connection after
+     * buffering, or null when there is none or the server does not advertise
+     * the feature. Read with the connection ([ConnectionSpeedSettingsModel]).
+     */
+    val learnedLimit: PlaybackLearnedLimitV2? = null,
+    /** True after a reset the server did not confirm, until the next attempt. */
+    val learnedLimitResetFailed: Boolean = false,
     val autoSkipCredits: Boolean = false,
     val pictureInPictureEnabled: Boolean = true,
     val dolbyVisionEnabled: Boolean = true,
     val dvProfile7HDR10Fallback: Boolean = false,
     val subtitleMatchesDevice: Boolean = false,
+    /** "Only on This Device": subtitle edits stay on this device instead of the profile. */
+    val subtitleUsesDeviceOverride: Boolean = false,
     val showAudiobooks: Boolean = false,
     val subtitleAppearance: org.prairieserver.prairie.model.settings.SubtitleAppearance =
         org.prairieserver.prairie.model.settings.SubtitleAppearance.DEFAULT,
@@ -177,6 +193,8 @@ class SettingsViewModel(
     audiobookSettingsStore: AudiobookSettingsStore,
     private val downloadsRepository: DownloadsRepository? = null,
     private val serverRegistry: ServerRegistry? = null,
+    private val playbackConnection: PlaybackConnectionRepository? = null,
+    bandwidthProbe: BandwidthProbeScheduler? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -189,8 +207,26 @@ class SettingsViewModel(
     private var subtitleModeConfirmedGeneration = 0L
     private var forcedSubtitlesConfirmedGeneration = 0L
 
+    /** A second Reset press while the first is in flight is ignored. */
+    private var learnedLimitResetInFlight = false
+
     /** Profile-wide video and audiobook skip intervals (settings revision 9). */
     val seekIntervals = SeekIntervalSettingsModel(seekIntervalStore, audiobookSettingsStore, viewModelScope)
+
+    /**
+     * Playback → Connection: the measured speed, **Test speed** and Auto's
+     * budget. Null without the probe; hidden unless the server measures speed.
+     * On cellular and metered networks the phone's Cellular quality applies.
+     */
+    val connectionSpeed: ConnectionSpeedSettingsModel? = bandwidthProbe?.let { probe ->
+        playbackConnection?.let { connection ->
+            ConnectionSpeedSettingsModel(probe, connection, viewModelScope, hasCellularQuality = true)
+        }
+    }.also { model ->
+        model?.settings?.onEach { settings ->
+            _uiState.update { it.copy(learnedLimit = settings?.connection?.learnedLimit) }
+        }?.launchIn(viewModelScope)
+    }
 
     init {
         loadUserInfo()
@@ -293,6 +329,12 @@ class SettingsViewModel(
                 )
             }
         }.launchIn(viewModelScope)
+        playerSettingsStore.bufferingQualityModeFlow.onEach { mode ->
+            _uiState.update { it.copy(bufferingQualityMode = mode) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.bufferingQualityModeSupportedFlow.onEach { supported ->
+            _uiState.update { it.copy(bufferingQualityModeSupported = supported) }
+        }.launchIn(viewModelScope)
         combine(
             playerSettingsStore.cellularPreferredQualityFlow,
             playerSettingsStore.cellularMaxBitrateKbpsFlow,
@@ -331,6 +373,9 @@ class SettingsViewModel(
         }.launchIn(viewModelScope)
         playerSettingsStore.subtitleMatchesDeviceFlow.onEach { enabled ->
             _uiState.update { it.copy(subtitleMatchesDevice = enabled) }
+        }.launchIn(viewModelScope)
+        playerSettingsStore.subtitleUsesDeviceOverrideFlow.onEach { enabled ->
+            _uiState.update { it.copy(subtitleUsesDeviceOverride = enabled) }
         }.launchIn(viewModelScope)
         playerSettingsStore.showAudiobooksFlow.onEach { enabled ->
             _uiState.update { it.copy(showAudiobooks = enabled) }
@@ -444,19 +489,9 @@ class SettingsViewModel(
         viewModelScope.launch { cardPresentationStore.hydrateIfNeeded() }
     }
 
-    fun setCardPreset(preset: CardPresentationPreset) {
-        setCardPresentation(preset.presentation)
-    }
-
     fun setCardPosterSize(size: CardPosterSize) {
         setCardPresentation(
             _uiState.value.cardPresentation.presentation.copy(posterSize = size),
-        )
-    }
-
-    fun setCardCaption(caption: CardCaption) {
-        setCardPresentation(
-            _uiState.value.cardPresentation.presentation.copy(caption = caption),
         )
     }
 
@@ -585,6 +620,33 @@ class SettingsViewModel(
         viewModelScope.launch { playerSettingsStore.setIntroSkipMode(mode) }
     }
 
+    fun setBufferingQualityMode(mode: BufferingQualityMode) {
+        viewModelScope.launch { playerSettingsStore.setBufferingQualityMode(mode) }
+    }
+
+    /**
+     * Forgets the learned limit, then reads the connection again so the row
+     * goes and the Connection group's Auto budget, which the limit capped,
+     * catches up.
+     */
+    fun resetLearnedLimit() {
+        val repository = playbackConnection ?: return
+        if (learnedLimitResetInFlight) return
+        learnedLimitResetInFlight = true
+        _uiState.update { it.copy(learnedLimitResetFailed = false) }
+        viewModelScope.launch {
+            try {
+                if (repository.resetLearnedLimit() is ApiResult.Success) {
+                    connectionSpeed?.read()
+                } else {
+                    _uiState.update { it.copy(learnedLimitResetFailed = true) }
+                }
+            } finally {
+                learnedLimitResetInFlight = false
+            }
+        }
+    }
+
     fun setAutoSkipCredits(enabled: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoSkipCredits(enabled) }
     }
@@ -603,6 +665,10 @@ class SettingsViewModel(
 
     fun setSubtitleMatchesDevice(enabled: Boolean) {
         viewModelScope.launch { playerSettingsStore.setSubtitleMatchesDevice(enabled) }
+    }
+
+    fun setSubtitleDeviceOverrideEnabled(enabled: Boolean) {
+        viewModelScope.launch { playerSettingsStore.setSubtitleDeviceOverrideEnabled(enabled) }
     }
 
     fun setShowAudiobooks(enabled: Boolean) {

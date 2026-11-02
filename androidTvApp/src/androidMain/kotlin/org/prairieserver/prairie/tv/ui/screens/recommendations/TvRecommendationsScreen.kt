@@ -78,6 +78,7 @@ fun TvRecommendationsScreen(
     detailReturnCardFocusRequester: FocusRequester? = null,
     firstRowFocusRequester: FocusRequester? = null,
     firstRowContainerFocusRequester: FocusRequester? = null,
+    shouldRefreshOnResume: () -> Boolean = { true },
     onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
     entryRequest: TvForYouEntryRequest = TvForYouEntryRequest(),
     viewModel: RecommendationsViewModel = koinViewModel(),
@@ -171,22 +172,31 @@ fun TvRecommendationsScreen(
         claimSavedListFocus()
     }
 
-    // TV has no pull-to-refresh, so ON_RESUME is the only quiet self-heal path.
-    // The shared VM loads once in init and retains its state across tab swaps, so
-    // an empty discover response otherwise leaves this tab a permanent dead end
-    // until a profile switch/restart. If the feed is still the empty fallback
-    // when the user returns (e.g. after watching and rating content), re-check.
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                val current = viewModel.uiState.value
-                if (!current.isLoading && current.sections.visibleOnTv().isEmpty()) {
-                    viewModel.refresh()
-                }
-            }
+    // TV has no pull-to-refresh, so ON_RESUME is the only refresh path. The
+    // shared VM loads once in init and keeps its rows across tab swaps, so
+    // without this a title watched elsewhere stayed on this tab until a
+    // profile switch or restart. Refresh quietly whenever the tab is shown
+    // again, as Home does; refresh() keeps the current rows on screen. The
+    // effect also runs when first added, while the VM's own first load is
+    // still running, so skip it then.
+    //
+    // A detail return defers the refresh instead: the shell is restoring focus
+    // to the launch card, which new rows would move. Once the shell allows
+    // refreshes again the pending one runs, so a title watched from that
+    // detail page leaves the feed without another tab visit.
+    var refreshPending by remember { mutableStateOf(false) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(viewModel) {
+        if (!viewModel.uiState.value.isLoading) {
+            if (shouldRefreshOnResume()) viewModel.refresh() else refreshPending = true
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onPauseOrDispose { }
+    }
+    val refreshAllowed = shouldRefreshOnResume()
+    LaunchedEffect(refreshAllowed, refreshPending) {
+        if (refreshAllowed && refreshPending) {
+            refreshPending = false
+            viewModel.refresh()
+        }
     }
 
     val showFallbackCaption = savedListSelection != null && savedListIsFallback

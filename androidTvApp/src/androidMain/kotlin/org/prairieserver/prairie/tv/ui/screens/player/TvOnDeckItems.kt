@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.screens.player
 
+import org.prairieserver.prairie.model.catalog.seriesHeroBackdrop
 import org.prairieserver.prairie.model.section.ResolvedSection
 import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import org.prairieserver.prairie.tv.ui.util.visibleOnTv
@@ -18,6 +19,9 @@ data class TvOnDeckItem(
     val unwatchedEpisode: Boolean = false,
     /** Whether [artUrl] is the episode's own still (null when the server doesn't say). */
     val artIsEpisodeStill: Boolean? = null,
+    /** An episode's series backdrop for the full-screen Up Next background; never a still. */
+    val seriesBackdropUrl: String? = null,
+    val seriesBackdropThumbhash: String? = null,
 )
 
 /**
@@ -43,6 +47,7 @@ internal fun List<ResolvedSection>.toTvOnDeckItems(contentId: String, seriesId: 
                     (pos / dur).toFloat().coerceIn(0f, 1f)
                 }
             }
+            val seriesBackdrop = item.seriesHeroBackdrop()
             TvOnDeckItem(
                 contentId = item.contentId,
                 type = item.type,
@@ -60,6 +65,8 @@ internal fun List<ResolvedSection>.toTvOnDeckItems(contentId: String, seriesId: 
                 unwatchedEpisode = item.type.equals("episode", ignoreCase = true) &&
                     EpisodeSpoilers.isUnwatched(item),
                 artIsEpisodeStill = item.backdropIsEpisodeStill,
+                seriesBackdropUrl = seriesBackdrop?.url,
+                seriesBackdropThumbhash = seriesBackdrop?.thumbhash,
             )
         }
 }

@@ -70,6 +70,7 @@ import org.prairieserver.prairie.android.ui.components.marquee.MarqueeStage
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeTextField
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeWordmark
 import org.prairieserver.prairie.android.ui.components.marquee.marqueePressHaptic
+import org.prairieserver.prairie.common.network.ServerSetupScheme
 import org.prairieserver.prairie.common.discovery.DiscoveredServer
 import org.prairieserver.prairie.common.discovery.LanServerDiscovery
 import org.prairieserver.prairie.common.ui.marquee.MarqueeColors

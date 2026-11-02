@@ -120,6 +120,8 @@ import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhil
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsListLogger
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSnapshot
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSurface
+import org.prairieserver.prairie.model.catalog.BOX_SET_GROUP
+import org.prairieserver.prairie.model.catalog.CatalogBoxSet
 import org.prairieserver.prairie.model.catalog.CatalogFiltersResponse
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.android.ui.screens.home.HomeSectionRow
@@ -366,7 +368,12 @@ class LibrariesViewModel(
                     ?.let(::defaultMediaScope)
                     ?.let { default -> if (selectedLibraryId == previousLibraryId) previousScope ?: default else default }
                 val selectionChanged = selectedLibraryId != previousLibraryId || mediaScope != previousScope
+                // Box sets turning on or off changes how the open library's
+                // browse groups, so it starts again from its first page.
+                val groupingChanged = !selectionChanged && !recovering &&
+                    _uiState.value.libraries.browseGroup(selectedLibraryId) != libraries.browseGroup(selectedLibraryId)
                 if (selectionChanged) resetForLibrary(selectedLibraryId, mediaScope)
+                if (groupingChanged) browseLoadedLibraryId = null
                 _uiState.update {
                     it.copy(
                         isLoadingLibraries = false,
@@ -377,6 +384,8 @@ class LibrariesViewModel(
 
                 if (selectedLibraryId != null && (reload || selectionChanged || recovering)) {
                     loadCurrentTab(selectedLibraryId, force = true)
+                } else if (selectedLibraryId != null && groupingChanged && _uiState.value.selectedTab == LibrariesSubtab.Browse) {
+                    loadCatalog(selectedLibraryId, reset = true, force = true)
                 }
             }
             is ApiResult.Error -> {
@@ -715,8 +724,10 @@ class LibrariesViewModel(
         }
         browseLoadedLibraryId = libraryId
         val requestState = _uiState.value
+        val group = requestState.libraries.browseGroup(libraryId)
         val requestIdentity = CatalogRequestIdentity(
             libraryId = libraryId,
+            group = group,
             mediaScope = requestState.mediaScope,
             browseSort = requestState.browseSort,
             selectedNamePrefix = requestState.selectedNamePrefix,
@@ -771,6 +782,8 @@ class LibrariesViewModel(
                     continuation = if (reset) null else catalogContinuation,
                     limit = pageSize,
                     namePrefix = requestState.selectedNamePrefix,
+                    // The server groups before paging, so the grid never regroups.
+                    group = group,
                     // Full facet filtering (genre/decade/rating/studio/language/...)
                     // via the shared query builder — replaces the single-genre param.
                     queryGroups = CatalogFilterQueryBuilder.buildGroups(requestState.filterState),
@@ -961,6 +974,7 @@ class LibrariesViewModel(
 
     private fun CatalogRequestIdentity.matches(state: LibrariesUiState): Boolean =
         state.selectedLibraryId == libraryId &&
+            state.libraries.browseGroup(libraryId) == group &&
             state.mediaScope == mediaScope &&
             state.browseSort == browseSort &&
             state.selectedNamePrefix == selectedNamePrefix &&
@@ -973,8 +987,14 @@ class LibrariesViewModel(
     ): Boolean =
         generation == collectionsRequestGeneration && state.selectedLibraryId == libraryId
 
+    /** A library with box sets on browses them grouped ([BOX_SET_GROUP]). */
+    private fun List<UserLibrary>.browseGroup(libraryId: Int?): String? =
+        BOX_SET_GROUP.takeIf { firstOrNull { it.id == libraryId }?.boxSetsEnabled == true }
+
     private data class CatalogRequestIdentity(
         val libraryId: Int,
+        /** Pages of one browse share a grouping; a page in another one is dropped. */
+        val group: String?,
         val mediaScope: String?,
         val browseSort: LibraryBrowseSort,
         val selectedNamePrefix: String?,
@@ -989,7 +1009,10 @@ private const val ChromeFadeDistanceDp = 80f
 @Composable
 fun LibrariesScreen(
     onItemClick: (String, Int?) -> Unit,
+    onBoxSetClick: (CatalogBoxSet) -> Unit,
     onCollectionClick: (LibraryCollection, Int, String?) -> Unit,
+    /** Opens a Recommended row's full page: the row, its library, and the Movies/Series scope. */
+    onExploreSection: ((ResolvedSection, Int, String?) -> Unit)? = null,
     viewModel: LibrariesViewModel,
     activeProfile: Profile?,
     onLibrarySelectorClick: () -> Unit,
@@ -1118,6 +1141,9 @@ fun LibrariesScreen(
                             topInset = topInset,
                             onItemClick = { onItemClick(it, state.selectedLibraryId) },
                             onRetry = viewModel::retryCurrentTab,
+                            onExploreSection = state.selectedLibraryId?.let { libraryId ->
+                                onExploreSection?.let { open -> { section -> open(section, libraryId, state.mediaScope) } }
+                            },
                         )
                     }
                     state.selectedTab == LibrariesSubtab.Browse -> {
@@ -1125,6 +1151,7 @@ fun LibrariesScreen(
                             state = state,
                             topInset = topInset,
                             onItemClick = { onItemClick(it, state.selectedLibraryId) },
+                            onBoxSetClick = onBoxSetClick,
                             onRetry = viewModel::retryCurrentTab,
                             onLoadMore = viewModel::loadMoreCatalog,
                             onSortChanged = viewModel::selectBrowseSort,
@@ -1193,6 +1220,7 @@ private fun RecommendedTabContent(
     topInset: Dp,
     onItemClick: (String) -> Unit,
     onRetry: () -> Unit,
+    onExploreSection: ((ResolvedSection) -> Unit)? = null,
 ) {
     val diagnosticsListSnapshot = remember(state.sections) {
         DiagnosticsListSnapshot.fromKeys(
@@ -1255,11 +1283,10 @@ private fun RecommendedTabContent(
                     items = state.sections,
                     key = { section -> section.id },
                 ) { section ->
-                    // No "See All" — iOS has no such affordance (H3, Jim
-                    // 2026-07-10); the row omits it when onSeeAllClick is null.
                     HomeSectionRow(
                         section = section,
                         onItemClick = onItemClick,
+                        onExploreAllClick = onExploreSection?.let { open -> { open(section) } },
                     )
                 }
 
@@ -1277,6 +1304,7 @@ private fun BrowseTabContent(
     state: LibrariesUiState,
     topInset: Dp,
     onItemClick: (String) -> Unit,
+    onBoxSetClick: (CatalogBoxSet) -> Unit,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onSortChanged: (LibraryBrowseSort) -> Unit,
@@ -1376,6 +1404,7 @@ private fun BrowseTabContent(
                     isLoadingMore = state.isLoadingMoreCatalog,
                     hasMore = state.catalogHasMore,
                     onItemClick = onItemClick,
+                    onBoxSetClick = onBoxSetClick,
                     onLoadMore = onLoadMore,
                     // Date sorts surface the sorted-by date under each card
                     // (mirrors the standalone BrowseScreen), Jim QA 2026-07-09.
@@ -1521,10 +1550,8 @@ private fun InlineLibraryCollectionCard(
 ) {
     // iOS `LibraryCollectionCard`: VStack(spacing: 6) of a 2:3.3 poster
     // (smallCornerRadius = 6) carrying a bottom-trailing count badge, a
-    // prairieCaption (12) name (2 lines), and a siloSmall (11) secondary
-    // type label. The two text lines follow the caption preference
-    // (showsTitle / showsMetadata); the count badge rides the artwork.
-    val caption = LocalCardPresentation.current.caption
+    // siloCaption (12) name (2 lines), and a siloSmall (11) secondary
+    // type label; the count badge rides the artwork.
     Column(
         modifier = Modifier.clickable(onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1555,24 +1582,20 @@ private fun InlineLibraryCollectionCard(
                     .padding(horizontal = 8.dp, vertical = 5.dp),
             )
         }
-        if (caption.showsTitle) {
-            Text(
-                text = collection.name,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (caption.showsMetadata) {
-            Text(
-                text = if (showItemCount) collection.itemCount?.let { "$it items" } ?: "Collection" else "Collection",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = collection.name,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = if (showItemCount) collection.itemCount?.let { "$it items" } ?: "Collection" else "Collection",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

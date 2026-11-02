@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -52,6 +54,11 @@ import org.prairieserver.prairie.network.ServerRegistry
  * With a [launchRequest] the sheet lists every discovered TV (cross-server
  * casts do the v2 profile handoff); without one it filters to TVs on the
  * active server, which are the only ones controllable without a handoff.
+ *
+ * Rokus (prairie-roku `docs/prairiecontrol.md` section 4.4) list beside the other
+ * TVs. A phone cannot open the Roku app, so a remembered Roku that discovery
+ * doesn't find gets "Open Prairie on your Roku". Scanning a Roku's pairing code
+ * with the camera adds one on networks that block multicast.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,11 +70,26 @@ fun PrairieCastTargetPickerSheet(
     serverRegistry: ServerRegistry = koinInject(),
 ) {
     val state by controller.state.collectAsState()
-    val activeServerId = serverRegistry.activeEntry.collectAsState().value?.id
+    val activeServer = serverRegistry.activeEntry.collectAsState().value
+    val activeServerId = activeServer?.id
+    val activeServerIdentity = activeServer?.verifiedServerId
     var searchTimedOut by remember { mutableStateOf(false) }
     // Remote-only mode keeps the sheet open through the connect (the row shows
     // a spinner, like Apple's picker) and dismisses once the session is up.
     var pendingConnectDeviceId by remember { mutableStateOf<String?>(null) }
+
+    fun select(target: PrairieCastTarget) {
+        if (launchRequest == null) {
+            pendingConnectDeviceId = target.deviceId
+            controller.connect(target)
+        } else {
+            // Launch mode dismisses straight into the remote — the
+            // connect/handoff handshake renders there (Apple's auto-present).
+            controller.launchOnTarget(target, launchRequest)
+            onDismiss()
+            onLaunched()
+        }
+    }
 
     LaunchedEffect(controller) {
         controller.startBrowsing()
@@ -89,7 +111,7 @@ fun PrairieCastTargetPickerSheet(
         state.targets
     } else {
         state.targets.filter {
-            AndroidServerRegistry.serverIdsMatch(it.serverId, activeServerId)
+            AndroidServerRegistry.serversMatch(it.serverId, it.serverIdentity, activeServerId, activeServerIdentity)
         }
     }
 
@@ -122,19 +144,14 @@ fun PrairieCastTargetPickerSheet(
                             target = target,
                             launchRequest = launchRequest,
                             activeServerId = activeServerId,
+                            activeServerIdentity = activeServerIdentity,
                             isConnectingToThis = state.connectingDeviceId == target.deviceId,
-                            onSelect = {
-                                if (launchRequest == null) {
-                                    pendingConnectDeviceId = target.deviceId
-                                    controller.connect(target)
-                                } else {
-                                    // Launch mode dismisses straight into the
-                                    // remote — the connect/handoff handshake
-                                    // renders there (Apple's auto-present).
-                                    controller.launchOnTarget(target, launchRequest)
-                                    onDismiss()
-                                    onLaunched()
-                                }
+                            needsPairing = controller.needsPairing(target),
+                            onSelect = { select(target) },
+                            onForget = if (controller.isRememberedRoku(target.deviceId)) {
+                                { controller.forgetRoku(target.deviceId) }
+                            } else {
+                                null
                             },
                         )
                     }
@@ -183,6 +200,19 @@ fun PrairieCastTargetPickerSheet(
                 }
             }
 
+            // Rokus can't be opened from a phone; say what to do instead.
+            val missingRoku = remember(state.targets, searchTimedOut) {
+                if (searchTimedOut) controller.missingRememberedRoku() else null
+            }
+            missingRoku?.let { roku ->
+                Text(
+                    "${roku.name} isn't showing up. Open Prairie on your Roku.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+
             state.error?.let { error ->
                 Text(
                     error,
@@ -202,12 +232,20 @@ private fun TargetRow(
     target: PrairieCastTarget,
     launchRequest: PrairieCastLaunchRequest?,
     activeServerId: String?,
+    activeServerIdentity: String?,
     isConnectingToThis: Boolean,
+    needsPairing: Boolean,
     onSelect: () -> Unit,
+    /** A Roku added by link or address: forgets it and its pairing key. */
+    onForget: (() -> Unit)?,
 ) {
     val needsUpdate = target.version < PrairieCastProtocol.version
-    val enabled = !needsUpdate
-    val targetsActiveServer = AndroidServerRegistry.serverIdsMatch(target.serverId, activeServerId)
+    val targetsActiveServer =
+        AndroidServerRegistry.serversMatch(target.serverId, target.serverIdentity, activeServerId, activeServerIdentity)
+    // A Roku plays only from its own server for now (prairie-roku
+    // `docs/prairiecontrol.md` section 8.4); it would refuse the handoff.
+    val rokuOnOtherServer = target.isRoku && target.serverId != null && !targetsActiveServer
+    val enabled = !needsUpdate && !rokuOnOtherServer
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -240,6 +278,10 @@ private fun TargetRow(
             val subtitle: Pair<String, androidx.compose.ui.graphics.Color>? = when {
                 needsUpdate ->
                     "Update Prairie on this TV to use your profile" to MaterialTheme.colorScheme.onSurfaceVariant
+                rokuOnOtherServer ->
+                    "Plays from ${target.serverName ?: "another server"}" to MaterialTheme.colorScheme.onSurfaceVariant
+                needsPairing ->
+                    "Scan the pairing code on this Roku" to MaterialTheme.colorScheme.onSurfaceVariant
                 target.isPlaying ->
                     "Playing now" to MaterialTheme.colorScheme.primary
                 targetsActiveServer && target.serverName != null ->
@@ -255,6 +297,15 @@ private fun TargetRow(
 
         if (isConnectingToThis) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else if (onForget != null) {
+            IconButton(onClick = onForget) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = "Forget ${target.name}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }

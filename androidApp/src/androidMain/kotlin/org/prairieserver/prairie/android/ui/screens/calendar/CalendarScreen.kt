@@ -687,10 +687,8 @@ private fun CalendarEventCard(
     onClick: () -> Unit,
 ) {
     // Poster-size preference scales the whole card; height keeps the 120:198
-    // base ratio. The caption preference gates the title + subtitle block the
-    // same way CalendarEventCard.swift does (showsTitle / showsMetadata).
-    val cardPresentation = LocalCardPresentation.current
-    val posterScale = cardPresentation.posterSize.posterScale
+    // base ratio.
+    val posterScale = LocalCardPresentation.current.posterSize.posterScale
     Column(
         modifier = Modifier
             .width(PosterCardWidth * posterScale)
@@ -765,27 +763,23 @@ private fun CalendarEventCard(
         }
 
         // Caption: two-line title reserved + context subtitle.
-        if (cardPresentation.caption.showsTitle) {
+        Text(
+            text = item.title,
+            fontSize = 14.sp, // iOS prairieSubheadline = 14 bold
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+            minLines = 2, // iOS lineLimit(2, reservesSpace: true)
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        cardSubtitle(item)?.let { subtitle ->
             Text(
-                text = item.title,
-                fontSize = 14.sp, // iOS prairieSubheadline = 14 bold
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                minLines = 2, // iOS lineLimit(2, reservesSpace: true)
-                maxLines = 2,
+                text = subtitle,
+                fontSize = 12.sp, // iOS siloCaption = 12
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (cardPresentation.caption.showsMetadata) {
-                cardSubtitle(item)?.let { subtitle ->
-                    Text(
-                        text = subtitle,
-                        fontSize = 12.sp, // iOS prairieCaption = 12
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
         }
     }
 }
@@ -888,9 +882,8 @@ private fun EmptyState(filter: String, onSelectFilter: (String) -> Unit) {
 }
 
 private fun badgeLabel(badge: String): String? = when (badge) {
-    // iOS CalendarBadge labels (uppercased editorial). iOS says "SERIES
-    // PREMIERE", which does not fit a poster at the 11sp badge floor;
-    // NEW SEASON already marks season premieres.
+    // Same labels as web, iOS, and tvOS. PREMIERE, not SERIES PREMIERE, fits a
+    // poster badge, and NEW SEASON already marks season premieres.
     CalendarBadge.SeriesPremiere -> "PREMIERE"
     CalendarBadge.SeasonPremiere -> "NEW SEASON"
     CalendarBadge.Finale -> "FINALE"

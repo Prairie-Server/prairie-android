@@ -239,19 +239,19 @@ data class TvCatalogFacetSelection(
                 CatalogQueryGroup(
                     match = "any",
                     rules = buildList {
-                        if (hdr) add(CatalogQueryRule(field = "hdr", op = "is", value = "true"))
-                        if (dolbyVision) add(CatalogQueryRule(field = "dolby_vision", op = "is", value = "true"))
+                        if (hdr) add(CatalogQueryRule(field = "hdr", op = "is", value = true))
+                        if (dolbyVision) add(CatalogQueryRule(field = "dolby_vision", op = "is", value = true))
                     },
                 ),
             )
         }
         watchStatus?.let { status ->
             val rule = when (status) {
-                TvWatchStatusFilter.Unwatched -> CatalogQueryRule(field = "watched", op = "is", value = "false")
-                TvWatchStatusFilter.Watched -> CatalogQueryRule(field = "watched", op = "is", value = "true")
-                TvWatchStatusFilter.InProgress -> CatalogQueryRule(field = "in_progress", op = "is", value = "true")
-                TvWatchStatusFilter.Favorited -> CatalogQueryRule(field = "favorited", op = "is", value = "true")
-                TvWatchStatusFilter.Watchlist -> CatalogQueryRule(field = "in_watchlist", op = "is", value = "true")
+                TvWatchStatusFilter.Unwatched -> CatalogQueryRule(field = "watched", op = "is", value = false)
+                TvWatchStatusFilter.Watched -> CatalogQueryRule(field = "watched", op = "is", value = true)
+                TvWatchStatusFilter.InProgress -> CatalogQueryRule(field = "in_progress", op = "is", value = true)
+                TvWatchStatusFilter.Favorited -> CatalogQueryRule(field = "favorited", op = "is", value = true)
+                TvWatchStatusFilter.Watchlist -> CatalogQueryRule(field = "in_watchlist", op = "is", value = true)
             }
             add(CatalogQueryGroup(match = "all", rules = listOf(rule)))
         }

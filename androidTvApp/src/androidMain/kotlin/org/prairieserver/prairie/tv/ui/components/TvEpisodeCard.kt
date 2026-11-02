@@ -39,7 +39,6 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.overlays.CardOverlayVariant
 import org.prairieserver.prairie.common.overlays.CardOverlays
 import org.prairieserver.prairie.common.overlays.LocalCardOverlayUiState
@@ -53,8 +52,8 @@ import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 /**
  * 16:9 thumbnail card for "Continue Watching", "Next Up", and episode list rows.
  *
- * Uses the same focus treatment as [TvMediaCard]: native `.card` button style
- * from Compose for TV handles scale/shadow lift; the caption bolds on focus.
+ * Uses the same focus treatment as [TvMediaCard]: [prairieCardDefaults] lifts and
+ * outlines the still; the caption brightens on focus.
  * The play-button circle is an affordance rather than a hit target — the whole
  * card is clickable and the D-pad OK button triggers [onClick].
  */
@@ -84,12 +83,11 @@ fun TvEpisodeCard(
     onLongClick: (() -> Unit)? = null,
 ) {
     val overlayState = LocalCardOverlayUiState.current
-    val caption = LocalCardPresentation.current.caption
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     val cardShape = TvEpisodeCardShape
-    val cardFocus = prairieCardDefaults(shape = cardShape, focusedScale = 1.04f)
+    val cardFocus = prairieCardDefaults(shape = cardShape)
 
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -176,50 +174,48 @@ fun TvEpisodeCard(
             }
         }
 
-        if (caption.showsTitle) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 7.dp),
-                horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 7.dp),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = seriesTitle ?: title,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 15.5.sp,
+                    lineHeight = 18.5.sp,
+                ),
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.78f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            val episodeTag = tvEpisodeTag(seasonNumber, episodeNumber)
+            // With the series on the line above, the episode number is what
+            // separates two same-named episodes in a rail, so it leads.
+            val secondaryLine = when {
+                seriesTitle != null -> listOfNotNull(
+                    episodeTag,
+                    title.takeIf { it.isNotBlank() },
+                ).joinToString(" \u2022 ").ifBlank { null }
+                episodeTag != null -> episodeTag
+                else -> year?.toString()
+            }
+            if (secondaryLine != null) {
                 Text(
-                    text = seriesTitle ?: title,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontSize = 15.5.sp,
-                        lineHeight = 18.5.sp,
+                    text = secondaryLine,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
-                    color = if (isFocused) Color.White else Color.White.copy(alpha = 0.78f),
+                    color = Color.White.copy(alpha = 0.75f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                val episodeTag = tvEpisodeTag(seasonNumber, episodeNumber)
-                // With the series on the line above, the episode number is what
-                // separates two same-named episodes in a rail, so it leads.
-                val secondaryLine = when {
-                    seriesTitle != null -> listOfNotNull(
-                        episodeTag,
-                        title.takeIf { it.isNotBlank() },
-                    ).joinToString(" \u2022 ").ifBlank { null }
-                    episodeTag != null -> episodeTag
-                    else -> year?.toString()
-                }
-                if (caption.showsMetadata && secondaryLine != null) {
-                    Text(
-                        text = secondaryLine,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 14.sp,
-                            lineHeight = 18.sp,
-                        ),
-                        color = Color.White.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
             }
         }
 

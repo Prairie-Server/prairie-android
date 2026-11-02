@@ -1,6 +1,5 @@
 package org.prairieserver.prairie.tv.ui.screens.settings
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.common.settings.CardPresentationSource
@@ -9,14 +8,13 @@ import org.prairieserver.prairie.common.settings.CardPresentationSupport
 import org.prairieserver.prairie.common.settings.EpisodeSpoilerSetting
 import org.prairieserver.prairie.common.settings.EpisodeSpoilerState
 import org.prairieserver.prairie.common.settings.EpisodeSpoilerStore
-import org.prairieserver.prairie.common.settings.LibraryPlaybackPrefsStore
-import org.prairieserver.prairie.common.settings.OverlayPrefsStore
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.SeekIntervalSettingsModel
 import org.prairieserver.prairie.common.settings.SeekIntervalStore
 import org.prairieserver.prairie.common.player.AudiobookSettingsStore
 import org.prairieserver.prairie.model.settings.CardPresentation
 import org.prairieserver.prairie.model.auth.User
+import org.prairieserver.prairie.domain.player.BufferingQualityMode
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.domain.settings.ProfileSettingsController
 import org.prairieserver.prairie.model.settings.QualityPresets
@@ -29,7 +27,11 @@ import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.common.ui.components.ProfileAvatarRef
 import org.prairieserver.prairie.common.ui.components.avatarRef
 import org.prairieserver.prairie.network.TokenManager
+import org.prairieserver.prairie.network.apiv2.PlaybackLearnedLimitV2
 import org.prairieserver.prairie.repository.AuthRepository
+import org.prairieserver.prairie.repository.PlaybackConnectionRepository
+import org.prairieserver.prairie.common.player.probe.BandwidthProbeScheduler
+import org.prairieserver.prairie.common.settings.ConnectionSpeedSettingsModel
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
 import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
@@ -55,7 +57,7 @@ import kotlinx.coroutines.launch
  * [LegacyTvPrefsMigration] runs the one-time legacy `tv_prefs` → server
  * import on first boot (sentinel-gated no-op after).
  *
- * Sign-out and switch-profile operations emit a one-shot [NavAction]
+ * Switch-profile emits a one-shot [NavAction]
  * signal that the screen collects and forwards to the top-level NavHost.
  */
 class TvSettingsViewModel(
@@ -64,8 +66,6 @@ class TvSettingsViewModel(
     private val tokenManager: TokenManager,
     private val serverRegistry: ServerRegistry,
     private val playerSettingsStore: PlayerSettingsStore,
-    private val libraryPlaybackPrefsStore: LibraryPlaybackPrefsStore,
-    private val overlayPrefsStore: OverlayPrefsStore,
     private val cardPresentationStore: CardPresentationStore,
     private val legacyTvPrefsMigration: LegacyTvPrefsMigration,
     private val profileSettings: ProfileSettingsController,
@@ -75,6 +75,8 @@ class TvSettingsViewModel(
     audiobookSettingsStore: AudiobookSettingsStore? = null,
     private val profileLaunchPreferences: ProfileLaunchPreferences? = null,
     private val watchNextSeeder: WatchNextSeeder? = null,
+    private val playbackConnection: PlaybackConnectionRepository? = null,
+    bandwidthProbe: BandwidthProbeScheduler? = null,
 ) : ViewModel() {
 
     /**
@@ -89,7 +91,15 @@ class TvSettingsViewModel(
             null
         }
 
-    enum class NavAction { SIGNED_OUT, SWITCH_PROFILE }
+    /**
+     * Playback → Connection: the measured speed, **Test speed** and Auto's
+     * budget. Null without the probe; hidden unless the server measures speed.
+     */
+    val connectionSpeed: ConnectionSpeedSettingsModel? = bandwidthProbe?.let { probe ->
+        playbackConnection?.let { connection -> ConnectionSpeedSettingsModel(probe, connection, viewModelScope) }
+    }
+
+    enum class NavAction { SWITCH_PROFILE }
 
     data class UiState(
         val user: User? = null,
@@ -129,6 +139,18 @@ class TvSettingsViewModel(
         val subtitleTextOpacitySupported: Boolean = true,
         val autoPlayNext: Boolean = true,
         val introSkipMode: IntroSkipMode = IntroSkipMode.Default,
+        val bufferingQualityMode: BufferingQualityMode = BufferingQualityMode.Default,
+        /** The server's settings manifest is known to define the buffering mode: its row shows only then. */
+        val bufferingQualityModeSupported: Boolean = false,
+        /**
+         * The limit the server learned for this device on this connection
+         * after buffering, or null when there is none or the server does not
+         * advertise the feature. Read with the connection
+         * ([ConnectionSpeedSettingsModel]).
+         */
+        val learnedLimit: PlaybackLearnedLimitV2? = null,
+        /** True after a reset the server did not confirm, until the next attempt. */
+        val learnedLimitResetFailed: Boolean = false,
         val matchContentFrameRate: Boolean = false,
         val dolbyVisionEnabled: Boolean = true,
         val showAudiobooksTab: Boolean = false,
@@ -174,6 +196,9 @@ class TvSettingsViewModel(
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
+    /** A second Reset press while the first is in flight is ignored. */
+    private var learnedLimitResetInFlight = false
+
     init {
         loadUser()
         loadSettings()
@@ -181,6 +206,16 @@ class TvSettingsViewModel(
         observeCardPresentation()
         observeEpisodeSpoilers()
         observeProfileLaunch()
+        observeLearnedLimit()
+    }
+
+    private fun observeLearnedLimit() {
+        val model = connectionSpeed ?: return
+        viewModelScope.launch {
+            model.settings.collect { settings ->
+                _uiState.update { it.copy(learnedLimit = settings?.connection?.learnedLimit) }
+            }
+        }
     }
 
     private fun observeProfileLaunch() {
@@ -361,7 +396,8 @@ class TvSettingsViewModel(
                 playerSettingsStore.autoPlayNextFlow,
                 playerSettingsStore.introSkipModeFlow,
                 playerSettingsStore.autoSkipCreditsFlow,
-                playerSettingsStore.savedCustomSubtitleAppearanceFlow,
+                // The appearance in effect: edits start from what is on screen.
+                playerSettingsStore.subtitleAppearanceFlow,
                 playerSettingsStore.audioLanguageFlow,
                 playerSettingsStore.resumeRewindSecondsFlow,
                 playerSettingsStore.passOutThresholdFlow,
@@ -406,6 +442,16 @@ class TvSettingsViewModel(
         viewModelScope.launch {
             playerSettingsStore.nextUpPromptSecondsFlow.collect { seconds ->
                 _uiState.update { it.copy(nextUpPromptSeconds = seconds) }
+            }
+        }
+        viewModelScope.launch {
+            playerSettingsStore.bufferingQualityModeFlow.collect { mode ->
+                _uiState.update { it.copy(bufferingQualityMode = mode) }
+            }
+        }
+        viewModelScope.launch {
+            playerSettingsStore.bufferingQualityModeSupportedFlow.collect { supported ->
+                _uiState.update { it.copy(bufferingQualityModeSupported = supported) }
             }
         }
         viewModelScope.launch {
@@ -639,7 +685,8 @@ class TvSettingsViewModel(
         editAppearance { it.copy(fontSize = value.toFontSizePreset()) }
 
     /**
-     * Commit a full subtitle-appearance value (device-scoped). The Appearance
+     * Commit a full subtitle-appearance value (the profile's, unless "Only on
+     * This Device" is on). The Appearance
      * picker rows build [next] by copying the current appearance and changing
      * one field, mirroring the tvOS bindings. The store debounces the server
      * write and re-emits on [subtitleAppearanceFlow], which the combine folds
@@ -693,7 +740,7 @@ class TvSettingsViewModel(
         }
     }
 
-    /** Toggle the device-level subtitle-appearance override (Custom Appearance). */
+    /** "Only on This Device": keep this TV's own subtitle appearance and timing. */
     fun setSubtitleDeviceOverrideEnabled(enabled: Boolean) {
         viewModelScope.launch { playerSettingsStore.setSubtitleDeviceOverrideEnabled(enabled) }
     }
@@ -763,6 +810,33 @@ class TvSettingsViewModel(
         viewModelScope.launch { playerSettingsStore.setIntroSkipMode(value) }
     }
 
+    fun onBufferingQualityModeChanged(value: BufferingQualityMode) {
+        viewModelScope.launch { playerSettingsStore.setBufferingQualityMode(value) }
+    }
+
+    /**
+     * Forgets the learned limit, then reads the connection again so the row
+     * goes and the Connection group's Auto budget, which the limit capped,
+     * catches up.
+     */
+    fun onResetLearnedLimit() {
+        val repository = playbackConnection ?: return
+        if (learnedLimitResetInFlight) return
+        learnedLimitResetInFlight = true
+        _uiState.update { it.copy(learnedLimitResetFailed = false) }
+        viewModelScope.launch {
+            try {
+                if (repository.resetLearnedLimit() is ApiResult.Success) {
+                    connectionSpeed?.read()
+                } else {
+                    _uiState.update { it.copy(learnedLimitResetFailed = true) }
+                }
+            } finally {
+                learnedLimitResetInFlight = false
+            }
+        }
+    }
+
     fun onAutoSkipCreditsChanged(value: Boolean) {
         viewModelScope.launch { playerSettingsStore.setAutoSkipCredits(value) }
     }
@@ -803,24 +877,6 @@ class TvSettingsViewModel(
     /** Lifecycle hook — call from MainTvActivity.onStop. */
     fun flushPendingSettings() {
         viewModelScope.launch { playerSettingsStore.flushPendingDeviceSettings() }
-    }
-
-    fun onSignOut(context: Context) {
-        viewModelScope.launch {
-            playerSettingsStore.flushPendingDeviceSettings()
-            authRepository.logout()
-            profileRepository.clearProfile()
-            tokenManager.clearTokens()
-            // Drop per-profile cached prefs so the next user doesn't see
-            // them flash before the fresh fetch lands. iOS parity:
-            // `PlaybackPrefsStore.clear()` in the sign-out path.
-            libraryPlaybackPrefsStore.clear()
-            overlayPrefsStore.clear()
-            cardPresentationStore.clear()
-            seekIntervalStore?.clear()
-            episodeSpoilerStore?.clear()
-            _uiState.update { it.copy(navAction = NavAction.SIGNED_OUT) }
-        }
     }
 
     fun onSwitchProfile() {

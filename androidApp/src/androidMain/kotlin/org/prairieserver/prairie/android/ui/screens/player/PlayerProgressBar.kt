@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,10 +14,12 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
@@ -39,11 +42,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -69,7 +74,12 @@ import org.prairieserver.prairie.playback.resolveTrickplayTile
  * 11dp under the finger, a bubble above shows the target time, the chapter,
  * and how far the scrub has moved, and a tick marks where it started. Chapters
  * show as gaps in the bar rather than tick marks, and a light haptic fires as
- * the scrub crosses into a new chapter.
+ * the scrub crosses into a new chapter. When the server publishes seek-bar
+ * previews, the picture at the target time tops the bubble, as on iOS, and
+ * the bubble grows upward from where the text-only one sits. Prairie's
+ * [trickplay] tiles are the preview; [thumbnail] (the picture at
+ * [onScrubTarget]'s time) is used only when the item has no [trickplay], and
+ * [onScrubTarget] is only told the target then, so the two never both load.
  *
  * Track regions: played (Paper), buffered (safe to seek into), base. Detected
  * markers are tinted bands under the played fill (intro cyan, recap green,
@@ -91,6 +101,8 @@ fun PlayerProgressBar(
     preview: TimeRange? = null,
     showTimes: Boolean = true,
     onScrubbingChange: (Boolean) -> Unit = {},
+    thumbnail: ImageBitmap? = null,
+    onScrubTarget: (Double?) -> Unit = {},
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableDoubleStateOf(0.0) }
@@ -104,6 +116,13 @@ fun PlayerProgressBar(
     val density = LocalDensity.current
     val latestOnSeek by rememberUpdatedState(onSeek)
     val latestOnScrubbing by rememberUpdatedState(onScrubbingChange)
+    val latestOnScrubTarget by rememberUpdatedState(onScrubTarget)
+    val latestTrickplay by rememberUpdatedState(trickplay)
+    // Prairie: trickplay tiles win; ask for the server thumbnail only without them.
+    // A null (scrub ended) always goes through so a pending thumbnail is cleared.
+    val reportScrubTarget: (Double?) -> Unit = { seconds ->
+        if (seconds == null || latestTrickplay == null) latestOnScrubTarget(seconds)
+    }
     // The gesture coroutine outlives recompositions, so it reads these
     // through state rather than the values it started with.
     val latestPosition by rememberUpdatedState(position)
@@ -198,6 +217,7 @@ fun PlayerProgressBar(
                         lastChapter = chapterIndexAt(seekPosition)
                         isSeeking = true
                         latestOnScrubbing(true)
+                        reportScrubTarget(seekPosition)
                         var pointerId = down.id
                         // A restart of this block (seekability or duration
                         // changed mid-scrub) cancels the gesture: end the
@@ -215,6 +235,7 @@ fun PlayerProgressBar(
                                 if (change.positionChange() != Offset.Zero) {
                                     change.consume()
                                     seekPosition = positionAt(change.position.x)
+                                    reportScrubTarget(seekPosition)
                                     val chapter = chapterIndexAt(seekPosition)
                                     if (chapter != lastChapter) {
                                         lastChapter = chapter
@@ -225,6 +246,7 @@ fun PlayerProgressBar(
                         } finally {
                             isSeeking = false
                             latestOnScrubbing(false)
+                            reportScrubTarget(null)
                         }
                         latestOnSeek(seekPosition)
                     }
@@ -270,6 +292,8 @@ fun PlayerProgressBar(
                 val clampedX = if (barWidthPx > bubbleWidthPx) x.coerceIn(half, barWidthPx - half) else barWidthPx / 2f
                 val delta = seekPosition - scrubStart
                 val chapterTitle = chapterTitleAt(chapters, seekPosition)
+                val scrubThumbnail = thumbnail.takeIf { trickplayTile == null && trickplay == null }
+                val hasPreview = trickplayTile != null || scrubThumbnail != null
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
@@ -279,20 +303,26 @@ fun PlayerProgressBar(
                             bubbleHeightPx = it.height
                         }
                         .offset {
-                            // Prairie: a trickplay tile makes the bubble taller;
-                            // grow it upward so it never covers the bar.
-                            val lift = with(density) {
-                                maxOf(52.dp.toPx(), bubbleHeightPx + 8.dp.toPx())
-                            }
+                            // Prairie: a preview makes the bubble taller; grow it
+                            // upward (sized from the measured bubble, since a
+                            // trickplay tile's height follows its aspect) so it
+                            // never covers the bar.
+                            val lift = maxOf(52.dp, bubbleHeightPx.toDp() + 8.dp)
                             IntOffset(
                                 x = (clampedX - half).roundToInt(),
-                                y = -lift.roundToInt(),
+                                y = -lift.roundToPx(),
                             )
                         }
                         .clip(RoundedCornerShape(14.dp))
                         .background(PlayerChrome.Smoke)
                         .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                        .padding(
+                            if (hasPreview) {
+                                PaddingValues(ScrubThumbnailInset)
+                            } else {
+                                PaddingValues(horizontal = 14.dp, vertical = 9.dp)
+                            },
+                        ),
                 ) {
                     // Prairie: trickplay scrub preview when the server has tiles.
                     if (trickplayTile != null) {
@@ -300,6 +330,20 @@ fun PlayerProgressBar(
                             tile = trickplayTile,
                             previewWidth = 176.dp,
                             modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                    }
+                    // Upstream: the server's seek-bar preview, only for items
+                    // without Prairie trickplay tiles. Sized and cropped like
+                    // the iOS scrub bubble's.
+                    scrubThumbnail?.let { image ->
+                        Image(
+                            bitmap = image,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .padding(bottom = ScrubThumbnailGap)
+                                .size(ScrubThumbnailWidth, ScrubThumbnailHeight)
+                                .clip(RoundedCornerShape(9.dp)),
                         )
                     }
                     Text(text = formatClockTime(seekPosition), style = PlayerType.BubbleTime)
@@ -317,6 +361,13 @@ fun PlayerProgressBar(
         }
     }
 }
+
+/** The scrub bubble's preview, 16:9 as on iOS; other shapes are cropped to it. */
+private val ScrubThumbnailWidth = 176.dp
+private val ScrubThumbnailHeight = 99.dp
+private val ScrubThumbnailGap = 6.dp
+/** The bubble's padding while it shows a preview. */
+private val ScrubThumbnailInset = 7.dp
 
 private fun DrawScope.drawSeekBar(
     barHeightPx: Float,
