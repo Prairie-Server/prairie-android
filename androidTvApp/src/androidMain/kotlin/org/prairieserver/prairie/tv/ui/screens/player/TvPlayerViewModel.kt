@@ -957,6 +957,7 @@ class TvPlayerViewModel(
     private var planQualities: List<PlaybackAvailableQualityV3> = emptyList()
     private var planDelivered: PlaybackEffectiveRecipeV3? = null
     private var planSource: PlaybackSourceDescriptorV3? = null
+    private var planReported: ReportedPlaybackQuality? = null
 
     // Blank means solo, exactly as the screen treats it.
     private val roomId: String? = launchArgs.roomId?.takeIf { it.isNotBlank() }
@@ -6577,10 +6578,12 @@ class TvPlayerViewModel(
         sourceResolution: String?,
         playMethod: String?,
         source: PlaybackSourceDescriptorV3? = null,
+        reported: ReportedPlaybackQuality? = null,
     ): List<VideoQualityOption> {
         planQualities = available
         planDelivered = delivered
         planSource = source
+        planReported = reported
         return transcodeQualityLadder(
             sourceResolution,
             selectedLabel ?: PlaybackQuality.Auto.wireValue,
@@ -6601,7 +6604,7 @@ class TvPlayerViewModel(
         sourceBitrateKbps: Int = 0,
     ): List<VideoQualityOption> {
         if (planQualities.isNotEmpty()) {
-            return authoritativePlaybackQualityOptions(planQualities, selectedWire, planDelivered, planSource)
+            return authoritativePlaybackQualityOptions(planQualities, selectedWire, planDelivered, planSource, planReported)
         }
         val nativeHeight = org.prairieserver.prairie.playback.sourceHeightForFile(
             ladder = qualityLadder,
