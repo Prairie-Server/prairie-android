@@ -19,27 +19,20 @@ class SettingsPresentationRulesTest {
         assertEquals(CardPosterSize.Large, CardPosterSize.fromRaw("large"))
         assertNull(CardPosterSize.fromRaw("huge"))
         assertNull(CardPosterSize.fromRaw(null))
-
-        assertEquals(listOf("Title & Metadata", "Title Only", "Artwork Only"), CardCaption.entries.map { it.displayName })
-        assertEquals(CardCaption.Artwork, CardCaption.fromRaw("artwork"))
-        assertNull(CardCaption.fromRaw("TITLE"))
-        assertNull(CardCaption.fromRaw(null))
-
-        assertEquals(listOf("Balanced", "Compact", "Cinema", "Artwork Only"), CardPresentationPreset.entries.map { it.displayName })
     }
 
     @Test
     fun cardPresentationDecodeOrDefaultFallsBackOnBadElements() {
-        val cinema = buildJsonObject {
+        // The caption choice is retired upstream: a stored caption is read and ignored.
+        val large = buildJsonObject {
             put("poster_size", "large")
             put("caption", "title")
         }
-        assertEquals(CardPresentationPreset.Cinema, CardPresentation.decodeOrDefault(cinema).preset)
+        assertEquals(CardPresentation(CardPosterSize.Large), CardPresentation.decodeOrDefault(large))
         assertEquals(CardPresentation.DEFAULT, CardPresentation.decodeOrDefault(JsonNull))
         assertEquals(CardPresentation.DEFAULT, CardPresentation.decodeOrDefault(buildJsonObject { put("caption", "subtitle") }))
         assertEquals(CardPresentation.DEFAULT, CardPresentation.decodeOrDefault(null as String?))
-        // A preset-less pair renders as "Custom".
-        assertNull(CardPresentation(CardPosterSize.Compact, CardCaption.Artwork).preset)
+        assertEquals(CardPresentation.DEFAULT, CardPresentation.decodeOrDefault(buildJsonObject { put("poster_size", "huge") }))
     }
 
     @Test

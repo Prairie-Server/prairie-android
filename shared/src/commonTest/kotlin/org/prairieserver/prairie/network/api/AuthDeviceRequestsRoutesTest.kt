@@ -161,7 +161,7 @@ class AuthDeviceRequestsRoutesTest {
         val api = DefaultRequestsApi(client(seen), ApiV2Gate.Unrestricted)
         assertNotFound(api.status())
         assertNotFound(api.discover())
-        assertNotFound(api.discoverSection("trending", 2))
+        assertNotFound(api.discoverRow("trending", 2))
         assertNotFound(api.search("dune", "movie", 1))
         assertNotFound(api.detail("movie", 438631))
         assertNotFound(api.mine())
@@ -171,7 +171,7 @@ class AuthDeviceRequestsRoutesTest {
             listOf(
                 "GET /api/v2/requests/status",
                 "GET /api/v2/requests/discover",
-                "GET /api/v2/requests/discover/trending",
+                "GET /api/v2/requests/discover/rows/trending",
                 "GET /api/v2/requests/search",
                 "GET /api/v2/requests/detail/movie/438631",
                 "GET /api/v2/requests/mine",
