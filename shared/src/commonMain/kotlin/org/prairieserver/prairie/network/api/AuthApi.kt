@@ -5,23 +5,33 @@ import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.coroutines.CancellationException
 import org.prairieserver.prairie.model.auth.*
 import org.prairieserver.prairie.network.ApiErrorBody
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.network.authScope
+import org.prairieserver.prairie.network.PrairieJson
+import org.prairieserver.prairie.network.forcePrairieRefresh
 import org.prairieserver.prairie.network.freshPrairieAuth
 import org.prairieserver.prairie.network.map
 import org.prairieserver.prairie.network.singleAttempt
 import org.prairieserver.prairie.network.skipPrairieAuth
 import org.prairieserver.prairie.network.apiv2.Account
 import org.prairieserver.prairie.network.apiv2.ApiV2Gate
+import org.prairieserver.prairie.network.apiv2.Problem
+import org.prairieserver.prairie.network.apiv2.invalidResponse
 import org.prairieserver.prairie.network.apiv2.SetupStatus
 import org.prairieserver.prairie.network.apiv2.safeApiV2Call
 
 class AuthApi(
     private val client: HttpClient,
     private val apiV2Gate: ApiV2Gate,
+    /**
+     * For mutations the engine must never resend after a dropped connection
+     * (OkHttp otherwise does on a reused one), such as the password change.
+     */
+    private val nonReplayingClient: HttpClient = client,
 ) {
 
     suspend fun login(request: LoginRequest, serverUrl: String? = null): ApiResult<LoginResponse> = safeApiV2Call<TokenPairV2>(apiV2Gate) {
@@ -133,12 +143,84 @@ class AuthApi(
             }
         }.map { account -> account.toUser() }
 
+    /**
+     * `GET /api/v2/account/me` on [scope] as captured, with no profile declared:
+     * one of the few reads a session holding a temporary password may make.
+     */
+    suspend fun getAccount(scope: AuthScopeSnapshot): ApiResult<User> =
+        safeApiV2Call<Account>(apiV2Gate.forServer(scope.serverId)) {
+            client.get("/api/v2/account/me") { authScope(scope.withoutProfile()) }
+        }.map { account -> account.toUser() }
+
+    /**
+     * Replaces [scope]'s access token through the shared refresh, however long
+     * it has left, then reads the account on the new one. Fails without
+     * sending the read when the token did not rotate.
+     */
+    suspend fun refreshAccountSession(scope: AuthScopeSnapshot): ApiResult<User> =
+        safeApiV2Call<Account>(apiV2Gate.forServer(scope.serverId)) {
+            client.get("/api/v2/account/me") {
+                authScope(scope.withoutProfile())
+                forcePrairieRefresh()
+            }
+        }.map { account -> account.toUser() }
+
+    /** `getAccountPasswordCapability`: whether [scope] may change the password, and the limits for a new one. */
+    suspend fun passwordCapability(scope: AuthScopeSnapshot): ApiResult<PasswordCapability> =
+        safeApiV2Call<PasswordCapabilityV2>(apiV2Gate.forServer(scope.serverId)) {
+            client.get("/api/v2/account/password/capability") { authScope(scope.withoutProfile()) }
+        }.map { it.domain() }
+
+    /**
+     * `changePassword` (204). Account-scoped, with no profile declared, and sent
+     * once, on [nonReplayingClient]: a replay would spend another attempt from
+     * the server's password-change budget. A 422 naming `body.current_password`
+     * comes back as [WRONG_CURRENT_PASSWORD]; any other 422 carries the first error's
+     * detail, which names the rule the new password broke. Neither password
+     * is logged: both travel only in the body.
+     */
+    suspend fun changePassword(scope: AuthScopeSnapshot, current: String, new: String): ApiResult<Unit> {
+        apiV2Gate.forServer(scope.serverId).blocked()?.let { return it }
+        return try {
+            val response = nonReplayingClient.post("/api/v2/account/password") {
+                authScope(scope.withoutProfile()); singleAttempt()
+                contentType(ContentType.Application.Json)
+                setBody(ChangePasswordRequestV2(currentPassword = current, newPassword = new))
+            }
+            when {
+                response.status == HttpStatusCode.NoContent -> ApiResult.Success(Unit)
+                response.status.isSuccess() -> invalidResponse()
+                else -> passwordChangeError(response.status.value, response.bodyAsText())
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ApiResult.NetworkError(e)
+        }
+    }
+
     /** Ends the active session, or the one [scope] was captured from even when another is active by then. */
     suspend fun logout(scope: AuthScopeSnapshot? = null): ApiResult<Unit> = safeApiV2Call(apiV2Gate) {
         client.post("/api/v2/auth/logout") { scope?.let { authScope(it) } }.requireAuthStatus(204)
     }
 
 }
+
+/** The `error` of a 422 whose problem names `body.current_password`: the temporary password is wrong. */
+const val WRONG_CURRENT_PASSWORD = "wrong_current_password"
+
+internal fun passwordChangeError(status: Int, body: String): ApiResult.Error {
+    val problem = runCatching { PrairieJson.decodeFromString(Problem.serializer(), body) }.getOrNull()
+    val rejected = problem?.errors?.firstOrNull()
+    return when {
+        status == 422 && rejected?.location == "body.current_password" ->
+            ApiResult.Error(status, WRONG_CURRENT_PASSWORD, rejected.detail)
+        status == 422 -> ApiResult.Error(status, problem?.code.orEmpty(), rejected?.detail.orEmpty())
+        else -> ApiResult.Error(status, problem?.code.orEmpty(), problem?.detail.orEmpty())
+    }
+}
+
+private fun AuthScopeSnapshot.withoutProfile() = copy(profileId = null, profileToken = null)
 
 /**
  * Wraps an HTTP call in error handling, returning a typed [ApiResult].
@@ -187,4 +269,5 @@ internal fun Account.toUser(): User = User(
             impersonatorUsername = it.impersonatorUsername,
         )
     },
+    passwordChangeRequired = passwordChangeRequired,
 )

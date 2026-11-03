@@ -71,10 +71,7 @@ import org.prairieserver.prairie.common.diagnostics.DiagnosticsKeyAnomalyLogger
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsKeyCollection
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsListSnapshot
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
-import org.prairieserver.prairie.android.ui.components.BoxSetCard
 import org.prairieserver.prairie.model.catalog.BrowseItem
-import org.prairieserver.prairie.model.catalog.CatalogBoxSet
-import org.prairieserver.prairie.model.catalog.boxSetCard
 import org.prairieserver.prairie.overlays.OverlayDataExtractor
 import org.prairieserver.prairie.android.ui.navigation.LocalHeroSourceHandoff
 
@@ -97,8 +94,6 @@ fun CatalogGrid(
     isLoadingMore: Boolean,
     hasMore: Boolean,
     onItemClick: (String) -> Unit,
-    /** Opens a box set card of a `group=box_set` browse. */
-    onBoxSetClick: (CatalogBoxSet) -> Unit = {},
     /** Per-card caption overriding the year (e.g. date for date sorts). */
     cardSubtitle: ((BrowseItem) -> String?)? = null,
     onLoadMore: () -> Unit,
@@ -173,17 +168,6 @@ fun CatalogGrid(
                 key = { it.contentId },
                 contentType = { item -> item.type },
             ) { item ->
-                val boxSet = item.boxSetCard
-                if (boxSet != null) {
-                    BoxSetCard(
-                        boxSet = boxSet,
-                        posterUrl = item.posterUrl ?: boxSet.posterUrl,
-                        posterThumbhash = item.posterThumbhash ?: boxSet.posterThumbhash,
-                        onClick = { onBoxSetClick(boxSet) },
-                        width = cardWidth,
-                    )
-                    return@items
-                }
                 val (actions, userState, positionSeconds) = rememberBrowseItemCardActions(item)
                 val spoilerPrefs = LocalEpisodeSpoilerPrefs.current
                 val hideArtwork = EpisodeSpoilers.hidesBrowseArtwork(item, spoilerPrefs, userState.played, positionSeconds = positionSeconds)

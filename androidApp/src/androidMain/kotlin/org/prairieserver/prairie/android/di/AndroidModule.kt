@@ -79,6 +79,7 @@ import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionVie
 import org.prairieserver.prairie.android.ui.screens.servers.ServerListViewModel
 import org.prairieserver.prairie.android.ui.screens.downloads.DownloadsViewModel
 import org.prairieserver.prairie.viewmodel.HomeViewModel
+import org.prairieserver.prairie.viewmodel.PasswordChangeViewModel
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.viewmodel.FavoritesViewModel
 import org.prairieserver.prairie.viewmodel.HistoryViewModel
@@ -642,6 +643,7 @@ val androidModule = module {
     viewModel { InviteClaimViewModel(get(), get()) }
     viewModel { OnboardingTourViewModel(get(), get(), get(), get(), get()) }
     viewModel { ProfileSelectionViewModel(get(), get(), profileVerificationRecovery = getOrNull()) }
+    viewModel { PasswordChangeViewModel(get<org.prairieserver.prairie.repository.AuthRepository>()) }
     viewModel { CreateProfileViewModel(get()) }
     viewModel { EditProfileViewModel(get()) }
     viewModel {
