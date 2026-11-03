@@ -9,6 +9,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.decodeFromJsonElement
+import org.prairieserver.prairie.model.auth.PASSWORD_CHANGE_REQUIRED
+import org.prairieserver.prairie.model.auth.PASSWORD_CHANGE_REQUIRED_MESSAGE
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.network.resolveArtworkUrls
@@ -61,7 +63,9 @@ internal suspend fun HttpResponse.toApiV2Error(): ApiResult.Error {
     return ApiResult.Error(
         code = status.value,
         error = code,
-        message = problem?.detail ?: "",
+        // The temporary-password refusal's detail is a protocol instruction;
+        // screens that show `message` get copy a person can act on.
+        message = if (code == PASSWORD_CHANGE_REQUIRED) PASSWORD_CHANGE_REQUIRED_MESSAGE else problem?.detail ?: "",
     )
 }
 

@@ -163,6 +163,18 @@ fun HttpRequestBuilder.skipPrairieAuth() {
 internal val FreshPrairieAuthAttributeKey: AttributeKey<Boolean> = AttributeKey("PrairieFreshAuth")
 internal fun HttpRequestBuilder.freshPrairieAuth() { attributes.put(FreshPrairieAuthAttributeKey, true) }
 
+/**
+ * A pinned [freshPrairieAuth] request whose scope is refreshed first however long
+ * its access token has left, and which isn't sent unless the token rotated.
+ * Used after a temporary password changes: the token that changed it keeps the
+ * server's restriction until it is replaced.
+ */
+internal val ForcePrairieRefreshAttributeKey: AttributeKey<Boolean> = AttributeKey("PrairieForceRefresh")
+internal fun HttpRequestBuilder.forcePrairieRefresh() {
+    freshPrairieAuth()
+    attributes.put(ForcePrairieRefreshAttributeKey, true)
+}
+
 /** A nonretryable mutation must not be replayed by the auth-refresh interceptor. */
 internal val SingleAttemptAttributeKey = AttributeKey<Boolean>("PrairieSingleAttempt")
 internal fun HttpRequestBuilder.singleAttempt() { attributes.put(SingleAttemptAttributeKey, true) }
