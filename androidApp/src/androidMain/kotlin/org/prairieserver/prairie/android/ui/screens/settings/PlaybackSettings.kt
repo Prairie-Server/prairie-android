@@ -1,6 +1,8 @@
 package org.prairieserver.prairie.android.ui.screens.settings
 
 import androidx.annotation.StringRes
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,8 +14,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
 import org.prairieserver.prairie.common.settings.UseProfileSettingsCopy
+import org.prairieserver.prairie.common.settings.bufferingQualityModeLabel
+import org.prairieserver.prairie.common.settings.learnedLimitLabel
+import org.prairieserver.prairie.domain.player.BufferingQualityMode
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.CellularQuality
 import org.prairieserver.prairie.model.settings.LanguageOptions
@@ -21,6 +27,7 @@ import org.prairieserver.prairie.model.settings.PlaybackSettingsKeys
 import org.prairieserver.prairie.model.settings.QualityChoices
 import org.prairieserver.prairie.model.settings.QualityPresets
 import org.prairieserver.prairie.model.settings.SettingKeys
+import org.prairieserver.prairie.network.apiv2.PlaybackLearnedLimitV2
 
 // Quality is two independent pickers, as on the web: playback.preferred_quality
 // (a resolution cap) and playback.max_bitrate_kbps (a bandwidth cap, null =
@@ -54,6 +61,7 @@ private fun ProfileLayeredDropdownRow(
     overridden: Boolean,
     onOptionSelected: (String) -> Unit,
     onUseProfileSetting: () -> Unit,
+    description: String? = null,
 ) {
     SettingsDropdownRow(
         label = label,
@@ -63,6 +71,7 @@ private fun ProfileLayeredDropdownRow(
         onOptionSelected = { option ->
             if (option == UseProfileSettingsCopy.OPTION) onUseProfileSetting() else onOptionSelected(option)
         },
+        description = description,
     )
 }
 
@@ -73,7 +82,7 @@ private fun ProfileLayeredDropdownRow(
  * "Use Profile Default" does.
  */
 @Composable
-private fun ProfileLayeredSwitchRow(
+internal fun ProfileLayeredSwitchRow(
     label: String,
     checked: Boolean,
     overridden: Boolean,
@@ -106,6 +115,12 @@ fun PlaybackStreamingSection(
     dolbyVisionEnabled: Boolean,
     dvProfile7HDR10Fallback: Boolean,
     pictureInPictureEnabled: Boolean,
+    bufferingQualityMode: BufferingQualityMode,
+    /** Whether the server has the setting; without it the row hides and Prairie lowers automatically. */
+    bufferingQualityModeSupported: Boolean,
+    /** Shown, with its Reset action, only while the server reports one. */
+    learnedLimit: PlaybackLearnedLimitV2?,
+    learnedLimitResetFailed: Boolean,
     /** Keys this device holds its own value for. */
     deviceOverrides: Set<String>,
     /** Receives a [QualityChoices.RESOLUTIONS] value. */
@@ -116,6 +131,8 @@ fun PlaybackStreamingSection(
     onDolbyVisionEnabledChanged: (Boolean) -> Unit,
     onDvProfile7HDR10FallbackChanged: (Boolean) -> Unit,
     onPictureInPictureEnabledChanged: (Boolean) -> Unit,
+    onBufferingQualityModeChanged: (BufferingQualityMode) -> Unit,
+    onResetLearnedLimit: () -> Unit,
     /** Receives the key of the control going back to the profile's value. */
     onUseProfileSetting: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -132,6 +149,8 @@ fun PlaybackStreamingSection(
     // A stored cap that is not one of the choices (set through the API or
     // another client) is listed in its place, so it stays visible and selected.
     val bitrateChoices = remember(maxBitrateKbps) { QualityChoices.bitrateChoices(maxBitrateKbps) }
+    val bufferingQualityOptions =
+        BufferingQualityMode.entries.map { it to stringResource(bufferingQualityModeLabel(it)) }
     SettingsSection(
         title = "Streaming",
         footer = QualityChoices.description(qualityResolution, maxBitrateKbps),
@@ -158,6 +177,33 @@ fun PlaybackStreamingSection(
             },
             onUseProfileSetting = { onUseProfileSetting(PlaybackSettingsKeys.MaxBitrateKbps) },
         )
+
+        // Next to Maximum Bitrate, the manual cap on Auto it complements. The
+        // copy is the spec's.
+        if (bufferingQualityModeSupported) {
+            ProfileLayeredDropdownRow(
+                label = stringResource(CommonR.string.settings_buffering_quality_title),
+                value = stringResource(bufferingQualityModeLabel(bufferingQualityMode)),
+                options = bufferingQualityOptions.map { it.second },
+                overridden = PlaybackSettingsKeys.hasDeviceOverride(deviceOverrides, PlaybackSettingsKeys.BufferingQualityMode),
+                onOptionSelected = { label ->
+                    bufferingQualityOptions.firstOrNull { it.second == label }?.let { onBufferingQualityModeChanged(it.first) }
+                },
+                onUseProfileSetting = { onUseProfileSetting(PlaybackSettingsKeys.BufferingQualityMode) },
+                description = stringResource(CommonR.string.settings_buffering_quality_description),
+            )
+        }
+
+        if (learnedLimit != null) {
+            SettingsRow(label = learnedLimitLabel(learnedLimit)) {
+                TextButton(onClick = onResetLearnedLimit) {
+                    Text(stringResource(CommonR.string.settings_learned_limit_reset))
+                }
+            }
+            if (learnedLimitResetFailed) {
+                SettingsProse(body = stringResource(CommonR.string.settings_learned_limit_reset_failed))
+            }
+        }
 
         ProfileLayeredDropdownRow(
             label = "Audio Language",

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.common.player.video
 
+import org.prairieserver.prairie.model.catalog.MarkerSegment
 import org.prairieserver.prairie.model.catalog.TimeRange
 import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.model.playback.PlayMethod
@@ -44,10 +45,14 @@ sealed interface VideoPlaybackStartResult {
         val preferredTextLanguage: String? = null,
         val preferredSubtitleMode: String? = null,
         val showForcedSubtitles: Boolean = true,
+        /** The series' remembered subtitle track (WatchDetail `effective_subtitle_track_signature`). */
+        val preferredSubtitleTrackSignature: org.prairieserver.prairie.model.playback.SubtitleTrackSignature? = null,
         val intro: TimeRange? = null,
         val credits: TimeRange? = null,
         val recap: TimeRange? = null,
         val preview: TimeRange? = null,
+        /** Every marker occurrence; null from servers that send only the singular fields. */
+        val markerSegments: List<MarkerSegment>? = null,
         val chapters: List<VersionChapter> = emptyList(),
         // Episode context for next-episode auto-advance (null for movies).
         val seriesId: String? = null,

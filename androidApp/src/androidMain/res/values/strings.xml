@@ -18,6 +18,8 @@
     <string name="action_sign_out">Sign Out</string>
 
     <!-- Remote Control -->
+    <string name="remote_replace_title">Replace what\'s playing?</string>
+    <string name="remote_replace_cancel">Cancel</string>
     <string name="remote_battery_title">Keep Remote Control connected</string>
     <string name="remote_battery_message">Allow Prairie to run without battery restrictions so Remote Control can stay connected after you leave the app. In Battery optimization, choose Prairie and set it to Not optimized.</string>
     <string name="remote_battery_settings">Battery settings</string>
@@ -37,6 +39,16 @@
     <string name="settings_intro_skip_never">Never</string>
     <string name="settings_intro_skip_ask">Ask to skip</string>
     <string name="settings_intro_skip_always">Skip automatically</string>
+
+    <!-- The player's buffering pills and notices (contract-fixed copy) -->
+    <string name="buffering_quality_prompt_title">Playback keeps buffering</string>
+    <string name="buffering_quality_prompt_lower">Lower quality</string>
+    <string name="buffering_quality_prompt_keep">Keep quality</string>
+    <string name="buffering_quality_lowered">Quality lowered to stop buffering</string>
+    <string name="buffering_quality_restore">Restore quality</string>
+    <string name="buffering_quality_cant_lower">Can\'t lower quality for this video</string>
+    <!-- The Quality menu's Auto row while a learned limit holds Auto down. -->
+    <string name="buffering_quality_auto_limited">Auto · limited after buffering</string>
 
     <!-- Placeholder -->
     <string name="coming_soon">Coming soon</string>
@@ -102,11 +114,13 @@
     <!-- Nearby TV offer (LAN companion pairing) -->
     <string name="companion_offer_setup_title">Set up %1$s</string>
     <string name="companion_offer_setup_body">Sign %1$s in to your servers from this phone.</string>
+    <string name="companion_offer_setup_body_tablet">Sign %1$s in to your servers from this tablet.</string>
     <string name="companion_offer_setup_action">Set up</string>
     <string name="companion_offer_signin_title">Sign in %1$s to %2$s?</string>
     <!-- Unauthenticated discovery: the name and state are the TV's claim,
          checked against its code on the next step. -->
     <string name="companion_offer_signin_body">A TV nearby named “%1$s” says it\'s on its sign-in screen. You\'ll check its code before approving.</string>
+    <string name="companion_offer_signin_body_roku">A Roku nearby named “%1$s” says it\'s on its sign-in screen. You\'ll check its code before approving.</string>
     <string name="companion_offer_signin_action">Sign in</string>
     <string name="companion_offer_not_now">Not now</string>
     <string name="companion_confirm_check">Check that %1$s shows</string>
@@ -119,18 +133,23 @@
     <string name="companion_signin_failed_title">Sign-in didn\'t finish</string>
     <string name="companion_confirm_older_tv">Older TV apps show %1$s instead.</string>
     <string name="companion_pane_title">Nearby TV</string>
+    <string name="companion_pane_title_roku">Nearby Roku</string>
     <string name="companion_setup_done_title">Set up %1$s</string>
     <string name="companion_setup_done_title_generic">TV setup complete</string>
+    <string name="companion_setup_done_title_generic_roku">Roku setup complete</string>
     <string name="companion_setup_done_body">%1$s is ready.</string>
     <string name="companion_setup_failed_title">Setup didn\'t finish</string>
     <string name="companion_setup_progress_title">Setting up…</string>
     <string name="companion_setup_progress_allow">Continue on %1$s — allow this phone to set it up.</string>
+    <string name="companion_setup_progress_allow_tablet">Continue on %1$s — allow this tablet to set it up.</string>
     <string name="companion_connecting">Connecting…</string>
     <string name="companion_progress_waiting_code">Waiting for %1$s to show its code.</string>
     <string name="companion_progress_approving">Approving %1$s on %2$s.</string>
     <string name="companion_progress_signed_in">%1$s signed in.</string>
     <string name="companion_progress_wait">Please wait.</string>
     <string name="companion_choose_servers_title">Choose servers</string>
+    <!-- A Roku keeps one server, so its chooser is single-select. -->
+    <string name="companion_choose_server_title">Choose a server</string>
     <string name="companion_choose_servers_body">Sign %1$s in to…</string>
     <string name="companion_continue">Continue</string>
     <string name="companion_cancel">Cancel</string>

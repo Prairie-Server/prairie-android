@@ -31,14 +31,18 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import org.prairieserver.prairie.cast.PrairieCastCloseReason
 import org.prairieserver.prairie.cast.PrairieCastControlCommand
 import org.prairieserver.prairie.cast.PrairieCastError
+import org.prairieserver.prairie.cast.PrairieCastFeature
 import org.prairieserver.prairie.cast.PrairieCastHello
 import org.prairieserver.prairie.cast.PrairieCastHandoffCancel
+import org.prairieserver.prairie.cast.PrairieCastHandoffCancelReason
 import org.prairieserver.prairie.cast.PrairieCastHandoffOffer
 import org.prairieserver.prairie.cast.PrairieCastHandoffReady
 import org.prairieserver.prairie.cast.PrairieCastLaunchRequest
 import org.prairieserver.prairie.cast.PrairieCastMessage
+import org.prairieserver.prairie.cast.PrairieCastNowPlayingSummary
 import org.prairieserver.prairie.cast.PrairieCastPeerRole
 import org.prairieserver.prairie.cast.PrairieCastPlaybackState
 import org.prairieserver.prairie.cast.PrairieCastProtocol
@@ -48,6 +52,7 @@ import org.prairieserver.prairie.common.cast.PrairieCastFrameBuffer
 import org.prairieserver.prairie.common.cast.PrairieCastNsdAdvertiser
 import org.prairieserver.prairie.common.lan.PrairieCastTls
 import org.prairieserver.prairie.common.lan.PrairieCastTlsSession
+import org.prairieserver.prairie.model.server.ServerEntry
 import org.prairieserver.prairie.network.AndroidServerRegistry
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.IdentityTransitionBarrier
@@ -59,7 +64,11 @@ import org.prairieserver.prairie.network.TokenManager
  * prairie-apple's TVControlReceiver:
  *
  * - Transport is TLS-PSK ([PrairieCastTls]) over the advertised `_prairiecast._tcp`
- *   port; newest controller wins the single session slot.
+ *   port. Up to [TvPrairieCastReceiverPolicy.MAX_CONTROLLERS] controllers stay
+ *   connected at once (phones, tablets, integrations), each with its own
+ *   heartbeat, authorization and command budget. The player, the borrowed
+ *   phone identity, the one in-flight handoff and the standby screen are
+ *   shared by all of them.
  * - The TV sends `hello` immediately after the TLS handshake. The controller
  *   must reply within [AUTH_GRACE_MS]. A same-server controller is authorized
  *   directly; a different-server launch must first complete the temporary
@@ -68,16 +77,21 @@ import org.prairieserver.prairie.network.TokenManager
  * - Heartbeat: the TV pings every [HEARTBEAT_INTERVAL_MS]; only a `pong`
  *   proves the controller can still receive, so only `pong` resets the
  *   missed counter. More than [MAX_MISSED_HEARTBEATS] misses → drop.
- * - State pushes every [STATE_INTERVAL_MS] (Apple's 500ms cadence) while a
- *   player is registered, an idle "Ready" state otherwise, and one push
- *   right after every accepted control command.
+ * - One state tick every [STATE_INTERVAL_MS] (Apple's 500ms cadence) goes to
+ *   every authorized controller, plus one after every accepted command.
+ *   Errors go only to the controller that caused them.
  * - A deliberate teardown sends a `close` frame ahead of the FIN so the
- *   controller can tell "disconnected on purpose" from a dropped link.
+ *   controller can tell "disconnected on purpose" from a dropped link; peers
+ *   that list `close_reason` also learn why.
  * - A same-server phone offering the profile this TV is already signed in
  *   with gets `handoff_ready` at once and plays on the TV's own identity.
  *   A borrowed profile stays installed while its phone is connected, so the
  *   next title reuses it, and is handed back when that phone leaves, another
  *   controller takes over, or after [IDENTITY_IDLE_MS] with nothing playing.
+ *   Reusing it needs the connection that completed the handoff or the resume
+ *   token issued to it, since device IDs are self-reported.
+ * - A handoff that would replace a title another profile is watching asks
+ *   first (`replace_confirmation_required`) when the controller can ask.
  */
 class TvPrairieCastReceiver(
     private val advertiser: PrairieCastNsdAdvertiser,
@@ -92,14 +106,38 @@ class TvPrairieCastReceiver(
     private val awaitPlaybackTeardown: suspend () -> Unit,
     /** True while this TV is in a Watch Party, whose membership an identity swap would end. */
     private val inWatchParty: () -> Boolean = { false },
+    /** The TV's own active profile name, for the replace prompt on a title it plays on its own identity. */
+    private val ownProfileNameProvider: () -> String? = { null },
+    private val nowMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
+    /** Poster and synopsis for a content ID; see [PrairieCastNowPlayingMetadataResolver]. */
+    nowPlayingMetadataLoader: suspend (contentId: String, allowCached: Boolean) -> PrairieCastNowPlayingMetadata? =
+        { _, _ -> null },
+    /**
+     * Probes a saved server's deployment identity and records it on the entry,
+     * returning it, or null when the server can't be reached or predates the
+     * contract. See
+     * [org.prairieserver.prairie.repository.ServerIdentityRepository.identityOf].
+     */
+    private val recordServerIdentity: suspend (ServerEntry) -> String? = { null },
+    wallClockMs: () -> Long = System::currentTimeMillis,
 ) {
     data class StandbyState(
         val controllerName: String?,
         val serverName: String?,
         /** Set while a full profile handoff prepares a title the phone is about to play. */
         val preparing: Preparing? = null,
+        /** Other non-passive controllers waiting besides [controllerName]. */
+        val otherControllerCount: Int = 0,
     ) {
-        val controllerLabel: String get() = controllerName?.takeIf { it.isNotBlank() } ?: "phone"
+        val controllerLabel: String
+            get() {
+                val name = controllerName?.takeIf { it.isNotBlank() } ?: "phone"
+                return when {
+                    otherControllerCount <= 0 -> name
+                    otherControllerCount == 1 -> "$name and 1 other device"
+                    else -> "$name and $otherControllerCount other devices"
+                }
+            }
 
         data class Preparing(val title: String?)
     }
@@ -111,15 +149,29 @@ class TvPrairieCastReceiver(
 
     private var scope: CoroutineScope? = null
     private var serverSocket: ServerSocket? = null
-    @Volatile
-    private var activeSession: ControllerSession? = null
+
+    // Every connected controller by connection id, in acceptance order.
+    // Guarded by the receiver lock.
+    private val controllers = LinkedHashMap<String, ControllerSession>()
+    private var controllerSequence: Long = 0
+
+    // The one in-flight handoff. A newer offer from another controller
+    // cancels it with `superseded`. Guarded by the receiver lock.
+    private var pendingHandoff: PendingHandoff? = null
+
+    // Who may reuse the active borrowed identity without a new approval: the
+    // connection whose handoff installed it, or whoever presents the resume
+    // token issued to that connection. Guarded by the receiver lock.
+    private var issuedIdentity: IssuedIdentity? = null
+
     private val _standbyState = MutableStateFlow<StandbyState?>(null)
     val standbyState: StateFlow<StandbyState?> = _standbyState.asStateFlow()
 
-    /** Bumped whenever the active-controller slot is force-cleared (new accept,
-     *  server switch, stop). Handshakes started before the bump must not
-     *  register — they belong to the previous epoch. */
-    private var sessionEpoch: Long = 0
+    /** Bumped whenever every controller is force-closed (server switch, stop).
+     *  Handshakes started before the bump must not register — they belong to
+     *  the previous epoch. */
+    private var receiverEpoch: Long = 0
+    @Volatile
     private var activePlayer: ActivePlayer? = null
     private val volumeTracker = PrairieCastVolumeTracker()
     private val launchRequestChannel = Channel<Launch>(capacity = 1)
@@ -152,6 +204,19 @@ class TvPrairieCastReceiver(
     // stop() cancels the receiver scope, so cleanup for a ready-but-unconsumed
     // temporary identity must have an owner that survives that cancellation.
     private val identityCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Poster and synopsis for the playing title, sent with its state. */
+    private val metadataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val nowPlayingMetadata = PrairieCastNowPlayingMetadataResolver(
+        scope = metadataScope,
+        load = { contentId, allowCached ->
+            runCatching { nowPlayingMetadataLoader(contentId, allowCached) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull()
+        },
+        nowEpochMs = wallClockMs,
+        onChange = { metadataScope.launch { runRecovering("metadata state") { broadcastState() } } },
+    )
     // Bumped by every start(). Handoffs tag the identity with the run that
     // claimed it, so stop()'s deferred cleanup can tell a returning phone's
     // claim from one made by the session it is tearing down.
@@ -186,10 +251,10 @@ class TvPrairieCastReceiver(
         }
         // Keep the Bonjour TXT record in sync with the active server while the
         // receiver runs (it stays up across server switches until onStop), and
-        // drop the live controller session — its hello was authorized against
-        // the previous server, so keeping it would let an old-server remote
-        // drive playback on the new one. Only a different server or advertised
-        // name counts: profile and last-used updates rewrite the entry too, and
+        // drop the live controllers — their hellos were authorized against the
+        // previous server, so keeping them would let an old-server remote drive
+        // playback on the new one. Only a different server or advertised name
+        // counts: profile and last-used updates rewrite the entry too, and
         // re-registering on a profile clear raced the stop() that follows it,
         // losing the Bonjour goodbye so the TV stayed listed after sign-out.
         newScope.launch {
@@ -197,12 +262,54 @@ class TvPrairieCastReceiver(
                 .distinctUntilChangedBy { it?.id to it?.displayName }
                 .drop(1)
                 .collect {
-                    closePreviousController()
+                    closeAllControllers(PrairieCastCloseReason.Unauthorized)
                     identityManager.end()
                     // Re-advertises under the lock, and is a no-op once stop()
                     // has cleared the socket.
                     refreshAdvertisement()
                 }
+        }
+        // Phones on another address of this server find the TV by its
+        // deployment identity. Release builds record that identity only when
+        // a phone pairs the TV, so a TV signed in any other way advertised
+        // none and those phones didn't list it. Record it once per server
+        // while the receiver runs; an unreachable server is tried again on
+        // the next start.
+        newScope.launch {
+            serverRegistry.activeEntry
+                .distinctUntilChangedBy { it?.id }
+                .collect { entry ->
+                    if (entry == null || !entry.verifiedServerId.isNullOrBlank()) return@collect
+                    runRecovering("server identity check") {
+                        if (recordServerIdentity(entry) != null) refreshAdvertisedIdentity()
+                    }
+                }
+        }
+        // One state tick for every controller, built once. These jobs are
+        // roots of a SupervisorJob scope with no handler, so a throw would
+        // crash the app; a failed tick or expiry is logged and skipped.
+        newScope.launch {
+            while (isActive) {
+                runRecovering("state tick") { broadcastState() }
+                delay(STATE_INTERVAL_MS)
+            }
+        }
+        // A borrowed profile whose session the server refused to refresh.
+        newScope.launch {
+            tokenManager.temporarySessionExpired.collect { generation ->
+                runRecovering("temporary session expiry") { onTemporarySessionExpired(generation) }
+            }
+        }
+    }
+
+    /** Runs [block], logging instead of throwing: a root job's exception would crash the app. */
+    private suspend fun runRecovering(what: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "PrairieCast $what failed", t)
         }
     }
 
@@ -210,20 +317,22 @@ class TvPrairieCastReceiver(
     fun stop() {
         DiagnosticsCastLogger.event("TV cast receiver stopped")
         advertiser.stop()
+        nowPlayingMetadata.track(null)
         val stoppedRun = receiverRun
         pendingLaunch = null
         // A launch navigation has not taken yet belongs to the session being
         // torn down; it must not open when the TV app comes back.
         launchRequestChannel.tryReceive()
         identityEndJob = null
-        // Close the session directly (not via closePreviousController, which
-        // launches the goodbye on `scope` — the scope we cancel a line later,
-        // which would kill the goodbye before it writes). A direct close()
-        // sends the FIN; the goodbye frame is best-effort and the socket
-        // teardown below guarantees the peer disconnects regardless.
-        sessionEpoch += 1
-        activeSession?.close()
-        activeSession = null
+        // Close the sessions directly (not via a goodbye launched on `scope` —
+        // the scope we cancel a line later, which would kill the goodbye before
+        // it writes). A direct close() sends the FIN; the socket teardown below
+        // guarantees the peers disconnect regardless.
+        receiverEpoch += 1
+        pendingHandoff = null
+        issuedIdentity = null
+        controllers.values.toList().forEach { it.close() }
+        controllers.clear()
         _standbyState.value = null
         runCatching { serverSocket?.close() }
         serverSocket = null
@@ -284,7 +393,7 @@ class TvPrairieCastReceiver(
             identityGeneration = identityGeneration,
         )
         activePlayer = player
-        activeSession?.let { clearPreparing(it, refresh = false) }
+        controllers.values.forEach { clearPreparing(it, refresh = false) }
         _standbyState.value = null
         advertiser.updatePlaying(true)
         return Closeable {
@@ -292,6 +401,7 @@ class TvPrairieCastReceiver(
                 if (activePlayer === player) {
                     DiagnosticsCastLogger.event("TV cast player unregistered")
                     activePlayer = null
+                    nowPlayingMetadata.track(null)
                     advertiser.updatePlaying(false)
                     val generation = player.identityGeneration
                     if (generation != null) {
@@ -312,28 +422,18 @@ class TvPrairieCastReceiver(
         }
     }
 
-    @Synchronized
-    fun closePreviousController() {
-        // Bump the epoch unconditionally — a handshake in flight (not yet
-        // registered, so activeSession is still null) during a server switch
-        // must also be invalidated, else it registers into the new epoch.
-        sessionEpoch += 1
-        val session = activeSession ?: return
-        DiagnosticsCastLogger.event("TV cast controller disconnected")
-        activeSession = null
-        _standbyState.value = null
-        val owner = scope
-        if (owner != null) {
-            // Goodbye + teardown off the monitor — a blocking write to a
-            // half-open peer must not stall registerPlayer/stop/accept.
-            owner.launch { session.goodbyeAndClose() }
-        } else {
-            session.close()
-        }
-    }
-
+    /**
+     * The TV's own Disconnect (standby screen). Closes every controller that
+     * put the standby screen up; passive ones (integrations, silent
+     * auto-resume) never did and stay connected.
+     */
     fun disconnectRemoteControl() {
-        closePreviousController()
+        val closing = synchronized(this) {
+            controllers.values.filter { !it.passive }.onEach { removeControllerLocked(it) }
+        }
+        if (closing.isNotEmpty()) DiagnosticsCastLogger.event("TV cast controllers disconnected on the TV")
+        closing.forEach { goodbye(it, PrairieCastCloseReason.TvDisconnected) }
+        refreshStandbyState()
     }
 
     internal fun recordPlayerVolume(volume: Double) {
@@ -349,6 +449,45 @@ class TvPrairieCastReceiver(
     internal fun resolvePlayerVolume(currentVolume: Double?): PrairieCastVolumeState =
         volumeTracker.resolve(currentVolume)
 
+    /** Closes every controller; the epoch bump also stops handshakes in flight. */
+    private fun closeAllControllers(reason: String) {
+        val closing = synchronized(this) {
+            receiverEpoch += 1
+            controllers.values.toList().onEach { removeControllerLocked(it) }
+        }
+        if (closing.isNotEmpty()) DiagnosticsCastLogger.event("TV cast controllers disconnected")
+        closing.forEach { goodbye(it, reason) }
+        refreshStandbyState()
+    }
+
+    /**
+     * Removes [session] from the set and lets go of what it owned. Caller
+     * holds the receiver lock. Never touches playback, the identity or the
+     * other controllers.
+     */
+    private fun removeControllerLocked(session: ControllerSession) {
+        if (controllers[session.id] !== session) return
+        controllers.remove(session.id)
+        pendingHandoff?.takeIf { it.controllerId == session.id }?.let {
+            pendingHandoff = null
+            it.job?.cancel()
+        }
+        // Reuse from here on needs the resume token.
+        issuedIdentity?.takeIf { it.connectionId == session.id }?.let {
+            issuedIdentity = it.copy(connectionId = null)
+        }
+    }
+
+    /** Goodbye + teardown off the monitor — a blocking write to a half-open peer must not stall the receiver. */
+    private fun goodbye(session: ControllerSession, reason: String?) {
+        val owner = scope
+        if (owner != null) {
+            owner.launch { session.goodbyeAndClose(reason) }
+        } else {
+            session.close()
+        }
+    }
+
     private suspend fun acceptLoop(socket: ServerSocket) {
         while (true) {
             val client = try {
@@ -357,22 +496,18 @@ class TvPrairieCastReceiver(
                 Log.i(TAG, "PrairieCast listener stopped")
                 return
             }
-            closePreviousController()
             val ownerScope = scope ?: run {
                 runCatching { client.close() }
                 return
             }
-            val sessionJob = ownerScope.launch {
-                runControllerSession(client)
-            }
-            // runControllerSession registers the ControllerSession itself once
-            // the TLS handshake succeeds; a handshake failure just ends the job.
-            sessionJob.invokeOnCompletion { }
+            // A new connection never evicts a working controller here:
+            // admission decides once its TLS handshake is done.
+            ownerScope.launch { runControllerSession(client) }
         }
     }
 
     private suspend fun runControllerSession(client: Socket) {
-        val epochAtAccept = synchronized(this) { sessionEpoch }
+        val epochAtAccept = synchronized(this) { receiverEpoch }
         val tls = try {
             withContext(Dispatchers.IO) { PrairieCastTls.accept(client) }
         } catch (t: Throwable) {
@@ -381,23 +516,42 @@ class TvPrairieCastReceiver(
             runCatching { client.close() }
             return
         }
-        val session = ControllerSession(socket = client, tls = tls, json = json)
-        val registered = synchronized(this) {
-            if (sessionEpoch != epochAtAccept) {
-                // A server switch / newer controller / stop() happened while
-                // this handshake was in flight — this session lost.
-                false
-            } else {
-                // Newest wins: a session that finished handshaking after us in
-                // the same epoch would have replaced us here; close any loser.
-                activeSession?.close()
-                activeSession = session
-                true
+        val session = ControllerSession(id = UUID.randomUUID().toString(), socket = client, tls = tls, json = json)
+        when (val admitted = admit(session, epochAtAccept)) {
+            Admitted.Stale -> {
+                // A server switch or stop() happened while this handshake was
+                // in flight — this session belongs to the previous epoch.
+                session.close()
+                return
             }
-        }
-        if (!registered) {
-            session.close()
-            return
+            Admitted.Refused -> {
+                Log.i(TAG, "PrairieCast at controller limit; refusing a new controller")
+                DiagnosticsCastLogger.warning("TV cast refused a controller at the limit")
+                runCatching {
+                    withTimeoutOrNull(GOODBYE_TIMEOUT_MS) {
+                        session.send(PrairieCastMessage.Hello(makeHello()))
+                        session.send(
+                            PrairieCastMessage.Error(
+                                PrairieCastError(
+                                    code = "too_many_controllers",
+                                    message = "Too many devices are controlling this TV. Disconnect one and try again.",
+                                ),
+                            ),
+                        )
+                        // The peer's features aren't known yet, but every
+                        // shipped decoder ignores the `close` payload. Without
+                        // the reason, a phone that saw `multi_controller` in the
+                        // hello would forget this TV.
+                        session.send(PrairieCastMessage.Close.withReason(PrairieCastCloseReason.TooManyControllers))
+                    }
+                }
+                session.close()
+                return
+            }
+            is Admitted.Registered -> admitted.evicted?.let {
+                Log.i(TAG, "PrairieCast at controller limit; closing an idle controller")
+                goodbye(it, PrairieCastCloseReason.TooManyControllers)
+            }
         }
         DiagnosticsCastLogger.event("TV cast controller connected")
         try {
@@ -408,12 +562,18 @@ class TvPrairieCastReceiver(
                 // until the controller's hello has been authorized.
                 session.send(PrairieCastMessage.Hello(makeHello()))
 
-                val stateJob = launch {
-                    while (isActive) {
-                        if (session.isAuthorized) {
-                            session.send(PrairieCastMessage.State(currentState()))
+                // The latest state only: a slow peer never holds up the others,
+                // and never receives a stale frame after a newer one.
+                // Checked again once the write is admitted: a state read
+                // under another profile, or queued before this controller lost
+                // access, is dropped instead of sent.
+                val stateWriter = launch {
+                    for (published in session.stateUpdates) {
+                        session.sendIf(PrairieCastMessage.State(published.state)) {
+                            synchronized(this@TvPrairieCastReceiver) {
+                                session.isAuthorized && identityManager.activeIdentity?.generationId == published.generation
+                            }
                         }
-                        delay(STATE_INTERVAL_MS)
                     }
                 }
                 val heartbeatJob = launch {
@@ -423,6 +583,7 @@ class TvPrairieCastReceiver(
                         if (session.missedHeartbeats > MAX_MISSED_HEARTBEATS) {
                             Log.i(TAG, "PrairieCast controller heartbeat timed out")
                             DiagnosticsCastLogger.warning("TV cast controller timed out")
+                            // No goodbye: the peer stopped answering.
                             session.close()
                             return@launch
                         }
@@ -434,14 +595,14 @@ class TvPrairieCastReceiver(
                     if (!session.didReceiveHello) {
                         Log.i(TAG, "PrairieCast controller never authorized; closing")
                         DiagnosticsCastLogger.warning("TV cast authorization timed out")
-                        session.goodbyeAndClose()
+                        session.goodbyeAndClose(PrairieCastCloseReason.Timeout)
                     }
                 }
 
                 readLoop(tls) { message ->
                     handleMessage(session, message)
                 }
-                stateJob.cancel()
+                stateWriter.cancel()
                 heartbeatJob.cancel()
                 authWatchdog.cancel()
             }
@@ -450,207 +611,61 @@ class TvPrairieCastReceiver(
         } catch (t: Throwable) {
             Log.w(TAG, "PrairieCast controller session ended", t)
         } finally {
-            synchronized(this) {
-                if (activeSession === session) {
-                    activeSession = null
-                    _standbyState.value = null
-                }
-            }
+            synchronized(this) { removeControllerLocked(session) }
+            refreshStandbyState()
             session.close()
             // The phone that lent the profile left (disconnected, dropped, was
-            // disconnected from the TV, or lost the slot to another phone).
-            // Hand the profile back unless a title is playing on it or on its
-            // way to the player; playback outlives a lost socket.
-            // A phone that reconnects within the grace keeps it.
+            // disconnected from the TV, or was replaced). Hand the profile back
+            // unless a title is playing on it or on its way to the player, or
+            // another connection from that phone is still here; playback
+            // outlives a lost socket. A phone that reconnects within the grace
+            // keeps it.
             val lent = identityManager.activeIdentity
                 ?.takeIf { it.controllerDeviceId == session.controllerDeviceId }
-            if (lent != null && isIdentityIdle()) {
+            if (lent != null && isIdentityIdle() && !isLenderConnected(lent.generationId)) {
                 scheduleIdentityEnd(lent.generationId, keepIfLenderReturns = true)
             }
         }
     }
 
+    private sealed interface Admitted {
+        data object Stale : Admitted
+
+        data object Refused : Admitted
+
+        data class Registered(val evicted: ControllerSession?) : Admitted
+    }
+
+    /** Adds [session] to the set if it fits (see [TvPrairieCastReceiverPolicy.admission]). */
+    @Synchronized
+    private fun admit(session: ControllerSession, epochAtAccept: Long): Admitted {
+        if (receiverEpoch != epochAtAccept) return Admitted.Stale
+        val existing = controllers.values.map { it.summary(isHandingOff = pendingHandoff?.controllerId == it.id) }
+        val evicted = when (val admission = TvPrairieCastReceiverPolicy.admission(existing)) {
+            TvPrairieCastReceiverPolicy.Admission.Admit -> null
+            is TvPrairieCastReceiverPolicy.Admission.AdmitEvicting ->
+                controllers[admission.id]?.also { removeControllerLocked(it) }
+            TvPrairieCastReceiverPolicy.Admission.Refuse -> return Admitted.Refused
+        }
+        controllerSequence += 1
+        session.sequence = controllerSequence
+        controllers[session.id] = session
+        return Admitted.Registered(evicted)
+    }
+
     /** @return false to end the session's read loop. */
     private suspend fun handleMessage(session: ControllerSession, message: PrairieCastMessage): Boolean {
         when (message) {
-            is PrairieCastMessage.Hello -> {
-                val negotiated = PrairieCastProtocol.negotiatedVersion(message.hello.supportedVersions)
-                if (message.hello.role != PrairieCastPeerRole.Phone || negotiated != PrairieCastProtocol.version) {
-                    session.send(
-                        PrairieCastMessage.Error(
-                            PrairieCastError(
-                                code = "version_unsupported",
-                                message = "Update Prairie on both devices to continue.",
-                            ),
-                        ),
-                    )
-                    session.goodbyeAndClose()
-                    return false
-                }
-                session.didReceiveHello = true
-                session.negotiatedVersion = negotiated
-                session.controllerDeviceId = message.hello.deviceId
-                session.controllerDeviceName = message.hello.deviceName
-                session.controllerServerId = message.hello.serverId
-                val activeServerId = identityManager.activeIdentity?.serverId
-                    ?: serverRegistry.activeServerId.value
-                val offered = message.hello.serverId
-                session.isAuthorized = AndroidServerRegistry.serverIdsMatch(offered, activeServerId)
-                DiagnosticsCastLogger.event(
-                    if (session.isAuthorized) "TV cast controller authorized" else "TV cast handoff required",
-                )
-                refreshStandbyState()
-                if (session.isAuthorized) {
-                    session.send(PrairieCastMessage.State(currentState()))
-                }
-            }
-            is PrairieCastMessage.HandoffOffer -> {
-                val offer = message.handoffOffer
-                // A handoff swaps in the phone's profile, and any identity
-                // change leaves the Watch Party this TV is in.
-                if (inWatchParty()) {
-                    session.send(
-                        PrairieCastMessage.HandoffCancel(
-                            PrairieCastHandoffCancel(
-                                requestId = offer.requestId,
-                                reason = "watch_party_active",
-                                message = "Leave the Watch Party on the TV first.",
-                            ),
-                        ),
-                    )
-                    return true
-                }
-                val controllerId = session.controllerDeviceId
-                if (session.negotiatedVersion != PrairieCastProtocol.version || controllerId == null) {
-                    session.send(
-                        PrairieCastMessage.HandoffCancel(
-                            PrairieCastHandoffCancel(
-                                requestId = offer.requestId,
-                                reason = "version_unsupported",
-                                message = "Update Prairie on both devices to continue.",
-                            ),
-                        ),
-                    )
-                    return true
-                }
-                // A launch on its way to the player would land on whatever
-                // identity this handoff installs. The phone tries again once the
-                // player opens, or the pending launch expires.
-                if (synchronized(this) { pendingLaunch != null }) {
-                    session.send(
-                        PrairieCastMessage.HandoffCancel(
-                            PrairieCastHandoffCancel(
-                                requestId = offer.requestId,
-                                reason = "launch_pending",
-                                message = LAUNCH_PENDING_MESSAGE,
-                            ),
-                        ),
-                    )
-                    return true
-                }
-                session.handoffJob?.cancel()
-                // A reused identity must survive a pending cleanup. One this
-                // offer would replace stays until approval, so its cleanup still
-                // runs if the handoff fails; after a replacement it finds a newer
-                // generation and does nothing.
-                if (identityManager.matches(offer, controllerId)) {
-                    identityEndJob?.cancel()
-                    identityEndJob = null
-                }
-                session.remoteLaunchReady = false
-                session.ownIdentityProfileId = null
-                val run = receiverRun
-                session.handoffJob = scope?.launch {
-                    try {
-                        // The hello may have been judged against a phone's
-                        // identity that is gone now; with none installed, the
-                        // TV's own server decides.
-                        if (identityManager.activeIdentity == null) {
-                            session.isAuthorized = AndroidServerRegistry.serverIdsMatch(
-                                session.controllerServerId,
-                                serverRegistry.activeServerId.value,
-                            )
-                            refreshStandbyState()
-                        }
-                        ownIdentityReady(session, offer)?.let { ready ->
-                            clearPreparing(session)
-                            session.ownIdentityProfileId = offer.profileId
-                            DiagnosticsCastLogger.event("TV cast handoff skipped on own profile")
-                            session.send(PrairieCastMessage.HandoffReady(ready))
-                            session.send(PrairieCastMessage.State(currentState()))
-                            return@launch
-                        }
-                        var fullHandoff = false
-                        val ready = identityManager.prepare(
-                            offer = offer,
-                            controllerDeviceId = controllerId,
-                            controllerDeviceName = session.controllerDeviceName,
-                            receiverRun = run,
-                            onFullHandoff = {
-                                fullHandoff = true
-                                showPreparing(session, offer.title)
-                            },
-                            beforeActivation = ::stopPlayerBeforeIdentitySwap,
-                        ) { challenge ->
-                            if (activeSession === session) {
-                                session.send(PrairieCastMessage.HandoffChallenge(challenge))
-                            }
-                        }
-                        // A reuse is instant; drop a cancelled offer's title.
-                        if (!fullHandoff) clearPreparing(session)
-                        if (activeSession !== session) {
-                            identityManager.end()
-                            return@launch
-                        }
-                        session.isAuthorized = true
-                        DiagnosticsCastLogger.event("TV cast handoff authorized")
-                        session.remoteLaunchReady = true
-                        refreshStandbyState()
-                        refreshAdvertisement()
-                        session.send(PrairieCastMessage.HandoffReady(ready))
-                        session.send(PrairieCastMessage.State(currentState()))
-                        // Replaces the old ready-without-launch timeout: with
-                        // nothing playing, the profile goes back after the
-                        // idle limit. A player cancels this when it opens.
-                        if (activePlayer == null) {
-                            identityManager.activeIdentity?.let {
-                                scheduleIdentityEnd(it.generationId, IDENTITY_IDLE_MS)
-                            }
-                        }
-                        if (fullHandoff) {
-                            session.preparingClearJob?.cancel()
-                            session.preparingClearJob = scope?.launch {
-                                delay(PREPARING_AFTER_READY_MS)
-                                clearPreparing(session)
-                            }
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (t: Throwable) {
-                        clearPreparing(session)
-                        if (session.remoteLaunchReady && activePlayer == null) {
-                            identityManager.end()
-                            session.remoteLaunchReady = false
-                            refreshAdvertisement()
-                        }
-                        if (activeSession === session) {
-                            session.send(
-                                PrairieCastMessage.HandoffCancel(
-                                    PrairieCastHandoffCancel(
-                                        requestId = offer.requestId,
-                                        reason = "handoff_failed",
-                                        message = t.message ?: "Remote playback handoff failed.",
-                                    ),
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
+            is PrairieCastMessage.Hello -> return handleHello(session, message.hello)
+            is PrairieCastMessage.HandoffOffer -> handleOffer(session, message.handoffOffer)
             is PrairieCastMessage.HandoffCancel -> {
-                session.handoffJob?.cancel()
-                session.handoffJob = null
-                session.remoteLaunchReady = false
+                val cancel = message.handoffCancel
+                val owned = synchronized(this) {
+                    pendingHandoff?.takeIf { it.controllerId == session.id && it.requestId == cancel.requestId }
+                        ?.also { pendingHandoff = null }
+                }
+                owned?.job?.cancel()
+                session.readyGeneration = null
                 session.ownIdentityProfileId = null
                 clearPreparing(session)
                 // The phone is still here, so a profile it lent stays for its
@@ -664,111 +679,13 @@ class TvPrairieCastReceiver(
                     }
                     ?.let { scheduleIdentityEnd(it.generationId, IDENTITY_IDLE_MS) }
             }
-            is PrairieCastMessage.Launch -> {
-                if (!requireAuthorized(session)) return true
-                // A Watch Party player is never silently replaced by a cast.
-                activePlayer?.adapter?.launchRefusal?.invoke()?.let { refusal ->
-                    session.send(
-                        PrairieCastMessage.Error(
-                            PrairieCastError(code = "watch_party_active", message = refusal),
-                        ),
-                    )
-                    return true
-                }
-                // In a party lobby no party player is registered yet, but a
-                // solo launch would still take the shared player from the room.
-                if (inWatchParty()) {
-                    session.send(
-                        PrairieCastMessage.Error(
-                            PrairieCastError(code = "watch_party_active", message = "Leave the Watch Party on the TV first."),
-                        ),
-                    )
-                    return true
-                }
-                // A sign-in, profile or borrowed-identity change after this
-                // makes the launch stale (see confirmLaunch).
-                val identity = settledLaunchIdentity(session)?.takeIf { it.onOwnIdentity || it.borrowed != null }
-                if (identity == null) {
-                    session.send(
-                        PrairieCastMessage.Error(
-                            PrairieCastError(
-                                code = "handoff_required",
-                                message = "Prepare the phone profile before playing.",
-                            ),
-                        ),
-                    )
-                    return true
-                }
-                val onOwnIdentity = identity.onOwnIdentity
-                val borrowed = identity.borrowed
-                if (!AndroidServerRegistry.serverIdsMatch(message.launch.serverId, identity.serverId)) {
-                    session.send(
-                        PrairieCastMessage.Error(
-                            PrairieCastError(
-                                code = "server_mismatch",
-                                message = "This TV is connected to a different Prairie server.",
-                            ),
-                        ),
-                    )
-                    return true
-                }
-                val generation = if (onOwnIdentity) null else borrowed?.generationId
-                val launchOwner = UUID.randomUUID().toString()
-                val admitted = AdmittedLaunch(launchOwner, generation, identity.revision)
-                val refusal = synchronized(this) {
-                    when {
-                        // A phone that lost the slot while this was in flight.
-                        activeSession !== session -> PrairieCastError(
-                            code = "unauthorized",
-                            message = "Another phone is controlling this TV.",
-                        )
-                        pendingLaunch != null -> PrairieCastError(
-                            code = "launch_pending",
-                            message = LAUNCH_PENDING_MESSAGE,
-                        )
-                        // The identity changed since the checks above, or its
-                        // hand-back has committed.
-                        !isAdmittedIdentityCurrentLocked(admitted) -> PrairieCastError(
-                            code = "handoff_required",
-                            message = "Prepare the phone profile before playing.",
-                        )
-                        else -> {
-                            pendingLaunch = admitted
-                            null
-                        }
-                    }
-                }
-                if (refusal != null) {
-                    if (refusal.code == "handoff_required") session.remoteLaunchReady = false
-                    session.send(PrairieCastMessage.Error(refusal))
-                    return true
-                }
-                if (!launchRequestChannel.trySend(Launch(message.launch, launchOwner)).isSuccess) {
-                    clearPendingLaunch(launchOwner)
-                    session.send(
-                        PrairieCastMessage.Error(
-                            PrairieCastError(
-                                code = "launch_failed",
-                                message = "The TV could not open remote playback.",
-                            ),
-                        ),
-                    )
-                    return true
-                }
-                // A launch whose player never opens must not hold off every
-                // later handoff.
-                scope?.launch {
-                    delay(PENDING_LAUNCH_TIMEOUT_MS)
-                    clearPendingLaunch(launchOwner, dropQueued = true)
-                }
-                session.remoteLaunchReady = false
-                session.ownIdentityProfileId = null
-                // The TV is opening the player now; the preparing view is done.
-                clearPreparing(session, refresh = false)
-                _standbyState.value = null
-            }
+            is PrairieCastMessage.Launch -> handleLaunch(session, message.launch)
             is PrairieCastMessage.Control -> {
                 if (!requireAuthorized(session)) return true
+                if (!session.commandBudget.allow(nowMs())) {
+                    noteRateLimited(session)
+                    return true
+                }
                 if (message.control.name !in PrairieCastControlCommand.knownNames) {
                     // A command from a newer (or retired, like set_hdr_enabled)
                     // remote. Ignored without an error, as tvOS does: the phone
@@ -791,7 +708,14 @@ class TvPrairieCastReceiver(
                 withContext(Dispatchers.Main.immediate) {
                     player.adapter.handle(message.control)
                 }
-                session.send(PrairieCastMessage.State(currentState()))
+                // Everyone sees the change, not only the controller that made it.
+                broadcastState()
+            }
+            is PrairieCastMessage.Presence -> {
+                if (session.didReceiveHello) {
+                    session.passive = message.presence.passive
+                    refreshStandbyState()
+                }
             }
             is PrairieCastMessage.Ping -> session.send(PrairieCastMessage.Pong())
             is PrairieCastMessage.Pong -> session.missedHeartbeats = 0
@@ -803,6 +727,391 @@ class TvPrairieCastReceiver(
             -> Unit
         }
         return true
+    }
+
+    private suspend fun handleHello(session: ControllerSession, hello: PrairieCastHello): Boolean {
+        if (session.didReceiveHello) return true
+        // Read first, so even a refusal below can carry a close reason.
+        session.features = hello.features.orEmpty().toSet()
+        val negotiated = PrairieCastProtocol.negotiatedVersion(hello.supportedVersions)
+        if (hello.role != PrairieCastPeerRole.Phone || negotiated != PrairieCastProtocol.version) {
+            session.send(
+                PrairieCastMessage.Error(
+                    PrairieCastError(
+                        code = "version_unsupported",
+                        message = "Update Prairie on both devices to continue.",
+                    ),
+                ),
+            )
+            synchronized(this) { removeControllerLocked(session) }
+            session.goodbyeAndClose(PrairieCastCloseReason.Unauthorized)
+            return false
+        }
+        session.didReceiveHello = true
+        session.negotiatedVersion = negotiated
+        session.controllerDeviceId = hello.deviceId
+        session.controllerDeviceName = hello.deviceName
+        session.controllerServerId = hello.serverId
+        session.controllerServerIdentity = hello.serverIdentity?.trim()?.takeIf { it.isNotEmpty() }
+        session.passive = hello.passive == true
+        session.clientKind = hello.clientKind
+
+        // The device's older sockets are ones it has abandoned (a Wi-Fi change,
+        // a return from background). A v2 cross-server controller is kept to
+        // complete its handoff, so this hello always stays.
+        val replaced = synchronized(this) {
+            TvPrairieCastReceiverPolicy.connectionsReplaced(
+                deviceId = hello.deviceId,
+                connection = session.id,
+                existing = controllers.values.map { it.id to it.controllerDeviceId },
+            ).mapNotNull { id -> controllers[id]?.also { removeControllerLocked(it) } }
+        }
+        replaced.forEach { goodbye(it, PrairieCastCloseReason.Replaced) }
+
+        session.isAuthorized = matchesEffectiveServer(session.controllerServerId, session.controllerServerIdentity)
+        DiagnosticsCastLogger.event(
+            if (session.isAuthorized) "TV cast controller authorized" else "TV cast handoff required",
+        )
+        refreshStandbyState()
+        if (session.isAuthorized) session.offerState(snapshotState())
+        return true
+    }
+
+    private suspend fun handleOffer(session: ControllerSession, offer: PrairieCastHandoffOffer) {
+        // A handoff swaps in the phone's profile, and any identity change
+        // leaves the Watch Party this TV is in.
+        if (inWatchParty()) {
+            sendHandoffCancel(
+                session,
+                offer.requestId,
+                PrairieCastHandoffCancelReason.WatchPartyActive,
+                "Leave the Watch Party on the TV first.",
+            )
+            return
+        }
+        val controllerId = session.controllerDeviceId
+        if (session.negotiatedVersion != PrairieCastProtocol.version || controllerId == null) {
+            sendHandoffCancel(
+                session,
+                offer.requestId,
+                PrairieCastHandoffCancelReason.VersionUnsupported,
+                "Update Prairie on both devices to continue.",
+            )
+            return
+        }
+        // A launch on its way to the player would land on whatever identity
+        // this handoff installs. The phone tries again once the player opens,
+        // or the pending launch expires.
+        if (synchronized(this) { pendingLaunch != null }) {
+            sendHandoffCancel(session, offer.requestId, PrairieCastHandoffCancelReason.LaunchPending, LAUNCH_PENDING_MESSAGE)
+            return
+        }
+        // A handoff stops what is on screen before the swap, so consent is
+        // asked here, not at launch, and checked again before the stop.
+        titleNeedingConsent(session, offer)?.let { nowPlaying ->
+            sendReplaceConfirmationRequired(session, offer.requestId, nowPlaying)
+            return
+        }
+
+        val pending = PendingHandoff(controllerId = session.id, requestId = offer.requestId)
+        val superseded = synchronized(this) {
+            pendingHandoff.also { pendingHandoff = pending }
+        }
+        superseded?.let { previous ->
+            previous.job?.cancel()
+            synchronized(this) { controllers[previous.controllerId] }?.takeIf { it !== session }?.let { other ->
+                clearPreparing(other)
+                // Off this read loop: a stalled peer must not hold up the new offer.
+                scope?.launch {
+                    sendHandoffCancel(
+                        other,
+                        previous.requestId,
+                        PrairieCastHandoffCancelReason.Superseded,
+                        "${session.controllerDeviceName ?: "Another device"} started playing on this TV.",
+                    )
+                }
+            }
+        }
+
+        val allowReuse = synchronized(this) {
+            val active = identityManager.activeIdentity
+            val issued = issuedIdentity?.takeIf { active != null && it.generation == active.generationId }
+            TvPrairieCastReceiverPolicy.mayReuseIdentity(
+                offerMatchesIdentity = identityManager.matches(offer, controllerId),
+                identityConnection = issued?.connectionId,
+                connection = session.id,
+                issuedResumeToken = issued?.resumeToken,
+                offeredResumeToken = offer.resumeToken,
+            )
+        }
+        // A reused identity must survive a pending cleanup. One this offer
+        // would replace stays until approval, so its cleanup still runs if the
+        // handoff fails; after a replacement it finds a newer generation and
+        // does nothing.
+        if (allowReuse) {
+            synchronized(this) {
+                identityEndJob?.cancel()
+                identityEndJob = null
+            }
+        }
+        session.readyGeneration = null
+        session.ownIdentityProfileId = null
+        val run = receiverRun
+        pending.job = scope?.launch {
+            // The generation this attempt's completeHandoff installed, if it got that far.
+            var grantedGeneration: String? = null
+            try {
+                // The hello may have been judged against a phone's identity that
+                // is gone now; with none installed, the TV's own server decides.
+                if (identityManager.activeIdentity == null) {
+                    session.isAuthorized = matchesEffectiveServer(session.controllerServerId, session.controllerServerIdentity)
+                    refreshStandbyState()
+                }
+                ownIdentityReady(session, offer)?.let { ready ->
+                    clearPreparing(session)
+                    if (!finishPendingHandoff(pending)) return@launch
+                    session.ownIdentityProfileId = offer.profileId
+                    DiagnosticsCastLogger.event("TV cast handoff skipped on own profile")
+                    session.send(PrairieCastMessage.HandoffReady(ready))
+                    session.offerState(snapshotState())
+                    return@launch
+                }
+                var fullHandoff = false
+                var preparedGeneration: String? = null
+                val ready = identityManager.prepare(
+                    offer = offer,
+                    controllerDeviceId = controllerId,
+                    controllerDeviceName = session.controllerDeviceName,
+                    receiverRun = run,
+                    allowReuse = allowReuse,
+                    onFullHandoff = {
+                        fullHandoff = true
+                        showPreparing(session, offer.title)
+                    },
+                    beforeActivation = {
+                        // Another controller may have started a title while the
+                        // server approved this one.
+                        titleNeedingConsent(session, offer)?.let { throw ReplaceConfirmationRequired(it) }
+                        stopPlayerBeforeIdentitySwap()
+                    },
+                    onPrepared = { preparedGeneration = it },
+                ) { challenge ->
+                    if (!isCurrentHandoff(pending)) throw CancellationException("The handoff was superseded.")
+                    session.send(PrairieCastMessage.HandoffChallenge(challenge))
+                }
+                // A reuse is instant; drop a cancelled offer's title.
+                if (!fullHandoff) clearPreparing(session)
+                if (!finishPendingHandoff(pending)) {
+                    // The controller left or was superseded after approval. A
+                    // fresh identity nobody can launch under is handed back; a
+                    // reused one may still be playing.
+                    if (!ready.reused) {
+                        preparedGeneration?.let { identityManager.end(it) }
+                        refreshAdvertisement()
+                        reconcileAuthorization()
+                    }
+                    return@launch
+                }
+                completeHandoff(session, checkNotNull(preparedGeneration), ready, fullHandoff) { grantedGeneration = it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (refusal: ReplaceConfirmationRequired) {
+                clearPreparing(session)
+                finishPendingHandoff(pending)
+                if (synchronized(this@TvPrairieCastReceiver) { controllers[session.id] === session }) {
+                    runCatching { sendReplaceConfirmationRequired(session, offer.requestId, refusal.nowPlaying) }
+                }
+            } catch (t: Throwable) {
+                clearPreparing(session)
+                // Readiness was granted but `handoff_ready` never reached the
+                // phone: hand back the generation this attempt granted (a
+                // newer handoff from the same phone may own the session's
+                // readiness by now), and re-check the controllers it judged.
+                val granted = grantedGeneration
+                if (granted != null && activePlayer == null) {
+                    synchronized(this@TvPrairieCastReceiver) {
+                        if (session.readyGeneration == granted) session.readyGeneration = null
+                    }
+                    runRecovering("handoff rollback") {
+                        identityManager.end(granted)
+                        refreshAdvertisement()
+                        reconcileAuthorization()
+                    }
+                }
+                finishPendingHandoff(pending)
+                if (synchronized(this@TvPrairieCastReceiver) { controllers[session.id] === session }) {
+                    sendHandoffCancel(
+                        session,
+                        offer.requestId,
+                        PrairieCastHandoffCancelReason.HandoffFailed,
+                        t.message ?: "Remote playback handoff failed.",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Readiness is this controller's alone: an earlier controller's launch
+     * must never play under this profile. Issues the resume token and tells
+     * the others the TV now plays as someone else.
+     */
+    /**
+     * Makes [session] the only controller ready for [generation] and issues
+     * its resume token. Caller holds the receiver monitor.
+     */
+    private fun grantReadiness(session: ControllerSession, generation: String): ResumeTokenGrant {
+        controllers.values.filter { it !== session }.forEach {
+            it.readyGeneration = null
+            it.ownIdentityProfileId = null
+        }
+        session.readyGeneration = generation
+        session.isAuthorized = true
+        val token = if (session.supports(PrairieCastFeature.ResumeToken)) {
+            issuedIdentity?.takeIf { it.generation == generation }?.resumeToken
+                ?: TvPrairieCastReceiverPolicy.makeResumeToken()
+        } else {
+            null
+        }
+        issuedIdentity = IssuedIdentity(generation = generation, connectionId = session.id, resumeToken = token)
+        return ResumeTokenGrant(token)
+    }
+
+    /** A granted readiness; [token] is null for a controller that can't use one. */
+    private data class ResumeTokenGrant(val token: String?)
+
+    private suspend fun completeHandoff(
+        session: ControllerSession,
+        generation: String,
+        ready: PrairieCastHandoffReady,
+        fullHandoff: Boolean,
+        onGranted: (generation: String) -> Unit,
+    ) {
+        // Readiness is granted only while the generation this offer prepared
+        // is still active, under the identity manager's lock: if it was handed
+        // back (idle end, expiry, server switch) or replaced in the moment
+        // after prepare() returned, the handoff fails and the phone hears it.
+        val resumeToken = identityManager.whileActive(generation) {
+            synchronized(this@TvPrairieCastReceiver) { grantReadiness(session, generation) }
+        } ?: error("The TV switched to another profile. Try again.")
+        onGranted(generation)
+        DiagnosticsCastLogger.event("TV cast handoff authorized")
+        refreshAdvertisement()
+        // A cross-server identity changes the effective server under the
+        // other controllers.
+        reconcileAuthorization()
+        session.send(PrairieCastMessage.HandoffReady(ready.copy(resumeToken = resumeToken.token)))
+        session.offerState(snapshotState())
+        // Replaces the old ready-without-launch timeout: with nothing playing,
+        // the profile goes back after the idle limit. A player cancels this
+        // when it opens.
+        if (activePlayer == null) scheduleIdentityEnd(generation, IDENTITY_IDLE_MS)
+        if (fullHandoff) {
+            session.preparingClearJob?.cancel()
+            session.preparingClearJob = scope?.launch {
+                delay(PREPARING_AFTER_READY_MS)
+                clearPreparing(session)
+            }
+        }
+    }
+
+    private fun isCurrentHandoff(pending: PendingHandoff): Boolean =
+        synchronized(this) { pendingHandoff === pending && controllers.containsKey(pending.controllerId) }
+
+    /** Clears [pending] if it is still the in-flight handoff; false when it was superseded or its controller left. */
+    private fun finishPendingHandoff(pending: PendingHandoff): Boolean = synchronized(this) {
+        val current = pendingHandoff === pending && controllers.containsKey(pending.controllerId)
+        if (pendingHandoff === pending) pendingHandoff = null
+        current
+    }
+
+    private suspend fun handleLaunch(session: ControllerSession, launch: PrairieCastLaunchRequest) {
+        if (!requireAuthorized(session)) return
+        // A Watch Party player is never silently replaced by a cast.
+        activePlayer?.adapter?.launchRefusal?.invoke()?.let { refusal ->
+            session.send(PrairieCastMessage.Error(PrairieCastError(code = "watch_party_active", message = refusal)))
+            return
+        }
+        // In a party lobby no party player is registered yet, but a solo
+        // launch would still take the shared player from the room.
+        if (inWatchParty()) {
+            session.send(
+                PrairieCastMessage.Error(
+                    PrairieCastError(code = "watch_party_active", message = "Leave the Watch Party on the TV first."),
+                ),
+            )
+            return
+        }
+        // A sign-in, profile or borrowed-identity change after this makes the
+        // launch stale (see confirmLaunch).
+        val identity = settledLaunchIdentity(session)?.takeIf { it.onOwnIdentity || it.borrowed != null }
+        if (identity == null) {
+            session.send(
+                PrairieCastMessage.Error(
+                    PrairieCastError(code = "handoff_required", message = "Prepare the phone profile before playing."),
+                ),
+            )
+            return
+        }
+        val onOwnIdentity = identity.onOwnIdentity
+        val borrowed = identity.borrowed
+        // The launch names the phone's registry key; the identity learned from
+        // its hello lets a same-deployment phone on another address launch.
+        val launchIdentity = session.controllerServerIdentity
+            ?.takeIf { AndroidServerRegistry.serverIdsMatch(launch.serverId, session.controllerServerId) }
+        if (!AndroidServerRegistry.serversMatch(launch.serverId, launchIdentity, identity.serverId, identity.serverIdentity)) {
+            session.send(
+                PrairieCastMessage.Error(
+                    PrairieCastError(code = "server_mismatch", message = "This TV is connected to a different Prairie server."),
+                ),
+            )
+            return
+        }
+        val generation = if (onOwnIdentity) null else borrowed?.generationId
+        val launchOwner = UUID.randomUUID().toString()
+        val admitted = AdmittedLaunch(launchOwner, generation, identity.revision)
+        val refusal = synchronized(this) {
+            when {
+                // The controller left while this was in flight.
+                controllers[session.id] !== session -> return
+                pendingLaunch != null -> PrairieCastError(code = "launch_pending", message = LAUNCH_PENDING_MESSAGE)
+                // The identity changed since the checks above, or its hand-back
+                // has committed.
+                !isAdmittedIdentityCurrentLocked(admitted) -> PrairieCastError(
+                    code = "handoff_required",
+                    message = "Prepare the phone profile before playing.",
+                )
+                else -> {
+                    pendingLaunch = admitted
+                    null
+                }
+            }
+        }
+        if (refusal != null) {
+            if (refusal.code == "handoff_required") session.readyGeneration = null
+            session.send(PrairieCastMessage.Error(refusal))
+            return
+        }
+        if (!launchRequestChannel.trySend(Launch(launch, launchOwner)).isSuccess) {
+            clearPendingLaunch(launchOwner)
+            session.send(
+                PrairieCastMessage.Error(
+                    PrairieCastError(code = "launch_failed", message = "The TV could not open remote playback."),
+                ),
+            )
+            return
+        }
+        // A launch whose player never opens must not hold off every later
+        // handoff.
+        scope?.launch {
+            delay(PENDING_LAUNCH_TIMEOUT_MS)
+            clearPendingLaunch(launchOwner, dropQueued = true)
+        }
+        session.readyGeneration = null
+        session.ownIdentityProfileId = null
+        // The TV is opening the player now; the preparing view is done.
+        clearPreparing(session, refresh = false)
+        _standbyState.value = null
     }
 
     /**
@@ -830,6 +1139,83 @@ class TvPrairieCastReceiver(
         check(tornDown && activePlayer == null) { "The TV is still playing. Try again." }
     }
 
+    /** The handoff refused just before it would stop what plays; see [titleNeedingConsent]. */
+    private class ReplaceConfirmationRequired(val nowPlaying: PrairieCastNowPlayingSummary) : Exception()
+
+    /**
+     * What [offer] would replace without its user's consent, or null when the
+     * handoff may go ahead (see [TvPrairieCastReceiverPolicy.needsReplaceConfirmation]).
+     */
+    private suspend fun titleNeedingConsent(session: ControllerSession, offer: PrairieCastHandoffOffer): PrairieCastNowPlayingSummary? {
+        val titleOnScreen = synchronized(this) { activePlayer != null || pendingLaunch != null }
+        if (!titleOnScreen || !session.supports(PrairieCastFeature.ReplaceConfirmation)) return null
+        val nowPlaying = nowPlayingSummary()
+        val needsConsent = TvPrairieCastReceiverPolicy.needsReplaceConfirmation(
+            titleOnScreen = true,
+            playingUnderOfferedProfile = isPlayingUnderProfile(offer),
+            replaceConfirmed = TvPrairieCastReceiverPolicy.confirmationCovers(
+                onScreenContentId = nowPlaying.contentId,
+                replaceConfirmed = offer.replaceConfirmed == true,
+                replacingContentId = offer.replacingContentId,
+            ),
+            controllerCanConfirm = true,
+        )
+        return nowPlaying.takeIf { needsConsent }
+    }
+
+    /**
+     * Whether what is on screen plays under the profile [offer] names. The TV
+     * plays under the borrowed identity when one is active, else under its own
+     * signed-in profile.
+     */
+    private suspend fun isPlayingUnderProfile(offer: PrairieCastHandoffOffer): Boolean {
+        identityManager.activeIdentity?.let { identity ->
+            return identity.profileId == offer.profileId &&
+                AndroidServerRegistry.serversMatch(identity.serverId, identity.serverIdentity, offer.serverId, offer.serverIdentity)
+        }
+        val server = serverRegistry.activeEntry.value ?: return false
+        return tokenManager.getProfileId() == offer.profileId &&
+            AndroidServerRegistry.serversMatch(server.id, server.verifiedServerId, offer.serverId, offer.serverIdentity)
+    }
+
+    private suspend fun nowPlayingSummary(): PrairieCastNowPlayingSummary {
+        val state = withContext(Dispatchers.Main.immediate) { activePlayer?.stateProvider?.invoke() }
+        val identity = identityManager.activeIdentity
+        val startedByPhone = identity != null && activePlayer?.identityGeneration == identity.generationId
+        return PrairieCastNowPlayingSummary(
+            contentId = state?.contentId?.takeIf { it.isNotEmpty() },
+            title = state?.title?.takeIf { it.isNotBlank() } ?: "a title",
+            subtitle = state?.subtitle?.takeIf { it.isNotBlank() },
+            // Under a borrowed identity only its own name is right; a phone
+            // that sent none leaves it null ("Someone"), never the TV's profile.
+            profileName = if (identity != null) identity.profileName else ownProfileNameProvider(),
+            controllerName = if (startedByPhone) identity?.controllerDeviceName else null,
+        )
+    }
+
+    private suspend fun sendReplaceConfirmationRequired(
+        session: ControllerSession,
+        requestId: String,
+        nowPlaying: PrairieCastNowPlayingSummary,
+    ) {
+        session.send(
+            PrairieCastMessage.HandoffCancel(
+                PrairieCastHandoffCancel(
+                    requestId = requestId,
+                    reason = PrairieCastHandoffCancelReason.ReplaceConfirmationRequired,
+                    message = "${nowPlaying.profileName ?: "Someone"} is watching ${nowPlaying.title} on this TV.",
+                    nowPlaying = nowPlaying,
+                ),
+            ),
+        )
+    }
+
+    private suspend fun sendHandoffCancel(session: ControllerSession, requestId: String, reason: String, message: String) {
+        runCatching {
+            session.send(PrairieCastMessage.HandoffCancel(PrairieCastHandoffCancel(requestId = requestId, reason = reason, message = message)))
+        }
+    }
+
     private suspend fun requireAuthorized(session: ControllerSession): Boolean {
         if (session.isAuthorized) return true
         session.send(
@@ -841,17 +1227,156 @@ class TvPrairieCastReceiver(
     }
 
     /**
+     * Tells a controller over its command budget once a second at most;
+     * replying to every dropped command would only add to the flood.
+     */
+    private suspend fun noteRateLimited(session: ControllerSession) {
+        val now = nowMs()
+        val last = session.rateLimitNoticeAtMs
+        if (last != null && now - last < RATE_LIMIT_NOTICE_MS) return
+        session.rateLimitNoticeAtMs = now
+        Log.i(TAG, "PrairieCast rate-limiting a controller")
+        session.send(
+            PrairieCastMessage.Error(PrairieCastError(code = "rate_limited", message = "Too many commands. Slow down and try again.")),
+        )
+    }
+
+    /**
+     * The server refused to refresh the borrowed profile: everyone watching
+     * loses the title, not only the phone that lent it. The overlay is already
+     * gone, so the identity ends without a server logout.
+     */
+    private suspend fun onTemporarySessionExpired(generationId: String) {
+        if (identityManager.activeIdentity?.generationId != generationId) return
+        DiagnosticsCastLogger.warning("TV cast borrowed profile session expired")
+        val error = PrairieCastMessage.Error(
+            PrairieCastError(code = "temporary_session_expired", message = "The phone profile session expired."),
+        )
+        // Notices are sent after teardown and off this coroutine: a controller
+        // that stopped reading must not hold up the stop or the hand-back.
+        // They go out only if this expiry ended its own profile, and each is
+        // dropped if a new handoff completed before its write.
+        val notified = authorizedControllers()
+        activePlayer?.takeIf { it.identityGeneration == generationId }?.let { player ->
+            withContext(Dispatchers.Main.immediate) {
+                player.adapter.handle(PrairieCastControlCommand(name = PrairieCastControlCommand.Stop))
+            }
+        }
+        // A handoff that replaced the profile while playback stopped owns the
+        // TV now; nobody hears about the old profile.
+        if (!identityManager.end(generationId)) return
+        refreshAdvertisement()
+        reconcileAuthorization()
+        notified.forEach { session ->
+            scope?.launch {
+                runCatching { session.sendIf(error) { identityManager.activeIdentity == null } }
+            }
+        }
+    }
+
+    /**
+     * Re-checks every controller against the effective server after the
+     * borrowed identity changed (handoff, end, expiry). Readiness survives
+     * only for the identity still active.
+     */
+    private suspend fun reconcileAuthorization() {
+        val activeGeneration = identityManager.activeIdentity?.generationId
+        val changes = synchronized(this) {
+            controllers.values.filter { it.didReceiveHello }.mapNotNull { controller ->
+                val wasAuthorized = controller.isAuthorized
+                val decision = TvPrairieCastReceiverPolicy.reauthorize(
+                    wasAuthorized = wasAuthorized,
+                    matchesEffectiveServer = matchesEffectiveServer(controller.controllerServerId, controller.controllerServerIdentity),
+                    readyGeneration = controller.readyGeneration,
+                    activeGeneration = activeGeneration,
+                )
+                if (decision.clearsReadiness) controller.readyGeneration = null
+                controller.isAuthorized = decision.isAuthorized
+                when {
+                    decision.isAuthorized && !wasAuthorized -> controller to true
+                    decision.notifyServerMismatch -> controller to false
+                    else -> null
+                }
+            }
+        }
+        refreshStandbyState()
+        if (changes.isEmpty()) return
+        val state = snapshotState()
+        changes.forEach { (controller, gained) ->
+            if (gained) {
+                controller.offerState(state)
+            } else {
+                runCatching {
+                    controller.send(
+                        PrairieCastMessage.Error(
+                            PrairieCastError(
+                                code = "server_mismatch",
+                                message = "This TV is now playing from a different Prairie server.",
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether a controller's server matches the TV's effective one: the
+     * borrowed identity's while one is active, else the TV's own.
+     */
+    private fun matchesEffectiveServer(serverId: String?, serverIdentity: String?): Boolean {
+        val borrowed = identityManager.activeIdentity
+        if (borrowed != null) {
+            return AndroidServerRegistry.serversMatch(serverId, serverIdentity, borrowed.serverId, borrowed.serverIdentity)
+        }
+        val own = serverRegistry.activeEntry.value
+        return AndroidServerRegistry.serversMatch(
+            serverId,
+            serverIdentity,
+            own?.id ?: serverRegistry.activeServerId.value,
+            own?.verifiedServerId,
+        )
+    }
+
+    private fun authorizedControllers(): List<ControllerSession> =
+        synchronized(this) { controllers.values.filter { it.isAuthorized } }
+
+    /**
+     * Built once and handed to every authorized controller's latest-state
+     * slot. The recipients are chosen after the state is read, so a handoff
+     * during the read can't send the new profile's state to a controller it
+     * de-authorized.
+     */
+    private suspend fun broadcastState() {
+        if (authorizedControllers().isEmpty()) {
+            // Nobody to send artwork to, so stop keeping its URL signed.
+            nowPlayingMetadata.track(null)
+            return
+        }
+        val state = snapshotState()
+        authorizedControllers().forEach { it.offerState(state) }
+    }
+
+    /** The playback state with the profile generation it was read under, checked again at the write. */
+    private suspend fun snapshotState(): PublishedState {
+        val generation = identityManager.activeIdentity?.generationId
+        return PublishedState(currentState(), generation)
+    }
+
+    private data class PublishedState(val state: PrairieCastPlaybackState, val generation: String?)
+
+    /**
      * Ends [generationId] after [delayMs]. With [keepIfLenderReturns] (the
-     * lending phone left), a phone back in the slot by then keeps it under
-     * the idle limit instead: a dropped link reconnects within seconds.
+     * lending phone left), a phone back by then keeps it under the idle limit
+     * instead: a dropped link reconnects within seconds.
      */
     private fun scheduleIdentityEnd(
         generationId: String,
         delayMs: Long = IDENTITY_END_GRACE_MS,
         keepIfLenderReturns: Boolean = false,
-    ) {
+    ): Unit = synchronized(this) {
         identityEndJob?.cancel()
-        val owner = scope ?: return
+        val owner = scope ?: return@synchronized
         identityEndJob = owner.launch {
             delay(delayMs)
             if (keepIfLenderReturns && isLenderConnected(generationId) && isIdentityIdle()) {
@@ -883,6 +1408,7 @@ class TvPrairieCastReceiver(
                                 if (pendingLaunch?.generation == generationId) pendingLaunch = null
                             }
                             refreshAdvertisement()
+                            refreshStandbyState()
                         }
                     }
                 }
@@ -893,23 +1419,12 @@ class TvPrairieCastReceiver(
             }
             if (!ended) return@launch
             // A newer offer cancelled this mid-logout and now owns the
-            // session's authorization; judging it here could drop a phone
+            // controllers' authorization; judging them here could drop a phone
             // that is still handing off.
             if (!isActive) return@launch
-            val session = activeSession
-            if (session != null) {
-                session.remoteLaunchReady = false
-                session.isAuthorized = AndroidServerRegistry.serverIdsMatch(
-                    session.controllerServerId,
-                    serverRegistry.activeServerId.value,
-                )
-                if (session.isAuthorized) {
-                    session.send(PrairieCastMessage.State(currentState()))
-                    refreshStandbyState()
-                } else {
-                    closePreviousController()
-                }
-            }
+            // Cross-server controllers stay connected, unauthorized, and can
+            // hand off again; same-server ones keep controlling the TV.
+            runRecovering("authorization after an identity end") { reconcileAuthorization() }
         }
     }
 
@@ -932,6 +1447,7 @@ class TvPrairieCastReceiver(
         pendingLaunch?.takeIf { it.id == id }?.let { pending ->
             if (isAdmittedIdentityCurrentLocked(pending)) return true
             pendingLaunch = null
+            refreshStandbyState()
             return false
         }
         registeredLaunch?.takeIf { it.id == id }?.let { registered ->
@@ -959,13 +1475,18 @@ class TvPrairieCastReceiver(
                     !tokenManager.hasTemporaryScope() &&
                     tokenManager.getProfileId() == ownProfileId
                 // activeIdentity is unpublished as soon as an end starts, so a
-                // launch never lands on an identity being handed back.
-                val borrowed = identityManager.activeIdentity?.takeIf { session.remoteLaunchReady }
+                // launch never lands on an identity being handed back. Only the
+                // controller whose handoff produced it may launch under it.
+                val borrowed = identityManager.activeIdentity?.takeIf {
+                    TvPrairieCastReceiverPolicy.canLaunchBorrowed(session.readyGeneration, it.generationId)
+                }
+                val own = serverRegistry.activeEntry.value
                 LaunchIdentity(
                     revision = synchronized(this@TvPrairieCastReceiver) { identityRevision },
                     onOwnIdentity = onOwnIdentity,
                     borrowed = borrowed,
                     serverId = if (onOwnIdentity) serverRegistry.activeServerId.value else borrowed?.serverId,
+                    serverIdentity = if (onOwnIdentity) own?.verifiedServerId else borrowed?.serverIdentity,
                 )
             }?.let { return it }
         }
@@ -995,17 +1516,24 @@ class TvPrairieCastReceiver(
             if (pendingLaunch?.id == owner) {
                 pendingLaunch = null
                 if (dropQueued) launchRequestChannel.tryReceive()
+                // A launch whose player never opened: a waiting controller's
+                // standby comes back.
+                refreshStandbyState()
             }
         }
     }
 
-    /** Whether the phone that lent [generationId] holds the controller slot. */
+    /**
+     * Whether a connection from the phone that lent [generationId] is here.
+     * Keeping the profile alive needs only that; using it needs the issuing
+     * connection or its resume token.
+     */
     private fun isLenderConnected(generationId: String): Boolean {
         val identity = identityManager.activeIdentity ?: return false
-        val session = activeSession ?: return false
-        return identity.generationId == generationId &&
-            session.isAuthorized &&
-            session.controllerDeviceId == identity.controllerDeviceId
+        if (identity.generationId != generationId) return false
+        return synchronized(this) {
+            controllers.values.any { it.isAuthorized && it.controllerDeviceId == identity.controllerDeviceId }
+        }
     }
 
     /**
@@ -1059,20 +1587,35 @@ class TvPrairieCastReceiver(
         if (refresh) refreshStandbyState()
     }
 
+    /**
+     * The standby screen shows while nothing is on screen and an authorized,
+     * non-passive controller waits; it names the newest and counts the rest.
+     * A cross-server phone is not authorized until its handoff finishes, but
+     * the TV still shows what it is preparing for that phone.
+     */
+    @Synchronized
     private fun refreshStandbyState() {
-        val session = activeSession
-        val preparing = session?.preparing
-        // A cross-server phone is not authorized until its handoff finishes,
-        // but the TV still shows what it is preparing for that phone.
-        _standbyState.value = if (session != null && activePlayer == null && (session.isAuthorized || preparing != null)) {
-            StandbyState(
-                controllerName = session.controllerDeviceName,
-                serverName = identityManager.activeIdentity?.serverName
-                    ?: serverRegistry.activeEntry.value?.displayName,
-                preparing = preparing,
+        if (activePlayer != null || pendingLaunch != null) {
+            _standbyState.value = null
+            return
+        }
+        val serverName = identityManager.activeIdentity?.serverName ?: serverRegistry.activeEntry.value?.displayName
+        val preparing = controllers.values.lastOrNull { it.preparing != null }
+        if (preparing != null) {
+            _standbyState.value = StandbyState(
+                controllerName = preparing.controllerDeviceName,
+                serverName = serverName,
+                preparing = preparing.preparing,
             )
-        } else {
-            null
+            return
+        }
+        val pick = TvPrairieCastReceiverPolicy.standbyPick(controllers.values.map { it.summary(isHandingOff = false) })
+        _standbyState.value = pick?.let {
+            StandbyState(
+                controllerName = controllers[it.controllerId]?.controllerDeviceName,
+                serverName = serverName,
+                otherControllerCount = it.otherControllerCount,
+            )
         }
     }
 
@@ -1086,7 +1629,21 @@ class TvPrairieCastReceiver(
             serverId = remote?.serverId ?: saved?.id,
             serverName = remote?.serverName ?: saved?.displayName,
             playing = activePlayer != null,
+            serverIdentity = advertisedServerIdentity(),
         )
+    }
+
+    /** Re-advertises only when the presented identity changed: every registration re-registers with NSD. */
+    @Synchronized
+    private fun refreshAdvertisedIdentity() {
+        val advertised = advertiser.currentAdvertisement()?.third?.get("serverIdentity")
+        if (advertised != advertisedServerIdentity()) refreshAdvertisement()
+    }
+
+    /** The deployment identity the TV presents: the borrowed identity's while one is active, else its own server's. */
+    private fun advertisedServerIdentity(): String? {
+        val remote = identityManager.activeIdentity
+        return if (remote != null) remote.serverIdentity else serverRegistry.activeEntry.value?.verifiedServerId?.trim()?.ifEmpty { null }
     }
 
     private suspend fun readLoop(
@@ -1117,12 +1674,19 @@ class TvPrairieCastReceiver(
             serverId = remote?.serverId ?: server?.id,
             serverName = remote?.serverName ?: server?.displayName,
             supportedVersions = PrairieCastProtocol.supportedVersions,
+            serverIdentity = advertisedServerIdentity(),
+            features = PrairieCastFeature.receiverFeatures,
         )
     }
 
     private suspend fun currentState(): PrairieCastPlaybackState =
         withContext(Dispatchers.Main.immediate) {
-            activePlayer?.stateProvider?.invoke() ?: idleState()
+            val state = activePlayer?.stateProvider?.invoke()
+            // Follows the live content ID, so an autoplayed next episode drops
+            // the previous title's poster on its first tick.
+            nowPlayingMetadata.track(state?.contentId)
+            val metadata = nowPlayingMetadata.metadata(state?.contentId)
+            state?.copy(posterUrl = metadata?.posterUrl, overview = metadata?.overview) ?: idleState()
         }
 
     private fun idleState(): PrairieCastPlaybackState = PrairieCastPlaybackState(
@@ -1155,11 +1719,17 @@ class TvPrairieCastReceiver(
     )
 
     private class ControllerSession(
+        /** Connection id; a device that reconnects gets a new one. */
+        val id: String,
         val socket: Socket,
         val tls: PrairieCastTlsSession,
         private val json: Json,
     ) {
         val writeMutex = Mutex()
+
+        /** Order of acceptance; lower is older. Set at admission. */
+        @Volatile
+        var sequence: Long = 0
 
         @Volatile
         var isAuthorized: Boolean = false
@@ -1180,7 +1750,22 @@ class TvPrairieCastReceiver(
         var controllerServerId: String? = null
 
         @Volatile
-        var remoteLaunchReady: Boolean = false
+        var controllerServerIdentity: String? = null
+
+        /** [PrairieCastFeature] names from the controller's hello. */
+        @Volatile
+        var features: Set<String> = emptySet()
+
+        /** Watches state only (integration, silent auto-resume); never puts up standby. */
+        @Volatile
+        var passive: Boolean = false
+
+        @Volatile
+        var clientKind: String? = null
+
+        /** The borrowed identity generation this controller's handoff produced; a launch needs it active. */
+        @Volatile
+        var readyGeneration: String? = null
 
         /** Launch-ready on the TV's own identity for this profile (no handoff ran). */
         @Volatile
@@ -1191,9 +1776,44 @@ class TvPrairieCastReceiver(
 
         @Volatile
         var missedHeartbeats: Int = 0
+
+        @Volatile
+        var rateLimitNoticeAtMs: Long? = null
+        val commandBudget = TvPrairieCastReceiverPolicy.CommandBudget()
+
+        /** The latest state for this controller's writer; older frames are dropped. */
+        val stateUpdates = Channel<PublishedState>(Channel.CONFLATED)
         var job: Job? = null
-        var handoffJob: Job? = null
         var preparingClearJob: Job? = null
+
+        fun supports(feature: String): Boolean = feature in features
+
+        fun summary(isHandingOff: Boolean) = TvPrairieCastReceiverPolicy.ControllerSummary(
+            id = id,
+            sequence = sequence,
+            didReceiveHello = didReceiveHello,
+            passive = passive,
+            isAuthorized = isAuthorized,
+            isHandingOff = isHandingOff,
+        )
+
+        fun offerState(state: PublishedState) {
+            stateUpdates.trySend(state)
+        }
+
+        /** Writes [message] only if [admit] still holds once this connection's write lock is taken. */
+        suspend fun sendIf(message: PrairieCastMessage, admit: () -> Boolean) {
+            val frame = PrairieCastFrame.encode(
+                json.encodeToString(PrairieCastMessage.serializer(), message).encodeToByteArray(),
+            )
+            writeMutex.withLock {
+                if (!admit()) return@withLock
+                withContext(Dispatchers.IO) {
+                    tls.output.write(frame)
+                    tls.output.flush()
+                }
+            }
+        }
 
         suspend fun send(message: PrairieCastMessage) {
             val payload = json.encodeToString(PrairieCastMessage.serializer(), message).encodeToByteArray()
@@ -1209,29 +1829,38 @@ class TvPrairieCastReceiver(
         /**
          * Best-effort `close` goodbye ahead of the FIN, then teardown. The
          * goodbye lets the peer distinguish a deliberate disconnect from a
-         * dropped link (Apple auto-reconnects on bare EOF). The write goes
-         * through the same mutex as every other frame so a mid-flight state
-         * push can't interleave with it; the whole thing runs suspending so
-         * callers holding the receiver monitor don't block on a dead peer's
-         * TCP buffers.
+         * dropped link (Apple auto-reconnects on bare EOF); a peer that lists
+         * `close_reason` also learns why. The write goes through the same mutex
+         * as every other frame so a mid-flight state push can't interleave
+         * with it; the whole thing runs suspending so callers holding the
+         * receiver monitor don't block on a dead peer's TCP buffers.
          */
-        suspend fun goodbyeAndClose() {
+        suspend fun goodbyeAndClose(reason: String? = null) {
             runCatching {
                 kotlinx.coroutines.withTimeout(GOODBYE_TIMEOUT_MS) {
-                    send(PrairieCastMessage.Close())
+                    send(PrairieCastMessage.Close.withReason(reason?.takeIf { supports(PrairieCastFeature.CloseReason) }))
                 }
             }
             close()
         }
 
         fun close() {
-            handoffJob?.cancel()
             preparingClearJob?.cancel()
+            stateUpdates.close()
             tls.close()
             runCatching { socket.close() }
             job?.cancel()
         }
     }
+
+    /** The one in-flight handoff and the controller that offered it. */
+    private class PendingHandoff(val controllerId: String, val requestId: String) {
+        @Volatile
+        var job: Job? = null
+    }
+
+    /** Who may reuse borrowed identity [generation] without a new approval. */
+    private data class IssuedIdentity(val generation: String, val connectionId: String?, val resumeToken: String?)
 
     /** A phone's launch on its way to the player, with the [id] it was admitted under. */
     data class Launch(val request: PrairieCastLaunchRequest, val id: String)
@@ -1248,6 +1877,7 @@ class TvPrairieCastReceiver(
         val onOwnIdentity: Boolean,
         val borrowed: RemotePlaybackIdentityManager.ActiveIdentity?,
         val serverId: String?,
+        val serverIdentity: String?,
     )
 
     private data class ActivePlayer(
@@ -1266,6 +1896,7 @@ class TvPrairieCastReceiver(
         const val MAX_MISSED_HEARTBEATS = 3
         const val AUTH_GRACE_MS = 5_000L
         const val GOODBYE_TIMEOUT_MS = 1_000L
+        const val RATE_LIMIT_NOTICE_MS = 1_000L
         const val IDENTITY_END_GRACE_MS = 2_000L
         const val PLAYBACK_TEARDOWN_TIMEOUT_MS = 15_000L
         const val PENDING_LAUNCH_TIMEOUT_MS = 30_000L

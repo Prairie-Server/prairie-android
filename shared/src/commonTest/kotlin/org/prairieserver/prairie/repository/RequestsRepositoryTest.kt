@@ -10,6 +10,7 @@ import org.prairieserver.prairie.model.request.RequestsDiscoverResponse
 import org.prairieserver.prairie.model.request.RequestsFeatureStatus
 import org.prairieserver.prairie.model.request.RequestsListResponse
 import org.prairieserver.prairie.model.request.RequestStatus
+import org.prairieserver.prairie.model.request.RequestDiscoverySection
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.RequestsApi
 import kotlinx.coroutines.CompletableDeferred
@@ -54,8 +55,8 @@ private class FakeRequestsApi(
     override suspend fun discover(): ApiResult<RequestsDiscoverResponse> =
         ApiResult.Success(RequestsDiscoverResponse())
 
-    override suspend fun discoverSection(section: String, page: Int): ApiResult<RequestMediaPage> =
-        ApiResult.Success(RequestMediaPage(page = page))
+    override suspend fun discoverRow(rowKey: String, page: Int): ApiResult<RequestDiscoverySection> =
+        ApiResult.Success(RequestDiscoverySection(key = rowKey, title = rowKey, page = page))
 
     override suspend fun search(
         query: String,

@@ -64,7 +64,6 @@ import org.prairieserver.prairie.android.ui.components.MediaCardContextMenu
 import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
 import org.prairieserver.prairie.android.ui.components.WatchedBadge
 import org.prairieserver.prairie.android.ui.components.rememberBrowseItemCardActions
-import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.common.ui.components.SpoilerImage
 import org.prairieserver.prairie.common.overlays.CardOverlayVariant
@@ -442,20 +441,17 @@ fun MediaGridItem(
             }
         }
 
-        val cardCaption = LocalCardPresentation.current.caption
-        if (cardCaption.showsTitle) {
-            androidx.compose.material3.Text(
-                text = item.title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                minLines = 2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        androidx.compose.material3.Text(
+            text = item.title,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
 
-        if (cardCaption.showsMetadata && item.year > 0) {
+        if (item.year > 0) {
             androidx.compose.material3.Text(
                 text = item.year.toString(),
                 fontSize = 12.sp,

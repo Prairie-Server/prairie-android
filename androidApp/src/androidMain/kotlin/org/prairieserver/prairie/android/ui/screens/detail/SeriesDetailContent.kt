@@ -87,7 +87,7 @@ fun SeriesDetailContent(
     onWatchlistClick: () -> Unit,
     onToggleWatched: () -> Unit,
     onPersonClick: (String) -> Unit,
-    onItemDetailClick: (String) -> Unit,
+    onSimilarItemClick: (String) -> Unit,
     onPlayExtra: (ItemExtra) -> Unit = {},
     onSeriesDownloadClick: (() -> Unit)? = null,
     onEpisodeDownloadClick: (() -> Unit)? = null,
@@ -194,6 +194,9 @@ fun SeriesDetailContent(
                             value = if (subtitleTracks.isEmpty()) "Unavailable" else formatSubtitleValueLabel(
                                 subtitleTracks,
                                 selectedSubtitleIndex,
+                                seriesSignature = loadedSelectedEpisodeDetail.effectiveSubtitleTrackSignature,
+                                seriesOff = loadedSelectedEpisodeDetail.effectiveSubtitleTrackSignature == null &&
+                                    loadedSelectedEpisodeDetail.effectiveSubtitleMode.equals("off", ignoreCase = true),
                             ),
                             onClick = { showSubtitlePicker = true },
                             interactive = subtitleTracks.size > 1,
@@ -485,7 +488,7 @@ fun SeriesDetailContent(
         item(contentType = "detail-similar") {
             SimilarRail(
                 items = similarItems,
-                onSelect = onItemDetailClick,
+                onSelect = onSimilarItemClick,
             )
         }
 

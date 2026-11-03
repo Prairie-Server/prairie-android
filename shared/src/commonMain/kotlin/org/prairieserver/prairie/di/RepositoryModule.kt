@@ -149,7 +149,8 @@ val repositoryModule = module {
         )
     }
     single { LibraryPlaybackPrefsRepository(get()) }
-    single { DownloadsRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.DownloadDeletionPort>() ?: org.prairieserver.prairie.repository.port.NoOpDownloadDeletionPort, get(), get(), get()) }
+    single { DownloadsRepository(get(), getOrNull<org.prairieserver.prairie.repository.port.DownloadDeletionPort>() ?: org.prairieserver.prairie.repository.port.NoOpDownloadDeletionPort, get(), get(), get(),
+        getOrNull<org.prairieserver.prairie.repository.port.RevokedDownloadCleanupPort>() ?: org.prairieserver.prairie.repository.port.NoLocalDownloadCopies) }
     single { EbookReaderRepository(get(), get()) }
     single { SubtitlesRepository(get(), get(), get()) }
     single { PushRegistrationRepository(get()) }

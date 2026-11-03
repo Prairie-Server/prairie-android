@@ -39,8 +39,12 @@ val networkModule = module {
         org.prairieserver.prairie.network.api.DefaultExternalSignInApi(get(), get())
     }
     single { CatalogV2Api(get(), get(), get()) }
+    single { org.prairieserver.prairie.network.apiv2.ThemeMusicV2Api(get(), get(), get()) }
     single { PersonRefreshV2Api(get(), get(), get()) }
     single { WatchDetailV2Api(get(), get(), get()) }
+    single<org.prairieserver.prairie.playback.trickplay.TrickplayManifestSource> {
+        org.prairieserver.prairie.network.apiv2.TrickplayV2Api(get(), get(), get())
+    }
     single { CatalogApi(get(), get(), get(), get()) }
     // Prairie-only: the transcode quality ladder (/api/v2/playback/quality-ladder).
     single { PlaybackApi(get()) }
@@ -54,7 +58,8 @@ val networkModule = module {
     single { ProfileApi(get(), get(), get()) }
     single { LibrarySectionItemsV2Api(get(), get(), get()) }
     single { HomeSectionsV2Api(get(), get(), get()) }
-    single { SectionApi(get(), get(), get(), get()) }
+    single { org.prairieserver.prairie.network.api.SectionRowItemLimit(get<HomeSectionsV2Api>()) }
+    single { SectionApi(get(), get(), get(), get(), get()) }
     single { SimilarCardsV2Api(get(), get(), get()) }
     single { TasteProfileV2Api(get(), get(), get()) }
     single { DiscoverV2Api(get(), get(), get()) }

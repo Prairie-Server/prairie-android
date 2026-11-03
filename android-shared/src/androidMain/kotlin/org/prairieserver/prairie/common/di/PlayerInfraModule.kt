@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package org.prairieserver.prairie.common.di
 
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
@@ -37,13 +39,28 @@ import org.prairieserver.prairie.network.api.SettingsApi
 import org.prairieserver.prairie.repository.LibraryPlaybackPrefsRepository
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SettingsRepository
+import org.prairieserver.prairie.common.player.probe.BandwidthProbeScheduler
+import org.prairieserver.prairie.common.player.probe.PlaybackBandwidthEstimates
+import org.prairieserver.prairie.common.player.probe.PlaybackV2BandwidthProbeServer
+import org.prairieserver.prairie.common.player.probe.PlayerMediaActivity
+import org.prairieserver.prairie.common.player.probe.profileSwitches
+import org.prairieserver.prairie.model.server.ServerEntry
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
+
+/** The entry's id while it is signed in with a profile: what the bandwidth probe measures. */
+private fun ServerEntry?.signedInServerId(): String? = this?.takeIf { !it.profileId.isNullOrBlank() }?.id
 
 /**
  * Phase 0 player infrastructure DI module.
@@ -62,8 +79,77 @@ val playerInfraModule = module {
         org.prairieserver.prairie.common.player.AndroidPlaybackJournalStore(androidContext())
     }
     single { org.prairieserver.prairie.network.apiv2.PlaybackV2Api(get(), get()) }
+    // The buffering-quality connection state and learned-limit reset Settings shows.
+    single { org.prairieserver.prairie.repository.PlaybackConnectionRepository(get(), get()) }
+    // The bandwidth probe: one schedule per process, which each app's
+    // Application starts on the process lifecycle. Playback starts read its
+    // estimate through PlaybackBandwidthEstimates.
     single {
-        org.prairieserver.prairie.repository.SequencedPlayback(get(), get(), get(), get()) {
+        val registry = get<ServerRegistry>()
+        // One coroutine at a time: the scheduler's state is confined to it.
+        val probeScope = CoroutineScope(
+            SupervisorJob() + Dispatchers.Default.limitedParallelism(1) +
+                CoroutineExceptionHandler { _, failure ->
+                    // Class name only: the message can carry the server's address.
+                    android.util.Log.w("BandwidthProbe", "bandwidth probe failed: ${failure::class.simpleName}")
+                },
+        )
+        BandwidthProbeScheduler(
+            server = PlaybackV2BandwidthProbeServer(get(), get()),
+            network = get(),
+            mediaActive = PlayerMediaActivity(
+                holder = get(),
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            ).active,
+            activeServer = registry.activeEntry
+                .map { it.signedInServerId() }
+                .stateIn(probeScope, SharingStarted.Eagerly, registry.activeEntry.value.signedInServerId()),
+            scope = probeScope,
+            profileSwitches = registry.activeEntry
+                .map { it?.id to it?.profileId?.takeIf(String::isNotBlank) }
+                .distinctUntilChanged()
+                .profileSwitches(),
+            localRoute = org.prairieserver.prairie.network.localroute.LocalRoutes.state.active,
+        )
+    }
+    single<PlaybackBandwidthEstimates> { get<BandwidthProbeScheduler>() }
+    // The video player and its session manager, the same on phone and TV: the
+    // subtitle manager each app registers carries the form factor's policy.
+    single {
+        org.prairieserver.prairie.common.player.PrairiePlayerFactory(
+            context = androidContext(),
+            tokenManager = get(),
+            subtitleManager = get(),
+            httpDataSourceFactory = get(PLAYER_HTTP_DATA_SOURCE_FACTORY_QUALIFIER),
+            mediaAuthSession = get(),
+            bandwidthMeter = get(),
+            delayProcessor = get(),
+            subtitleOffsetHolder = get(),
+            libassBridge = get(),
+            playbackAnalytics = get(),
+            throughputMeter = get(),
+            sidecarSubtitleHttpDataSourceFactory = get(PLAYER_SIDECAR_SUBTITLE_HTTP_DATA_SOURCE_FACTORY_QUALIFIER),
+        )
+    }
+    // Video starts send the bandwidth probe's estimate, and plan summaries the
+    // video's throughput; the audiobook managers the apps register do neither.
+    single {
+        val playerSettings = get<PlayerSettingsStore>()
+        org.prairieserver.prairie.common.player.PlaybackSessionManager(
+            get(), get(), get(),
+            bandwidthEstimates = get(),
+            throughputKbps = get<org.prairieserver.prairie.common.player.PlaybackThroughputMeter>()::takeKbps,
+            playingPlanThroughputKbps = get<org.prairieserver.prairie.common.player.PlaybackThroughputMeter>()::peekKbps,
+            // The profile's mode as last stored on this device, which the
+            // store answers locally, so no start goes out before it is known.
+            bufferingQualityMode = { playerSettings.bufferingQualityModeFlow.first() },
+        )
+    }
+    single {
+        org.prairieserver.prairie.repository.SequencedPlayback(
+            get(), get(), get(), get(),
+            log = { android.util.Log.i("SequencedPlayback", it) },
+        ) {
             java.util.UUID.randomUUID().toString()
         }
     }
@@ -103,6 +189,7 @@ val playerInfraModule = module {
         SettingsContractRevision(
             fetchCapabilities = { settingsApi.getContractCapabilities() },
             getServerUrl = { get<TokenManager>().getServerUrl() },
+            fetchManifestKeys = { settingsApi.getContractKeys() },
         )
     }
 
@@ -118,6 +205,31 @@ val playerInfraModule = module {
             getServerUrl = { get<TokenManager>().getServerUrl() },
             getAuthScope = { get<TokenManager>().snapshotCurrentScope() },
             contractRevision = get(),
+        )
+    }
+
+    // Manual audio and subtitle choices remembered per series on the server.
+    // App-scoped so a retry outlives the player that made the choice.
+    single<org.prairieserver.prairie.common.settings.SeriesTrackChoiceWriter> {
+        val v2 = get<org.prairieserver.prairie.network.apiv2.SettingsV2Api>()
+        org.prairieserver.prairie.common.settings.DefaultSeriesTrackChoiceWriter(
+            putSubtitle = { key, choice, owner -> v2.putSubtitlePreference(key, choice, owner) },
+            deleteSubtitle = { key, owner -> v2.deleteSubtitlePreference(key, owner) },
+            putAudio = { key, choice, owner -> v2.putAudioPreference(key, choice, owner) },
+            deleteAudio = { key, owner -> v2.deleteAudioPreference(key, owner) },
+            captureOwner = {
+                get<TokenManager>().snapshotCurrentScope()?.takeIf { !it.profileId.isNullOrBlank() }
+            },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            identityChanges = get<org.prairieserver.prairie.network.IdentityTransitionBarrier>().transitions,
+            // Each successful probe: the server is back, or the app returned
+            // to the foreground and checked it again.
+            resumeSignals = get<ServerReachabilityMonitor>().state
+                .filter { it.status == org.prairieserver.prairie.common.network.ServerReachabilityStatus.Reachable }
+                .map { it.lastCheckedAtMs }
+                .distinctUntilChanged()
+                .map { },
+            autoResets = org.prairieserver.prairie.common.settings.SharedPreferencesSeriesAutoResetStore(androidContext()),
         )
     }
 
@@ -170,7 +282,7 @@ val playerInfraModule = module {
         )
     }
 
-    // Card-presentation preference (poster size + captions). Same lifetime
+    // Card-presentation preference (poster size). Same lifetime
     // rationale as the overlay store; the extra lambdas feed the last-known
     // SharedPreferences cache identity (server|profile|family|device).
     single<CardPresentationStore> {
@@ -239,6 +351,29 @@ val playerInfraModule = module {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             getAuthScope = { get<TokenManager>().snapshotCurrentScope() },
             identityChanges = identityChanges,
+        )
+    }
+
+    // Theme music on the phone and TV detail pages. One instance, so a theme
+    // continues from one detail page to the next one with the same theme.
+    single {
+        val identityChanges = get<ServerRegistry>().activeEntry
+            .map { it?.url to it?.profileId }
+            .distinctUntilChanged()
+            .drop(1)
+            .map { Unit }
+        org.prairieserver.prairie.common.thememusic.ThemeMusicService(
+            context = androidContext(),
+            api = get(),
+            tokens = get(),
+            settings = get(),
+            identityChanges = identityChanges,
+            playbackStarts = org.prairieserver.prairie.common.thememusic.playbackStarts(get<ActivePlayerHolder>().player),
+            // The grant URL carries its own token and may be on a proxy's
+            // origin, so it goes out on the raw transport without account auth.
+            dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+                get<okhttp3.OkHttpClient>(PLAYER_TRANSPORT_OKHTTP_QUALIFIER),
+            ),
         )
     }
 

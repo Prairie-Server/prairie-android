@@ -23,6 +23,7 @@ class CatalogApi(client: HttpClient, private val v2: CatalogV2Api = CatalogV2Api
         namePrefix: String? = null, yearMin: Int? = null, yearMax: Int? = null,
         queryGroups: List<CatalogQueryGroup> = emptyList(), match: String? = null,
         skipTotal: Boolean = false, widths: ArtworkWidths? = null,
+        group: String? = null,
     ): ApiResult<CatalogResponse> {
         val groups = queryGroups.toV2Groups().toMutableList()
         val implicit = buildList {
@@ -40,7 +41,7 @@ class CatalogApi(client: HttpClient, private val v2: CatalogV2Api = CatalogV2Api
         }
         return v2.browse(CatalogQueryV2(source = source ?: "query", q = query, type = mediaType,
             libraryId = libraryId?.toString(), sort = sort, order = order, limit = limit ?: 50,
-            namePrefix = namePrefix, groups = groups, match = match, skipTotal = skipTotal), continuation, widths = widths)
+            namePrefix = namePrefix, groups = groups, match = match, group = group, skipTotal = skipTotal), continuation, widths = widths)
             .map { it.toCatalogResponse() }
     }
 
@@ -91,6 +92,14 @@ class CatalogApi(client: HttpClient, private val v2: CatalogV2Api = CatalogV2Api
         return watchDetail.detail(id, owner, libraryId)
     }
 
+    suspend fun getBoxSet(id: String, libraryId: String, widths: ArtworkWidths? = null): ApiResult<CatalogBoxSetDetail> =
+        v2.boxSet(id, libraryId, widths)
+
+    suspend fun getItemBoxSet(id: String, libraryId: Int? = null, widths: ArtworkWidths? = null): ApiResult<CatalogBoxSetDetail?> =
+        v2.itemBoxSet(id, libraryId, widths)
+
+    suspend fun searchBoxSets(query: String, limit: Int = 5): ApiResult<List<CatalogBoxSet>> = v2.searchBoxSets(query, limit)
+
     suspend fun searchPeople(query: String? = null, mediaScope: String? = null): ApiResult<List<Person>> =
         v2.people(query, mediaScope = mediaScope)
 
@@ -108,9 +117,17 @@ class CatalogApi(client: HttpClient, private val v2: CatalogV2Api = CatalogV2Api
 
 internal fun List<CatalogQueryGroup>.toV2Groups() = map { group ->
     CatalogRuleGroupV2(group.match, group.rules.map { rule ->
-        CatalogRuleV2(rule.field, rule.op, if (rule.values.isNotEmpty()) JsonArray(rule.values.map(::JsonPrimitive)) else JsonPrimitive(rule.value))
+        val value = when {
+            rule.values.isNotEmpty() -> JsonArray(rule.values.map(::JsonPrimitive))
+            // The server rejects flag rules whose value is not a JSON boolean (iOS CatalogQueryBuilder).
+            rule.field in BOOLEAN_RULE_FIELDS -> JsonPrimitive(rule.value.content == "true")
+            else -> rule.value
+        }
+        CatalogRuleV2(rule.field, rule.op, value)
     })
 }
+
+private val BOOLEAN_RULE_FIELDS = setOf("hdr", "dolby_vision", "watched", "in_progress", "favorited", "in_watchlist")
 
 internal fun CatalogPageV2<BrowseItem>.toCatalogResponse() = CatalogResponse(
     total = total, totalExact = totalExact, hasMore = continuation != null, items = items,

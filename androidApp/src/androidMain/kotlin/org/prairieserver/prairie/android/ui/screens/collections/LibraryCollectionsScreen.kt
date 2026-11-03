@@ -44,7 +44,6 @@ import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
 import org.prairieserver.prairie.android.ui.components.MediaGridDefaults
-import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.section.LibraryCollection
@@ -297,10 +296,6 @@ private fun LibraryCollectionCard(
     collection: LibraryCollection,
     onClick: () -> Unit,
 ) {
-    // Caption gating mirrors CollectionsView.swift: the name line follows
-    // showsTitle, the type line showsMetadata. The count badge sits on the
-    // artwork, so it stays either way.
-    val caption = LocalCardPresentation.current.caption
     val countLabel = collection.itemCount?.takeIf { it > 0 }?.toString() ?: "Smart"
     val typeLabel = when {
         collection.kind == "user_collections" -> "User collection"
@@ -358,24 +353,20 @@ private fun LibraryCollectionCard(
             )
         }
 
-        if (caption.showsTitle) {
-            Text(
-                text = collection.name,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = collection.name,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
 
-        if (caption.showsMetadata) {
-            Text(
-                text = typeLabel,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = typeLabel,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

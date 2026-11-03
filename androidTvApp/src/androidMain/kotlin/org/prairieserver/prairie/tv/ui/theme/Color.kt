@@ -64,3 +64,13 @@ val StageLightSoft = PrairiePrimary.copy(alpha = 0.10f)
 val PrairieBlue = PrairiePrimary
 val PrairieBlueLight = PrairiePrimary
 val PrairieBlueDark = PrairieSecondaryText
+
+/**
+ * A box set card's sleeves, from the web's `surface-raised`, `surface-hover`
+ * and `border`; the TV theme has no surface tokens that close to them.
+ */
+val BoxSetSleeves = org.prairieserver.prairie.common.ui.components.BoxSetSleeveColors(
+    back = Color(0xFF28282E),
+    front = Color(0xFF232328),
+    border = Color(0xFF28282E),
+)

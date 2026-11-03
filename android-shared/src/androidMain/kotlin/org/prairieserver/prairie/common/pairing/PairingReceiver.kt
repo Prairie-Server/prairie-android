@@ -1,9 +1,12 @@
 package org.prairieserver.prairie.common.pairing
 
 import android.util.Log
+import org.prairieserver.prairie.common.network.CleartextConsentStore
 import org.prairieserver.prairie.model.auth.DeviceLoginPollResponse
 import org.prairieserver.prairie.model.auth.DeviceLoginStartResponse
 import org.prairieserver.prairie.network.api.ServerIdentityProbe
+import org.prairieserver.prairie.network.canonicalHttpOrigin
+import org.prairieserver.prairie.network.requiresApproval
 import org.prairieserver.prairie.pairing.PairingEndpoint
 import org.prairieserver.prairie.pairing.PairingFailureCode
 import org.prairieserver.prairie.pairing.PairingMessage
@@ -16,12 +19,18 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Identity + state the receiver advertises and announces in its [PairingMessage.Hello].
@@ -101,10 +110,13 @@ sealed class PairingReceiverStatus {
     /**
      * A phone pushed a server and the TV user must allow it before the
      * device-login (and its sign-in code) starts — tvOS-parity consent step.
+     * [unencrypted] = the address is plain HTTP this TV hasn't approved yet:
+     * the TV user is warned, and allowing approves that exact origin.
      */
     data class ConsentRequested(
         val serverURL: String,
         val serverName: String,
+        val unencrypted: Boolean = false,
     ) : PairingReceiverStatus()
 
     /** Checking the server's address and starting device sign-in there (interim). */
@@ -178,9 +190,26 @@ class PairingReceiver(
     private val identityProvider: () -> PairingDeviceIdentity,
     /** Classifies one address; production probes `GET /api/v2/system/identity`. */
     private val identityProbe: suspend (serverUrl: String) -> ServerIdentityProbe = { ServerIdentityProbe.Unreachable },
+    /**
+     * This TV's cleartext approvals. Every credential-bearing request to a
+     * plain-HTTP origin needs one, so a pushed HTTP server is approved only
+     * through the consent step, with the TV user warned.
+     */
+    private val cleartextConsent: CleartextConsentStore,
 ) {
     private companion object {
         private const val TAG = "PairingReceiver"
+
+        /**
+         * How long a connected phone may stay silent (no message, no attempt
+         * in flight) before the TV drops it and goes back to advertising. The
+         * advertiser serves one phone at a time, so a phone that loses its
+         * network must not hold setup forever. Same limit as tvOS and Roku.
+         */
+        private val IDLE_TIMEOUT = 180.seconds
+
+        /** Bound on withdrawing an abandoned request (DeviceSignInMachine's). */
+        private val WITHDRAW_TIMEOUT = 5.seconds
     }
 
     private val _status = MutableStateFlow<PairingReceiverStatus>(PairingReceiverStatus.Idle)
@@ -213,6 +242,25 @@ class PairingReceiver(
     private var activeTransport: PairingTransport? = null
 
     private val signedInNames = mutableListOf<String>()
+
+    /** Drops a silent phone after [IDLE_TIMEOUT]; see [armIdleTimer]. */
+    private var idleJob: Job? = null
+
+    /**
+     * Set when the session starts closing (idle expiry or the stream ended):
+     * from then on nothing re-arms the timer or starts an attempt. Guarded by
+     * [sessionLock], which orders expiry against activity.
+     */
+    private var sessionClosing = false
+    private val sessionLock = Any()
+
+    /**
+     * The setup attempt that owns [deviceLogin]'s shared state. An attempt
+     * can outlive its connection (saving a session can't be cancelled) while
+     * a newer one starts; only the owner reads or resets that state.
+     */
+    private var deviceLoginOwner: Any? = null
+    private val deviceLoginLock = Any()
 
     private enum class AlternateChoice { UseAlternate, Retry }
 
@@ -251,10 +299,10 @@ class PairingReceiver(
         val push = pendingPush ?: return
         val transport = activeTransport ?: return
         val scope = sessionScope ?: return
-        if (_status.value !is PairingReceiverStatus.ConsentRequested) return
+        val consent = _status.value as? PairingReceiverStatus.ConsentRequested ?: return
         consented = true
         pendingPush = null
-        beginAttempt(push, transport, scope)
+        beginAttempt(push, transport, scope, approveCleartext = consent.unencrypted)
     }
 
     /**
@@ -301,6 +349,10 @@ class PairingReceiver(
         sessionDenied = false
         activeTransport = transport
         signedInNames.clear()
+        synchronized(sessionLock) {
+            sessionClosing = false
+            idleJob = null
+        }
         var preserveTerminalStatus = false
         try {
             val identity = identityProvider()
@@ -323,7 +375,11 @@ class PairingReceiver(
             coroutineScope {
                 val scope = this
                 sessionScope = scope
+                armIdleTimer(transport, scope)
                 transport.incoming.collectMessage { message ->
+                    // An attempt in flight holds the timer; it restarts when
+                    // the attempt ends (or below, when a push replaces it).
+                    if (pushJob?.isActive != true) armIdleTimer(transport, scope)
                     when (message) {
                         is PairingMessage.PushServer ->
                             handlePushServer(message, transport, scope)
@@ -362,6 +418,7 @@ class PairingReceiver(
                     true
                 }
                 // Stream ended (Done/Cancel/EOF) — cancel any in-flight device-login.
+                beginClosing(transport)
                 pushJob?.cancel()
                 if (!preserveTerminalStatus) {
                     if (signedInNames.isNotEmpty()) {
@@ -375,9 +432,13 @@ class PairingReceiver(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Throwable) {
-            // Transport / decode error: connection dropped mid-session.
+            // Transport / decode error: connection dropped mid-session (the
+            // idle timer's close ends a real socket this way too). Like a
+            // clean end: a lone failure keeps its explanation on screen.
             if (signedInNames.isNotEmpty()) {
                 _status.value = PairingReceiverStatus.Completed(signedInNames.toList())
+                preserveTerminalStatus = true
+            } else if (_status.value is PairingReceiverStatus.Failed) {
                 preserveTerminalStatus = true
             }
         } finally {
@@ -385,6 +446,7 @@ class PairingReceiver(
             // restarted while this one unwound): its session, push and status
             // are not this run's to clear.
             if (activeTransport === transport) {
+                beginClosing(transport)
                 pushJob?.cancel()
                 pushJob = null
                 pendingPush = null
@@ -414,10 +476,18 @@ class PairingReceiver(
         pushJob = null
         // tvOS parity: the first push of a session needs the TV user's consent
         // before device-login starts (and before any sign-in code shows). A
-        // newer push while consent is pending supersedes the earlier one.
-        if (!consented) {
+        // newer push while consent is pending supersedes the earlier one. A
+        // plain-HTTP server this TV hasn't approved asks again even in a
+        // consented session: the approval covers that one origin.
+        val unencrypted = cleartextConsent.requiresApproval(message.serverURL)
+        if (!consented || unencrypted) {
+            armIdleTimer(transport, sessionScope)
             pendingPush = message
-            _status.value = PairingReceiverStatus.ConsentRequested(message.serverURL, message.displayName())
+            _status.value = PairingReceiverStatus.ConsentRequested(
+                message.serverURL,
+                message.displayName(),
+                unencrypted = unencrypted,
+            )
             return
         }
         beginAttempt(message, transport, sessionScope)
@@ -427,21 +497,71 @@ class PairingReceiver(
         push: PairingMessage.PushServer,
         transport: PairingTransport,
         sessionScope: CoroutineScope,
+        approveCleartext: Boolean = false,
     ) {
         // "Automatic" only once a sign-in has been COMMITTED: the phone
         // auto-approves only after its user confirmed the first code.
         val automatic = signedInNames.isNotEmpty()
         val ad = advertisement
-        pushJob = sessionScope.launch {
-            if (ad.state == PairingReceiverState.Login) {
-                runLoginAttempt(push, transport, ad)
-            } else {
-                try {
-                    runAttempt(push, transport, automatic)
-                } finally {
-                    deviceLogin.reset()
+        // The idle timer waits while an attempt is in flight: device login is
+        // bounded by the code's own expiry, and the unreachable-address
+        // choice waits on the TV user. Under the lock, so an expired or
+        // ending session never starts one.
+        synchronized(sessionLock) {
+            if (sessionClosing) return
+            idleJob?.cancel()
+            idleJob = null
+            pushJob = sessionScope.launch {
+                if (approveCleartext) {
+                    canonicalHttpOrigin(push.serverURL)?.let { cleartextConsent.approve(it) }
                 }
+                if (ad.state == PairingReceiverState.Login) {
+                    runLoginAttempt(push, transport, ad)
+                } else {
+                    runAttempt(push, transport, automatic)
+                }
+                // A cancelled attempt can still get here (the result sends
+                // swallow cancellation); only a finished one restarts the wait.
+                if (isActive) armIdleTimer(transport, sessionScope)
             }
+        }
+    }
+
+    /**
+     * (Re)start the idle deadline for [transport]'s session. On expiry the
+     * session is closed without a goodbye frame: a write to a dead peer can
+     * block, and both phone apps treat a closed connection as the end.
+     * Closing ends [run], which returns the TV to advertising.
+     */
+    private fun armIdleTimer(transport: PairingTransport, scope: CoroutineScope) {
+        synchronized(sessionLock) {
+            if (sessionClosing || activeTransport !== transport) return
+            idleJob?.cancel()
+            idleJob = scope.launch {
+                delay(IDLE_TIMEOUT)
+                synchronized(sessionLock) {
+                    // Activity that cancelled this timer first wins; otherwise
+                    // expiry wins and a later Allow finds nothing to allow.
+                    if (!isActive || activeTransport !== transport || sessionClosing) return@launch
+                    sessionClosing = true
+                    pendingPush = null
+                }
+                Log.i(TAG, "pairing session idle timeout; dropping peer")
+                transport.close()
+            }
+        }
+    }
+
+    /**
+     * [transport]'s session is ending: stop the idle timer and refuse new
+     * attempts. A newer connection's session is left alone.
+     */
+    private fun beginClosing(transport: PairingTransport) {
+        synchronized(sessionLock) {
+            if (activeTransport !== transport) return
+            sessionClosing = true
+            idleJob?.cancel()
+            idleJob = null
         }
     }
 
@@ -537,17 +657,28 @@ class PairingReceiver(
         // per-server state on the URL they sent.
         val pushedUrl = push.serverURL
         val displayName = push.displayName()
+        // The request this attempt opened and hasn't collected, so an
+        // abandoned attempt (the phone cancelled or left, a newer push, the
+        // TV cancelled) withdraws it and its code can't be approved later.
+        var loginUrl: String? = null
+        var openCode: String? = null
+        val owner = Any()
         try {
             _status.value = PairingReceiverStatus.Pairing(pushedUrl, displayName)
             val target = resolveLoginTarget(push, displayName)
+            loginUrl = target.url
             val expectedIdentity = authPort.captureExpectedIdentity()
                 ?: throw AttemptFailure(PairingFailureCode.AuthFailed)
             val device = identityProvider()
 
+            synchronized(deviceLoginLock) { deviceLoginOwner = owner }
             val terminal = coroutineScope {
                 var deviceStartedSent = false
                 val observer = launch {
                     deviceLogin.state.collectMessage { state ->
+                        if (state is DeviceLoginRepository.DeviceLoginState.Awaiting) {
+                            openCode = state.session.deviceCode
+                        }
                         if (state is DeviceLoginRepository.DeviceLoginState.Awaiting && !deviceStartedSent) {
                             deviceStartedSent = true
                             val session = state.session
@@ -580,14 +711,48 @@ class PairingReceiver(
             }
 
             val approved = when (terminal) {
-                is DeviceLoginRepository.DeviceLoginState.Approved -> terminal.response
-                is DeviceLoginRepository.DeviceLoginState.Failed -> throw AttemptFailure(terminal.reason.pairingFailure())
+                is DeviceLoginRepository.DeviceLoginState.Approved -> {
+                    openCode = null // collected: nothing left to withdraw
+                    terminal.response
+                }
+                is DeviceLoginRepository.DeviceLoginState.Failed -> {
+                    // Decided on the server: nothing left to withdraw. An
+                    // expiry may be this TV's own deadline, so it still is.
+                    if (terminal.reason.decidedOnServer()) openCode = null
+                    throw AttemptFailure(terminal.reason.pairingFailure())
+                }
                 else -> throw AttemptFailure(PairingFailureCode.AuthFailed)
             }
             persist(approved, target, push, expectedIdentity)
             reportSignedIn(pushedUrl, displayName, transport)
         } catch (failure: AttemptFailure) {
             reportFailure(pushedUrl, displayName, failure.code, transport)
+        } finally {
+            // Release the shared state before the withdraw suspends, and only
+            // while this attempt still owns it: a newer attempt (after an
+            // advertiser restart) keeps its request. A cancel can land before
+            // the observer saw the request open, so an owner still holding
+            // one reads it from the state.
+            val code = synchronized(deviceLoginLock) {
+                if (deviceLoginOwner !== owner) return@synchronized openCode
+                val awaiting = deviceLogin.state.value as? DeviceLoginRepository.DeviceLoginState.Awaiting
+                deviceLogin.reset()
+                deviceLoginOwner = null
+                openCode ?: awaiting?.session?.deviceCode
+            }
+            val url = loginUrl
+            if (code != null && url != null) withdraw(url, code)
+        }
+    }
+
+    /**
+     * Withdraw an abandoned request on the server. Runs even when the attempt
+     * was cancelled, bounded so a slow server can't hold up the session.
+     */
+    private suspend fun withdraw(serverUrl: String, deviceCode: String) {
+        Log.i(TAG, "withdrawing an abandoned sign-in request")
+        withContext(NonCancellable) {
+            withTimeoutOrNull(WITHDRAW_TIMEOUT) { deviceLogin.withdraw(serverUrl, deviceCode) }
         }
     }
 
@@ -686,6 +851,16 @@ class PairingReceiver(
 
     private fun PairingMessage.PushServer.displayName(): String =
         serverName?.takeIf { it.isNotBlank() } ?: normalizeEndpointUrl(serverURL)
+}
+
+/** Whether the server already ended the request: denied, used, or withdrawn. */
+private fun DeviceLoginRepository.FailureReason.decidedOnServer(): Boolean = when (this) {
+    DeviceLoginRepository.FailureReason.Denied,
+    DeviceLoginRepository.FailureReason.Consumed,
+    DeviceLoginRepository.FailureReason.Canceled,
+    DeviceLoginRepository.FailureReason.MissingTokens,
+    -> true
+    else -> false
 }
 
 /** The wire code for a failed device-login attempt. */

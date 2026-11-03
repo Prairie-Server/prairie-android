@@ -3,15 +3,15 @@ package org.prairieserver.prairie.common.cast
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.os.Build
 import android.util.Log
 import org.prairieserver.prairie.cast.PrairieCastProtocol
 import org.prairieserver.prairie.common.pairing.PairingDeviceId
+import org.prairieserver.prairie.common.pairing.TvDeviceName
 
 /**
  * Advertises the PrairieCast receiver. TXT keys mirror prairie-apple's
  * TVControlReceiver Bonjour record (`v`, `name`, `id`, `server`,
- * `serverName`, `playing`) so an iPhone browsing `_prairiecast._tcp` can filter
+ * `serverName`, `serverIdentity`, `playing`) so an iPhone browsing `_prairiecast._tcp` can filter
  * an Android TV by server the same way it filters an Apple TV — and the
  * Android browser can read Apple receivers. Android's NsdManager can't
  * mutate a live TXT record, so [updatePlaying] re-registers.
@@ -19,7 +19,7 @@ import org.prairieserver.prairie.common.pairing.PairingDeviceId
 class PrairieCastNsdAdvertiser(
     context: Context,
     private val nameProvider: () -> String = {
-        Build.MODEL?.trim()?.ifBlank { null } ?: "Android TV"
+        TvDeviceName.current(context)
     },
     private val deviceIdProvider: () -> String = {
         PairingDeviceId.stable(context)
@@ -31,10 +31,29 @@ class PrairieCastNsdAdvertiser(
 
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var lastRegistration: Registration? = null
+    private var lastRecord: Map<String, String>? = null
+
+    /** The service name NsdManager registered, which it may change to resolve a conflict; null until it confirms. */
+    private var registeredName: String? = null
+
+    /** The registered advertisement's name, port and TXT record, for the debug adb hook. */
+    @Synchronized
+    fun currentAdvertisement(): Triple<String, Int, Map<String, String>>? {
+        val registration = lastRegistration ?: return null
+        val record = lastRecord ?: return null
+        val name = registeredName ?: return null
+        return Triple(name, registration.port, record)
+    }
 
     @Synchronized
-    fun start(port: Int, serverId: String?, serverName: String?, playing: Boolean = false) {
-        register(Registration(port, serverId, serverName, playing))
+    fun start(
+        port: Int,
+        serverId: String?,
+        serverName: String?,
+        playing: Boolean = false,
+        serverIdentity: String? = null,
+    ) {
+        register(Registration(port, serverId, serverName, playing, serverIdentity))
     }
 
     /** Re-advertise with an updated `playing` flag (no-op when not started). */
@@ -52,6 +71,8 @@ class PrairieCastNsdAdvertiser(
         }
         registrationListener = null
         lastRegistration = null
+        lastRecord = null
+        registeredName = null
     }
 
     private fun register(registration: Registration) {
@@ -60,24 +81,35 @@ class PrairieCastNsdAdvertiser(
         }
         registrationListener = null
         val name = nameProvider()
+        val record = buildMap {
+            put("v", PrairieCastProtocol.version.toString())
+            put("name", name)
+            put("id", deviceIdProvider())
+            registration.serverId?.let { put("server", it) }
+            registration.serverName?.let { put("serverName", it) }
+            // Lets a phone signed in at another address of the same deployment list this TV.
+            registration.serverIdentity?.let { put("serverIdentity", it) }
+            put("playing", if (registration.playing) "1" else "0")
+        }
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = name
             serviceType = PrairieCastProtocol.serviceType
             port = registration.port
-            setAttribute("v", PrairieCastProtocol.version.toString())
-            setAttribute("name", name)
-            setAttribute("id", deviceIdProvider())
-            registration.serverId?.let { setAttribute("server", it) }
-            registration.serverName?.let { setAttribute("serverName", it) }
-            setAttribute("playing", if (registration.playing) "1" else "0")
+            record.forEach { (key, value) -> setAttribute(key, value) }
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(info: NsdServiceInfo) {
                 Log.i(TAG, "PrairieCast registered on ${info.port}")
+                synchronized(this@PrairieCastNsdAdvertiser) {
+                    if (registrationListener === this) registeredName = info.serviceName
+                }
             }
 
             override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
                 Log.w(TAG, "PrairieCast registration failed: $errorCode")
+                synchronized(this@PrairieCastNsdAdvertiser) {
+                    if (registrationListener === this) registeredName = null
+                }
             }
 
             override fun onServiceUnregistered(info: NsdServiceInfo) {
@@ -90,6 +122,8 @@ class PrairieCastNsdAdvertiser(
         }
         registrationListener = listener
         lastRegistration = registration
+        lastRecord = record
+        registeredName = null
         nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
     }
 
@@ -98,6 +132,7 @@ class PrairieCastNsdAdvertiser(
         val serverId: String?,
         val serverName: String?,
         val playing: Boolean,
+        val serverIdentity: String?,
     )
 
     private companion object {

@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,14 +14,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,6 +56,8 @@ fun TvHoldSeekIndicator(
     previewTimeSec: Double,
     durationSec: Double,
     modifier: Modifier = Modifier,
+    /** The server's preview of [previewTimeSec], above the chip as on tvOS; null shows the chip alone. */
+    thumbnail: ImageBitmap? = null,
 ) {
     AnimatedVisibility(
         visible = isVisible,
@@ -52,14 +65,39 @@ fun TvHoldSeekIndicator(
         exit = fadeOut(),
         modifier = modifier,
     ) {
-        // Vertical chip-over-bar-over-hint layout (mirrors tvOS
-        // HoldSeekIndicator): a pill chip with a large rate label + preview
-        // time on top, a wide read-only progress bar in the middle, and a
-        // dim hint row at the bottom.
+        // Once a preview has shown, its place stays for the rest of the
+        // session, so the chip moves down once rather than with every sheet
+        // that loads.
+        var keepsPreviewSlot by remember { mutableStateOf(false) }
+        if (thumbnail != null) SideEffect { keepsPreviewSlot = true }
+
+        // Vertical preview-over-chip-over-bar-over-hint layout (mirrors tvOS
+        // HoldSeekIndicator): the server's preview of the landing point, a
+        // pill chip with a large rate label + preview time, a wide read-only
+        // progress bar, and a dim hint row at the bottom.
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (thumbnail != null || keepsPreviewSlot) {
+                val shape = RoundedCornerShape(10.dp)
+                val frame = Modifier
+                    .size(240.dp, 135.dp)
+                    .shadow(9.dp, shape, clip = false)
+                    .clip(shape)
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = frame,
+                    )
+                } else {
+                    Box(frame.background(Color.Black.copy(alpha = 0.42f)))
+                }
+            }
+
             // Chip: direction-signed rate (large) + preview time.
             Surface(
                 color = Color.Black.copy(alpha = 0.42f),

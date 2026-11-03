@@ -23,6 +23,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -44,6 +45,27 @@ import kotlin.test.assertNull
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class TvLibraryBrowsePrefsTest {
+
+    @Test
+    fun booleanFacetsLowerToJsonBooleanRules() {
+        // The catalog API rejects string booleans ("true"); every boolean field must go out as a JSON boolean.
+        val dynamicRange = TvCatalogFacetSelection(hdr = true, dolbyVision = true).toQueryGroups().single()
+        assertEquals(
+            listOf("hdr" to JsonPrimitive(true), "dolby_vision" to JsonPrimitive(true)),
+            dynamicRange.rules.map { it.field to it.value },
+        )
+        val expected = mapOf(
+            TvWatchStatusFilter.Unwatched to ("watched" to false),
+            TvWatchStatusFilter.Watched to ("watched" to true),
+            TvWatchStatusFilter.InProgress to ("in_progress" to true),
+            TvWatchStatusFilter.Favorited to ("favorited" to true),
+            TvWatchStatusFilter.Watchlist to ("in_watchlist" to true),
+        )
+        for ((status, rule) in expected) {
+            val actual = TvCatalogFacetSelection(watchStatus = status).toQueryGroups().single().rules.single()
+            assertEquals(rule.first to JsonPrimitive(rule.second), actual.field to actual.value, "rule for $status")
+        }
+    }
 
     @Test
     fun savedStateRoundTripsEveryFacetAndDropsPerVisitFields() {

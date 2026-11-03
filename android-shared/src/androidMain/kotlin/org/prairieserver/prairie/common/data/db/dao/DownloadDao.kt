@@ -91,6 +91,10 @@ interface DownloadDao {
     )
     fun observeSavedArtwork(): Flow<List<DownloadArtworkRow>>
 
+    /** Record ids of failed downloads, across scopes; re-queried on every downloads write. */
+    @Query("SELECT recordId FROM downloads WHERE status = 'failed' ORDER BY recordId")
+    fun observeFailedRecordIds(): Flow<List<String>>
+
     /** First download (any scope) for a content id — offline player contentId→file lookup. */
     @Query("SELECT * FROM downloads WHERE contentId = :contentId LIMIT 1")
     suspend fun findByContentId(contentId: String): DownloadEntity?

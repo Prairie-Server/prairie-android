@@ -83,8 +83,11 @@ import org.prairieserver.prairie.android.ui.screens.auth.SetupScreen
 import org.prairieserver.prairie.android.ui.screens.auth.InviteClaimScreen
 import org.prairieserver.prairie.android.ui.screens.auth.SignupScreen
 import org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourScreen
+import org.prairieserver.prairie.android.ui.screens.boxset.BoxSetScreen
 import org.prairieserver.prairie.android.ui.screens.browse.BrowseScreen
 import org.prairieserver.prairie.android.ui.screens.browse.BrowseViewModel
+import org.prairieserver.prairie.android.ui.screens.browse.SectionBrowseScreen
+import org.prairieserver.prairie.viewmodel.SectionBrowseArgs
 import org.prairieserver.prairie.android.ui.screens.calendar.CalendarScreen
 import org.prairieserver.prairie.android.ui.screens.collections.CollectionDetailScreen
 import org.prairieserver.prairie.android.ui.screens.collections.CollectionsScreen
@@ -114,6 +117,7 @@ import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionScr
 import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvPlayerScreen
 import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvScreen
 import org.prairieserver.prairie.android.ui.screens.requests.MyRequestsScreen
+import org.prairieserver.prairie.android.ui.screens.requests.RequestDiscoverRowScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDetailScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestsScreen
 import org.prairieserver.prairie.android.ui.screens.search.MobileSearchMediaType
@@ -147,12 +151,19 @@ import org.prairieserver.prairie.repository.ProfilePromptAction
 import org.prairieserver.prairie.repository.ProfileVerificationRecovery
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 /**
  * Detail identity actually on screen, which a series redirect can move away
  * from the route's own `contentId` argument.
  */
 private const val DisplayedDetailContentIdKey = "displayedDetailContentId"
+
+private fun NavBackStackEntry.displayedDetailContentId(): String? =
+    savedStateHandle.get<String>(DisplayedDetailContentIdKey) ?: arguments?.getString("contentId")
+
+/** Set on a detail entry that a title's "More like this" rail opened. */
+private const val OpenedFromRelatedRailKey = "openedFromRelatedRail"
 
 /** The profile picker and its screens, where a prompt has nothing to add. */
 private val ProfilePromptPickerRoutes: Set<String> = setOf(
@@ -528,9 +539,7 @@ fun AppNavigation(
                 shouldLaunchExternalRouteSingleTop(
                     currentDestinationRoute = navController.currentBackStackEntry
                         ?.destination?.route,
-                    currentContentId = navController.currentBackStackEntry
-                        ?.savedStateHandle?.get<String>(DisplayedDetailContentIdKey)
-                        ?: navController.currentBackStackEntry?.arguments?.getString("contentId"),
+                    currentContentId = navController.currentBackStackEntry?.displayedDetailContentId(),
                     targetRoute = route,
                 )
             navController.navigate(route) {
@@ -1341,6 +1350,9 @@ fun AppNavigation(
                 onItemClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId).route)
                 },
+                onBoxSetClick = { boxSet ->
+                    navController.navigate(Route.BoxSet(boxSet.id, boxSet.libraryId).route)
+                },
                 onPersonClick = { personId ->
                     navController.navigate(Route.PersonDetail(personId).route)
                 },
@@ -1403,6 +1415,22 @@ fun AppNavigation(
             RequestsScreen(
                 onBackClick = { navController.popBackStack() },
                 onMyRequestsClick = { navController.navigate(Route.MyRequests.route) },
+                onRequestDetailClick = openRequestDetail,
+                onLibraryItemClick = openRequestLibraryItem,
+                onDiscoverRowClick = { key, title -> navController.navigate(Route.RequestDiscoverRow(key, title).route) },
+            )
+        }
+        composable(
+            route = Route.RequestDiscoverRow.ROUTE,
+            arguments = listOf(
+                navArgument("key") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { backStackEntry ->
+            RequestDiscoverRowScreen(
+                rowKey = backStackEntry.arguments?.getString("key").orEmpty(),
+                title = backStackEntry.arguments?.getString("title").orEmpty(),
+                onBackClick = { navController.popBackStack() },
                 onRequestDetailClick = openRequestDetail,
                 onLibraryItemClick = openRequestLibraryItem,
             )
@@ -1496,7 +1524,83 @@ fun AppNavigation(
             )
         }
 
+        composable(
+            route = Route.SectionBrowse.ROUTE,
+            arguments = listOf(
+                navArgument("sectionId") { type = NavType.StringType },
+                navArgument("title") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("libraryId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("mediaScope") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { backStackEntry ->
+            val libraryId = backStackEntry.arguments?.getString("libraryId")?.toIntOrNull()
+            SectionBrowseScreen(
+                args = SectionBrowseArgs(
+                    sectionId = backStackEntry.arguments?.getString("sectionId").orEmpty(),
+                    title = backStackEntry.arguments?.getString("title").orEmpty(),
+                    libraryId = libraryId,
+                    mediaScope = backStackEntry.arguments?.getString("mediaScope")
+                        ?.takeIf { it in setOf("movie", "series") },
+                ),
+                onBackClick = { navController.popBackStack() },
+                onItemClick = { item -> navController.navigate(sectionBrowseDetailRoute(item, libraryId)) },
+            )
+        }
+
         // ---- Detail screens ----
+        composable(
+            route = Route.BoxSet.ROUTE,
+            arguments = listOf(
+                navArgument("boxSetId") { type = NavType.StringType },
+                navArgument("libraryId") { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val boxSetId = backStackEntry.arguments?.getString("boxSetId").orEmpty()
+            val boxSetLibraryId = backStackEntry.arguments?.getString("libraryId").orEmpty()
+            val libraryId = boxSetLibraryId.toIntOrNull()
+            BoxSetScreen(
+                viewModel = koinViewModel { parametersOf(boxSetId, boxSetLibraryId) },
+                onBackClick = { navController.popBackStack() },
+                onPlayMovie = { contentId, resumePositionSeconds ->
+                    val launchedRemotely = siloCastController.launchOnConnectedTarget(
+                        PrairieCastPlaybackRequest(
+                            contentId = contentId,
+                            libraryId = libraryId,
+                            // A box set's movies carry no saved position. Leave the
+                            // resume to the player instead of forcing a start over.
+                            startFromBeginning = false,
+                            resumePosition = resumePositionSeconds,
+                        ),
+                    )
+                    if (launchedRemotely) {
+                        navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
+                    } else {
+                        navController.navigate(
+                            Route.Player(
+                                libraryId = libraryId,
+                                contentId = contentId,
+                                resumePositionSeconds = resumePositionSeconds,
+                            ).route,
+                        )
+                    }
+                },
+                onMovieClick = { contentId ->
+                    navController.navigate(Route.ItemDetail(contentId, libraryId = libraryId).route)
+                },
+            )
+        }
+
         composable(
             route = Route.ItemDetail.ROUTE,
             arguments = listOf(
@@ -1569,7 +1673,8 @@ fun AppNavigation(
                 openingArtworkUrl = openingArtworkUrl,
                 openingArtworkThumbhash = openingArtworkThumbhash,
                 onBackClick = { navController.popBackStack() },
-                onPlayClick = { contentId, fileId, audioTrackIndex, subtitleTrackIndex, resumePositionSeconds ->
+                onPlayClick = {
+                        contentId, fileId, versionChosen, audioTrackIndex, subtitleTrackIndex, resumePositionSeconds ->
                     val launchedRemotely = siloCastController.launchOnConnectedTarget(
                         PrairieCastPlaybackRequest(
                             contentId = contentId,
@@ -1579,6 +1684,7 @@ fun AppNavigation(
                             subtitleTrackIndex = subtitleTrackIndex,
                             startFromBeginning = resumePositionSeconds == null,
                             resumePosition = resumePositionSeconds,
+                            pinsVersion = true.takeIf { versionChosen && fileId != null },
                         ),
                     )
                     if (launchedRemotely) {
@@ -1589,6 +1695,7 @@ fun AppNavigation(
                                 libraryId = libraryId,
                                 contentId = contentId,
                                 fileId = fileId,
+                                versionChosen = versionChosen,
                                 audioTrackIndex = audioTrackIndex,
                                 subtitleTrackIndex = subtitleTrackIndex,
                                 resumePositionSeconds = resumePositionSeconds,
@@ -1596,8 +1703,14 @@ fun AppNavigation(
                         )
                     }
                 },
-                onItemDetailClick = { contentId ->
-                    navController.navigate(Route.ItemDetail(contentId).route)
+                onSimilarItemClick = { contentId ->
+                    if (!navController.navigateToRelatedItemDetail(contentId)) {
+                        // The tapped card handed off its artwork, but no new page
+                        // opened to take it, so clear it for the next detail.
+                        heroSourceHandoff.pendingKey = null
+                        heroSourceHandoff.pendingArtworkUrl = null
+                        heroSourceHandoff.pendingArtworkThumbhash = null
+                    }
                 },
                 onEpisodeDetailClick = { contentId ->
                     navController.navigate(Route.ItemDetail(contentId, libraryId = libraryId).route)
@@ -1642,6 +1755,12 @@ fun AppNavigation(
                 onPartySelected = { room -> openPartyPlayer(room, replacing = null) },
                 onOpenCastRemote = {
                     navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
+                },
+                onBoxSetClick = { boxSetId, boxSetLibraryId ->
+                    navController.navigate(Route.BoxSet(boxSetId, boxSetLibraryId).route)
+                },
+                onBoxSetMovieClick = { contentId, boxSetLibraryId ->
+                    navController.navigate(Route.ItemDetail(contentId, libraryId = boxSetLibraryId.toIntOrNull()).route)
                 },
                 viewModel = detailViewModel,
             )
@@ -1821,6 +1940,11 @@ fun AppNavigation(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("versionChosen") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStackEntry ->
             val playerViewModel = koinViewModel<PlayerViewModel>()
@@ -1840,6 +1964,7 @@ fun AppNavigation(
                 libraryId = backStackEntry.arguments?.getString("libraryId")?.toIntOrNull(),
                 contentId = backStackEntry.arguments?.getString("contentId") ?: "",
                 initialFileId = backStackEntry.arguments?.getString("fileId")?.toIntOrNull(),
+                initialVersionChosen = backStackEntry.arguments?.getString("versionChosen") == "true",
                 initialQuality = VideoPlayerRouteArgs.normalizeQuality(
                     backStackEntry.arguments?.getString("quality"),
                 ),
@@ -2072,6 +2197,40 @@ private fun NavHostController.isDisplayingExactPlayerRoute(
     if (arguments.getString("libraryId") != null) return false
     val requestedTarget = playerRouteIntentOrNull(route) ?: return false
     return currentPlayerTarget?.let(requestedTarget::matches) == true
+}
+
+/**
+ * Opens a title picked from another title's "More like this" rail. The first
+ * hop from a title pushes, so Back returns to that title. A hop from a page
+ * such a rail opened replaces that page, so however many recommendations
+ * someone follows, two Backs leave the chain: one to the title it started
+ * from, one to wherever that title was opened. Picking the starting title
+ * again goes back to it instead of opening a second copy.
+ *
+ * Returns whether a new page opened, so the caller can drop what the tapped
+ * card handed to it otherwise.
+ */
+private fun NavHostController.navigateToRelatedItemDetail(contentId: String): Boolean {
+    val current = currentBackStackEntry
+    // A second tap on the same card, or on the title just returned to, can
+    // arrive while the page is still changing; it opens nothing.
+    if (current?.destination?.route == Route.ItemDetail.ROUTE && current.displayedDetailContentId() == contentId) {
+        return false
+    }
+    if (current?.savedStateHandle?.get<Boolean>(OpenedFromRelatedRailKey) == true) {
+        val start = previousBackStackEntry?.takeIf { it.destination.route == Route.ItemDetail.ROUTE }
+        if (start?.displayedDetailContentId() == contentId) {
+            popBackStack()
+            return false
+        }
+        navigate(Route.ItemDetail(contentId).route) {
+            popUpTo(Route.ItemDetail.ROUTE) { inclusive = true }
+        }
+    } else {
+        navigate(Route.ItemDetail(contentId).route)
+    }
+    currentBackStackEntry?.takeIf { it !== current }?.savedStateHandle?.set(OpenedFromRelatedRailKey, true)
+    return true
 }
 
 /**

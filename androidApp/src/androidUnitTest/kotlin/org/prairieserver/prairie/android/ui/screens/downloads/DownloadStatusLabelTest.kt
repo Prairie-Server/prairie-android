@@ -27,6 +27,16 @@ class DownloadStatusLabelTest {
     }
 
     @Test
+    fun localFailureIsShownWhileServerStillSaysDownloading() {
+        // The server only learns `downloading`/`completed`, so its row stays
+        // `downloading` after this device's worker failed for good.
+        val status = downloadItemDisplayStatus(DownloadStatus.Failed, DownloadStatus.Downloading)
+        val state = downloadItemFileState(status, hasLocalMedia = false)
+        assertEquals(DownloadStatus.Failed, status)
+        assertEquals(true, state.isFailed)
+    }
+
+    @Test
     fun incompleteLocalTransferStillUsesServerStatus() {
         assertEquals(DownloadStatus.Downloading, downloadItemDisplayStatus(DownloadStatus.Queued, DownloadStatus.Downloading))
         assertEquals(DownloadStatus.Queued, downloadItemDisplayStatus(DownloadStatus.Queued, null))

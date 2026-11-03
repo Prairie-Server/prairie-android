@@ -69,6 +69,9 @@ class SectionRepository(
         return getHomeSections(owner)
     }
 
+    /** Home's rows without their cards; see [org.prairieserver.prairie.network.apiv2.HomeSectionsV2Api.layout]. */
+    suspend fun getHomeLayout(owner: org.prairieserver.prairie.network.AuthScopeSnapshot) = sectionApi.getHomeLayout(owner)
+
     suspend fun getHomeSectionItems(id: String, owner: org.prairieserver.prairie.network.AuthScopeSnapshot) =
         sectionApi.getHomeSectionItems(id, owner, artwork.request(ArtworkSurface.HOME))
 
@@ -120,6 +123,15 @@ class SectionRepository(
         // Refills a section's shelf, so its artwork is sized like the section rows.
         sectionApi.getLibrarySectionCatalogItems(libraryId, sectionId, owner, continuation,
             if (continuation == null) artwork.request(ArtworkSurface.HOME) else null)
+
+    /**
+     * One page of a row's full list: the Home row when [libraryId] is null,
+     * else that library's row. Artwork is sized like the browse grid it fills.
+     */
+    suspend fun getSectionCatalogItems(libraryId: Int?, sectionId: String,
+        owner: org.prairieserver.prairie.network.AuthScopeSnapshot, continuation: CatalogContinuationV2?): ApiResult<CatalogResponse> =
+        sectionApi.getSectionCatalogItems(libraryId, sectionId, owner, continuation,
+            widths = if (continuation == null) artwork.request(ArtworkSurface.BROWSE) else null)
 
     /** Lists collections within a library as a flat list. Callers that need
      *  the grouped layout should use [getLibraryCollectionsGrouped]. */

@@ -28,6 +28,7 @@ import org.prairieserver.prairie.common.requests.rememberRequestRouter
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.request.RequestMediaResult
 import org.prairieserver.prairie.model.request.RequestMediaType
+import org.prairieserver.prairie.model.request.withoutLibraryTitles
 import org.prairieserver.prairie.viewmodel.RequestSearchViewModel
 
 @Composable
@@ -44,9 +45,12 @@ fun RequestSearchSection(
     val router = rememberRequestRouter(koinInject(), onRequestLibraryItemClick, onRequestMediaClick)
     val trimmedQuery = query.trim()
     val requestMediaType = selectedMediaType.toRequestMediaType()
-    val visibleResults = state.results.filter { result ->
+    val matchingResults = state.results.filter { result ->
         selectedMediaType.allowsRequestResult(result)
     }
+    val visibleResults = matchingResults.withoutLibraryTitles()
+    // Every match is already in the library results, so there is nothing to say here.
+    val onlyLibraryMatches = matchingResults.isNotEmpty() && visibleResults.isEmpty()
 
     LaunchedEffect(requestsEnabled, trimmedQuery, requestMediaType) {
         if (!requestsEnabled || requestMediaType == null || trimmedQuery.length < 2) {
@@ -62,7 +66,7 @@ fun RequestSearchSection(
     val shouldShowSection = visibleResults.isNotEmpty() ||
         state.isLoading ||
         state.error != null ||
-        state.hasSubmittedQuery
+        (state.hasSubmittedQuery && !onlyLibraryMatches)
 
     if (!requestsEnabled || trimmedQuery.length < 2 || !shouldShowSection) return
 

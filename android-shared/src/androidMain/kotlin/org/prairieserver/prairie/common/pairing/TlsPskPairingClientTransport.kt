@@ -91,7 +91,7 @@ class TlsPskPairingClientTransport private constructor(
                 protocol.connect(
                     PrairiePskTlsClient(
                         BcTlsCrypto(SecureRandom()),
-                        BasicTlsPSKIdentity(PairingPsk.identity, PairingPsk.key),
+                        BasicTlsPSKIdentity(PairingPsk.identity(), PairingPsk.key()),
                     ),
                 )
                 runCatching { socket.soTimeout = previousSoTimeout }
@@ -124,8 +124,8 @@ private class PrairiePskTlsClient(
         Vector<TlsPSKExternal>().apply {
             add(
                 BasicTlsPSKExternal(
-                    PairingPsk.identity,
-                    bcCrypto.createSecret(PairingPsk.key),
+                    PairingPsk.identity(),
+                    bcCrypto.createSecret(PairingPsk.key()),
                     PRFAlgorithm.tls13_hkdf_sha256,
                 ),
             )

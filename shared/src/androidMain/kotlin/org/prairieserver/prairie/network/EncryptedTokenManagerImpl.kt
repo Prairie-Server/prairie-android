@@ -76,6 +76,12 @@ class EncryptedTokenManagerImpl(
     )
     override val sessionExpired: SharedFlow<Unit> = _sessionExpired.asSharedFlow()
 
+    private val _temporarySessionExpired = MutableSharedFlow<String>(
+        extraBufferCapacity = 4,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    override val temporarySessionExpired: SharedFlow<String> = _temporarySessionExpired.asSharedFlow()
+
     init {
         // Load initial cache for whichever server the registry made active
         // (post-migration / from disk).
@@ -304,9 +310,13 @@ class EncryptedTokenManagerImpl(
                 target = { currentSignOutTarget() },
             ) {
                 mutex.withLock {
-                    val wasTemporary = temporaryScope != null
+                    val expiredTemporary = temporaryScope?.generationId
                     clearCurrentScopeLocked()
-                    if (!wasTemporary) _sessionExpired.tryEmit(Unit)
+                    if (expiredTemporary == null) {
+                        _sessionExpired.tryEmit(Unit)
+                    } else {
+                        _temporarySessionExpired.tryEmit(expiredTemporary)
+                    }
                 }
             }
         }
@@ -484,7 +494,11 @@ class EncryptedTokenManagerImpl(
 
     override suspend fun signOutServer(serverId: String?, loginId: String?): Boolean =
         tokenWriteMutex.withLock {
-            fun stillActiveLocked() = activeServerId == serverId && serverId?.let { durableLoginIdLocked(it) } == loginId
+            // A temporary scope (a phone's borrowed identity) that appeared
+            // while the sign-out waited is not this saved login: clearing the
+            // current scope would end it and leave the saved login signed in.
+            fun stillActiveLocked() = temporaryScope == null &&
+                activeServerId == serverId && serverId?.let { durableLoginIdLocked(it) } == loginId
             if (!mutex.withLock { ensureCacheMatchesRegistryLocked(); stillActiveLocked() }) return@withLock false
             identityTransitions.changing(
                 kind = IdentityTransitionKind.SIGN_OUT,
@@ -925,9 +939,13 @@ class EncryptedTokenManagerImpl(
                     ) {
                         return@withLock false
                     }
-                    val wasTemporary = temporaryScope != null
+                    val expiredTemporary = temporaryScope?.generationId
                     clearCurrentScopeLocked()
-                    if (!wasTemporary) _sessionExpired.tryEmit(Unit)
+                    if (expiredTemporary == null) {
+                        _sessionExpired.tryEmit(Unit)
+                    } else {
+                        _temporarySessionExpired.tryEmit(expiredTemporary)
+                    }
                     true
                 }
             }

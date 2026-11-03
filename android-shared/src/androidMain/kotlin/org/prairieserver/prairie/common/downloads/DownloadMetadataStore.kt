@@ -100,4 +100,12 @@ class DownloadMetadataStore(private val db: PrairieDatabase) {
      */
     fun savedArtworkChanges(): Flow<List<DownloadArtworkRow>> =
         downloadDao.observeSavedArtwork().distinctUntilChanged()
+
+    /**
+     * Ids of downloads whose worker failed for good, emitting only when the set
+     * changes. The server row of such a download still says `downloading`, so
+     * the Downloads tab watches this to show the failure from the local row.
+     */
+    fun failedRecordIdChanges(): Flow<List<String>> =
+        downloadDao.observeFailedRecordIds().distinctUntilChanged()
 }

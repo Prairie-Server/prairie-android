@@ -27,8 +27,10 @@ import org.prairieserver.prairie.android.ui.theme.PrairieSettingsBackground
 import org.prairieserver.prairie.android.ui.util.formatBytes
 import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
 import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
+import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.TitleArtStore
 import org.prairieserver.prairie.common.settings.UseProfileSettingsCopy
+import org.prairieserver.prairie.common.settings.shownIn
 import org.prairieserver.prairie.model.feature.MetadataAiFeatureStore
 import org.prairieserver.prairie.model.metadata.MetadataAiOnView
 import org.prairieserver.prairie.model.settings.SeekMedia
@@ -73,14 +75,15 @@ internal fun SettingsPageScaffold(
 }
 
 /**
- * Interface (Apple `InterfaceCustomizationView`): Cards & Posters, Home, then
- * Title Pages.
+ * Interface (Apple `InterfaceCustomizationView`): Cards & Posters, Home,
+ * Title Pages, then Theme Music.
  */
 @Composable
 fun SettingsInterfaceScreen(viewModel: SettingsViewModel, onBackClick: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     var showHomeSectionsEditor by rememberSaveable { mutableStateOf(false) }
     val titleArtStore: TitleArtStore = koinInject()
+    val playerSettingsStore: PlayerSettingsStore = koinInject()
     // Opening Interface is a refresh edge, so a title art choice made on
     // another device shows here without waiting for the next foreground. Kept
     // out of the LazyColumn item, which re-enters composition on scroll.
@@ -90,9 +93,7 @@ fun SettingsInterfaceScreen(viewModel: SettingsViewModel, onBackClick: () -> Uni
         item(key = "cards") {
             MediaCardsSettings(
                 state = state.cardPresentation,
-                onPresetSelected = viewModel::setCardPreset,
                 onPosterSizeSelected = viewModel::setCardPosterSize,
-                onCaptionSelected = viewModel::setCardCaption,
                 onDeviceOnlyChanged = viewModel::setCardDeviceOnly,
                 onUseProfileDefault = viewModel::useCardProfileDefault,
             )
@@ -111,6 +112,9 @@ fun SettingsInterfaceScreen(viewModel: SettingsViewModel, onBackClick: () -> Uni
         item(key = "title-art") {
             TitleArtSettingsSection(store = titleArtStore)
         }
+        item(key = "theme-music") {
+            ThemeMusicSettingsSection(store = playerSettingsStore)
+        }
     }
 
     if (showHomeSectionsEditor) {
@@ -126,7 +130,12 @@ fun SettingsInterfaceScreen(viewModel: SettingsViewModel, onBackClick: () -> Uni
 fun SettingsPlaybackScreen(viewModel: SettingsViewModel, onBackClick: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val seekIntervals by viewModel.seekIntervals.state.collectAsState()
+    val connectionSpeed = viewModel.connectionSpeed?.state?.collectAsState()?.value
     val context = LocalContext.current
+    // Re-reads the learned limit and connection speed while the page shows, and
+    // after a network change: a playback since the last visit can change them,
+    // and the page can stay in the back stack under the player.
+    LaunchedEffect(viewModel) { viewModel.connectionSpeed?.follow() }
     LaunchedEffect(state.playbackOverridesReset) {
         val landed = state.playbackOverridesReset ?: return@LaunchedEffect
         Toast.makeText(context, UseProfileSettingsCopy.notice(landed), Toast.LENGTH_SHORT).show()
@@ -143,6 +152,10 @@ fun SettingsPlaybackScreen(viewModel: SettingsViewModel, onBackClick: () -> Unit
                 dolbyVisionEnabled = state.dolbyVisionEnabled,
                 dvProfile7HDR10Fallback = state.dvProfile7HDR10Fallback,
                 pictureInPictureEnabled = state.pictureInPictureEnabled,
+                bufferingQualityMode = state.bufferingQualityMode,
+                bufferingQualityModeSupported = state.bufferingQualityModeSupported,
+                learnedLimit = state.learnedLimit.shownIn(state.bufferingQualityMode),
+                learnedLimitResetFailed = state.learnedLimitResetFailed,
                 deviceOverrides = state.deviceOverrides,
                 onResolutionSelected = viewModel::setPreferredQuality,
                 onMaxBitrateSelected = viewModel::setMaxBitrateKbps,
@@ -150,8 +163,19 @@ fun SettingsPlaybackScreen(viewModel: SettingsViewModel, onBackClick: () -> Unit
                 onDolbyVisionEnabledChanged = viewModel::setDolbyVisionEnabled,
                 onDvProfile7HDR10FallbackChanged = viewModel::setDvProfile7HDR10Fallback,
                 onPictureInPictureEnabledChanged = viewModel::setPictureInPictureEnabled,
+                onBufferingQualityModeChanged = viewModel::setBufferingQualityMode,
+                onResetLearnedLimit = viewModel::resetLearnedLimit,
                 onUseProfileSetting = viewModel::useProfileSetting,
             )
+        }
+        // Under Streaming, whose buffering and learned-limit rows it explains.
+        if (connectionSpeed?.visible == true) {
+            item(key = "connection") {
+                PlaybackConnectionSection(
+                    state = connectionSpeed.shownIn(state.bufferingQualityMode, state.learnedLimit),
+                    onTestSpeed = { viewModel.connectionSpeed?.testSpeed() },
+                )
+            }
         }
         item(key = "cellular") {
             PlaybackCellularSection(
@@ -247,6 +271,8 @@ fun SettingsSubtitlesScreen(viewModel: SettingsViewModel, onBackClick: () -> Uni
                 previewAppearance = state.effectiveSubtitleAppearance,
                 subtitleMatchesDevice = state.subtitleMatchesDevice,
                 onSubtitleMatchesDeviceChanged = viewModel::setSubtitleMatchesDevice,
+                subtitleUsesDeviceOverride = state.subtitleUsesDeviceOverride,
+                onSubtitleDeviceOverrideChanged = viewModel::setSubtitleDeviceOverrideEnabled,
             )
         }
         item(key = "text") {

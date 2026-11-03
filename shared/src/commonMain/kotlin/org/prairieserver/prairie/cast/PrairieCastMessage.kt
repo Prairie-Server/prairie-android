@@ -8,9 +8,12 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.elementNames
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonClassDiscriminator
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 
 /**
  * Wire model for the `_prairiecast._tcp` phone→TV control channel.
@@ -20,8 +23,10 @@ import kotlinx.serialization.json.contentOrNull
  * schema and cannot be revved in lockstep, so every field name, casing, enum
  * string, and envelope key here mirrors the Swift Codable output: camelCase
  * payload fields, `{type, v, <kind>}` envelope with the payload nested under
- * the kind key, payloadless ping/pong/close, and Int64 track ids. Change this
- * file only together with prairie-apple.
+ * the kind key, payloadless ping/pong, an optional `close` payload, and Int64
+ * track ids. Every field added after the first release is optional and sent
+ * only to peers that list the matching [PrairieCastFeature]. Change this file
+ * only together with prairie-apple.
  */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -92,6 +97,14 @@ sealed class PrairieCastMessage {
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = PrairieCastProtocol.version,
     ) : PrairieCastMessage()
 
+    /** A controller's `passive` flag after hello. Sent only to receivers that list [PrairieCastFeature.Presence]. */
+    @Serializable
+    @SerialName("presence")
+    data class Presence(
+        val presence: PrairieCastPresence,
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = PrairieCastProtocol.version,
+    ) : PrairieCastMessage()
+
     @Serializable
     @SerialName("ping")
     data class Ping(
@@ -104,11 +117,27 @@ sealed class PrairieCastMessage {
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = PrairieCastProtocol.version,
     ) : PrairieCastMessage()
 
+    /**
+     * Ends the session. [close] carries `{"reason": ...}` ([PrairieCastCloseReason])
+     * only for peers that list [PrairieCastFeature.CloseReason]; older peers get a
+     * bare close. Kept as raw JSON so a malformed payload reads as no reason, as
+     * on Apple, instead of failing the frame.
+     */
     @Serializable
     @SerialName("close")
     data class Close(
+        val close: JsonElement? = null,
         @EncodeDefault(EncodeDefault.Mode.ALWAYS) override val v: Int = PrairieCastProtocol.version,
-    ) : PrairieCastMessage()
+    ) : PrairieCastMessage() {
+        val reason: String?
+            get() = ((close as? JsonObject)?.get("reason") as? JsonPrimitive)
+                ?.takeIf { it.isString }?.contentOrNull
+
+        companion object {
+            fun withReason(reason: String?): Close =
+                Close(close = reason?.let { buildJsonObject { put("reason", it) } })
+        }
+    }
 
     companion object {
         /** Every `type` this build understands, read from the serializer so it can't drift. */
@@ -156,7 +185,17 @@ data class PrairieCastHello(
     val serverId: String? = null,
     val serverName: String? = null,
     val supportedVersions: List<Int>,
-)
+    /** The deployment identity behind [serverId], when known, so peers on different addresses of one server match. */
+    val serverIdentity: String? = null,
+    /** [PrairieCastFeature] names this peer supports. Absent from older peers, which support none. */
+    val features: List<String>? = null,
+    /** A controller that only watches state (silent auto-resume, an integration); it never puts up the TV's standby screen. */
+    val passive: Boolean? = null,
+    /** [PrairieCastClientKind]. `role` stays `phone` for integrations because shipped receivers reject other roles. */
+    val clientKind: String? = null,
+) {
+    fun supports(feature: String): Boolean = features?.contains(feature) == true
+}
 
 @Serializable
 data class PrairieCastPlaybackRequest(
@@ -167,6 +206,12 @@ data class PrairieCastPlaybackRequest(
     val startFromBeginning: Boolean,
     val resumePosition: Double? = null,
     val libraryId: Int? = null,
+    /**
+     * True when the viewer picked [fileId]'s version on the phone, so the TV
+     * pins it (`allow_alternate_versions: false`). Omitted otherwise; older
+     * peers ignore it, as Apple's do.
+     */
+    val pinsVersion: Boolean? = null,
 )
 
 @Serializable
@@ -185,6 +230,35 @@ data class PrairieCastHandoffOffer(
     val profileName: String? = null,
     /** Display-only: what the phone is about to launch. Older peers omit and ignore it. */
     val title: String? = null,
+    /** The deployment identity the phone verified at [serverURL]. */
+    val serverIdentity: String? = null,
+    /**
+     * Other addresses the deployment offers, from its connections document,
+     * public first, then providers. The TV may use one that reports
+     * [serverIdentity]; reachability is the TV's to test.
+     */
+    val serverEndpoints: List<PrairieCastServerEndpoint>? = null,
+    /** The token from an earlier `handoff_ready`, to reuse that identity from a new connection without another approval. */
+    val resumeToken: String? = null,
+    /** The user agreed to replace a title another profile started, after the TV answered `replace_confirmation_required`. */
+    val replaceConfirmed: Boolean? = null,
+    /** With [replaceConfirmed]: the title the user agreed to replace. The TV honors it only while that title is on screen. */
+    val replacingContentId: String? = null,
+)
+
+/**
+ * One address in [PrairieCastHandoffOffer.serverEndpoints]. Mirrors prairie-apple
+ * `ServerEndpoint`: [kind] is `public` or `provider`, kept as a string so a
+ * kind this build doesn't know still decodes.
+ */
+@Serializable
+data class PrairieCastServerEndpoint(
+    val url: String,
+    val kind: String,
+    /** Provider slug for a `provider` endpoint, e.g. `tailscale`. */
+    val provider: String? = null,
+    /** Provider display name from its manifest. */
+    val displayName: String? = null,
 )
 
 @Serializable
@@ -202,6 +276,8 @@ data class PrairieCastHandoffReady(
     val profileId: String,
     val sessionExpiresAt: String,
     val reused: Boolean,
+    /** Proof for reusing this identity from a later connection, sent only to controllers that list [PrairieCastFeature.ResumeToken]. */
+    val resumeToken: String? = null,
 )
 
 @Serializable
@@ -209,6 +285,23 @@ data class PrairieCastHandoffCancel(
     val requestId: String,
     val reason: String,
     val message: String? = null,
+    /** With reason `replace_confirmation_required`: the title the handoff would replace, so the controller can ask. */
+    val nowPlaying: PrairieCastNowPlayingSummary? = null,
+)
+
+/** What a controller needs to ask "Replace what Alex is watching?". */
+@Serializable
+data class PrairieCastNowPlayingSummary(
+    val contentId: String? = null,
+    val title: String,
+    val subtitle: String? = null,
+    val profileName: String? = null,
+    val controllerName: String? = null,
+)
+
+@Serializable
+data class PrairieCastPresence(
+    val passive: Boolean,
 )
 
 @Serializable
@@ -258,6 +351,15 @@ data class PrairieCastPlaybackState(
     val hasNextEpisode: Boolean,
     val nextEpisodeTitle: String? = null,
     val error: String? = null,
+    /**
+     * Absolute, signed poster URL for the playing title (the series poster for
+     * an episode), so an integration can fetch artwork without its own Prairie
+     * sign-in. The TV re-signs it before it expires. Omitted when unknown;
+     * older peers ignore it, so it needs no feature flag.
+     */
+    val posterUrl: String? = null,
+    /** Synopsis of the playing title. Omitted when unknown. */
+    val overview: String? = null,
 )
 
 /**

@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.servers
 
 import org.prairieserver.prairie.network.localroute.LocalRoute
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -120,6 +122,14 @@ fun TvServerListScreen(
         if (destination != null) {
             viewModel.onSwitchConsumed()
             onSwitched(destination)
+        }
+    }
+
+    val context = LocalContext.current
+    LaunchedEffect(state.removeFailed) {
+        if (state.removeFailed) {
+            viewModel.onRemoveFailedConsumed()
+            Toast.makeText(context, TV_REMOVE_SERVER_FAILED, Toast.LENGTH_LONG).show()
         }
     }
 

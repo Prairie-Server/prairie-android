@@ -15,6 +15,8 @@ data class PrairieCastPersistedTarget(
     val deviceId: String,
     val name: String,
     val serverId: String? = null,
+    /** A Roku: when DNS-SD can't find it, the phone says "Open Prairie on your Roku". */
+    val isRoku: Boolean = false,
 )
 
 interface PrairieCastLastTargetStore {

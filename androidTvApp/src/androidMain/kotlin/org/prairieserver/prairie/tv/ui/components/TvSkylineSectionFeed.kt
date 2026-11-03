@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.components
 
+import org.prairieserver.prairie.model.catalog.seriesHeroBackdrop
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -52,6 +53,10 @@ import coil3.request.ImageRequest
 import org.prairieserver.prairie.common.settings.LocalShowTitleArt
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.section.ResolvedSection
+import org.prairieserver.prairie.model.section.SECTION_ROW_MAX_ITEMS
+import org.prairieserver.prairie.model.section.cappedForRow
+import org.prairieserver.prairie.model.section.offersExploreAll
+import org.prairieserver.prairie.tv.ui.focus.TvExploreAllItemId
 import org.prairieserver.prairie.tv.ui.focus.TvReturnResolution
 import org.prairieserver.prairie.tv.ui.focus.TvReturnTarget
 import org.prairieserver.prairie.tv.ui.focus.keyedTvReturnTargetSaver
@@ -168,11 +173,22 @@ fun TvSkylineSectionFeed(
     ) -> TvSkylineDetailPrefetchTarget? = { _, _ -> null },
     /** A non-null action replaces the card context menu for that long press. */
     longClickActionForSection: (ResolvedSection, SectionItem) -> (() -> Unit)? = { _, _ -> null },
+    /**
+     * Opens a row's full page. When set, rows show at most
+     * [SECTION_ROW_MAX_ITEMS] cards and every non-featured row ends with an
+     * "Explore all" card; returning from the page restores focus to it.
+     */
+    onExploreAllForSection: ((ResolvedSection) -> Unit)? = null,
     onContentUpFallbackChanged: ((((Boolean) -> Boolean)?) -> Unit)? = null,
     /** Re-reads [sections] after the marquee translated a card's description. */
     onMarqueeTranslated: () -> Unit = {},
 ) {
-    val rows = remember(sections) { sections.filter { it.items.isNotEmpty() } }
+    val exploresRows = onExploreAllForSection != null
+    val rows = remember(sections, exploresRows) {
+        sections.filter { it.items.isNotEmpty() }
+            .let { nonEmpty -> if (exploresRows) nonEmpty.map { it.cappedForRow() } else nonEmpty }
+    }
+    fun ResolvedSection.showsExploreAll() = exploresRows && offersExploreAll
     val diagnosticsSurface = when {
         surfaceKey == "home" -> DiagnosticsListSurface.TV_HOME
         surfaceKey == "for_you" -> DiagnosticsListSurface.TV_FOR_YOU
@@ -366,13 +382,20 @@ fun TvSkylineSectionFeed(
 
     LaunchedEffect(rows) {
         val previousContentId = focusedContentId
+        // The "Explore all" card is still there while its row still offers it.
         val focusedItemWasRemoved = previousContentId != null &&
-            rows.none { row -> row.items.any { it.contentId == previousContentId } }
+            if (previousContentId == TvExploreAllItemId) {
+                rows.getOrNull(focusedRowIndex)?.showsExploreAll() != true
+            } else {
+                rows.none { row -> row.items.any { it.contentId == previousContentId } }
+            }
         if (focusedRowIndex >= rows.size) {
             focusedRowIndex = (rows.size - 1).coerceAtLeast(-1)
         }
-        if (focusedRowIndex in rows.indices && focusedItemIndex >= rows[focusedRowIndex].items.size) {
-            focusedItemIndex = (rows[focusedRowIndex].items.size - 1).coerceAtLeast(-1)
+        if (focusedRowIndex in rows.indices) {
+            val row = rows[focusedRowIndex]
+            val slots = row.items.size + if (row.showsExploreAll()) 1 else 0
+            if (focusedItemIndex >= slots) focusedItemIndex = (slots - 1).coerceAtLeast(-1)
         }
         // Same guard as browse re-arming: a refresh that removes whatever
         // incidental focus happened to land on must not redefine what the
@@ -425,6 +448,27 @@ fun TvSkylineSectionFeed(
         }
     }
 
+    // The row's "Explore all" card restores like a card one past its last.
+    fun armExploreAllReturn(section: ResolvedSection, rowIndex: Int) {
+        returnTarget = TvReturnTarget(
+            sectionId = section.id,
+            itemId = TvExploreAllItemId,
+            sectionIndex = rowIndex,
+            itemIndex = section.items.size,
+        )
+        returnGeneration++
+        detailReturnPending = true
+    }
+
+    // Focusing it moves the return target as a card does but leaves the
+    // marquee on the last card previewed.
+    val onExploreAllFocused: (ResolvedSection, Int) -> Unit = { section, rowIndex ->
+        focusedRowIndex = rowIndex
+        focusedItemIndex = section.items.size
+        focusedContentId = TvExploreAllItemId
+        if (restorationsInFlight == 0) armExploreAllReturn(section, rowIndex)
+    }
+
     // Keep a small window around RESTED focus hot. A raw D-pad move cancels the
     // previous job immediately, but the new identity starts no speculative
     // work until the marquee's focus-rest transaction commits it.
@@ -463,8 +507,9 @@ fun TvSkylineSectionFeed(
             window.map { item ->
                 async {
                     coroutineScope {
+                        val seriesBackdrop = item.seriesHeroBackdrop()
                         val artwork = buildList {
-                            item.backdropUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                            (seriesBackdrop?.url ?: item.backdropUrl)?.takeIf { it.isNotBlank() }?.let { url ->
                                 add(
                                     ImageRequest.Builder(context)
                                         .data(url)
@@ -493,7 +538,8 @@ fun TvSkylineSectionFeed(
                                     ?: return@async
                                 val enrichment = TvMarqueeEnrichment.from(detail)
                                 marquee.applyEnrichment(contentId, enrichment)
-                                enrichment.backdropUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                // The hero keeps a card's own series backdrop.
+                                enrichment.backdropUrl?.takeIf { seriesBackdrop == null && it.isNotBlank() }?.let { url ->
                                     runCatching {
                                         loader.execute(
                                             ImageRequest.Builder(context)
@@ -623,7 +669,9 @@ fun TvSkylineSectionFeed(
     // The section map depends on the rows alone; the return target is re-armed
     // on every focus move, so building the map inside the resolution remember
     // copied every content id in the feed per keypress.
-    val returnSections = remember(rows) { rows.toTvReturnSections() }
+    val returnSections = remember(rows, exploresRows) {
+        rows.toTvReturnSections(exploreAll = { it.showsExploreAll() })
+    }
     val returnResolution: TvReturnResolution =
         remember(returnSections, returnTarget, detailReturnPending) {
             if (detailReturnPending) {
@@ -774,7 +822,7 @@ fun TvSkylineSectionFeed(
     LaunchedEffect(firstRowId, detailReturnFocusRequest) {
         if (detailReturnFocusRequest > 0) {
             // The shell's content focusRestorer owns detail-return focus. Any
-            // feed recreated by Home's ON_RESUME refresh must not run its
+            // feed recreated by an ON_RESUME refresh must not run its
             // first-entry fallback over the restored card.
             initialFocusRequested = true
             // Re-target the remembered launch card explicitly (the restorer's
@@ -1014,6 +1062,15 @@ fun TvSkylineSectionFeed(
                             longClickAction = { item ->
                                 longClickActionForSection(section, item)
                             },
+                            onExploreAllClick = onExploreAllForSection
+                                ?.takeIf { section.showsExploreAll() }
+                                ?.let { open ->
+                                    {
+                                        armExploreAllReturn(section, rowIndex)
+                                        open(section)
+                                    }
+                                },
+                            onExploreAllFocused = { onExploreAllFocused(section, rowIndex) },
                         )
                     }
                 }
@@ -1066,11 +1123,10 @@ internal val TvSkylineRowCardVerticalPadding = 7.dp
 internal val TvSkylineRowBandBottomInset = 10.dp
 
 // The band is sized from what its first row actually needs — section header,
-// card at the scaled dense-poster height, and whichever caption lines the
-// card-presentation preference shows — plus a peek of the next section. The
-// previous fixed 0.50 fraction clipped `large` cards against the marquee and
-// wasted marquee room under artwork-only captions. At the standard preset
-// this derivation reproduces the old 270dp band on a 540dp-tall layout.
+// card at the scaled dense-poster height, and the title and details lines —
+// plus a peek of the next section. The previous fixed 0.50 fraction clipped
+// `large` cards against the marquee. At the standard poster size this
+// derivation reproduces the old 270dp band on a 540dp-tall layout.
 private val TvSkylineRowHeaderHeight = 26.dp // TvSectionHeader: 22sp title line + 4dp bottom pad
 private val TvSkylineRowHeaderGap = 12.dp // TvMediaRow header→rail spacing
 private val TvSkylineCaptionTitleHeight = 30.dp // TvMediaCard: 11dp spacer + 18.5sp title line
@@ -1082,12 +1138,7 @@ internal const val TvSkylineRowBandMaxFraction = 0.58f
 
 internal fun tvSkylineRowBandHeight(presentation: CardPresentation): Dp {
     val cardHeight = RowDimens.DensePosterWidth * presentation.posterSize.posterScale * 3f / 2f
-    val captionHeight = when {
-        !presentation.caption.showsTitle -> 0.dp
-        presentation.caption.showsMetadata ->
-            TvSkylineCaptionTitleHeight + TvSkylineCaptionMetadataHeight
-        else -> TvSkylineCaptionTitleHeight
-    }
+    val captionHeight = TvSkylineCaptionTitleHeight + TvSkylineCaptionMetadataHeight
     return TvSkylineRowHeaderHeight + TvSkylineRowHeaderGap +
         TvSkylineRowCardVerticalPadding * 2 + cardHeight + captionHeight +
         TvSkylineRowPreviewSpacing + TvSkylineRowPreviewPeek

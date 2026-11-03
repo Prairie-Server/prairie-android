@@ -12,6 +12,7 @@ import org.prairieserver.prairie.model.playback.AutoSubtitleContext
 import org.prairieserver.prairie.model.playback.ClientCodecCapabilities
 import org.prairieserver.prairie.model.playback.catalogAutoSubtitleCandidates
 import org.prairieserver.prairie.model.playback.combinedSubtitleSelectionIndexes
+import org.prairieserver.prairie.model.playback.isUnplayableSubtitle
 import org.prairieserver.prairie.model.playback.resolveAutoSubtitle
 import org.prairieserver.prairie.model.playback.selectedCandidate
 import org.prairieserver.prairie.player.DolbyVisionDetection
@@ -68,6 +69,8 @@ object TvPlaybackFormatting {
         val detail: String,
         val isSelected: Boolean,
         val stableId: String,
+        /** No route can show this track: listed, never selectable. */
+        val unplayable: Boolean = false,
     )
 
     data class TvEdition(
@@ -433,6 +436,7 @@ object TvPlaybackFormatting {
                 detail = subtitleDetail(track),
                 isSelected = selectedSubtitleTrackIndex == combined[ordinal],
                 stableId = "sub-$ordinal",
+                unplayable = track.isUnplayableSubtitle(),
             )
         }
     }
@@ -526,6 +530,8 @@ object TvPlaybackFormatting {
         /** Language of the Auto-resolved audio track (see [resolvedAudioLanguage]);
          *  "auto" mode skips subs when it matches [preferredLanguage]. */
         val audioLanguage: String? = null,
+        /** The series' remembered subtitle track; its exact match wins. */
+        val trackSignature: org.prairieserver.prairie.model.playback.SubtitleTrackSignature? = null,
     )
 
     /**
@@ -611,6 +617,7 @@ object TvPlaybackFormatting {
                 mode = context.mode,
                 showForced = context.showForced,
                 audioLanguage = context.audioLanguage,
+                trackSignature = context.trackSignature,
             ),
         ).selectedCandidate() ?: return null
         return combinedSubtitleSelectionIndexes(tracks)

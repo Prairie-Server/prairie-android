@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.common.settings
 
+import org.prairieserver.prairie.domain.player.BufferingQualityMode
 import org.prairieserver.prairie.domain.player.IntroSkipMode
 import org.prairieserver.prairie.model.settings.LibraryPlaybackPref
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
@@ -198,8 +199,11 @@ private class FakeLibraryPlaybackPrefsStore : LibraryPlaybackPrefsStore {
 
 private class FakePlayerSettingsStore : PlayerSettingsStore {
     override val introSkipModeFlow: Flow<IntroSkipMode> = flowOf(IntroSkipMode.ASK)
+    override val bufferingQualityModeFlow: Flow<BufferingQualityMode> = flowOf(BufferingQualityMode.Default)
     override val autoSkipCreditsFlow: Flow<Boolean> = flowOf(false)
     override val autoPlayNextFlow: Flow<Boolean> = flowOf(true)
+    override val themeMusicEnabledFlow: Flow<Boolean> = flowOf(false)
+    override val themeMusicLoopFlow: Flow<Boolean> = flowOf(false)
     override val hdrEnabledFlow: Flow<Boolean> = flowOf(true)
     override val dvProfile7HDR10FallbackFlow: Flow<Boolean> = flowOf(true)
     override val dolbyVisionEnabledFlow: Flow<Boolean> = flowOf(true)
@@ -230,8 +234,11 @@ private class FakePlayerSettingsStore : PlayerSettingsStore {
     var refreshCalls = 0
 
     override suspend fun setIntroSkipMode(value: IntroSkipMode) = Unit
+    override suspend fun setBufferingQualityMode(value: BufferingQualityMode) = Unit
     override suspend fun setAutoSkipCredits(value: Boolean) = Unit
     override suspend fun setAutoPlayNext(value: Boolean) = Unit
+    override suspend fun setThemeMusicEnabled(value: Boolean) = Unit
+    override suspend fun setThemeMusicLoop(value: Boolean) = Unit
     override suspend fun setHdrEnabled(value: Boolean) = Unit
     override suspend fun setDvProfile7HDR10Fallback(value: Boolean) = Unit
     override suspend fun setDolbyVisionEnabled(value: Boolean) = Unit

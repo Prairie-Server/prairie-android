@@ -46,6 +46,8 @@ class DownloadsRepository(
     private val authorities: org.prairieserver.prairie.network.DurableLoginAuthorityProvider? = null,
     private val devices: org.prairieserver.prairie.network.DeviceMetadataProvider? = null,
     private val identityTransitions: org.prairieserver.prairie.network.IdentityTransitionBarrier? = null,
+    private val revokedCleanup: org.prairieserver.prairie.repository.port.RevokedDownloadCleanupPort =
+        org.prairieserver.prairie.repository.port.NoLocalDownloadCopies,
 ) {
 
     private val _records = MutableStateFlow<List<DownloadRecord>>(emptyList())
@@ -140,9 +142,12 @@ class DownloadsRepository(
             is ApiResult.Success -> {
                 if (!current(authority)) return changed()
                 val serverIds = result.data.downloads.map { it.id }.toSet()
+                val revokedScope = if (serverId != null && profileId != null) serverId to profileId
+                    else authority?.scope?.let { owner -> owner.profileId?.let { owner.serverId to it } }
+                val revoked = removeRevokedEntries(result.data.downloads, revokedScope, authority) ?: return changed()
                 val durable = deletions.allPendingRecordIds()
                 if (!localWrite(authority) {
-                    val hidden = pendingDelete + durable
+                    val hidden = pendingDelete + durable + revoked
                     val serverList = result.data.downloads.filterNot { it.id in hidden }
                     _records.update { current ->
                         val local = current.associateBy { it.id }
@@ -154,6 +159,8 @@ class DownloadsRepository(
                     val deviceId = devices?.current()?.id
                     for (pending in deletions.pendingForScope(serverId, profileId)) {
                         if (!current(authority)) return changed()
+                        // Revoked entries were settled above, and only once their local copy is gone.
+                        if (pending.recordId in revoked) continue
                         // Old tombstones have no provable saved-login/device ownership. Keep them isolated.
                         if (authority != null && (pending.loginId != authority.loginId || pending.origin != authority.scope.serverUrl || pending.deviceId != deviceId)) continue
                         if (pending.recordId !in serverIds) {
@@ -167,6 +174,43 @@ class DownloadsRepository(
             is ApiResult.Error -> result
             is ApiResult.NetworkError -> result
         }
+    }
+
+    /**
+     * Administrator-revoked entries (§9.3). When the server reports
+     * `revoked_removes_local`, each `revoked` row gets a durable tombstone first
+     * (so a crash cannot lose the intent), then its local copy is removed, and
+     * only then is the entry deleted on the server. A row whose local copy could
+     * not be removed keeps its server entry and is retried on the next read.
+     * Returns the revoked ids to hide from the cache (never shown as playable),
+     * empty without the capability flag, or null when the owner changed.
+     */
+    private suspend fun removeRevokedEntries(
+        rows: List<DownloadRecord>,
+        scope: Pair<String, String>?,
+        authority: org.prairieserver.prairie.network.DurableLoginAuthority?,
+    ): Set<String>? {
+        val revoked = rows.filter { it.status.equals(REVOKED_STATUS, ignoreCase = true) }
+        if (revoked.isEmpty() || scope == null) return emptySet()
+        val capability = _capability.value ?: (refreshCapability() as? ApiResult.Success)?.data
+        // Unknown capability: keep revoked rows hidden and their tombstones
+        // unreplayed, so a copy whose cleanup failed never loses its entry.
+        ?: return revoked.mapTo(mutableSetOf()) { it.id }
+        if (capability.revokedRemovesLocal != true) return emptySet()
+        val (serverId, profileId) = scope
+        for (row in revoked) {
+            if (!current(authority)) return null
+            val tombstoned = try {
+                deletions.enqueue(serverId, profileId, row.id, row.mediaFileId); true
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
+            if (!localWrite(authority) { markPendingDelete(row.id) }) return null
+            if (!tombstoned) continue
+            val removed = try {
+                revokedCleanup.removeLocalCopy(serverId, profileId, row.id, row.mediaFileId)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
+            if (removed && current(authority)) serverDeleteConfirmedGone(row.id, authority?.scope)
+        }
+        return revoked.mapTo(mutableSetOf()) { it.id }
     }
 
     /** Server creates a record; we upsert into the cache so the UI updates
@@ -200,6 +244,8 @@ class DownloadsRepository(
                 val row = result.data.downloads.singleOrNull { it.id == id }
                     ?: return ApiResult.Error(404, "download_not_found", "The queued download no longer exists.")
                 if (row.mediaFileId != fileId) return ApiResult.Error(409, "download_target_changed", "The queued download now targets another file.")
+                // The next refresh removes the local copy (§9.3); the transfer stops here.
+                if (row.status.equals(REVOKED_STATUS, ignoreCase = true)) return ApiResult.Error(409, "download_revoked", "An administrator revoked this download.")
                 if (row.revision == null || row.revision < 1) return ApiResult.Error(0, "invalid_download_registry", "The download revision is unavailable.")
                 ApiResult.Success(row)
             }
@@ -386,6 +432,10 @@ class DownloadsRepository(
             aMillis == null || bMillis > aMillis -> b
             else -> a
         }
+    }
+
+    private companion object {
+        const val REVOKED_STATUS = "revoked"
     }
 
     /** Lookup helper for callers (item detail) that key off `FileVersion.fileId`. */

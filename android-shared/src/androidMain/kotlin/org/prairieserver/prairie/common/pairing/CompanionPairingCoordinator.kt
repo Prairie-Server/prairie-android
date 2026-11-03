@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -13,7 +14,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.prairieserver.prairie.model.auth.DeviceCodeFormat
@@ -27,6 +33,7 @@ import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.signedInEntries
 import org.prairieserver.prairie.network.api.ServerIdentityApi
+import org.prairieserver.prairie.network.apiv2.ApiV2Gate
 import org.prairieserver.prairie.pairing.PairingEndpoint
 import org.prairieserver.prairie.pairing.PairingFailureCode
 import org.prairieserver.prairie.pairing.PairingMessage
@@ -49,7 +56,15 @@ data class CompanionPairingTarget(
     val serviceName: String = name,
     /** TXT `srv`: the deployment identity a signed-out (`st=login`) TV wants. */
     val serverIdentity: String? = null,
+    /** Found as `_silopair-roku._tcp`: dialed over plain TCP, never TLS-PSK, and signed in to one server. */
+    val isRoku: Boolean = false,
 ) {
+    /** A Roku keeps one server, so setup pushes exactly one (prairie-roku `docs/companion-pairing.md` section 4). */
+    val keepsOneServer: Boolean get() = isRoku
+
+    /** What the phone calls this device in its copy. */
+    val deviceNoun: String get() = if (isRoku) "Roku" else "TV"
+
     /**
      * A TV on its sign-in screen for one server. Older TVs advertise no `st`
      * (or `setup`); anything that isn't `login` is treated as a setup TV.
@@ -281,6 +296,7 @@ class CompanionPairingCoordinator(
         var signedInCount = 0
         val signedInNames = mutableListOf<String>()
         var transport: PairingTransport? = null
+        var reachedTv = false
         try {
             _status.value = CompanionPairingStatus.Connecting(target.name)
             Log.i(
@@ -288,16 +304,24 @@ class CompanionPairingCoordinator(
                 "Connecting to ${target.name} at ${target.host}:${target.port} " +
                     "(session=${target.sessionId ?: "unknown"})",
             )
-            val connected = transportFactory.connect(target).also { transport = it }
+            val connected = transportFactory.connect(target).also {
+                transport = it
+                reachedTv = true
+            }
             coroutineScope {
                 val inbox = Channel<PairingMessage>(Channel.UNLIMITED)
+                val peer = PeerState()
                 val collector = launch {
                     try {
-                        connected.incoming.collect { inbox.send(it) }
+                        connected.incoming.collect {
+                            peer.observe(it)
+                            inbox.send(it)
+                        }
                     } finally {
                         // The TV hung up (or the read failed): wake any wait
                         // for its next message instead of sitting on it until
                         // the step's timeout.
+                        peer.ended()
                         inbox.close()
                     }
                 }
@@ -306,6 +330,8 @@ class CompanionPairingCoordinator(
                     _status.value = CompanionPairingStatus.PickServers(target.name)
                     val selectedServers = (if (signedOutServer != null) orderedServers else chooseServers(orderedServers))
                         .filter { selected -> orderedServers.any { it.id == selected.id } }
+                        // A Roku refuses a second push once one has signed in.
+                        .let { if (target.keepsOneServer) it.take(1) else it }
                     if (selectedServers.isEmpty()) {
                         error("Choose at least one server to continue.")
                     }
@@ -316,6 +342,7 @@ class CompanionPairingCoordinator(
                             server = server,
                             transport = connected,
                             inbox = inbox,
+                            peer = peer,
                             requireUserConfirmation = index == 0,
                             confirmFirstMatch = confirmFirstMatch,
                         )
@@ -363,7 +390,7 @@ class CompanionPairingCoordinator(
                     "${target.name} cancelled."
                 }
                 is ClosedReceiveChannelException -> "${target.name} closed the connection. Try again."
-                else -> t.userFacingPairingMessage()
+                else -> t.userFacingPairingMessage(target, reachedTv)
             }
             _status.value = CompanionPairingStatus.Failed(target.name, message)
             return CompanionPairingResult.Failed(message)
@@ -377,20 +404,32 @@ class CompanionPairingCoordinator(
     }
 
     /** What the phone says when the TV reports [this] failure for [serverName]. */
-    private fun PairingFailureCode.phoneMessage(tvName: String, serverName: String): String = when (this) {
-        PairingFailureCode.Denied -> "The sign-in was declined."
-        PairingFailureCode.Expired -> "The code on $tvName expired. Try again."
-        PairingFailureCode.Unreachable -> "$tvName can't reach $serverName. Check the TV's network connection."
-        PairingFailureCode.IdentityMismatch -> "$tvName reached a different server at that address. Nothing was signed in."
-        PairingFailureCode.UpdateRequired -> "$serverName or the Prairie app on $tvName needs an update first."
-        PairingFailureCode.AuthFailed -> "$tvName couldn't finish signing in to $serverName."
+    private fun PairingFailureCode.phoneMessage(target: CompanionPairingTarget, serverName: String): String {
+        val tvName = target.name
+        return when (this) {
+            PairingFailureCode.Denied -> "The sign-in was declined."
+            PairingFailureCode.Expired -> "The code on $tvName expired. Try again."
+            PairingFailureCode.Unreachable ->
+                "$tvName can't reach $serverName. Check the ${target.deviceNoun}'s network connection."
+            PairingFailureCode.IdentityMismatch -> "$tvName reached a different server at that address. Nothing was signed in."
+            PairingFailureCode.UpdateRequired -> "$serverName or the Prairie app on $tvName needs an update first."
+            PairingFailureCode.AuthFailed -> "$tvName couldn't finish signing in to $serverName."
+        }
     }
 
-    private fun Throwable.userFacingPairingMessage(): String {
-        val detail = generateSequence(this) { it.cause }
-            .mapNotNull { it.message?.takeIf(String::isNotBlank) }
-            .firstOrNull()
-        return detail ?: "Couldn't connect to the TV. Keep its setup screen open and try again."
+    /**
+     * The card's text for a failure without its own case. This coordinator's
+     * own failures (`error(...)`) are already written for the card; anything
+     * else, such as a TLS or socket error, says what happened rather than
+     * showing its raw text.
+     */
+    private fun Throwable.userFacingPairingMessage(target: CompanionPairingTarget, reachedTv: Boolean): String {
+        val own = message?.takeIf { this is IllegalStateException && this !is PrairieAuthUnavailableException && it.isNotBlank() }
+        return when {
+            own != null -> own
+            reachedTv -> "Connection to ${target.name} was lost. Try again."
+            else -> "Couldn't connect to the ${target.deviceNoun}. Keep its setup screen open and try again."
+        }
     }
 
     private suspend fun pushAndApproveServer(
@@ -398,9 +437,18 @@ class CompanionPairingCoordinator(
         server: CompanionPairingServer,
         transport: PairingTransport,
         inbox: ReceiveChannel<PairingMessage>,
+        peer: PeerState,
         requireUserConfirmation: Boolean,
         confirmFirstMatch: suspend (CompanionPairingApproval) -> Boolean,
     ) {
+        // A signed-out TV keeps its sign-in request after it cancels this
+        // attempt, so once it has ended the attempt (cancelled, hung up, or
+        // reported this server failed) the phone must not approve or deny
+        // that request. Checked before every decision.
+        fun ensureAttemptLive() {
+            peer.interruption(server.url)?.let { throw it.failure(target, server.displayName) }
+        }
+
         _status.value = CompanionPairingStatus.PushingServer(target.name, server.displayName)
         transport.send(
             PairingMessage.PushServer(
@@ -422,16 +470,17 @@ class CompanionPairingCoordinator(
         ) {
             is PairingMessage.DeviceStarted -> first
             is PairingMessage.ServerResult ->
-                error(PairingFailureCode.fromWire(first.error).phoneMessage(target.name, server.displayName))
+                error(PairingFailureCode.fromWire(first.error).phoneMessage(target, server.displayName))
             else -> error("Unexpected TV setup message.")
         }
         val lookup = when (val result = deviceLoginApprover.lookup(server, started.userCode)) {
             is ApiResult.Success -> result.data
-            is ApiResult.Error -> error(approverFailure(result, "Unable to verify TV setup code."))
-            is ApiResult.NetworkError -> error(approverFailure(result, "Unable to verify TV setup code."))
+            is ApiResult.Error -> error(approverFailure(result, target, server, "${server.displayName} couldn't check the code. Try again."))
+            is ApiResult.NetworkError -> error(approverFailure(result, server))
         }
         val serverMatchCode = lookup.matchCode?.takeIf { it.isNotBlank() }
             ?: error("Server did not return a match code for TV setup.")
+        ensureAttemptLive()
         if (serverMatchCode != started.matchCode) {
             deviceLoginApprover.deny(server, started.userCode)
             transport.send(PairingMessage.Cancel(reason = "match-code-mismatch"))
@@ -450,30 +499,50 @@ class CompanionPairingCoordinator(
             // nothing is approved for an account it couldn't name. The TV
             // keeps its code, so "Try again" can pick it up.
             val accountName = deviceLoginApprover.accountName(server)
+            ensureAttemptLive()
             if (accountName.isNullOrBlank()) {
                 transport.send(PairingMessage.Cancel(reason = "account-unknown"))
                 error("Couldn't confirm which account would sign in on ${target.name}. Try again.")
             }
             val shown = approval.copy(accountName = accountName)
             _status.value = CompanionPairingStatus.AwaitingMatchConfirmation(shown)
-            if (!confirmFirstMatch(shown)) {
+            // The TV can end the attempt while the person compares codes:
+            // the card's buttons go away at once instead of acting on it.
+            val confirmed = coroutineScope {
+                val answer = async { confirmFirstMatch(shown) }
+                val interrupted = async { peer.awaitInterruption(server.url) }
+                select<Unit> {
+                    answer.onAwait {}
+                    interrupted.onAwait {}
+                }
+                interrupted.cancel()
+                // Also wins when both finished together; leaving this scope
+                // by throwing cancels the pending answer.
+                ensureAttemptLive()
+                answer.await()
+            }
+            if (!confirmed) {
+                // Leaving the scope above waits for the cancelled watcher,
+                // and the TV can end the attempt in that time.
+                ensureAttemptLive()
                 deviceLoginApprover.deny(server, started.userCode)
                 transport.send(PairingMessage.Cancel(reason = "user-cancelled"))
                 error("Cancelled. Nothing was approved.")
             }
         }
 
+        ensureAttemptLive()
         _status.value = CompanionPairingStatus.Approving(target.name, server.displayName)
         when (val approved = deviceLoginApprover.approve(server, started.userCode)) {
             is ApiResult.Success -> Unit
-            is ApiResult.Error -> error(approverFailure(approved, "Unable to approve TV setup."))
-            is ApiResult.NetworkError -> error(approverFailure(approved, "Unable to approve TV setup."))
+            is ApiResult.Error -> error(approverFailure(approved, target, server, "${server.displayName} couldn't approve the sign-in. Try again."))
+            is ApiResult.NetworkError -> error(approverFailure(approved, server))
         }
         val result = inbox.receiveFirst<PairingMessage.ServerResult>(
             timeoutMs = SERVER_RESULT_TIMEOUT_MS,
         ) { it.serverURL == server.url }
         if (result.status != PairingServerStatus.SignedIn) {
-            error(PairingFailureCode.fromWire(result.error).phoneMessage(target.name, server.displayName))
+            error(PairingFailureCode.fromWire(result.error).phoneMessage(target, server.displayName))
         }
     }
 
@@ -521,6 +590,51 @@ class CompanionPairingCoordinator(
     /** The TV sent `cancel` while the phone waited for its next message. */
     private class PeerCancelledException(val reason: String) : IllegalStateException("peer cancelled: $reason")
 
+    /** What ended the TV's side of a server's attempt. */
+    private sealed class PeerInterruption {
+        data class Cancelled(val reason: String) : PeerInterruption()
+        data object Closed : PeerInterruption()
+        data class Failed(val error: String?) : PeerInterruption()
+    }
+
+    /**
+     * Records, as the TV's messages arrive, anything that ends an attempt: a
+     * `cancel`, the connection closing, or a failed result for a server. The
+     * inbox only shows these when the phone next reads it, which is after
+     * the decision it would have stopped.
+     */
+    private class PeerState {
+        private val ended = MutableStateFlow<PeerInterruption?>(null)
+        private val failed = MutableStateFlow<Map<String, PeerInterruption.Failed>>(emptyMap())
+
+        fun observe(message: PairingMessage) {
+            when (message) {
+                is PairingMessage.Cancel -> ended.compareAndSet(null, PeerInterruption.Cancelled(message.reason))
+                is PairingMessage.ServerResult -> if (message.status != PairingServerStatus.SignedIn) {
+                    failed.update { it + (message.serverURL to PeerInterruption.Failed(message.error)) }
+                }
+                else -> Unit
+            }
+        }
+
+        fun ended() {
+            ended.compareAndSet(null, PeerInterruption.Closed)
+        }
+
+        /** Why [serverURL]'s attempt is over, or null while it is live. */
+        fun interruption(serverURL: String): PeerInterruption? = ended.value ?: failed.value[serverURL]
+
+        suspend fun awaitInterruption(serverURL: String): PeerInterruption =
+            combine(ended, failed) { end, failures -> end ?: failures[serverURL] }.filterNotNull().first()
+    }
+
+    /** The failure the phone reports for [this], phrased as when it's read from the inbox. */
+    private fun PeerInterruption.failure(target: CompanionPairingTarget, serverName: String): Throwable = when (this) {
+        is PeerInterruption.Cancelled -> PeerCancelledException(reason)
+        PeerInterruption.Closed -> ClosedReceiveChannelException("${target.name} closed the connection")
+        is PeerInterruption.Failed -> IllegalStateException(PairingFailureCode.fromWire(error).phoneMessage(target, serverName))
+    }
+
     private companion object {
         const val TAG = "CompanionPairing"
         /** [PairingReceiver.denyPendingServer]'s reason when the TV user declines the push. */
@@ -533,23 +647,36 @@ class CompanionPairingCoordinator(
 }
 
 /**
- * The phone's text for a lookup or approval that failed. The sign-in
+ * The phone's text for a code lookup or approval that failed, worded like
+ * the iPhone app's. The server's own error text is never shown. The sign-in
  * provider being unreachable (503 `provider_unavailable` on the approver's
- * refresh or answer) keeps this phone's session, so it says so instead of a
- * raw reason.
+ * refresh or answer) keeps this phone's session, so it says so.
  */
-internal fun approverFailure(result: ApiResult.Error, fallback: String): String =
-    if (result.code == 503 && result.error == PrairieAuthUnavailableException.PROVIDER_UNAVAILABLE_PROBLEM) {
+internal fun approverFailure(
+    result: ApiResult.Error,
+    target: CompanionPairingTarget,
+    server: CompanionPairingServer,
+    otherwise: String,
+): String = when {
+    // The app's own update notice (no request was sent): retrying can't help.
+    result.code == 0 && result.error == ApiV2Gate.UPDATE_REQUIRED_ERROR -> result.message
+    result.code == 503 && result.error == PrairieAuthUnavailableException.PROVIDER_UNAVAILABLE_PROBLEM ->
         APPROVER_PROVIDER_UNAVAILABLE
-    } else {
-        result.message.ifBlank { fallback }
-    }
-
-internal fun approverFailure(result: ApiResult.NetworkError, fallback: String): String = when {
-    PrairieAuthUnavailableException.isProviderUnavailable(result.exception) -> APPROVER_PROVIDER_UNAVAILABLE
-    result.exception is PrairieAuthUnavailableException -> fallback
-    else -> result.exception.message ?: fallback
+    result.code == 401 -> signInAgain(server)
+    // Approved, denied, or cancelled on the TV already.
+    result.code == 409 -> "This sign-in request was already approved or declined. Start again on ${target.name}."
+    result.code == 404 || result.code == 410 -> "The code expired before it was approved. Start again on ${target.name}."
+    else -> otherwise
 }
+
+internal fun approverFailure(result: ApiResult.NetworkError, server: CompanionPairingServer): String = when {
+    PrairieAuthUnavailableException.isProviderUnavailable(result.exception) -> APPROVER_PROVIDER_UNAVAILABLE
+    result.exception is PrairieAuthUnavailableException -> signInAgain(server)
+    else -> "Couldn't reach ${server.displayName}. Check your connection and try again."
+}
+
+private fun signInAgain(server: CompanionPairingServer) =
+    "Sign in to ${server.displayName} on this device again, then try again."
 
 internal const val APPROVER_PROVIDER_UNAVAILABLE =
     "The sign-in provider can't be reached right now, so this device couldn't confirm your account. " +

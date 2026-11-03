@@ -10,7 +10,7 @@ class TrailerRailTest {
         ItemDetail(contentId = "m1", type = "movie", title = "Film", videos = videos, extras = extras)
 
     @Test
-    fun keepsYoutubeVideosThenLocalExtrasWithoutDuplicates() {
+    fun keepsLocalExtrasThenYoutubeVideosWithoutDuplicates() {
         val trailer = ItemVideo(kind = "trailer", site = "YouTube", siteKey = "abc", name = "  Official Trailer ")
         val entries = trailerRailEntries(
             detail(
@@ -23,11 +23,12 @@ class TrailerRailTest {
                 extras = listOf(ItemExtra(contentId = "x1", kind = "behind_the_scenes", durationSeconds = 3725)),
             ),
         )
-        assertEquals(listOf("remote:YouTube:abc", "local:x1"), entries.map { it.key })
-        val remote = assertIs<TrailerRailEntry.Remote>(entries[0])
+        // Local extras first (upstream #640).
+        assertEquals(listOf("local:x1", "remote:YouTube:abc"), entries.map { it.key })
+        val remote = assertIs<TrailerRailEntry.Remote>(entries[1])
         assertEquals("Official Trailer", remote.title)
         assertEquals("trailer", remote.kind)
-        val local = assertIs<TrailerRailEntry.Local>(entries[1])
+        val local = assertIs<TrailerRailEntry.Local>(entries[0])
         assertEquals("Behind the Scenes", local.title)
         assertEquals("behind_the_scenes", local.kind)
         assertEquals(emptyList<TrailerRailEntry>(), trailerRailEntries(detail()))

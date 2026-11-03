@@ -137,7 +137,7 @@ fun SettingsScreen(
         search.matches("diagnostics", "support", "reports", "debug", "crash")
 
     val matchesInterface = search.matches(
-        "interface", "appearance", "cards", "posters", "captions", "home", "sections",
+        "interface", "appearance", "cards", "posters", "home", "sections",
         "title art", "logos",
     )
     val matchesNotifications = state.notificationsAvailable && search.matches(
@@ -243,7 +243,7 @@ fun SettingsScreen(
                                 icon = Icons.Filled.Dashboard,
                                 value = state.cardPresentation.takeIf {
                                     it.support != CardPresentationSupport.Unsupported
-                                }?.let { it.presentation.preset?.displayName ?: "Custom" },
+                                }?.presentation?.posterSize?.displayName,
                                 onClick = onOpenInterface,
                             )
                         }

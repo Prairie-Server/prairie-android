@@ -66,6 +66,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -97,6 +98,8 @@ fun PlayerControls(
     subtitle: String,
     isPlaying: Boolean,
     isPaused: Boolean,
+    // The loading spinner is up: it takes the play disc's place.
+    isLoading: Boolean = false,
     position: Double,
     duration: Double,
     bufferedPosition: Double,
@@ -154,6 +157,10 @@ fun PlayerControls(
     onSetBrightness: (Float) -> Unit = {},
     // True while the seek bar is being dragged, so the auto-hide can hold off.
     onScrubbingChange: (Boolean) -> Unit = {},
+    // The server's seek-bar preview for the drag target, and where the drag
+    // is (null when it ends). See PlayerProgressBar.
+    scrubThumbnail: ImageBitmap? = null,
+    onScrubTarget: (Double?) -> Unit = {},
     // Google Cast (Chromecast) button — sits in the top bar alongside the other
     // controls. Provided by PlayerScreen; empty by default so this stateless
     // composable stays test-friendly and decoupled from the Cast SDK. The
@@ -234,6 +241,7 @@ fun PlayerControls(
             PlayerTransportControls(
                 isPlaying = isPlaying,
                 isPaused = isPaused,
+                isLoading = isLoading,
                 seekEnabled = seekEnabled,
                 playPauseEnabled = playPauseEnabled,
                 skipBackSeconds = skipBackSeconds,
@@ -262,6 +270,8 @@ fun PlayerControls(
                         isScrubbing = it
                         onScrubbingChange(it)
                     },
+                    thumbnail = scrubThumbnail,
+                    onScrubTarget = onScrubTarget,
                 )
                 PlayerActionPillRow(
                     hasTracks = hasTracks,
@@ -421,6 +431,7 @@ private fun Modifier.playerDiscSurface(): Modifier = this
 private fun PlayerTransportControls(
     isPlaying: Boolean,
     isPaused: Boolean,
+    isLoading: Boolean,
     seekEnabled: Boolean,
     playPauseEnabled: Boolean,
     skipBackSeconds: Int,
@@ -450,24 +461,31 @@ private fun PlayerTransportControls(
                 modifier = Modifier.size(31.dp),
             )
         }
+        // While loading, the spinner stands where the disc was; the slot still
+        // plays or pauses, so a stall never takes the control away.
         PlayerDisc(
             contentDescription = if (showPlay) "Play" else "Pause",
             onClick = onPlayPause,
             size = 70.dp,
             enabled = playPauseEnabled,
-            fill = PlayerChrome.Paper,
+            fill = if (isLoading) Color.Transparent else PlayerChrome.Paper,
             contentColor = PlayerChrome.Ink,
             stroke = Color.Transparent,
+            stateDescription = "Loading".takeIf { isLoading },
         ) {
-            Icon(
-                imageVector = if (showPlay) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                contentDescription = null,
-                tint = PlayerChrome.Ink,
-                // The play triangle's visual centre sits left of its box.
-                modifier = Modifier
-                    .size(44.dp)
-                    .offset(x = if (showPlay) 2.dp else 0.dp),
-            )
+            if (isLoading) {
+                PlayerLoadingSpinner()
+            } else {
+                Icon(
+                    imageVector = if (showPlay) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                    contentDescription = null,
+                    tint = PlayerChrome.Ink,
+                    // The play triangle's visual centre sits left of its box.
+                    modifier = Modifier
+                        .size(44.dp)
+                        .offset(x = if (showPlay) 2.dp else 0.dp),
+                )
+            }
         }
         PlayerDisc(
             contentDescription = "Skip forward $skipForwardSeconds seconds",

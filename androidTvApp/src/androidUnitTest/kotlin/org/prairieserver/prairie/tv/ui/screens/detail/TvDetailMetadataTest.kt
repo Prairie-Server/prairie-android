@@ -5,9 +5,11 @@ import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.model.catalog.ItemExtra
 import org.prairieserver.prairie.model.catalog.ItemVideo
 import org.prairieserver.prairie.model.catalog.SubtitleInfo
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
+import org.prairieserver.prairie.model.catalog.TrailerRailEntry
 import org.prairieserver.prairie.model.catalog.VideoTrack
 import org.prairieserver.prairie.model.catalog.selectedMediaRuntimeMinutes
 import org.prairieserver.prairie.model.catalog.trailerRailEntries
@@ -16,6 +18,7 @@ import org.prairieserver.prairie.tv.ui.components.TvHeroFactToken
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class TvDetailMetadataTest {
     @Test
@@ -84,6 +87,46 @@ class TvDetailMetadataTest {
             listOf("remote:youtube:abc"),
             trailerRailEntries(detail).map { it.key },
         )
+    }
+
+    @Test
+    fun trailerEntriesPutLocalExtrasBeforeRemoteVideos() {
+        val detail = ItemDetail(
+            contentId = "m1",
+            type = "movie",
+            title = "Movie",
+            videos = listOf(ItemVideo(kind = "trailer", site = "youtube", siteKey = "abc")),
+            extras = listOf(
+                ItemExtra(contentId = "extra:1", kind = "featurette"),
+                ItemExtra(contentId = "extra:2", kind = "trailer"),
+            ),
+        )
+
+        assertEquals(
+            listOf("local:extra:1", "local:extra:2", "remote:youtube:abc"),
+            trailerRailEntries(detail).map { it.key },
+        )
+    }
+
+    @Test
+    fun trailerEntryThumbnailIsTheYouTubeStillOrTheExtrasOwnImage() {
+        val remote = TrailerRailEntry.Remote(ItemVideo(kind = "trailer", site = "youtube", siteKey = "abc"))
+        assertEquals("https://i.ytimg.com/vi/abc/hqdefault.jpg", remote.thumbnailUrl)
+        assertNull(remote.thumbhash)
+
+        val withImage = TrailerRailEntry.Local(
+            ItemExtra(
+                contentId = "extra:1",
+                kind = "featurette",
+                stillUrl = "https://prairie.example/still.webp",
+                stillThumbhash = "hash",
+            ),
+        )
+        assertEquals("https://prairie.example/still.webp", withImage.thumbnailUrl)
+        assertEquals("hash", withImage.thumbhash)
+
+        // An extra the server has no image for keeps the placeholder.
+        assertNull(TrailerRailEntry.Local(ItemExtra(contentId = "extra:2", kind = "featurette")).thumbnailUrl)
     }
 
     @Test

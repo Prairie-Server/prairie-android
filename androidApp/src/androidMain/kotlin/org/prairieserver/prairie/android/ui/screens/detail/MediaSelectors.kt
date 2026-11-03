@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.model.playback.matchesSignature
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,9 +42,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.theme.DarkOutline
 import org.prairieserver.prairie.android.ui.theme.DarkSurface
 import org.prairieserver.prairie.android.ui.theme.DarkSurfaceVariant
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.model.catalog.AudioTrack
 import org.prairieserver.prairie.model.catalog.ItemDetail
 import org.prairieserver.prairie.model.catalog.editionLabel
@@ -60,6 +64,7 @@ import org.prairieserver.prairie.model.catalog.playbackEditions
 import org.prairieserver.prairie.model.catalog.hasEditionChoices
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.SubtitleTrack
+import org.prairieserver.prairie.model.playback.isUnplayableSubtitle
 import org.prairieserver.prairie.player.DolbyVisionDetection
 import org.prairieserver.prairie.playback.selectPlaybackVersion
 
@@ -380,11 +385,18 @@ fun SubtitlePickerSheet(
         }
 
         itemsIndexed(tracks) { index, track ->
+            // A track the server has no way to show stays listed, disabled.
+            val unplayable = track.isUnplayableSubtitle()
             PickerItem(
                 title = formatSubtitleTitle(track, index),
-                subtitle = formatSubtitleSubtitle(track),
+                subtitle = if (unplayable) {
+                    stringResource(CommonR.string.subtitle_track_unsupported_format)
+                } else {
+                    formatSubtitleSubtitle(track)
+                },
                 badges = buildSubtitleBadges(track),
                 isSelected = index == selectedIndex,
+                enabled = !unplayable,
                 onClick = { onSelect(index) },
             )
             if (index < tracks.lastIndex) {
@@ -452,11 +464,13 @@ private fun PickerItem(
     badges: List<String>,
     isSelected: Boolean,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.4f)
             .background(if (isSelected) Color.White.copy(alpha = 0.06f) else Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -602,8 +616,22 @@ fun formatAudioValueLabel(
  * tvOS-style "Auto - <track>" form for consistency with the Video/Audio rows
  * (Jim 2026-07-09). -1 = Off.
  */
-fun formatSubtitleValueLabel(tracks: List<SubtitleTrack>, selectedIndex: Int?): String {
+fun formatSubtitleValueLabel(
+    tracks: List<SubtitleTrack>,
+    selectedIndex: Int?,
+    seriesSignature: org.prairieserver.prairie.model.playback.SubtitleTrackSignature? = null,
+    seriesOff: Boolean = false,
+): String {
     if (selectedIndex == null) {
+        // A remembered series choice is what Auto plays, so it can be named:
+        // the track its signature finds in this file, or Off.
+        if (seriesOff) return "Auto - Off"
+        seriesSignature?.let { signature ->
+            val candidates = org.prairieserver.prairie.model.playback.catalogAutoSubtitleCandidates(tracks)
+            candidates.indexOfFirst { it.matchesSignature(signature) }
+                .takeIf { it >= 0 }
+                ?.let { return "Auto - ${formatSubtitleLabel(tracks[it])}" }
+        }
         val single = tracks.singleOrNull() ?: return "Auto"
         return "Auto - ${formatSubtitleLabel(single)}"
     }
@@ -627,8 +655,7 @@ fun formatVersionMenuLabel(version: FileVersion): String {
 fun formatAudioLabel(track: AudioTrack?): String {
     if (track == null) return "Auto"
     val parts = mutableListOf<String>()
-    track.title?.let { parts.add(it) }
-        ?: track.language?.uppercase()?.let { parts.add(it) }
+    trackHeadline(track.language, track.title)?.let { parts.add(it) }
     track.channelLayout?.let { parts.add(it) }
         ?: track.channels?.let { parts.add("${it}ch") }
     return parts.joinToString(" \u00B7 ").ifBlank { "Track 1" }
@@ -637,11 +664,41 @@ fun formatAudioLabel(track: AudioTrack?): String {
 fun formatSubtitleLabel(track: SubtitleTrack?): String {
     if (track == null) return "Off"
     val parts = mutableListOf<String>()
-    track.title?.let { parts.add(it) }
-        ?: track.language?.uppercase()?.let { parts.add(it) }
+    trackHeadline(track.language, track.title)?.let { parts.add(it) }
     if (track.forced) parts.add("Forced")
     return parts.joinToString(" \u00B7 ").ifBlank { "Track" }
 }
+
+/**
+ * How a track is named in the pickers: its language, then what its title
+ * adds ("SDH", "Director's Commentary"). Codec names are stripped from the
+ * title ("AAC (Advanced Audio Coding)", "Commentary (AC3)", "SUBRIP"), as is
+ * the language itself, and the title is dropped only when nothing else
+ * remains — as on TV and Apple. Null when neither says anything.
+ */
+internal fun trackHeadline(language: String?, title: String?): String? {
+    val code = language?.trim()?.takeUnless { it.isEmpty() || it.equals("und", ignoreCase = true) }
+    val name = org.prairieserver.prairie.player.trackLanguageDisplayName(code) ?: code?.uppercase()
+    val extra = title?.let { meaningfulTrackTitle(it, name, code) }
+    return listOfNotNull(name, extra).joinToString(" \u00B7 ").takeIf { it.isNotBlank() }
+}
+
+/** [title] without codec names or the language, or null when nothing else remains. */
+private fun meaningfulTrackTitle(title: String, languageName: String?, languageCode: String?): String? {
+    var text = TECHNICAL_TRACK_TITLE.replace(title, " ")
+    listOfNotNull(languageName, languageCode).forEach { word ->
+        text = Regex("(?i)(?<![\\p{L}\\p{N}])${Regex.escape(word)}(?![\\p{L}\\p{N}])").replace(text, " ")
+    }
+    // Brackets the strip emptied, then separators left at either end or doubled.
+    repeat(2) { text = Regex("[(\\[{]\\s*[)\\]}]").replace(text, " ") }
+    text = text.replace(Regex("\\s+"), " ").trim().trim('-', '/', '|', ',', ':', '\u00B7', ' ').trim()
+    return text.takeIf { it.any(Char::isLetterOrDigit) }
+}
+
+private val TECHNICAL_TRACK_TITLE = Regex(
+    "(?i)advanced audio coding|(?<![\\p{L}\\p{N}])(?:e-?ac-?3|ac-?3|aac|truehd|dts(?:-hd)?(?: ma)?|flac|opus|mp3|pcm|" +
+        "subrip|srt|webvtt|vtt|ass|ssa|pgs|vobsub)(?![\\p{L}\\p{N}])",
+)
 
 private fun formatVersionTitle(version: FileVersion): String {
     val parts = mutableListOf<String>()
@@ -773,7 +830,7 @@ private fun formatCompactAudioLayout(track: AudioTrack): String? {
 }
 
 private fun formatAudioTitle(track: AudioTrack, index: Int): String {
-    return track.title ?: track.language?.uppercase() ?: "Audio ${index + 1}"
+    return trackHeadline(track.language, track.title) ?: track.title ?: "Audio ${index + 1}"
 }
 
 private fun formatAudioSubtitle(track: AudioTrack): String {
@@ -794,7 +851,7 @@ private fun buildAudioBadges(track: AudioTrack): List<String> {
 }
 
 private fun formatSubtitleTitle(track: SubtitleTrack, index: Int): String {
-    return track.title ?: track.language?.uppercase() ?: "Track ${index + 1}"
+    return trackHeadline(track.language, track.title) ?: track.title ?: "Track ${index + 1}"
 }
 
 private fun formatSubtitleSubtitle(track: SubtitleTrack): String {

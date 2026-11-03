@@ -99,6 +99,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.model.catalog.seriesHeroBackdrop
 import org.prairieserver.prairie.common.ui.OnViewerAccessChanged
 import org.prairieserver.prairie.network.AccessChangeSignals
 import org.koin.compose.viewmodel.koinViewModel
@@ -190,14 +191,39 @@ internal fun ItemDetail?.isMatchingSeriesDetail(expectedContentId: String): Bool
         type.equals("series", ignoreCase = true) &&
         contentId == expectedContentId
 
+/**
+ * The theme set this page plays. A series or season page plays the set its
+ * hero episode resolves to (its season's, else its series'), so a season or
+ * episode opened on its series page plays what its own page would. While the
+ * hero episode's detail loads, the set already playing stands, so switching
+ * seasons never fades the theme out and back in; if it cannot load, the
+ * page's own set plays.
+ */
+@Composable
+private fun rememberTvDetailThemes(state: TvItemDetailUiState): org.prairieserver.prairie.model.catalog.ThemeSelection? {
+    val last = remember { arrayOfNulls<org.prairieserver.prairie.model.catalog.ThemeSelection>(1) }
+    val type = state.detail?.type?.lowercase()
+    val episode = state.nextUpPlaybackDetail
+    val themes = when {
+        type != "series" && type != "season" -> state.detail?.themes
+        episode != null -> episode.themes ?: state.detail?.themes
+        state.nextUpEpisode != null && !state.didLoadNextUpPlaybackDetail -> last[0] ?: state.detail?.themes
+        else -> state.detail?.themes
+    }
+    SideEffect { last[0] = themes }
+    return themes
+}
+
 @Composable
 fun TvItemDetailScreen(
     contentId: String,
     seasonNumber: Int? = null,
     libraryId: Int? = null,
     initialEpisodeContentId: String? = null,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, versionChosen: Boolean, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
+    /** A title picked from the Related Movies / Recommended Series rail. */
+    onSimilarItemDetail: (contentId: String) -> Unit,
     onItemDetailReplace: (contentId: String) -> Unit = onItemDetail,
     onSeriesDetailReplace: (
         seriesContentId: String,
@@ -210,6 +236,10 @@ fun TvItemDetailScreen(
     onWatchParty: (WatchPartyDestination?) -> Unit,
     onOpenPerson: (personId: Long) -> Unit,
     onBack: () -> Unit,
+    /** Opens a box set's page from a movie's box set row. */
+    onOpenBoxSet: (boxSetId: String, libraryId: String) -> Unit = { _, _ -> },
+    /** Opens a movie from a box set row, scoped to the box set's library. */
+    onBoxSetMovie: (contentId: String, libraryId: String) -> Unit = { contentId, _ -> onItemDetail(contentId) },
     // Plays the first pick of a shuffle started from the More menu.
     onShuffleStarted: (org.prairieserver.prairie.model.shuffle.Shuffle) -> Unit = {},
     viewModel: TvItemDetailViewModel = koinViewModel(
@@ -218,6 +248,10 @@ fun TvItemDetailScreen(
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
+    org.prairieserver.prairie.common.thememusic.DetailThemeMusic(
+        org.koin.compose.koinInject(),
+        rememberTvDetailThemes(state),
+    )
     val shuffleLauncher = org.prairieserver.prairie.common.ui.rememberShuffleLauncher(
         org.koin.compose.koinInject(),
         onShuffleStarted,
@@ -242,10 +276,10 @@ fun TvItemDetailScreen(
     // D5: while this TV is in a Watch Party, Play (and extras) first asks to
     // leave the party; leaving is never hidden behind a solo start.
     val watchPartyPlayGuard = rememberTvWatchPartyPlayGuard()
-    val guardedOnPlay: (String, Int?, Int?, Boolean, TvSubtitleLaunchSelection?, String?, Double?) -> Unit =
-        { playContentId, fileId, audioTrackIndex, audioPicked, subtitleSelection, itemType, resumePositionSeconds ->
+    val guardedOnPlay: (String, Int?, Boolean, Int?, Boolean, TvSubtitleLaunchSelection?, String?, Double?) -> Unit =
+        { playContentId, fileId, versionChosen, audioTrackIndex, audioPicked, subtitleSelection, itemType, resume ->
             watchPartyPlayGuard.requestPlay {
-                onPlay(playContentId, fileId, audioTrackIndex, audioPicked, subtitleSelection, itemType, resumePositionSeconds)
+                onPlay(playContentId, fileId, versionChosen, audioTrackIndex, audioPicked, subtitleSelection, itemType, resume)
             }
         }
     TvWatchPartyPlayGuardDialog(watchPartyPlayGuard)
@@ -348,11 +382,14 @@ fun TvItemDetailScreen(
             libraryId = libraryId,
             onPlay = guardedOnPlay,
             onItemDetail = onItemDetail,
+            onSimilarItemDetail = onSimilarItemDetail,
             onItemDetailReplace = onItemDetailReplace,
             onSeriesClick = onSeriesClick,
             onSeasonClick = onSeasonClick,
             onWatchParty = onWatchParty,
             onOpenPerson = onOpenPerson,
+            onOpenBoxSet = onOpenBoxSet,
+            onBoxSetMovie = onBoxSetMovie,
             shuffleLauncher = shuffleLauncher,
         )
     }
@@ -367,13 +404,16 @@ private fun TvDetailContent(
     initialEpisodeContentId: String?,
     viewModel: TvItemDetailViewModel,
     libraryId: Int?,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, versionChosen: Boolean, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onItemDetail: (contentId: String) -> Unit,
+    onSimilarItemDetail: (contentId: String) -> Unit,
     onItemDetailReplace: (contentId: String) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     onWatchParty: (WatchPartyDestination?) -> Unit,
     onOpenPerson: (personId: Long) -> Unit,
+    onOpenBoxSet: (boxSetId: String, libraryId: String) -> Unit,
+    onBoxSetMovie: (contentId: String, libraryId: String) -> Unit,
     shuffleLauncher: org.prairieserver.prairie.common.ui.ShuffleLauncher,
 ) {
     val playFocus = remember { FocusRequester() }
@@ -408,6 +448,10 @@ private fun TvDetailContent(
     // for the SAME content passes every ownership check the old coroutine
     // makes, letting it clear or override the new one.
     var pendingSimilarGeneration by rememberSaveable(detail.contentId) { mutableStateOf(0) }
+    // The same return, from a movie or the box set page opened in the box set
+    // row: the pending id then names a card in that row instead, or
+    // [BoxSetExploreAllReturnId] for its Explore all card.
+    var pendingReturnFromBoxSet by rememberSaveable(detail.contentId) { mutableStateOf(false) }
     val similarReturnFocus = remember { FocusRequester() }
     val similarRestoreFocused = remember { mutableStateOf(false) }
     // Bumped once the target resolves, so the row scrolls its own LazyRow to
@@ -417,8 +461,19 @@ private fun TvDetailContent(
     // Resolved against the CURRENT list, so it simply stays -1 until the rail
     // has loaded and becomes correct if the order changed.
     val pendingSimilarIndex = pendingSimilarContentId?.let { pendingId ->
-        state.moreLikeThis.indexOfFirst { it.contentId == pendingId }
+        when {
+            // Explore all follows the box set's movies.
+            pendingReturnFromBoxSet && pendingId == BoxSetExploreAllReturnId ->
+                state.boxSetItems.size.takeIf { state.boxSetItems.isNotEmpty() } ?: -1
+            pendingReturnFromBoxSet -> state.boxSetItems.indexOfFirst { it.contentId == pendingId }
+            else -> state.moreLikeThis.indexOfFirst { it.contentId == pendingId }
+        }
     } ?: -1
+    val similarRestoreIndex = if (pendingReturnFromBoxSet) -1 else pendingSimilarIndex
+    val boxSetRestoreIndex = if (pendingReturnFromBoxSet) pendingSimilarIndex else -1
+    // Entering the box set row lands on the movie on screen until the row
+    // remembers a card of its own.
+    val boxSetCurrentFocus = remember { FocusRequester() }
     val pendingSimilarIndexNow = rememberUpdatedState(pendingSimilarIndex)
     val firstSimilarFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -614,6 +669,7 @@ private fun TvDetailContent(
     // chips) sits above the cast / similar rails — drives their
     // Up-return-to-hero fallback.
     val hasEpisodeNavAbove = showsEpisodeRail || showsSeasonChips
+    val showsBoxSetRow = !isAudiobook && detail.type == "movie" && state.boxSet != null && state.boxSetItems.isNotEmpty()
     val showsCastSection = !isAudiobook && detail.cast.isNotEmpty()
     val showsTrailersSection = !isAudiobook && trailerEntries.isNotEmpty()
     val showsSimilarRail = !isAudiobook && detail.type != "episode" && state.moreLikeThis.isNotEmpty()
@@ -997,6 +1053,7 @@ private fun TvDetailContent(
                                     onPlay(
                                         detail.contentId,
                                         null,
+                                        false,
                                         state.selectedAudioIndex,
                                         state.audioPickedThisSession,
                                         explicitTvSubtitleLaunchSelection(state.selectedSubtitleIndex),
@@ -1150,6 +1207,7 @@ private fun TvDetailContent(
                                         onPlay(
                                             episode.contentId,
                                             launch.fileId,
+                                            launch.versionChosen,
                                             launch.audioTrackIndex,
                                             launch.audioPickedThisSession,
                                             launch.subtitleSelection,
@@ -1164,6 +1222,7 @@ private fun TvDetailContent(
                                         onPlay(
                                             episode.contentId,
                                             launch.fileId,
+                                            launch.versionChosen,
                                             launch.audioTrackIndex,
                                             launch.audioPickedThisSession,
                                             launch.subtitleSelection,
@@ -1241,6 +1300,7 @@ private fun TvDetailContent(
                                     onPlay(
                                         extra.contentId,
                                         extra.fileId,
+                                        false,
                                         null,
                                         false,
                                         null,
@@ -1261,6 +1321,66 @@ private fun TvDetailContent(
                                         }
                                     }
                                     .detailBodySectionAnchor(listState, coroutineScope),
+                            )
+                        }
+
+                        if (showsBoxSetRow) {
+                            val boxSet = state.boxSet!!
+                            val boxSetCurrentIndex = state.boxSetItems.indexOfFirst { it.contentId == detail.contentId }
+                            TvBoxSetRowSection(
+                                boxSet = boxSet,
+                                items = state.boxSetItems,
+                                currentContentId = detail.contentId,
+                                onExploreAll = {
+                                    pendingCastFocusIndex = -1
+                                    pendingSimilarGeneration += 1
+                                    pendingReturnFromBoxSet = true
+                                    pendingSimilarContentId = BoxSetExploreAllReturnId
+                                    similarRestoreFocused.value = false
+                                    onOpenBoxSet(boxSet.id, boxSet.libraryId)
+                                },
+                                // Up from the row returns to the hero only when
+                                // no episode nav, cast or trailers rail sits above.
+                                onReturnToHero = if (!hasEpisodeNavAbove && !showsCastSection && !showsTrailersSection) {
+                                    returnToHero
+                                } else {
+                                    null
+                                },
+                                onMovieClick = { clickedContentId ->
+                                    // The movie on screen opens nothing new.
+                                    if (clickedContentId != detail.contentId) {
+                                        pendingCastFocusIndex = -1
+                                        pendingSimilarGeneration += 1
+                                        pendingReturnFromBoxSet = true
+                                        pendingSimilarContentId = clickedContentId
+                                        similarRestoreFocused.value = false
+                                        onBoxSetMovie(clickedContentId, boxSet.libraryId)
+                                    }
+                                },
+                                // A pending return targets the card that opened a
+                                // movie; otherwise entering lands on this movie.
+                                restoreFocusIndex = if (boxSetRestoreIndex >= 0) boxSetRestoreIndex else boxSetCurrentIndex,
+                                restoreFocusRequester = when {
+                                    boxSetRestoreIndex >= 0 -> similarReturnFocus
+                                    boxSetCurrentIndex >= 0 -> boxSetCurrentFocus
+                                    else -> null
+                                },
+                                restoreFocusRequest = similarRestoreRequest.takeIf { boxSetRestoreIndex >= 0 } ?: 0,
+                                onItemFocused = if (boxSetRestoreIndex >= 0) {
+                                    { focusedItem ->
+                                        if (focusedItem.contentId == pendingSimilarContentId) {
+                                            similarRestoreFocused.value = true
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                                onExploreAllFocused = {
+                                    if (pendingSimilarContentId == BoxSetExploreAllReturnId) {
+                                        similarRestoreFocused.value = true
+                                    }
+                                },
+                                modifier = Modifier.detailBodySectionAnchor(listState, coroutineScope),
                             )
                         }
 
@@ -1291,20 +1411,21 @@ private fun TvDetailContent(
                                     onItemClick = { clickedContentId ->
                                         pendingCastFocusIndex = -1
                                         pendingSimilarGeneration += 1
+                                        pendingReturnFromBoxSet = false
                                         pendingSimilarContentId = clickedContentId
                                         similarRestoreFocused.value = false
-                                        onItemDetail(clickedContentId)
+                                        onSimilarItemDetail(clickedContentId)
                                     },
-                                    restoreFocusIndex = pendingSimilarIndex,
+                                    restoreFocusIndex = similarRestoreIndex,
                                     // Only while a return is pending, so ordinary
                                     // re-entry stops being forced at the return
                                     // target and goes back to the row restorer's
                                     // own remembered card.
                                     restoreFocusRequester = similarReturnFocus
-                                        .takeIf { pendingSimilarIndex >= 0 },
+                                        .takeIf { similarRestoreIndex >= 0 },
                                     restoreFocusRequest = similarRestoreRequest
-                                        .takeIf { pendingSimilarIndex >= 0 } ?: 0,
-                                    onItemFocusedAtIndex = if (pendingSimilarIndex >= 0) {
+                                        .takeIf { similarRestoreIndex >= 0 } ?: 0,
+                                    onItemFocusedAtIndex = if (similarRestoreIndex >= 0) {
                                         { focusedItem, _ ->
                                             // ONLY the target counts. Revoking
                                             // when some other card gains focus
@@ -1330,15 +1451,15 @@ private fun TvDetailContent(
                                     horizontalPadding = TvDetailHorizontalInset,
                                     rowTopPadding = 0.dp,
                                     firstItemFocusRequester = firstSimilarFocus,
-                                    onDirectionUp = if (!hasEpisodeNavAbove && !showsCastSection && !showsTrailersSection) {
+                                    onDirectionUp = if (!hasEpisodeNavAbove && !showsCastSection && !showsTrailersSection && !showsBoxSetRow) {
                                         returnToHero
                                     } else {
                                         null
                                     },
                                     // When Similar is the first body rail (movie with no
-                                    // episode rail and no cast), Up returns to the hero
+                                    // episode rail, cast, trailers or box set), Up returns to the hero
                                     // Play button instead of relying on geometry.
-                                    upFocusRequester = if (!hasEpisodeNavAbove && !showsCastSection && !showsTrailersSection) {
+                                    upFocusRequester = if (!hasEpisodeNavAbove && !showsCastSection && !showsTrailersSection && !showsBoxSetRow) {
                                         playFocus
                                     } else {
                                         null
@@ -1389,6 +1510,7 @@ private fun TvDetailContent(
                             onPlay(
                                 detail.contentId,
                                 null,
+                                false,
                                 state.selectedAudioIndex,
                                 state.audioPickedThisSession,
                                 explicitTvSubtitleLaunchSelection(state.selectedSubtitleIndex),
@@ -1447,11 +1569,7 @@ private fun TvDetailPlaybackSelectionSummary(
     } else {
         compactVersion
     }
-    val automaticAudioTrackOrdinal = resolveTvAutomaticAudioTrackOrdinal(
-        version = selectedVersion,
-        preferredAudioLanguage = state.preferredAudioLanguage,
-        capabilities = state.audioSelectionCapabilities,
-    )
+    val automaticAudioTrackOrdinal = state.automaticAudioOrdinal(playbackDetail, selectedVersion)
     val automaticAudioResolutionKnown = state.audioSelectionCapabilities != null
     val audioValue = selectedVersion?.let { version ->
         if (selectedAudioIndex == null && !automaticAudioResolutionKnown) {
@@ -1469,10 +1587,8 @@ private fun TvDetailPlaybackSelectionSummary(
             version = version,
             selectedSubtitleTrackIndex = selectedSubtitleIndex,
             autoContext = if (selectedAudioIndex != null || automaticAudioResolutionKnown) {
-                TvPlaybackFormatting.SubtitleAutoContext(
-                    preferredLanguage = state.preferredSubtitleLanguage,
-                    mode = state.subtitleMode,
-                    showForced = state.showForcedSubtitles,
+                state.subtitleAutoContext(
+                    playbackDetail = playbackDetail,
                     audioLanguage = TvPlaybackFormatting.resolvedAudioLanguage(
                         version,
                         selectedAudioIndex,
@@ -1611,7 +1727,7 @@ private fun HeroActionRow(
     viewModel: TvItemDetailViewModel,
     playFocus: FocusRequester,
     selectorFocus: FocusRequester,
-    onPlay: (contentId: String, fileId: Int?, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
+    onPlay: (contentId: String, fileId: Int?, versionChosen: Boolean, audioTrackIndex: Int?, audioPickedThisSession: Boolean, subtitleSelection: TvSubtitleLaunchSelection?, itemType: String?, resumePositionSeconds: Double?) -> Unit,
     onSeriesClick: (seriesId: String) -> Unit,
     onSeasonClick: (seriesId: String, seasonNumber: Int) -> Unit,
     libraryId: Int?,
@@ -1734,10 +1850,9 @@ private fun HeroActionRow(
         else -> null
     }
     val watchPartyOption = rememberTvWatchPartyDetailOption(watchPartyEntry, watchPartyItem)
-    val automaticAudioTrackOrdinal = resolveTvAutomaticAudioTrackOrdinal(
+    val automaticAudioTrackOrdinal = state.automaticAudioOrdinal(
+        playbackDetail = if (isSeriesOrSeason) nextUpDetail else detail,
         version = selectedVersion,
-        preferredAudioLanguage = state.preferredAudioLanguage,
-        capabilities = state.audioSelectionCapabilities,
     )
     val automaticAudioResolutionKnown = state.audioSelectionCapabilities != null
     val hasTrackOverride = selectorAudioIndex != null || selectorSubtitleIndex != null
@@ -1753,10 +1868,8 @@ private fun HeroActionRow(
         autoContext = selectedVersion?.takeIf {
             selectorAudioIndex != null || automaticAudioResolutionKnown
         }?.let { version ->
-            TvPlaybackFormatting.SubtitleAutoContext(
-                preferredLanguage = state.preferredSubtitleLanguage,
-                mode = state.subtitleMode,
-                showForced = state.showForcedSubtitles,
+            state.subtitleAutoContext(
+                playbackDetail = if (isSeriesOrSeason) nextUpDetail else detail,
                 audioLanguage = TvPlaybackFormatting.resolvedAudioLanguage(
                     version,
                     selectorAudioIndex,
@@ -1766,6 +1879,8 @@ private fun HeroActionRow(
         },
     )
     val playFileId = selectorSelectedFileId ?: selectedFileId.takeIf { hasTrackOverride }
+    // Only a version the viewer picked pins the file; a track override's file is the automatic one.
+    val playVersionChosen = selectorSelectedFileId != null
     // No separate next-up autofocus: the Play button is always rendered and
     // focusable, and the screen already focuses it on detail load, so re-focusing
     // when next-up resolves would only risk yanking focus back if the viewer had
@@ -1805,8 +1920,12 @@ private fun HeroActionRow(
                         if (playReady && !playLaunchPending) {
                             playLaunchPending = true
                             onPlay(
-                                playContentId, playFileId,
-                                selectorAudioIndex ?: automaticAudioTrackOrdinal,
+                                playContentId, playFileId, playVersionChosen,
+                                // Only a pick on this page travels as the start's
+                                // audio. Auto is resolved by the start itself,
+                                // from the server's current answer: a preview
+                                // can be older than a choice cleared here.
+                                selectorAudioIndex,
                                 selectorAudioPicked,
                                 subtitleLaunchSelection,
                                 playType, resumePosition,
@@ -1836,8 +1955,8 @@ private fun HeroActionRow(
                             if (playReady && !playLaunchPending) {
                                 playLaunchPending = true
                                 onPlay(
-                                    playContentId, playFileId,
-                                    selectorAudioIndex ?: automaticAudioTrackOrdinal,
+                                    playContentId, playFileId, playVersionChosen,
+                                    selectorAudioIndex,
                                     selectorAudioPicked,
                                     subtitleLaunchSelection,
                                     playType, 0.0,
@@ -1859,6 +1978,12 @@ private fun HeroActionRow(
                     preferredSubtitleLanguage = state.preferredSubtitleLanguage,
                     subtitleMode = state.subtitleMode,
                     showForcedSubtitles = state.showForcedSubtitles,
+                    subtitleAutoContextFor = { audioLanguage ->
+                        state.subtitleAutoContext(
+                            playbackDetail = if (isSeriesOrSeason) nextUpDetail else detail,
+                            audioLanguage = audioLanguage,
+                        )
+                    },
                     onSelectVersion = if (isSeriesOrSeason) {
                         viewModel::onNextUpVersionSelected
                     } else {
@@ -2032,6 +2157,8 @@ private fun HeroActionRow(
 
 internal data class SeriesEpisodePlaybackLaunch(
     val fileId: Int?,
+    /** [fileId] is a version the viewer picked, not the automatic one sent with a track override. */
+    val versionChosen: Boolean,
     val audioTrackIndex: Int?,
     val audioPickedThisSession: Boolean,
     val subtitleSelection: TvSubtitleLaunchSelection?,
@@ -2063,11 +2190,7 @@ internal fun seriesEpisodePlaybackLaunch(
         lastFileId = playbackDetail?.userData?.lastFileId,
         preferredQuality = state.preferredQuality,
     )
-    val automaticAudioTrackOrdinal = resolveTvAutomaticAudioTrackOrdinal(
-        version = selectedVersion,
-        preferredAudioLanguage = state.preferredAudioLanguage,
-        capabilities = state.audioSelectionCapabilities,
-    )
+    val automaticAudioTrackOrdinal = state.automaticAudioOrdinal(playbackDetail, selectedVersion)
     val automaticAudioResolutionKnown = state.audioSelectionCapabilities != null
     val hasTrackOverride = audioTrackIndex != null || subtitleTrackIndex != null
     val subtitleSelection = TvPlaybackFormatting.subtitleLaunchSelection(
@@ -2076,10 +2199,8 @@ internal fun seriesEpisodePlaybackLaunch(
         autoContext = selectedVersion?.takeIf {
             audioTrackIndex != null || automaticAudioResolutionKnown
         }?.let { version ->
-            TvPlaybackFormatting.SubtitleAutoContext(
-                preferredLanguage = state.preferredSubtitleLanguage,
-                mode = state.subtitleMode,
-                showForced = state.showForcedSubtitles,
+            state.subtitleAutoContext(
+                playbackDetail = playbackDetail,
                 audioLanguage = TvPlaybackFormatting.resolvedAudioLanguage(
                     version,
                     audioTrackIndex,
@@ -2090,7 +2211,9 @@ internal fun seriesEpisodePlaybackLaunch(
     )
     return SeriesEpisodePlaybackLaunch(
         fileId = explicitFileId ?: selectedVersion?.fileId?.takeIf { hasTrackOverride },
-        audioTrackIndex = audioTrackIndex ?: automaticAudioTrackOrdinal,
+        versionChosen = explicitFileId != null,
+        // Only a pick travels; Auto is resolved by the start (see the hero row).
+        audioTrackIndex = audioTrackIndex,
         audioPickedThisSession = selectionMatchesEpisode && state.nextUpAudioPickedThisSession,
         subtitleSelection = subtitleSelection,
         resumePositionSeconds = episode.userData?.resumePositionSeconds(),
@@ -2670,6 +2793,9 @@ internal val TvDetailSectionGap = 32.dp
 internal val TvDetailPageBottomPadding = 70.dp
 internal val TvDetailHorizontalInset = 50.dp
 
+/** Pending-return id of the box set row's Explore all card; content ids never contain NUL. */
+private const val BoxSetExploreAllReturnId = "\u0000box-set-explore-all"
+
 private val TvDetailDefaultTint = Color(red = 0.04f, green = 0.12f, blue = 0.14f)
 private const val TvDetailTintOpacity = 0.42f
 
@@ -2694,8 +2820,8 @@ internal data class TvDetailHeroArtwork(
 
 /**
  * Item detail responses can legitimately omit series/season artwork even
- * though their loaded episode rows carry landscape stills. Prefer the real
- * backdrop, then an episodic landscape still; never stretch a portrait poster
+ * though their loaded episode rows carry landscape stills. Prefer an episode's
+ * series backdrop, then the real backdrop, then an episodic landscape still; never stretch a portrait poster
  * across a movie/series hero. A still that spoiler protection hides is never
  * shown full-size here: only its ThumbHash colour field is used.
  */
@@ -2704,6 +2830,8 @@ internal fun resolveTvDetailHeroArtwork(
     nextUpEpisode: EpisodeListItem?,
     spoilerPrefs: EpisodeSpoilerPrefs = EpisodeSpoilerPrefs.NONE,
 ): TvDetailHeroArtwork {
+    // An episode's series backdrop is never a still, so protection keeps it.
+    detail.seriesHeroBackdrop()?.let { return TvDetailHeroArtwork(it.url, it.thumbhash) }
     if (!detail.backdropUrl.isNullOrBlank() || !detail.backdropThumbhash.isNullOrBlank()) {
         val hidesBackdrop = detail.type.equals("episode", ignoreCase = true) &&
             spoilerPrefs.hidesImage(EpisodeSpoilers.isUnwatched(detail.userData), detail.backdropIsEpisodeStill)

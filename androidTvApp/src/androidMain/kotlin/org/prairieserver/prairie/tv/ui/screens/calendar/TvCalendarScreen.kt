@@ -88,7 +88,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.common.calendar.localDisplayAirTime
-import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.calendar.CalendarBadge
@@ -118,6 +117,7 @@ import org.prairieserver.prairie.tv.ui.theme.FocusedContent
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
+import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 import org.prairieserver.prairie.viewmodel.CalendarViewModel
 
 /**
@@ -1417,7 +1417,6 @@ private fun CalendarEventCard(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val posterWidth = CalendarPosterWidth.cardScaled()
     val posterHeight = CalendarPosterHeight.cardScaled()
-    val caption = LocalCardPresentation.current.caption
 
     // Both edges. Gain alone made the screen's record of "what has focus"
     // sticky, so a card focus passed over on the way somewhere else still
@@ -1428,6 +1427,7 @@ private fun CalendarEventCard(
 
     // tvOS FocusableCalendarCard: the poster alone is the focus-lifted
     // button; the caption sits OUTSIDE it and brightens on focus.
+    val posterFocus = prairieCardDefaults(shape = posterShape)
     Column(
         modifier = Modifier
             .width(posterWidth)
@@ -1438,10 +1438,9 @@ private fun CalendarEventCard(
             onClick = onClick,
             interactionSource = interactionSource,
             shape = CardDefaults.shape(shape = posterShape),
-            scale = CardDefaults.scale(focusedScale = 1.06f),
-            border = CardDefaults.border(
-                focusedBorder = Border(BorderStroke(2.5.dp, Color.White), shape = posterShape),
-            ),
+            scale = posterFocus.scale,
+            border = posterFocus.border,
+            glow = posterFocus.glow,
             colors = CardDefaults.colors(containerColor = Color.White.copy(alpha = 0.06f)),
             modifier = Modifier
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
@@ -1517,37 +1516,31 @@ private fun CalendarEventCard(
 
         // Caption below the poster: titles may wrap to two lines, but a
         // one-line title does not reserve an empty second line before detail.
-        // Artwork-only drops the whole block; the outer spacedBy only applies
-        // between children, so the poster keeps no trailing gap.
-        if (caption.showsTitle) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = 17.5.sp,
+                    lineHeight = 20.5.sp,
+                ),
+                fontWeight = FontWeight.SemiBold,
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            cardSubtitle(item)?.let { subtitle ->
                 Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 17.5.sp,
-                        lineHeight = 20.5.sp,
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
-                    maxLines = 2,
+                    color = Color.White.copy(alpha = 0.75f),
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (caption.showsMetadata) {
-                    cardSubtitle(item)?.let { subtitle ->
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 14.sp,
-                                lineHeight = 18.sp,
-                            ),
-                            color = Color.White.copy(alpha = 0.75f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
             }
         }
     }
@@ -1666,8 +1659,8 @@ private fun CalendarMessage(
 // MARK: - Formatting helpers
 
 private fun badgeLabel(badge: String): String? = when (badge) {
-    // tvOS says "SERIES PREMIERE", which does not fit a poster at 14sp;
-    // NEW SEASON already marks season premieres.
+    // Same labels as web, iOS, and tvOS. PREMIERE, not SERIES PREMIERE, fits a
+    // poster badge, and NEW SEASON already marks season premieres.
     CalendarBadge.SeriesPremiere -> "PREMIERE"
     CalendarBadge.SeasonPremiere -> "NEW SEASON"
     CalendarBadge.Finale -> "FINALE"

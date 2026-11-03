@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -62,6 +63,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,6 +79,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.model.catalog.CatalogFiltersResponse
 import org.prairieserver.prairie.tv.ui.components.tvOutlinedTextFieldColors
+import org.prairieserver.prairie.tv.ui.components.tvShowImeOnSelect
 import org.prairieserver.prairie.tv.ui.components.tvSkylinePanelChrome
 
 /**
@@ -696,8 +699,12 @@ private fun FacetValuesScreen(
         }
     }
     if (remoteField != null) {
+        // tvShowImeOnSelect: a plain text field keeps vertical D-pad for caret
+        // moves, so focus could never reach the matches below it.
         OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
-            placeholder = { androidx.compose.material3.Text("Search ${facet.title}") }, modifier = Modifier.fillMaxWidth(),
+            placeholder = { androidx.compose.material3.Text("Search ${facet.title}") },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, showKeyboardOnFocus = false),
+            modifier = Modifier.fillMaxWidth().tvShowImeOnSelect(),
             colors = tvOutlinedTextFieldColors())
         Text(note ?: if (scope == null) "Showing a limited list. Reload filters to search all values." else "Search by the beginning of a name.")
     }

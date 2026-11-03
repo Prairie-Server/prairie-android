@@ -41,6 +41,7 @@ File pointers are repository-relative.
 | Intro auto-skip (+ manual skip banner) | ✅ | ✅ | |
 | Shuffle (library, series, season, collection) | ✅ | ✅ | Server-picked random movies and episodes, gated by `/api/v2/shuffles/capabilities`. Picks play from the start; the up-next screen offers Pick Another and Stop shuffling. TV has no mixed-library screen, so mixed libraries shuffle on phone only. [docs](docs/shuffle-api-v2.md) |
 | Chapters | ✅ | ✅ | Server-extracted; TV scrubber markers |
+| Seek-bar thumbnails (server trickplay) | ✅ | ✅ | When the file's library generates previews (`trickplay_available`): phone above the drag bubble, TV above the focused scrubber and under the hold-seek chip. Sheets load on demand into a bounded cache; offline playback and files without previews keep the time-only preview. Shared `TrickplayPreviews` |
 | Sleep timer | ✅ | ✅ | Configurable default |
 | Playback speed | ✅ | ✅ | |
 | Video gravity (fit / fill / stretch) | ✅ | ✅ | |

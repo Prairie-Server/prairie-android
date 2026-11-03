@@ -14,6 +14,7 @@ import org.prairieserver.prairie.model.request.RequestMediaType
 import org.prairieserver.prairie.model.request.RequestsDiscoverResponse
 import org.prairieserver.prairie.model.request.RequestsFeatureStatus
 import org.prairieserver.prairie.model.request.RequestsListResponse
+import org.prairieserver.prairie.model.request.RequestDiscoverySection
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.api.RequestsApi
 import org.prairieserver.prairie.repository.RequestDetailCache
@@ -100,7 +101,7 @@ private class FakeRequestsApi(
     override suspend fun discover(): ApiResult<RequestsDiscoverResponse> =
         ApiResult.NetworkError(IllegalStateException("not used"))
 
-    override suspend fun discoverSection(section: String, page: Int): ApiResult<RequestMediaPage> =
+    override suspend fun discoverRow(rowKey: String, page: Int): ApiResult<RequestDiscoverySection> =
         ApiResult.NetworkError(IllegalStateException("not used"))
 
     override suspend fun search(

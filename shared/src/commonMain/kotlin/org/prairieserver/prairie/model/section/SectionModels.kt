@@ -39,6 +39,13 @@ data class SectionItem(
     @SerialName("poster_thumbhash") val posterThumbhash: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,
     @SerialName("backdrop_thumbhash") val backdropThumbhash: String? = null,
+    /** Episode cards: the parent series' and season's artwork, never an episode still. Absent on older servers. */
+    @SerialName("series_poster_url") val seriesPosterUrl: String? = null,
+    @SerialName("series_poster_thumbhash") val seriesPosterThumbhash: String? = null,
+    @SerialName("series_backdrop_url") val seriesBackdropUrl: String? = null,
+    @SerialName("series_backdrop_thumbhash") val seriesBackdropThumbhash: String? = null,
+    @SerialName("season_poster_url") val seasonPosterUrl: String? = null,
+    @SerialName("season_poster_thumbhash") val seasonPosterThumbhash: String? = null,
     @SerialName("logo_url") val logoUrl: String? = null,
     @SerialName("user_state") val userState: MediaItemUserState? = null,
     /** This profile's metadata language while the card's description is not available in it yet. */
@@ -66,6 +73,12 @@ data class ResolvedSection(
 @Serializable
 data class SectionsResponse(
     val sections: List<ResolvedSection> = emptyList()
+)
+
+/** One Home row from `GET /api/v2/home/layout`: which row it is, without its cards. */
+data class HomeLayoutRow(
+    val id: String,
+    val sectionType: String,
 )
 
 @Serializable

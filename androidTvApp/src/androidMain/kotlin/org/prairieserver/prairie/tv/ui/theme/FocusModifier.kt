@@ -21,6 +21,7 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.CardScale
+import org.prairieserver.prairie.common.ui.marquee.rememberReduceMotion
 
 /**
  * Signature focus grammar for non-Card focusables (rail items, chips, pills,
@@ -78,9 +79,29 @@ fun Modifier.prairieFocus(
 }
 
 /**
+ * The white outline that marks a focused card, and the Series row's current
+ * episode. Mirrors tvOS `TVCardOutline` and `TVCardOutlineButtonStyle`.
+ */
+object CardOutline {
+    val width = 2.dp
+    val color = Color.White.copy(alpha = 0.70f)
+    /** A small lift; tvOS uses the same 5% on every card. */
+    const val FocusedScale = 1.05f
+    /** The focused card's drop shadow, in place of a light glow. */
+    val shadowColor = Color.Black.copy(alpha = 0.45f)
+    val shadowElevation = 12.dp
+}
+
+/** The [CardOutline] lift, or none when the system asks for reduced motion. */
+@Composable
+fun cardFocusedScale(focusedScale: Float = CardOutline.FocusedScale): Float =
+    if (rememberReduceMotion()) 1f else focusedScale
+
+/**
  * Signature Card focus behavior for TV Material3 [androidx.tv.material3.Card]s
- * (the poster/episode/cast cards). Returns the standard (scale, border, glow)
- * triplet all speaking the same monochrome focus language.
+ * (the poster/episode/cast cards): a small lift, the [CardOutline] white
+ * outline and a soft drop shadow, matching tvOS's outlined cards. Under
+ * reduced motion cards keep their size; the outline and shadow mark focus.
  *
  * Usage:
  * ```
@@ -98,25 +119,36 @@ data class PrairieCardFocus(
     val scale: CardScale,
     val border: androidx.tv.material3.CardBorder,
     val glow: androidx.tv.material3.CardGlow,
+    /** [scale]'s focused value, which CardScale keeps internal; at rest and pressed it is 1. */
+    val focusedScale: Float = 1f,
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun prairieCardDefaults(
     shape: Shape,
-    focusedScale: Float = 1.10f,
-): PrairieCardFocus = PrairieCardFocus(
-    scale = CardDefaults.scale(focusedScale = focusedScale),
-    border = CardDefaults.border(
-        focusedBorder = Border(
-            border = BorderStroke(2.dp, AccentLavender),
-            shape = shape,
+    focusedScale: Float = CardOutline.FocusedScale,
+    /** Outlines the card at rest too, such as the item being viewed in its row. */
+    outlined: Boolean = false,
+): PrairieCardFocus {
+    val scale = cardFocusedScale(focusedScale)
+    val outline = Border(
+        border = BorderStroke(CardOutline.width, CardOutline.color),
+        shape = shape,
+    )
+    return PrairieCardFocus(
+        scale = CardDefaults.scale(focusedScale = scale),
+        focusedScale = scale,
+        border = if (outlined) {
+            CardDefaults.border(border = outline, focusedBorder = outline)
+        } else {
+            CardDefaults.border(focusedBorder = outline)
+        },
+        glow = CardDefaults.glow(
+            focusedGlow = Glow(
+                elevationColor = CardOutline.shadowColor,
+                elevation = CardOutline.shadowElevation,
+            ),
         ),
-    ),
-    glow = CardDefaults.glow(
-        focusedGlow = Glow(
-            elevationColor = PrairieBlueGlow,
-            elevation = 12.dp,
-        ),
-    ),
-)
+    )
+}
