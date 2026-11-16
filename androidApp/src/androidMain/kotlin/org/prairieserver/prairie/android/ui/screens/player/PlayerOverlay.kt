@@ -898,7 +898,7 @@ fun PlayerOverlay(
                     )
                 },
                 streamUrl = state.streamUrl,
-                qualityPreference = playbackQualityValueLabel(qualityOptions, activeQualityId, state.qualityPreference),
+                qualityPreference = playbackQualityValueLabel(qualityOptions, activeQualityId, state.qualityPreference).text(),
             ),
         )
 

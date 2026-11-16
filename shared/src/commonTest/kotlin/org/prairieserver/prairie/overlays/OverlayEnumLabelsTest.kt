@@ -8,14 +8,15 @@ import kotlin.test.assertTrue
 class OverlayEnumLabelsTest {
     @Test
     fun positionsCategoriesAndPresetsHaveLabels() {
-        assertEquals(listOf("Top Left", "Top Right", "Bottom Left", "Bottom Right"), OverlayPosition.entries.map { it.displayName })
+        assertEquals(listOf("Top Left", "Bottom Left", "Bottom Right", "Left Edge", "Right Edge"), OverlayPosition.entries.map { it.displayName })
         assertEquals(OverlayPosition.BottomRight, OverlayPosition.fromRaw("bottom-right"))
         assertNull(OverlayPosition.fromRaw("middle"))
+        assertNull(OverlayPosition.fromRaw(OverlayPosition.LEGACY_TOP_RIGHT))
 
         assertEquals(listOf("Media Info", "Ratings", "Metadata", "Ribbons"), OverlayCategory.entries.map { it.displayName })
         assertTrue(OverlayCategory.entries.all { it.description.isNotBlank() })
 
-        assertEquals(listOf("Minimal", "Classic", "Vibrant", "Pill", "Square"), PresetId.entries.map { it.label })
+        assertEquals(listOf("Minimal", "Classic", "Vibrant", "Pill", "Square", "Plate", "Edge band"), PresetId.entries.map { it.label })
         assertTrue(PresetId.entries.all { it.description.isNotBlank() })
         assertEquals(PresetId.Square, PresetId.fromRaw("square"))
         assertNull(PresetId.fromRaw(null))

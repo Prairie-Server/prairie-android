@@ -1071,7 +1071,9 @@ private fun HudStatsPane(
         positionSec?.takeIf { it.isFinite() && it >= 0.0 }?.let {
             add("Position" to formatHudClock(it))
         }
-        addAll(stats.hudRows())
+        stats.hudRows().forEach { row ->
+            add(stringResource(row.label) to (row.valueRes?.let { stringResource(it) } ?: row.value))
+        }
         stats.healthRows().forEach { add(it.label to it.value) }
     }
 
@@ -1093,12 +1095,7 @@ private fun HudStatsPane(
     ) {
         listOf(rows.take(split), rows.drop(split)).forEach { column ->
             Column(modifier = Modifier.weight(1f)) {
-                column.forEach { row ->
-                    HudReadOnlyRow(
-                        label = stringResource(row.label),
-                        value = row.valueRes?.let { stringResource(it) } ?: row.value,
-                    )
-                }
+                column.forEach { (label, value) -> HudReadOnlyRow(label = label, value = value) }
             }
         }
     }
