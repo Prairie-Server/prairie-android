@@ -1105,7 +1105,7 @@ private fun HudStatsPane(
             java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong()
         }
         Text(
-            text = "Recent player events",
+            text = "Recent player events", // i18n-ignore
             color = Color.White.copy(alpha = 0.7f),
             style = MaterialTheme.typography.bodyLarge.copy(
                 fontSize = HudBodyTextSize,

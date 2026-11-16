@@ -143,7 +143,7 @@ fun TvPairDeviceScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = "Quick Connect",
+                text = "Quick Connect", // i18n-ignore
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.SemiBold,

@@ -59,10 +59,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.discovery.DiscoveryHit
 import org.prairieserver.prairie.discovery.normalizeDiscoveryUrl
 import org.prairieserver.prairie.model.server.ServerEntry
@@ -115,14 +117,14 @@ fun ServerListScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "Servers",
+                            text = "Servers", // i18n-ignore
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     },
                     navigationIcon = {
                         IconButton(onClick = { onBack?.invoke() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(CommonR.string.common_back))
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -179,7 +181,7 @@ fun ServerListScreen(
             }
 
             if (state.servers.isNotEmpty()) {
-                item { SectionHeader(text = "Saved") }
+                item { SectionHeader(text = "Saved") } // i18n-ignore
                 item {
                     Column(
                         modifier = Modifier
@@ -205,7 +207,7 @@ fun ServerListScreen(
             }
 
             if (freshHits.isNotEmpty() || state.isScanning) {
-                item { SectionHeader(text = "Discovered") }
+                item { SectionHeader(text = "Discovered") } // i18n-ignore
                 item {
                     Column(
                         modifier = Modifier
@@ -226,7 +228,7 @@ fun ServerListScreen(
                                     strokeWidth = 2.dp,
                                 )
                                 Text(
-                                    text = "Scanning your network for Prairie…",
+                                    text = "Scanning your network for Prairie…", // i18n-ignore
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -250,7 +252,7 @@ fun ServerListScreen(
                 item {
                     Spacer(Modifier.height(24.dp))
                     Text(
-                        text = "No servers yet — wait for the scan, or add a URL manually.",
+                        text = "No servers yet — wait for the scan, or add a URL manually.", // i18n-ignore
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -293,20 +295,20 @@ private fun FirstRunHero() {
     ) {
         Image(
             painter = painterResource(id = R.drawable.prairie_wordmark),
-            contentDescription = "Prairie",
+            contentDescription = "Prairie", // i18n-ignore
             modifier = Modifier
                 .width(160.dp)
                 .height(48.dp),
             contentScale = ContentScale.Fit,
         )
         Text(
-            text = "Connect to your server",
+            text = "Connect to your server", // i18n-ignore
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onBackground,
         )
         Text(
-            text = "Choose a saved server or one found on your LAN. Sign-in comes next.",
+            text = "Choose a saved server or one found on your LAN. Sign-in comes next.", // i18n-ignore
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -467,7 +469,7 @@ private fun ServerRow(
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Server actions",
+                        contentDescription = "Server actions", // i18n-ignore
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
@@ -477,7 +479,7 @@ private fun ServerRow(
                     onDismissRequest = { menuExpanded = false },
                 ) {
                     PrairieDropdownMenuItem(
-                        text = { Text("Rename") },
+                        text = { Text(stringResource(CommonR.string.accounts_rename)) },
                         onClick = {
                             menuExpanded = false
                             onRename()
@@ -485,7 +487,7 @@ private fun ServerRow(
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                     )
                     PrairieDropdownMenuItem(
-                        text = { Text("Remove Server") },
+                        text = { Text(stringResource(CommonR.string.settings_accounts_remove)) },
                         onClick = {
                             menuExpanded = false
                             onRemove()
@@ -541,7 +543,7 @@ private fun DiscoveredRow(
                 maxLines = 1,
             )
             Text(
-                text = "Found · ${hit.url}",
+                text = "Found · ${hit.url}", // i18n-ignore
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -573,7 +575,7 @@ private fun RenameDialog(
         OutlinedTextField(
             value = input,
             onValueChange = { input = it },
-            label = { Text("Name") },
+            label = { Text(stringResource(CommonR.string.servers_rename_name)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

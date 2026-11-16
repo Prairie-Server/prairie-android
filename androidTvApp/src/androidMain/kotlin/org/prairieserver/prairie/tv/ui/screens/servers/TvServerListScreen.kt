@@ -181,7 +181,7 @@ fun TvServerListScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "Saved Servers",
+                    text = "Saved Servers", // i18n-ignore
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.62f),
                 )
@@ -233,7 +233,7 @@ fun TvServerListScreen(
                     if (freshHits.isNotEmpty() || state.isScanning) {
                         item(key = "discovered-header") {
                             Text(
-                                text = "Discovered",
+                                text = "Discovered", // i18n-ignore
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White.copy(alpha = 0.62f),
                                 modifier = Modifier.padding(top = 8.dp),
@@ -243,7 +243,7 @@ fun TvServerListScreen(
                     if (freshHits.isEmpty() && state.isScanning) {
                         item(key = "discovered-scanning") {
                             Text(
-                                text = "Scanning your network for Prairie…",
+                                text = "Scanning your network for Prairie…", // i18n-ignore
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.62f),
                             )
@@ -375,7 +375,7 @@ private fun DiscoveredRow(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Found · ${hit.url}",
+                text = "Found · ${hit.url}", // i18n-ignore
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = InterFamily,
                 color = foreground.copy(alpha = if (isFocused) 0.68f else 0.62f),
@@ -421,7 +421,7 @@ private fun AddServerTile(
             )
             Spacer(Modifier.width(Spacing.sm))
             Text(
-                text = "Add Server",
+                text = "Add Server", // i18n-ignore
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = InterFamily,
                 color = foreground,
@@ -517,13 +517,13 @@ private fun ServerRow(
                 if (isActive) {
                     Icon(
                         imageVector = Icons.Default.Check,
-                        contentDescription = "Active",
+                        contentDescription = "Active", // i18n-ignore
                         tint = foreground.copy(alpha = 0.72f),
                         modifier = Modifier.size(20.dp),
                     )
                 } else if (isPending) {
                     Text(
-                        text = "Switching…",
+                        text = "Switching…", // i18n-ignore
                         style = MaterialTheme.typography.labelSmall,
                         color = foreground.copy(alpha = 0.72f),
                     )
@@ -549,7 +549,7 @@ private fun ServerRow(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Remove",
+                    contentDescription = "Remove", // i18n-ignore
                     tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(20.dp),
                 )
