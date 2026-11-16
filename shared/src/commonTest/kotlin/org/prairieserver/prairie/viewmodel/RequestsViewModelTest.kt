@@ -348,7 +348,7 @@ class RequestsViewModelTest {
 
         viewModel.onQueryChanged("   ")
         viewModel.search()
-        assertEquals("Enter a search term.", viewModel.uiState.value.error)
+        assertEquals("Enter a search term.", viewModel.uiState.value.error?.english())
         assertTrue(viewModel.uiState.value.results.isEmpty())
 
         viewModel.onQueryChanged("alien")
@@ -358,7 +358,7 @@ class RequestsViewModelTest {
         assertFalse(state.isLoading)
         assertEquals("alien", state.submittedQuery)
         assertEquals(2, state.page)
-        assertEquals("Failed to search requests", state.error)
+        assertEquals("Failed to search requests", state.error?.english())
     }
 
     @Test

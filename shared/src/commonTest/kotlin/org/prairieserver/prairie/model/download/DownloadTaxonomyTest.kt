@@ -38,7 +38,7 @@ class DownloadTaxonomyTest {
     @Test
     fun subscriptionPersistsWithDefaults() {
         val sub = DownloadSubscription(
-            id = "s1", serverId = "srv", profileId = "p", targetType = DownloadSubscriptionTargetType.Season,
+            id = "s1", serverId = "srv", accountId = "a", profileId = "p", targetType = DownloadSubscriptionTargetType.Season,
             targetId = "t", displayTitle = "Show S1", mediaKind = DownloadSubscriptionMediaKind.Video,
             createdAt = 1, updatedAt = 2,
         )

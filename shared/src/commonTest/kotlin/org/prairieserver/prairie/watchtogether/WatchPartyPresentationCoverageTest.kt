@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.watchtogether
 
+import org.prairieserver.prairie.common.i18n.english
 import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomMember
 import org.prairieserver.prairie.model.watchtogether.RoomPhase
@@ -78,11 +79,11 @@ class WatchPartyPresentationCoverageTest {
 
         assertNull(watchPartySeatStatus(WatchPartySeatState.Ready))
         assertNull(watchPartySeatStatus(WatchPartySeatState.Watching))
-        assertEquals("not ready", watchPartySeatStatus(WatchPartySeatState.NotReady))
-        assertEquals("reconnecting", watchPartySeatStatus(WatchPartySeatState.Away))
-        assertEquals("syncing", watchPartySeatStatus(WatchPartySeatState.Syncing))
-        assertEquals("buffering", watchPartySeatStatus(WatchPartySeatState.Buffering))
-        assertEquals("joining", watchPartySeatStatus(WatchPartySeatState.Joining))
+        assertEquals("not ready", watchPartySeatStatus(WatchPartySeatState.NotReady)?.english())
+        assertEquals("reconnecting", watchPartySeatStatus(WatchPartySeatState.Away)?.english())
+        assertEquals("syncing", watchPartySeatStatus(WatchPartySeatState.Syncing)?.english())
+        assertEquals("buffering", watchPartySeatStatus(WatchPartySeatState.Buffering)?.english())
+        assertEquals("joining", watchPartySeatStatus(WatchPartySeatState.Joining)?.english())
     }
 
     @Test
@@ -91,10 +92,10 @@ class WatchPartyPresentationCoverageTest {
         val other = guest.copy(userId = "4", displayName = "Cy")
         assertEquals(listOf("Ana", "Zed", "Cy"), watchPartySeatOrder(listOf(other, self, host)).map { it.displayName })
 
-        assertEquals("nobody connected", watchPartyPresenceSummary(emptyList(), RoomPhase.Lobby))
-        assertEquals("only you so far", watchPartyPresenceSummary(listOf(host), RoomPhase.Lobby))
-        assertEquals("1 of 2 ready", watchPartyPresenceSummary(listOf(host, guest), RoomPhase.Lobby))
-        assertEquals("1 of 2 watching", watchPartyPresenceSummary(listOf(host.copy(isReady = true), guest), RoomPhase.Playing))
+        assertEquals(WatchPartyPresence.Nobody, watchPartyPresenceSummary(emptyList(), RoomPhase.Lobby))
+        assertEquals(WatchPartyPresence.OnlyYou, watchPartyPresenceSummary(listOf(host), RoomPhase.Lobby))
+        assertEquals(WatchPartyPresence.Ready(1, 2), watchPartyPresenceSummary(listOf(host, guest), RoomPhase.Lobby))
+        assertEquals(WatchPartyPresence.Watching(1, 2), watchPartyPresenceSummary(listOf(host.copy(isReady = true), guest), RoomPhase.Playing))
     }
 
     private fun lobby(
@@ -123,37 +124,37 @@ class WatchPartyPresentationCoverageTest {
     fun lobbyHeroForVotingChosenAndOpenRooms() {
         val vote = lobby(MemberRole.Host, mode = RoomSelectionMode.Vote)
         assertTrue(watchPartyLobbyHero(vote, listOf(suggestion("a"))).isVoteQuestion)
-        val one = watchPartyLobbyHero(vote, listOf(suggestion("a"))).eyebrow
-        val two = watchPartyLobbyHero(vote, listOf(suggestion("a"), suggestion("b"))).eyebrow
+        val one = watchPartyLobbyHero(vote, listOf(suggestion("a"))).eyebrow.english()
+        val two = watchPartyLobbyHero(vote, listOf(suggestion("a"), suggestion("b"))).eyebrow.english()
         assertTrue(one.contains("1 title") && !one.contains("titles"))
         assertTrue(two.contains("2 titles"))
-        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest, mode = RoomSelectionMode.Vote), emptyList()).supporting!!.contains("vote"))
+        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest, mode = RoomSelectionMode.Vote), emptyList()).supporting!!.english().contains("vote"))
 
         val chosenByYou = watchPartyLobbyHero(lobby(MemberRole.Host, content = "movie:a"), emptyList(), selectionUnavailable = true)
-        assertEquals("You chose this", chosenByYou.supporting)
-        assertEquals("A title you can't see", chosenByYou.title)
-        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest, content = "movie:a"), emptyList()).supporting!!.endsWith("chose this"))
-        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest, content = "movie:a", phase = RoomPhase.Playing), emptyList()).eyebrow.startsWith("Now watching"))
+        assertEquals("You chose this", chosenByYou.supporting?.english())
+        assertEquals("A title you can't see", chosenByYou.title?.english())
+        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest, content = "movie:a"), emptyList()).supporting!!.english().endsWith("chose this"))
+        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest, content = "movie:a", phase = RoomPhase.Playing), emptyList()).eyebrow.english().startsWith("Now watching"))
 
-        assertEquals("Pick something\nto watch", watchPartyLobbyHero(lobby(MemberRole.Host), emptyList()).title)
-        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest), emptyList()).title!!.startsWith("Waiting for"))
+        assertEquals("Pick something\nto watch", watchPartyLobbyHero(lobby(MemberRole.Host), emptyList()).title?.english())
+        assertTrue(watchPartyLobbyHero(lobby(MemberRole.Guest), emptyList()).title!!.english().startsWith("Waiting for"))
     }
 
     @Test
     fun connectionLabelAndBanner() {
         val open = lobby(MemberRole.Host)
-        assertEquals(WatchPartyConnectionTone.Good to "2 here", watchPartyConnectionLabel(open, connected = true, reconnecting = false))
+        assertEquals(WatchPartyConnectionTone.Good to "2 here", watchPartyConnectionLabel(open, connected = true, reconnecting = false).let { it.first to it.second.english() })
         val solo = open.copy(members = listOf(host))
-        assertEquals(WatchPartyConnectionTone.Good to "Open", watchPartyConnectionLabel(solo, connected = true, reconnecting = false))
+        assertEquals(WatchPartyConnectionTone.Good to "Open", watchPartyConnectionLabel(solo, connected = true, reconnecting = false).let { it.first to it.second.english() })
         val hostGone = lobby(MemberRole.Guest, hostConnected = false)
-        assertEquals(WatchPartyConnectionTone.Warning to "Host away", watchPartyConnectionLabel(hostGone, connected = true, reconnecting = false))
-        assertEquals(WatchPartyConnectionTone.Warning to "Reconnecting", watchPartyConnectionLabel(open, connected = false, reconnecting = true))
-        assertEquals(WatchPartyConnectionTone.Neutral to "Connecting", watchPartyConnectionLabel(open, connected = false, reconnecting = false))
+        assertEquals(WatchPartyConnectionTone.Warning to "Host away", watchPartyConnectionLabel(hostGone, connected = true, reconnecting = false).let { it.first to it.second.english() })
+        assertEquals(WatchPartyConnectionTone.Warning to "Reconnecting", watchPartyConnectionLabel(open, connected = false, reconnecting = true).let { it.first to it.second.english() })
+        assertEquals(WatchPartyConnectionTone.Neutral to "Connecting", watchPartyConnectionLabel(open, connected = false, reconnecting = false).let { it.first to it.second.english() })
 
-        assertTrue(watchPartyLobbyBanner(open, selectionUnavailable = true, reconnecting = false)!!.contains("Choose something else"))
-        assertTrue(watchPartyLobbyBanner(lobby(MemberRole.Guest), selectionUnavailable = true, reconnecting = false)!!.contains("pick something else"))
-        assertTrue(watchPartyLobbyBanner(hostGone, selectionUnavailable = false, reconnecting = false)!!.contains("lost connection"))
-        assertEquals("Reconnecting to the party…", watchPartyLobbyBanner(open, selectionUnavailable = false, reconnecting = true))
+        assertTrue(watchPartyLobbyBanner(open, selectionUnavailable = true, reconnecting = false)!!.english().contains("Choose something else"))
+        assertTrue(watchPartyLobbyBanner(lobby(MemberRole.Guest), selectionUnavailable = true, reconnecting = false)!!.english().contains("pick something else"))
+        assertTrue(watchPartyLobbyBanner(hostGone, selectionUnavailable = false, reconnecting = false)!!.english().contains("lost connection"))
+        assertEquals("Reconnecting to the party…", watchPartyLobbyBanner(open, selectionUnavailable = false, reconnecting = true)?.english())
         assertNull(watchPartyLobbyBanner(open, selectionUnavailable = false, reconnecting = false))
     }
 

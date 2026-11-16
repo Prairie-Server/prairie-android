@@ -56,7 +56,7 @@ class AuthDeviceRequestsRoutesTest {
         assertNotFound(api.setup("u", "e", "p"))
         assertNotFound(api.getSetupStatus())
         assertNotFound(api.getSignupStatus())
-        assertNotFound(api.lookupInvitation("https://prairie.example/", "tok/en"))
+        assertNotFound(api.lookupInvitation("https://prairie.example/", "tok/en", tokenInBody = false))
         assertNotFound(api.invitationCapabilities("https://prairie.example"))
         assertNotFound(api.getMe())
         assertNotFound(api.logout())

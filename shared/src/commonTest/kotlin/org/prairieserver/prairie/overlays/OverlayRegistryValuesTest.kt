@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.overlays
 
+import org.prairieserver.prairie.common.i18n.english
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -7,7 +8,7 @@ import kotlin.test.assertNull
 
 class OverlayRegistryValuesTest {
     private fun value(id: OverlayId, data: OverlayData): String? =
-        assertNotNull(OverlayRegistry.def(id)).getValue(data)
+        assertNotNull(OverlayRegistry.def(id)).getValue(data)?.english()
 
     private fun icon(id: OverlayId, data: OverlayData): OverlayIconId? =
         OverlayRegistry.def(id)?.getIcon?.invoke(data)

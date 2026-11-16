@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.model.catalog
 
+import org.prairieserver.prairie.common.i18n.english
 import org.prairieserver.prairie.model.section.SectionItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,20 +12,20 @@ class EpisodeCardCaptionTest {
 
     @Test
     fun titleIsZeroPaddedCodeThenTitle() {
-        assertEquals("S01E02 · Pilot", EpisodeCardCaption.title(episode(" Pilot ")))
-        assertEquals("S01E02", EpisodeCardCaption.title(episode("  ")))
-        assertEquals("S01E02", EpisodeCardCaption.title(episode(null)))
+        assertEquals("S01E02 · Pilot", EpisodeCardCaption.title(episode(" Pilot ")).english())
+        assertEquals("S01E02", EpisodeCardCaption.title(episode("  ")).english())
+        assertEquals("S01E02", EpisodeCardCaption.title(episode(null)).english())
         assertEquals(
             "S12E104 · Late",
-            EpisodeCardCaption.title(EpisodeListItem(contentId = "e", seasonNumber = 12, episodeNumber = 104, title = "Late")),
+            EpisodeCardCaption.title(EpisodeListItem(contentId = "e", seasonNumber = 12, episodeNumber = 104, title = "Late")).english(),
         )
     }
 
     @Test
     fun metadataJoinsAirDateAndRuntime() {
-        assertEquals("Feb 18, 2026  ·  52m", EpisodeCardCaption.metadata("Feb 18, 2026", 52))
-        assertEquals("1h 5m", EpisodeCardCaption.metadata(" ", 65))
-        assertEquals("Feb 18, 2026", EpisodeCardCaption.metadata("Feb 18, 2026", 0))
+        assertEquals("Feb 18, 2026  ·  52m", EpisodeCardCaption.metadata("Feb 18, 2026", 52)?.english())
+        assertEquals("1h 5m", EpisodeCardCaption.metadata(" ", 65)?.english())
+        assertEquals("Feb 18, 2026", EpisodeCardCaption.metadata("Feb 18, 2026", 0)?.english())
         assertNull(EpisodeCardCaption.metadata(null, -1))
     }
 }
