@@ -65,7 +65,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -79,6 +78,8 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
@@ -88,15 +89,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.common.calendar.localDisplayAirTime
+import org.prairieserver.prairie.common.i18n.text
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.currentFormatLocale
 import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
-import org.prairieserver.prairie.model.calendar.CalendarBadge
+import org.prairieserver.prairie.model.calendar.calendarBadgeLabel
 import org.prairieserver.prairie.model.calendar.CalendarFilter
 import org.prairieserver.prairie.model.calendar.CalendarItem
 import org.prairieserver.prairie.model.calendar.CalendarItemType
 import org.prairieserver.prairie.tv.ui.components.LocalAmbientBackdropTint
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.components.TvRootHeroBackdrop
+import org.prairieserver.prairie.tv.ui.components.bidiIsolated
 import org.prairieserver.prairie.tv.ui.components.rememberAmbientBackdropTintState
 import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
 import org.prairieserver.prairie.tv.ui.focus.TvFocusAcquisitionBudgetMillis
@@ -119,6 +124,7 @@ import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 import org.prairieserver.prairie.viewmodel.CalendarViewModel
+import org.prairieserver.prairie.common.i18n.isRightToLeftText
 
 /**
  * TV calendar / upcoming screen. Reuses the shared [CalendarViewModel] that
@@ -630,9 +636,9 @@ private fun FilterBar(
     onControlFocused: (CalendarControlFocusZone) -> Unit,
 ) {
     val presets = listOf(
-        CalendarFilter.Following to "Following",
-        CalendarFilter.Trending to "Trending",
-        CalendarFilter.All to "All",
+        CalendarFilter.Following to stringResource(CommonR.string.calendar_filter_following),
+        CalendarFilter.Trending to stringResource(CommonR.string.calendar_filter_trending),
+        CalendarFilter.All to stringResource(CommonR.string.calendar_filter_all),
     )
     Row(
         modifier = Modifier
@@ -719,9 +725,9 @@ private fun WeekStrip(
     onNextWeek: () -> Unit,
     onToday: () -> Unit,
 ) {
-    val locale = LocalConfiguration.current.locales[0]
+    val locale = currentFormatLocale()
     val monthYearFormatter = remember(locale) {
-        DateTimeFormatter.ofPattern("MMMM yyyy", locale)
+        LocaleFormat.dateFormatter("yMMMM", "MMMM yyyy", locale)
     }
 
     Row(
@@ -809,8 +815,8 @@ private fun ChevronButton(
                     NavArrow.Next -> Icons.AutoMirrored.Filled.KeyboardArrowRight
                 },
                 contentDescription = when (arrow) {
-                    NavArrow.Prev -> "Previous week"
-                    NavArrow.Next -> "Next week"
+                    NavArrow.Prev -> stringResource(CommonR.string.calendar_previousWeek)
+                    NavArrow.Next -> stringResource(CommonR.string.calendar_nextWeek)
                 },
             )
         }
@@ -840,7 +846,7 @@ private fun TodayButton(onClick: () -> Unit, onFocused: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = "Today",
+                text = stringResource(CommonR.string.calendar_today),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -860,9 +866,9 @@ private fun DayCell(
     onClick: () -> Unit,
 ) {
     val localDate = remember(date) { LocalDate.parse(date) }
-    val locale = LocalConfiguration.current.locales[0]
+    val locale = currentFormatLocale()
     val weekdayFormatter = remember(locale) {
-        DateTimeFormatter.ofPattern("EEE", locale)
+        LocaleFormat.dateFormatter("EEE", "EEE", locale)
     }
     // tvOS CalendarDayButton is 84x96 pt with 18/26 pt type and an 8 pt
     // event dot. Type is floored at 14/16sp for 10-ft legibility, and the
@@ -918,7 +924,7 @@ private fun DayCell(
                 },
             )
             Text(
-                text = localDate.dayOfMonth.toString(),
+                text = LocaleFormat.integer(localDate.dayOfMonth, locale),
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontSize = 16.sp,
                     lineHeight = 20.sp,
@@ -1175,9 +1181,9 @@ private fun CalendarList(
             state.error != null -> item(key = "calendar-error") {
                 Box(modifier = Modifier.fillParentMaxHeight()) {
                     CalendarMessage(
-                        title = state.error ?: "Failed to load calendar",
-                        subtitle = "Press the week arrows to try another week.",
-                        actions = listOf(CalendarAction("Refresh", onRefresh)),
+                        title = state.error?.text() ?: stringResource(CommonR.string.calendar_error_loadFailed),
+                        subtitle = stringResource(CommonR.string.calendar_error_tryAnotherWeek),
+                        actions = listOf(CalendarAction(stringResource(CommonR.string.states_refresh), onRefresh)),
                         onActionFocused = clearControlFocusZone,
                     )
                 }
@@ -1185,10 +1191,10 @@ private fun CalendarList(
             !state.hasAnyItems -> item(key = "calendar-empty") {
                 Box(modifier = Modifier.fillParentMaxHeight()) {
                     CalendarMessage(
-                        title = emptyTitle(state.filter),
-                        subtitle = emptyCopy(state.filter),
+                        title = stringResource(emptyTitle(state.filter)),
+                        subtitle = stringResource(emptyCopy(state.filter)),
                         actions = emptyStateLinks(state.filter).map { (value, label) ->
-                            CalendarAction(label) { onSelectFilter(value) }
+                            CalendarAction(stringResource(label)) { onSelectFilter(value) }
                         },
                         topAligned = true,
                         onActionFocused = clearControlFocusZone,
@@ -1350,13 +1356,13 @@ private fun DayShelf(
 @Composable
 private fun DayHeader(date: String, isToday: Boolean, muted: Boolean) {
     val localDate = remember(date) { LocalDate.parse(date) }
-    val locale = LocalConfiguration.current.locales[0]
+    val locale = currentFormatLocale()
     val fullDateFormatter = remember(locale) {
-        DateTimeFormatter.ofPattern("EEEE, MMMM d", locale)
+        LocaleFormat.dateFormatter("MMMMEEEEd", "EEEE, MMMM d", locale)
     }
     Text(
         text = if (isToday) {
-            "Today"
+            stringResource(CommonR.string.calendar_today)
         } else {
             localDate.format(fullDateFormatter)
         },
@@ -1382,7 +1388,7 @@ private fun NothingScheduledRow() {
             modifier = Modifier.size(20.dp),
         )
         Text(
-            text = "Nothing scheduled",
+            text = stringResource(CommonR.string.calendar_nothingScheduled),
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.50f),
         )
@@ -1457,7 +1463,7 @@ private fun CalendarEventCard(
                 )
 
                 // Badge pills (top-leading) — tvOS CalendarBadgePill.
-                val badges = item.badges.mapNotNull(::badgeLabel)
+                val badges = item.badges.mapNotNull(::calendarBadgeLabel)
                 if (badges.isNotEmpty()) {
                     Column(
                         modifier = Modifier
@@ -1465,7 +1471,7 @@ private fun CalendarEventCard(
                             .padding(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        badges.forEach { label -> BadgePill(text = label) }
+                        badges.forEach { label -> BadgePill(text = label.text()) }
                     }
                 }
 
@@ -1481,7 +1487,7 @@ private fun CalendarEventCard(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Check,
-                            contentDescription = "Watched",
+                            contentDescription = stringResource(CommonR.string.calendar_watched),
                             tint = Color.Black,
                             modifier = Modifier.size(12.dp),
                         )
@@ -1658,28 +1664,20 @@ private fun CalendarMessage(
 
 // MARK: - Formatting helpers
 
-private fun badgeLabel(badge: String): String? = when (badge) {
-    // Same labels as web, iOS, and tvOS. PREMIERE, not SERIES PREMIERE, fits a
-    // poster badge, and NEW SEASON already marks season premieres.
-    CalendarBadge.SeriesPremiere -> "PREMIERE"
-    CalendarBadge.SeasonPremiere -> "NEW SEASON"
-    CalendarBadge.Finale -> "FINALE"
-    else -> null
-}
-
 /** "S5 · E14 · Title" for episodes, "Movie" for films — mirrors tvOS card caption. */
+@Composable
 private fun cardSubtitle(item: CalendarItem): String? {
     val parts = mutableListOf<String>()
     if (item.isEpisode) {
         val season = item.seasonNumber
         val episode = item.episodeNumber
         if (season != null && episode != null) {
-            parts.add("S$season · E$episode")
+            parts.add(stringResource(CommonR.string.catalog_episodeCaption, LocaleFormat.codeNumber(season), LocaleFormat.codeNumber(episode)))
         }
-        item.episodeTitle?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
+        item.episodeTitle?.takeIf { it.isNotBlank() }?.let { parts.add(if (parts.isEmpty()) it else bidiIsolated(it, isRightToLeftText())) }
     }
     if (item.type == CalendarItemType.Movie) {
-        parts.add("Movie")
+        parts.add(stringResource(CommonR.string.calendar_movie))
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
@@ -1689,25 +1687,25 @@ private fun cardSubtitle(item: CalendarItem): String? {
  * screen (silo-server #1494, silo-apple #513). "everything" is the phone's
  * spelling of All; any other legacy filter links to all three views.
  */
-private fun emptyStateLinks(filter: String): List<Pair<String, String>> {
+private fun emptyStateLinks(filter: String): List<Pair<String, Int>> {
     val view = if (filter == CalendarFilter.Everything) CalendarFilter.All else filter
     return listOf(
-        CalendarFilter.Following to "Following",
-        CalendarFilter.Trending to "Trending",
-        CalendarFilter.All to "All",
+        CalendarFilter.Following to CommonR.string.calendar_filter_following,
+        CalendarFilter.Trending to CommonR.string.calendar_filter_trending,
+        CalendarFilter.All to CommonR.string.calendar_filter_all,
     ).filter { (value, _) -> value != view }
 }
 
-private fun emptyTitle(filter: String): String = when (filter) {
-    CalendarFilter.Following -> "Nothing from shows you follow"
-    CalendarFilter.Trending -> "Nothing trending this week"
-    else -> "Nothing scheduled this week"
+private fun emptyTitle(filter: String): Int = when (filter) {
+    CalendarFilter.Following -> CommonR.string.calendar_empty_following
+    CalendarFilter.Trending -> CommonR.string.calendar_empty_trending
+    else -> CommonR.string.calendar_empty_everything
 }
 
-private fun emptyCopy(filter: String): String = when (filter) {
-    CalendarFilter.Following -> "No upcoming releases this week from shows you watch, favorite, or watchlist."
-    CalendarFilter.Trending -> "No trending releases this week."
-    else -> "No movie releases or episode airings in this week."
+private fun emptyCopy(filter: String): Int = when (filter) {
+    CalendarFilter.Following -> CommonR.string.calendar_empty_followingBody
+    CalendarFilter.Trending -> CommonR.string.calendar_empty_trendingReleasesBody
+    else -> CommonR.string.calendar_empty_everythingBody
 }
 
 /** The filter/week control shell occupies list slot zero, ahead of every day. */

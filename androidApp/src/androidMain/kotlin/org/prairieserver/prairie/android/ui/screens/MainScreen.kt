@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens
 
+import org.prairieserver.prairie.common.R as CommonR
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -22,6 +24,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -30,19 +33,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import org.prairieserver.prairie.android.ui.components.LocalLiveTvMenuAction
 import org.prairieserver.prairie.android.ui.components.MainAppHeaderBodyHeight
 import org.prairieserver.prairie.android.ui.components.MainAppTopBar
+import org.prairieserver.prairie.android.ui.components.TabContentTop
+import org.prairieserver.prairie.android.ui.components.LocalTabHeaderScrim
+import org.prairieserver.prairie.android.ui.components.TopBarRemoteControl
 import org.prairieserver.prairie.android.ui.components.TabTopBarActions
 import org.prairieserver.prairie.android.ui.navigation.LocalBottomChromeInset
 import org.prairieserver.prairie.android.ui.navigation.PrairieBottomNavBar
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import org.prairieserver.prairie.android.ui.navigation.Route
+import org.prairieserver.prairie.android.ui.navigation.routeAfterSignOut
 import org.prairieserver.prairie.android.ui.navigation.Tab
 import org.prairieserver.prairie.android.ui.navigation.tabForRoute
 import org.prairieserver.prairie.android.ui.navigation.tabSwitchNavOptions
@@ -57,12 +66,17 @@ import org.prairieserver.prairie.android.ui.screens.calendar.CalendarScreen
 import org.prairieserver.prairie.android.ui.screens.home.HomeScreen
 import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastMiniBar
+import org.prairieserver.prairie.android.ui.screens.cast.showsMiniBar
+import org.prairieserver.prairie.android.ui.screens.audiobook.AudiobookMiniPlayer
+import org.prairieserver.prairie.android.ui.screens.audiobook.LocalAudiobookSession
+import org.prairieserver.prairie.android.ui.screens.cast.rememberPrairieCastArtwork
 import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastTargetPickerSheet
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesScreen
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesSelectorSheet
 import org.prairieserver.prairie.android.ui.screens.libraries.LibrariesViewModel
 import org.prairieserver.prairie.android.ui.screens.recommendations.ForYouList
 import org.prairieserver.prairie.android.ui.screens.recommendations.RecommendationsScreen
+import org.prairieserver.prairie.common.i18n.sectionTitle
 import org.prairieserver.prairie.viewmodel.RecommendationsViewModel
 import org.prairieserver.prairie.android.ui.screens.recommendations.headerTitle
 import org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartySoloGuardDialog
@@ -88,6 +102,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.prairieserver.prairie.common.ui.OnViewerAccessChanged
 import org.prairieserver.prairie.common.ui.rememberViewerAccessKey
 import org.prairieserver.prairie.network.AccessChangeSignals
+import org.prairieserver.prairie.android.cast.engagedStatus
 
 /**
  * Main scaffold that hosts the bottom navigation bar and tab content.
@@ -99,6 +114,7 @@ fun MainScreen(
     navController: NavHostController,
     currentTab: Tab,
 ) {
+    val context = LocalContext.current
     val headerViewModel = koinViewModel<MainHeaderViewModel>()
     val headerState by headerViewModel.uiState.collectAsState()
     val siloCastController: PrairieCastController = koinInject()
@@ -167,6 +183,7 @@ fun MainScreen(
     val liveTvFeatureStore: LiveTvFeatureStore = koinInject()
     val metadataAiFeatureStore: MetadataAiFeatureStore = koinInject()
     val shuffleFeatureStore: org.prairieserver.prairie.model.feature.ShuffleFeatureStore = koinInject()
+    val ratingSourcesStore: org.prairieserver.prairie.model.feature.RatingSourcesStore = koinInject()
     val signOutTeardown: org.prairieserver.prairie.android.auth.SignOutTeardown = koinInject()
     val switchProfile = org.prairieserver.prairie.android.ui.navigation.LocalProfileSwitch.current
     val reachabilityState by reachabilityMonitor.state.collectAsState()
@@ -174,10 +191,10 @@ fun MainScreen(
     val liveTvEnabled by liveTvFeatureStore.isEnabled.collectAsState()
     val reachabilityScope = rememberCoroutineScope()
     val activeEntry by serverRegistry.activeEntry.collectAsState()
-    // Drives the initial load and every re-load. Keyed on the active server
-    // and its profile, so switching either re-fetches the avatar rather than
-    // leaving the previous profile's (or none) in the header.
-    LaunchedEffect(activeEntry?.id, activeEntry?.profileId) {
+    // Drives the initial load and every re-load. Keyed on the active server,
+    // account and profile, so switching any of them re-fetches the avatar
+    // rather than leaving the previous profile's (or none) in the header.
+    LaunchedEffect(activeEntry?.id, activeEntry?.accountId, activeEntry?.profileId) {
         headerViewModel.refresh()
     }
     // An access change can add or remove whole libraries: re-derive the tabs
@@ -210,12 +227,14 @@ fun MainScreen(
         initialValue = 0L,
         downloadRecords,
         activeEntry?.id,
+        activeEntry?.accountId,
         activeEntry?.profileId,
         headerState.activeProfile?.id,
     ) {
         value = scopedLocalDownloadBytes(
             storage = downloadStorage,
             serverId = activeEntry?.id,
+            accountId = activeEntry?.accountId,
             profileId = activeEntry?.profileId ?: headerState.activeProfile?.id,
         )
     }
@@ -232,9 +251,11 @@ fun MainScreen(
 
     // The shared top bar floats over content; its real height is the status-bar
     // inset plus the fixed bar body. Offset tab content by that so the bar can't
-    // overlap content on tall-cutout / large-display devices.
-    val headerContentTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
-        MainAppHeaderBodyHeight
+    // overlap content on tall-cutout / large-display devices. Tabs without a
+    // pill row (Downloads) start at the first-row line instead.
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val headerContentTop = statusBarTop + MainAppHeaderBodyHeight
+    val tabContentTop = statusBarTop + TabContentTop
 
     // If the user is on a tab no longer supported by their libraries (or
     // Downloads disappears), move them to the nearest visible media tab.
@@ -290,7 +311,11 @@ fun MainScreen(
         navController.clearBackStack(vanished.route)
     }
 
-    LaunchedEffect(activeEntry?.id, activeEntry?.profileId, headerState.activeProfile?.id) {
+    LaunchedEffect(activeEntry?.id, activeEntry?.accountId, activeEntry?.profileId, headerState.activeProfile?.id) {
+        // First, in its own coroutine: sort lists need it, and it should not
+        // wait on the suspending refreshes below.
+        ratingSourcesStore.reset()
+        launch { ratingSourcesStore.refresh() }
         requestsFeatureStore.reset()
         requestsFeatureStore.refresh()
         liveTvFeatureStore.reset()
@@ -301,15 +326,17 @@ fun MainScreen(
         shuffleFeatureStore.refresh()
     }
 
-    fun signOutFromProfileMenu() {
+    fun signOutFromProfileMenu(removeServer: Boolean) {
         reachabilityScope.launch {
             // Prairie: Live TV's gate is not part of SignOutTeardown.
             liveTvFeatureStore.reset()
             // Same teardown as the Settings sign-out: otherwise the next
             // user's shell renders (and can write back) the previous
             // profile's overlays and card presentation.
-            if (!signOutTeardown.signOut()) return@launch
-            navController.navigate(Route.Login.route) {
+            val signedOut = if (removeServer) signOutTeardown.signOutAndRemoveServer() else signOutTeardown.signOut()
+            if (!signedOut) return@launch
+            // Change Account while another account has a session, else sign-in.
+            navController.navigate(serverRegistry.routeAfterSignOut()) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
@@ -323,6 +350,11 @@ fun MainScreen(
      * Runs in the navigation host's scope ([org.prairieserver.prairie.android.ui.navigation.LocalProfileSwitch]).
      */
     fun switchProfileFromMenu() = switchProfile()
+
+    /** Profile-menu "Change account": every saved server's accounts, over the shell so Back returns. */
+    fun changeAccountFromMenu() {
+        navController.navigate(Route.ChangeAccount().route) { launchSingleTop = true }
+    }
     val requestsMenuAction: (() -> Unit)? = if (requestsEnabled) {
         { navController.navigate(Route.Requests.route) }
     } else {
@@ -349,48 +381,89 @@ fun MainScreen(
     // What For You is actually showing (the empty-feed fallback shows the
     // Watchlist without making it an explicit selection); drives the title.
     var forYouDisplayed by remember { mutableStateOf<ForYouList?>(null) }
+    // How far For You / Downloads content sits under the shared header; the
+    // tab's own list reports it (see ReportTabHeaderScrim).
+    val headerScrim = remember { mutableFloatStateOf(0f) }
     // Instantiate with the shell, not when the lazy tab is first opened, so
     // Discover and taste-profile requests run alongside profile/header setup.
     val recommendationsViewModel = koinViewModel<RecommendationsViewModel>()
+    // Every tab header shows the remote-control button beside search.
+    val remoteControl = TopBarRemoteControl(
+        isActive = siloCastState.hasActiveSession,
+        status = siloCastState.engagedStatus(),
+        onOpen = {
+            if (siloCastState.hasActiveSession) {
+                navController.navigate(Route.PrairieCastRemote.route)
+            } else {
+                showPrairieCastTargetPicker = true
+            }
+        },
+        onChooseTv = { showPrairieCastTargetPicker = true },
+        onDisconnect = { siloCastController.disconnect() },
+    )
+    // Resolved here, above both cast-bar placements, so the bar keeps its
+    // title and poster while it moves between them.
+    val prairieCastArtwork = rememberPrairieCastArtwork(
+        siloCastState.launch?.contentId ?: siloCastState.playbackState?.contentId,
+    )
+    val activeAudiobook = LocalAudiobookSession.current?.active?.collectAsState()?.value
     // Prairie: the profile menus read the Live TV entry from this local
     // (see LocalLiveTvMenuAction) so it survives upstream menu refactors.
     CompositionLocalProvider(LocalLiveTvMenuAction provides liveTvMenuAction) {
     Scaffold(
         bottomBar = {
             // The cast bar rests above the nav menu (iOS tabViewBottomAccessory
-            // placement); the Scaffold then pads tab content past both.
-            Column {
-                PrairieCastMiniBar(
-                    controller = siloCastController,
-                    onOpenRemote = {
-                        navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
-                    },
-                )
-                PrairieBottomNavBar(
-                    currentTab = currentTab,
-                    minimizedToCurrentTab = currentTab == Tab.Home && homeBottomNavMinimized,
-                    onTabSelected = { tab ->
-                        if (tab == Tab.Home && currentTab == Tab.Home) {
-                            // The minimized Home control remains tappable. A
-                            // repeat tap expands the full capsule without
-                            // disturbing the user's feed position.
-                            homeBottomNavMinimized = false
-                        } else {
-                            navController.navigate(tab.route) {
-                                // Pop to the tab stack's live anchor, not a
-                                // hard-coded Home and not the graph's declared
-                                // start (which can name a tab that has since
-                                // been removed). Popping to a route that is not
-                                // on the stack pops nothing — every tab then
-                                // stacked, so Back walked back through
-                                // previously visited tabs instead of leaving.
-                                tabSwitchNavOptions(navController.bottomMostTabRoute())
-                            }
+            // placement) and moves inline beside the minimized Home control;
+            // the Scaffold pads tab content past the whole chrome.
+            PrairieBottomNavBar(
+                currentTab = currentTab,
+                minimizedToCurrentTab = currentTab == Tab.Home && homeBottomNavMinimized,
+                onTabSelected = { tab ->
+                    if (tab == Tab.Home && currentTab == Tab.Home) {
+                        // The minimized Home control remains tappable. A
+                        // repeat tap expands the full capsule without
+                        // disturbing the user's feed position.
+                        homeBottomNavMinimized = false
+                    } else {
+                        navController.navigate(tab.route) {
+                            // Pop to the tab stack's live anchor, not a
+                            // hard-coded Home and not the graph's declared
+                            // start (which can name a tab that has since
+                            // been removed). Popping to a route that is not
+                            // on the stack pops nothing — every tab then
+                            // stacked, so Back walked back through
+                            // previously visited tabs instead of leaving.
+                            tabSwitchNavOptions(navController.bottomMostTabRoute())
                         }
-                    },
-                    tabs = visibleTabs,
-                )
-            }
+                    }
+                },
+                tabs = visibleTabs,
+                // One bar holds the slot. Remote Control wins it while a TV
+                // session is up (iOS NowPlayingShelf); the audiobook keeps
+                // playing and its bar returns when the remote's leaves.
+                accessory = { inline, barModifier ->
+                    if (activeAudiobook != null && !siloCastState.showsMiniBar) {
+                        AudiobookMiniPlayer(
+                            player = activeAudiobook.player,
+                            onOpen = {
+                                navController.navigate(activeAudiobook.request.resumeRoute()) { launchSingleTop = true }
+                            },
+                            inline = inline,
+                            barModifier = barModifier,
+                        )
+                    } else {
+                        PrairieCastMiniBar(
+                            controller = siloCastController,
+                            onOpenRemote = {
+                                navController.navigate(Route.PrairieCastRemote.route) { launchSingleTop = true }
+                            },
+                            inline = inline,
+                            barModifier = barModifier,
+                            sharedArtwork = prairieCastArtwork,
+                        )
+                    }
+                },
+            )
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
@@ -434,28 +507,17 @@ fun MainScreen(
                                 playVideo(contentId, resumePositionSeconds = resumePositionSeconds)
                             },
                             onExploreSection = { section ->
-                                navController.navigate(Route.SectionBrowse(section.id, section.title).route)
+                                navController.navigate(Route.SectionBrowse(section.id, context.sectionTitle(section)).route)
                             },
                             viewModel = homeViewModel,
                             activeProfile = headerState.activeProfile,
                             onSearchClick = { navController.navigate(Route.Search().route) },
-                            onRemoteControlClick = {
-                                if (siloCastState.hasActiveSession) {
-                                    navController.navigate(Route.PrairieCastRemote.route)
-                                } else {
-                                    showPrairieCastTargetPicker = true
-                                }
-                            },
-                            onRemoteChooseTvClick = { showPrairieCastTargetPicker = true },
-                            onRemoteDisconnectClick = { siloCastController.disconnect() },
-                            isRemoteControlActive = siloCastState.hasActiveSession,
+                            remoteControl = remoteControl,
                             onRequestsClick = requestsMenuAction,
                             onWatchPartyClick = watchPartyMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = ::switchProfileFromMenu,
-                            onSwitchServerClick = {
-                                navController.navigate(Route.ServerList.route)
-                            },
+                            onChangeAccountClick = ::changeAccountFromMenu,
                             onSignOutClick = ::signOutFromProfileMenu,
                         )
                     }
@@ -480,24 +542,23 @@ fun MainScreen(
                             },
                             onExploreSection = { section, libraryId, mediaScope ->
                                 navController.navigate(
-                                    Route.SectionBrowse(section.id, section.title, libraryId, mediaScope).route,
+                                    Route.SectionBrowse(section.id, context.sectionTitle(section), libraryId, mediaScope).route,
                                 )
                             },
                             viewModel = requireNotNull(librariesViewModel),
                             activeProfile = headerState.activeProfile,
+                            remoteControl = remoteControl,
                             onLibrarySelectorClick = { showLibrarySelector = true },
                             onSearchClick = { navController.navigate(Route.Search().route) },
                             onRequestsClick = requestsMenuAction,
                             onWatchPartyClick = watchPartyMenuAction,
                             onSettingsClick = { navController.navigate(Route.Settings.route) },
                             onSwitchProfileClick = ::switchProfileFromMenu,
-                            onSwitchServerClick = {
-                                navController.navigate(Route.ServerList.route)
-                            },
+                            onChangeAccountClick = ::changeAccountFromMenu,
                             onSignOutClick = ::signOutFromProfileMenu,
                         )
                     }
-                    Tab.ForYou -> {
+                    Tab.ForYou -> CompositionLocalProvider(LocalTabHeaderScrim provides headerScrim) {
                         RecommendationsScreen(
                             onItemClick = { contentId ->
                                 navController.navigate(Route.ItemDetail(contentId).route)
@@ -519,20 +580,19 @@ fun MainScreen(
                             headerActions = {
                                 TabTopBarActions(
                                     activeProfile = headerState.activeProfile,
+                                    remoteControl = remoteControl,
                                     onSearchClick = { navController.navigate(Route.Search().route) },
                                     onRequestsClick = requestsMenuAction,
                                     onWatchPartyClick = watchPartyMenuAction,
                                     onSettingsClick = { navController.navigate(Route.Settings.route) },
                                     onSwitchProfileClick = ::switchProfileFromMenu,
-                                    onSwitchServerClick = {
-                                        navController.navigate(Route.ServerList.route)
-                                    },
+                                    onChangeAccountClick = ::changeAccountFromMenu,
                                     onSignOutClick = ::signOutFromProfileMenu,
                                 )
                             },
                         )
                     }
-                    Tab.Downloads -> {
+                    Tab.Downloads -> CompositionLocalProvider(LocalTabHeaderScrim provides headerScrim) {
                         org.prairieserver.prairie.android.ui.screens.downloads.DownloadsScreen(
                             // Tap on a downloaded row goes directly to the right
                             // player so it works offline (ItemDetail needs the
@@ -561,7 +621,9 @@ fun MainScreen(
                             onReadEbook = { contentId, fileId ->
                                 navController.navigate(Route.BookReader(contentId, fileId).route)
                             },
-                            contentTopPadding = headerContentTop,
+                            // Downloads has no pill row; its list still starts
+                            // where every other tab's first row does.
+                            contentTopPadding = tabContentTop,
                         )
                     }
                 }
@@ -571,29 +633,30 @@ fun MainScreen(
             // Downloads and For You use the shared iOS-style top chrome.
             if (currentTab == Tab.Downloads || currentTab == Tab.ForYou) {
                 val title = when (currentTab) {
-                    Tab.Downloads -> "Downloads"
+                    Tab.Downloads -> stringResource(CommonR.string.tab_downloads)
                     // Names what For You is showing: the feed, or a saved list.
                     Tab.ForYou -> forYouDisplayed.headerTitle()
                     else -> null
                 }
                 MainAppTopBar(
                     activeProfile = headerState.activeProfile,
+                    remoteControl = remoteControl,
                     isProfileLoading = headerState.isLoading,
                     hazeState = hazeState,
+                    scrimProgress = headerScrim.floatValue,
                     onSearchClick = { navController.navigate(Route.Search().route) },
                     onRequestsClick = requestsMenuAction,
                     onWatchPartyClick = watchPartyMenuAction,
                     onSettingsClick = { navController.navigate(Route.Settings.route) },
                     onSwitchProfileClick = ::switchProfileFromMenu,
-                    onSwitchServerClick = {
-                        navController.navigate(Route.ServerList.route)
-                    },
+                    onChangeAccountClick = ::changeAccountFromMenu,
                     onSignOutClick = ::signOutFromProfileMenu,
                     leadingContent = {
                         if (title != null) {
+                            // Same type as Libraries' selector title.
                             Text(
                                 text = title,
-                                style = MaterialTheme.typography.titleLarge,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
@@ -660,7 +723,7 @@ private fun MobileServerOfflinePill(
         shadowElevation = 6.dp,
     ) {
         Text(
-            text = "Offline mode - tap to retry",
+            text = stringResource(CommonR.string.shell_offline_tapToRetry),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,

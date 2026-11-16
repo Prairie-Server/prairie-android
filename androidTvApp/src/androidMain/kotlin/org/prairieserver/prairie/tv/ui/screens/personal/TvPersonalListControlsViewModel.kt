@@ -12,7 +12,6 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.tv.ui.screens.library.TvCatalogFacetSelection
 import org.prairieserver.prairie.tv.ui.screens.library.TvLibrarySortOption
-import org.prairieserver.prairie.tv.ui.screens.library.defaultOrder
 import org.prairieserver.prairie.viewmodel.PersonalListQuery
 
 /**
@@ -41,8 +40,7 @@ class TvPersonalListControlsViewModel(
         val facetOptions: CatalogFiltersResponse? = null,
     ) {
         val sortOption: TvLibrarySortOption
-            get() = TvLibrarySortOption.entries.firstOrNull { it.wireValue == sort }
-                ?: TvLibrarySortOption.ListOrder
+            get() = TvLibrarySortOption.fromWire(sort, fallback = TvLibrarySortOption.ListOrder)
 
         /** What the shared list ViewModel should fetch under. */
         val query: PersonalListQuery

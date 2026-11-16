@@ -1,5 +1,9 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.common.i18n.localizedResources
+import org.prairieserver.prairie.common.i18n.text
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.model.catalog.parentPoster
 import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
 import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
@@ -54,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -80,6 +85,7 @@ import org.prairieserver.prairie.common.downloads.DownloadOpenTarget
 import org.prairieserver.prairie.common.downloads.DownloadStorage
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.model.catalog.ItemDetail
+import org.prairieserver.prairie.playback.detailPlaybackFileId
 import org.prairieserver.prairie.model.catalog.isAudiobookItemType
 import org.prairieserver.prairie.model.catalog.isBookLikeItemType
 import org.prairieserver.prairie.model.ebook.chooseEbookVersion
@@ -91,6 +97,8 @@ import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.playback.selectPlaybackVersion
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.common.player.PlaybackNetworkEvidenceProvider
+import org.prairieserver.prairie.common.player.networkPreferredQualityFlow
 import org.prairieserver.prairie.common.ui.OnViewerAccessChanged
 import org.prairieserver.prairie.network.AccessChangeSignals
 import org.prairieserver.prairie.metadata.DescriptionTranslationPhase
@@ -101,6 +109,11 @@ import org.prairieserver.prairie.common.thememusic.ThemeMusicService
 import org.prairieserver.prairie.model.catalog.ThemeSelection
 import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
 import org.prairieserver.prairie.model.catalog.pendingEpisodeTranslationLanguage
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import org.prairieserver.prairie.android.cast.engagedStatus
+import org.prairieserver.prairie.android.ui.components.PrairieMenuHeader
+import org.prairieserver.prairie.common.audiobook.AudiobookText
 
 internal data class SeriesDetailRedirect(
     val seriesContentId: String,
@@ -209,6 +222,7 @@ fun ItemDetailScreen(
     val siloCastState by siloCastController.state.collectAsState()
     var showRemoteTargetPicker by remember { mutableStateOf(false) }
     var remoteMenuExpanded by remember { mutableStateOf(false) }
+    val remoteStatus = siloCastState.engagedStatus()
 
     LaunchedEffect(state.selectedEpisodeContentId) {
         if (state.selectedEpisodeContentId != null) viewModel.ensureSelectedEpisodeDetailLoaded()
@@ -272,19 +286,24 @@ fun ItemDetailScreen(
         }
     }
     LaunchedEffect(Unit) {
-        viewModel.downloadFailureMessages.collect { message ->
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        viewModel.downloadFailureMessages.collect { failure ->
+            Toast.makeText(context, failure.text(context), Toast.LENGTH_LONG).show()
         }
     }
 
     val downloadStorage: DownloadStorage = koinInject()
     val serverRegistry: ServerRegistry = koinInject()
     // The auto-version PREVIEW must name the version playback will actually
-    // pick, which depends on the user's preferred quality (see
-    // MobileVideoPlaybackStarter). Read it so the Video/Audio/Subtitle rows
-    // describe the real file rather than defaulting to versions[0].
+    // pick, which depends on the preferred quality for the current network
+    // (the cellular one on mobile data or a metered network, as
+    // MobileVideoPlaybackStarter picks it). Read it so the Video/Audio/Subtitle
+    // rows describe the real file rather than defaulting to versions[0].
     val playerSettingsStore: PlayerSettingsStore = koinInject()
-    val preferredQuality by playerSettingsStore.preferredQualityFlow.collectAsState(initial = null)
+    val playbackNetwork: PlaybackNetworkEvidenceProvider = koinInject()
+    val preferredQuality by remember(playerSettingsStore, playbackNetwork) {
+        playerSettingsStore.networkPreferredQualityFlow(playbackNetwork.updates)
+    }.collectAsState(initial = null)
+    LaunchedEffect(preferredQuality) { viewModel.onPreferredQualityChanged(preferredQuality) }
     // Server capability gates which quality presets the picker may offer
     // (issue #20 GAP 4). Until it loads (or if the fetch fails) we optimistically
     // offer every preset; the server still rejects a disallowed quality.
@@ -313,7 +332,7 @@ fun ItemDetailScreen(
         } else {
             Toast.makeText(
                 context,
-                "Storage permission is required to save public downloads on this Android version.",
+                context.getString(CommonR.string.detail_storagePermissionRequired),
                 Toast.LENGTH_LONG,
             ).show()
         }
@@ -379,6 +398,7 @@ fun ItemDetailScreen(
     fun localDownloadFor(fileId: Int) =
         downloadStorage.locateLocalMedia(
             serverId = serverRegistry.activeServerId.value ?: DownloadEnqueuer.DEFAULT_SERVER_ID,
+            accountId = serverRegistry.activeAccountId.value.orEmpty(),
             profileId = serverRegistry.activeEntry.value?.profileId ?: DownloadEnqueuer.DEFAULT_PROFILE_ID,
             fileId = fileId,
         )
@@ -392,7 +412,7 @@ fun ItemDetailScreen(
             container = version.container,
         )
         if (target == null || !openDownloadTargetInExternalApp(context, target)) {
-            Toast.makeText(context, "No app found to open this file.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, context.getString(CommonR.string.detail_noAppToOpenFile), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -408,7 +428,10 @@ fun ItemDetailScreen(
             // behind while the user drags the edge gesture.
             .background(MaterialTheme.colorScheme.background),
     ) {
-        CompositionLocalProvider(LocalDetailScrollState provides detailScroll) {
+        CompositionLocalProvider(
+            LocalDetailScrollState provides detailScroll,
+            LocalDetailActionsReady provides !state.isProvisional,
+        ) {
         // Only the initial branch change dissolves; metadata refreshes keep
         // the current detail mounted. Loading shares the loaded hero frame.
         val loadedBranch = when {
@@ -437,16 +460,18 @@ fun ItemDetailScreen(
 
             branch == "error" -> {
                 ErrorView(
-                    message = state.error ?: "Something went wrong",
+                    message = state.error?.text() ?: stringResource(CommonR.string.status_errorGeneric),
                     onRetry = { viewModel.loadDetail() },
                 )
             }
 
             else -> {
                 val detail = state.detail ?: return@Crossfade
+                val resources = localizedResources()
                 val metadataAiStore: MetadataAiFeatureStore = koinInject()
                 val metadataAiStatus by metadataAiStore.status.collectAsState()
                 val translationPhase by viewModel.translationPhase.collectAsState()
+                val translatingSeasonContentId by viewModel.translatingSeasonContentId.collectAsState()
                 val translationEligible = metadataAiStatus.onView != MetadataAiOnView.Off &&
                     detail.pendingTranslationLanguage != null
                 // `auto` on-view mode fires once per (content, language); the
@@ -501,18 +526,10 @@ fun ItemDetailScreen(
                         }
                         ?: state.selectedVersionIndex
                 }
-                val explicitFileId = detail.versions
-                    .getOrNull(effectiveSelectedVersionIndex)
-                    ?.fileId
-                    ?.takeIf { state.hasExplicitVersionSelection }
                 val explicitAudioIndex = state.selectedAudioIndex
                     .takeIf { state.hasExplicitAudioSelection }
                 val explicitSubtitleIndex = state.selectedSubtitleIndex
                     .takeIf { state.hasExplicitSubtitleSelection }
-                val playbackFileId = explicitFileId ?: detail.versions
-                    .getOrNull(effectiveSelectedVersionIndex)
-                    ?.fileId
-                    ?.takeIf { state.hasExplicitAudioSelection || state.hasExplicitSubtitleSelection }
                 val effectiveAudiobookFileId = detail.versions
                     .getOrNull(effectiveSelectedVersionIndex)
                     ?.fileId
@@ -557,6 +574,10 @@ fun ItemDetailScreen(
                             },
                             onFavoriteClick = { viewModel.toggleFavorite() },
                             onWatchlistClick = { viewModel.toggleWatchlist() },
+                            onToggleFinished = { viewModel.toggleWatched() },
+                            onPersonClick = onPersonClick,
+                            onItemClick = onSimilarItemClick,
+                            translation = translationSlot,
                             onDownloadClick = audiobookVersion?.let { version ->
                                 {
                                     runDownloadTap(
@@ -666,7 +687,7 @@ fun ItemDetailScreen(
                             ep.userData?.played != true
                         } ?: state.episodes.firstOrNull()
                         val nextEpisodeLabel = nextEpisode?.let { ep ->
-                            "S${ep.seasonNumber}·E${ep.episodeNumber}"
+                            episodeCode(resources, ep.seasonNumber, ep.episodeNumber)
                         }
                         val episodeDownloadRecords by viewModel.downloads.collectAsState()
                         // Series-level roll-up across ALL seasons (state.allEpisodeFileIds
@@ -718,21 +739,22 @@ fun ItemDetailScreen(
                         val selectedEpisodeVersions = selectedEpisodeDetail?.versions.orEmpty()
                         val selectedEpisodeVersionIndex = detailDisplayVersionIndex(
                             versions = selectedEpisodeVersions,
+                            variants = selectedEpisodeDetail?.playbackVariants.orEmpty(),
                             explicitIndex = state.selectedVersionIndex
                                 .coerceIn(0, selectedEpisodeVersions.lastIndex.coerceAtLeast(0))
                                 .takeIf { state.hasExplicitVersionSelection },
-                            lastFileId = selectedEpisodeDetail?.userData?.lastFileId,
+                            editionId = state.selectedEditionId,
+                            userData = selectedEpisodeDetail?.userData,
                             preferredQuality = preferredQuality,
                             fallbackIndex = 0,
                         )
-                        val selectedEpisodeFileId = selectedEpisodeDetail?.versions
-                            ?.getOrNull(selectedEpisodeVersionIndex)
-                            ?.fileId
-                            ?.takeIf {
-                                state.hasExplicitVersionSelection ||
-                                    state.hasExplicitAudioSelection ||
-                                    state.hasExplicitSubtitleSelection
-                            }
+                        val selectedEpisodeDisplayed = selectedEpisodeVersions.getOrNull(selectedEpisodeVersionIndex)
+                        val selectedEpisodeFileId = detailPlaybackFileId(
+                            displayed = selectedEpisodeDisplayed,
+                            pinned = state.hasExplicitVersionSelection,
+                            tracksPicked = state.hasExplicitAudioSelection || state.hasExplicitSubtitleSelection,
+                            lastFileId = selectedEpisodeDetail?.userData?.lastFileId,
+                        )
                         val selectedEpisodeVersion = selectedEpisodeDetail?.versions
                             ?.getOrNull(selectedEpisodeVersionIndex)
                         val episodeDownloadState = detailDownloadStateFor(
@@ -747,6 +769,7 @@ fun ItemDetailScreen(
                             seriesResume
                         }
                         SeriesDetailContent(
+                            translatingSeasonContentId = translatingSeasonContentId,
                             translation = translationSlot,
                             detail = detail,
                             similarItems = state.similarItems,
@@ -754,7 +777,8 @@ fun ItemDetailScreen(
                             selectedSeasonNumber = state.selectedSeasonNumber,
                             episodes = state.episodes,
                             episodesBySeason = state.episodesBySeason,
-                            isLoadingEpisodes = state.isLoadingEpisodes,
+                            // A card seed has no episodes yet; show placeholders, not "No episodes".
+                            isLoadingEpisodes = state.isLoadingEpisodes || (state.isProvisional && state.episodes.isEmpty()),
                             isFavorite = state.isFavorite,
                             isInWatchlist = state.isInWatchlist,
                             nextEpisodeLabel = nextEpisodeLabel,
@@ -763,11 +787,13 @@ fun ItemDetailScreen(
                             isLoadingSelectedEpisodeDetail = state.isLoadingSelectedEpisodeDetail,
                             selectedVersionIndex = selectedEpisodeVersionIndex,
                             isAutoVersion = !state.hasExplicitVersionSelection,
+                            preferredQuality = preferredQuality,
                             selectedAudioIndex = state.selectedAudioIndex.takeIf { state.hasExplicitAudioSelection },
                             selectedSubtitleIndex = state.selectedSubtitleIndex.takeIf { state.hasExplicitSubtitleSelection },
                             onVersionSelected = { index ->
                                 if (index == null) viewModel.selectAutoVersion() else viewModel.selectVersion(index)
                             },
+                            onEditionSelected = viewModel::selectEdition,
                             onAudioSelected = { index ->
                                 if (index == null) {
                                     viewModel.selectAutoAudioTrack()
@@ -787,7 +813,7 @@ fun ItemDetailScreen(
                                     guardedPlay(
                                         it.contentId,
                                         selectedEpisodeFileId,
-                                        state.hasExplicitVersionSelection,
+                                        state.hasExplicitVersionSelection && selectedEpisodeFileId != null,
                                         state.selectedAudioIndex.takeIf { state.hasExplicitAudioSelection },
                                         state.selectedSubtitleIndex.takeIf { state.hasExplicitSubtitleSelection },
                                         selectedEpisodeResume,
@@ -809,7 +835,7 @@ fun ItemDetailScreen(
                                         guardedPlay(
                                             ep.contentId,
                                             selectedEpisodeFileId,
-                                            state.hasExplicitVersionSelection,
+                                            state.hasExplicitVersionSelection && selectedEpisodeFileId != null,
                                             state.selectedAudioIndex.takeIf { state.hasExplicitAudioSelection },
                                             state.selectedSubtitleIndex.takeIf { state.hasExplicitSubtitleSelection },
                                             0.0,
@@ -912,6 +938,8 @@ fun ItemDetailScreen(
                                     WatchPartyItem(
                                         contentId = episode.contentId,
                                         contentType = "episode",
+                                        // The party item is sent to the server and shown to
+                                        // every member, so its fallback text stays English data.
                                         title = episode.title?.takeIf { it.isNotBlank() }
                                             ?: "Episode ${episode.episodeNumber}",
                                         subtitle = "${detail.title} · S${episode.seasonNumber}·E${episode.episodeNumber}",
@@ -973,12 +1001,20 @@ fun ItemDetailScreen(
                         // does the same.
                         val videoDisplayVersionIndex = detailDisplayVersionIndex(
                             versions = detail.versions,
+                            variants = detail.playbackVariants,
                             explicitIndex = effectiveSelectedVersionIndex.takeIf { state.hasExplicitVersionSelection },
-                            lastFileId = detail.userData?.lastFileId,
+                            editionId = state.selectedEditionId,
+                            userData = detail.userData,
                             preferredQuality = preferredQuality,
                             fallbackIndex = effectiveSelectedVersionIndex,
                         )
                         val selectedVersion = detail.versions.getOrNull(videoDisplayVersionIndex)
+                        val playbackFileId = detailPlaybackFileId(
+                            displayed = selectedVersion,
+                            pinned = state.hasExplicitVersionSelection,
+                            tracksPicked = state.hasExplicitAudioSelection || state.hasExplicitSubtitleSelection,
+                            lastFileId = detail.userData?.lastFileId,
+                        )
                         val selectedLocalDownload = selectedVersion?.let { version ->
                             localDownloadFor(version.fileId)
                         }
@@ -1001,13 +1037,14 @@ fun ItemDetailScreen(
                             isInWatchlist = state.isInWatchlist,
                             selectedVersionIndex = videoDisplayVersionIndex,
                             isAutoVersion = !state.hasExplicitVersionSelection,
+                            preferredQuality = preferredQuality,
                             selectedAudioIndex = explicitAudioIndex,
                             selectedSubtitleIndex = explicitSubtitleIndex,
                             onPlayClick = {
                                 guardedPlay(
                                     detail.contentId,
                                     playbackFileId,
-                                    explicitFileId != null,
+                                    state.hasExplicitVersionSelection && playbackFileId != null,
                                     explicitAudioIndex,
                                     explicitSubtitleIndex,
                                     movieResume,
@@ -1018,7 +1055,7 @@ fun ItemDetailScreen(
                                     guardedPlay(
                                         detail.contentId,
                                         playbackFileId,
-                                        explicitFileId != null,
+                                        state.hasExplicitVersionSelection && playbackFileId != null,
                                         explicitAudioIndex,
                                         explicitSubtitleIndex,
                                         0.0,
@@ -1032,6 +1069,7 @@ fun ItemDetailScreen(
                             onVersionSelected = { index ->
                                 if (index != null) viewModel.selectVersion(index) else viewModel.selectAutoVersion()
                             },
+                            onEditionSelected = viewModel::selectEdition,
                             onAudioSelected = { index ->
                                 if (index != null) {
                                     viewModel.selectAudioTrack(index, selectedVersion)
@@ -1101,6 +1139,7 @@ fun ItemDetailScreen(
                                             listOfNotNull(
                                                 detail.seriesTitle?.takeIf { value -> value.isNotBlank() },
                                                 detail.seasonNumber?.let { season ->
+                                                    // Sent to the server for the party: English data.
                                                     detail.episodeNumber?.let { episode -> "S$season·E$episode" }
                                                 },
                                             ).joinToString(" · ").ifBlank { null }
@@ -1160,10 +1199,10 @@ fun ItemDetailScreen(
 
         pendingCancelDownloadAction?.let { confirmAction ->
             PrairieConfirmDialog(
-                title = "Cancel download?",
-                body = "The partially downloaded data will be discarded.",
-                confirmLabel = "Discard Download",
-                dismissLabel = "Keep Download",
+                title = stringResource(CommonR.string.detail_cancelDownload_title),
+                body = stringResource(CommonR.string.detail_cancelDownload_body),
+                confirmLabel = stringResource(CommonR.string.detail_cancelDownload_discard),
+                dismissLabel = stringResource(CommonR.string.detail_cancelDownload_keep),
                 onConfirm = {
                     pendingCancelDownloadAction = null
                     confirmAction()
@@ -1176,7 +1215,10 @@ fun ItemDetailScreen(
         }
 
         DetailTopChrome(
-            title = state.detail?.title.orEmpty(),
+            // An audiobook's title without the series locator, as its hero shows it.
+            title = state.detail
+                ?.let { if (isAudiobookItemType(it.type)) AudiobookText.title(it) else it.title }
+                .orEmpty(),
             scroll = detailScroll,
             onBackClick = onBackClick,
             trailing = {
@@ -1188,9 +1230,12 @@ fun ItemDetailScreen(
                             showRemoteTargetPicker = true
                         }
                     },
+                    // Remote playback needs the fetched detail, not the card.
+                    enabled = !state.isProvisional,
                     // Solid pill while a cast session is live, translucent at
                     // rest, so the fill still reports state.
                     modifier = Modifier
+                        .alpha(if (state.isProvisional) DetailActionDisabledAlpha else 1f)
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(
@@ -1200,11 +1245,12 @@ fun ItemDetailScreen(
                                 PrairieOverlayPillSurface
                             },
                         )
-                        .border(1.dp, PrairieNavPillBorder, CircleShape),
+                        .border(1.dp, PrairieNavPillBorder, CircleShape)
+                        .semantics { remoteStatus?.let { stateDescription = it } },
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.SettingsRemote,
-                        contentDescription = "Remote Control",
+                        contentDescription = stringResource(CommonR.string.detail_remoteControl),
                         tint = Color.White,
                     )
                 }
@@ -1212,15 +1258,16 @@ fun ItemDetailScreen(
                     expanded = remoteMenuExpanded,
                     onDismissRequest = { remoteMenuExpanded = false },
                 ) {
+                    remoteStatus?.let { PrairieMenuHeader(title = it) }
                     PrairieDropdownMenuItem(
-                        text = { Text("Remote Control") },
+                        text = { Text(stringResource(CommonR.string.detail_remoteControl)) },
                         onClick = {
                             remoteMenuExpanded = false
                             onOpenCastRemote()
                         },
                     )
                     PrairieDropdownMenuItem(
-                        text = { Text("Choose TV") },
+                        text = { Text(stringResource(CommonR.string.detail_chooseTv)) },
                         onClick = {
                             remoteMenuExpanded = false
                             showRemoteTargetPicker = true
@@ -1229,7 +1276,7 @@ fun ItemDetailScreen(
                     HorizontalDivider()
                     PrairieDropdownMenuItem(
                         text = {
-                            Text("Turn Off Control Mode", color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(CommonR.string.detail_turnOffControlMode), color = MaterialTheme.colorScheme.error)
                         },
                         onClick = {
                             remoteMenuExpanded = false

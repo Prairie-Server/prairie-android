@@ -8,12 +8,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.prairieserver.prairie.common.i18n.SharedString
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.errorText
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.catalog.CatalogBoxSetDetail
 import org.prairieserver.prairie.model.catalog.withWatched
 import org.prairieserver.prairie.network.AccessChangeCursor
 import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.network.isAccessRefusal
 import org.prairieserver.prairie.repository.CatalogRepository
 
@@ -25,7 +27,7 @@ data class BoxSetUiState(
      * movies there (the server answers 404 for both).
      */
     val unavailable: Boolean = false,
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 /**
@@ -201,9 +203,9 @@ class BoxSetViewModel(
                 is ApiResult.Error -> if (result.code == 404) {
                     BoxSetUiState(isLoading = false, unavailable = true)
                 } else {
-                    BoxSetUiState(isLoading = false, error = result.message.ifBlank { "Couldn't load this box set." })
+                    BoxSetUiState(isLoading = false, error = result.errorText(SharedString.BoxSetLoadFailed))
                 }
-                is ApiResult.NetworkError -> BoxSetUiState(isLoading = false, error = result.errorMessage("Couldn't load this box set."))
+                is ApiResult.NetworkError -> BoxSetUiState(isLoading = false, error = result.errorText(SharedString.BoxSetLoadFailed))
             }
             _uiState.value = next
         }

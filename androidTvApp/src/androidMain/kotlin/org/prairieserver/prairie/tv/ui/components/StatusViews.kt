@@ -13,6 +13,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.tv.material3.Icon
 import androidx.compose.foundation.layout.width
+import org.prairieserver.prairie.common.R as CommonR
 
 @Composable
 fun TvLoadingScreen(modifier: Modifier = Modifier) {
@@ -71,7 +73,7 @@ fun TvErrorScreen(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Retry", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(CommonR.string.common_retry), style = MaterialTheme.typography.labelLarge)
                 }
             }
             if (secondaryActionLabel != null && onSecondaryAction != null) {

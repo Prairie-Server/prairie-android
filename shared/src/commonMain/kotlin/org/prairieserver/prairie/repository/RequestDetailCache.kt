@@ -13,6 +13,7 @@ import org.prairieserver.prairie.model.request.RequestReason
 import org.prairieserver.prairie.model.request.RequestState
 import org.prairieserver.prairie.model.request.RequestUserState
 import org.prairieserver.prairie.model.request.requestInstantKey
+import org.prairieserver.prairie.model.request.without
 import org.prairieserver.prairie.network.ApiResult
 
 /**
@@ -67,6 +68,13 @@ class RequestDetailCache(
     fun storeOwnRecord(record: MediaRequest) {
         val key = record.cacheKey()
         ownRecords = if (record.outcome == RequestOutcome.Cancelled) ownRecords - key else ownRecords + (key to record)
+    }
+
+    /** The server deleted [record]: forget it, and leave its title requestable wherever the cache shows it. */
+    fun removeOwnRecord(record: MediaRequest) {
+        val key = record.cacheKey()
+        if (ownRecords[key]?.id == record.id) ownRecords = ownRecords - key
+        patchRequestState(key) { it.without(record) }
     }
 
     /** Patches the title's request state wherever the cache holds it, so the next first frame agrees. */

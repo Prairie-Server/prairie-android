@@ -14,6 +14,18 @@ import org.prairieserver.prairie.common.cast.PrairieCastTarget
 /** The phone's rules for a TV that keeps several controllers (prairie-apple PrairieControlPhonePolicy). */
 class PrairieCastPhonePolicyTest {
     private val target = PrairieCastTarget(deviceId = "tv-1", name = "Living Room", host = "10.0.0.2", port = 4711, version = 2)
+    /** The catalog's English wording (cast.replace.*), as the app's resources give it. */
+    private object EnglishText : PrairieCastReplaceText {
+        override val replace = "Replace"
+        override fun resolve(text: PrairieCastText) = (text as PrairieCastText.Verbatim).text
+        override fun playOn(tv: String) = "Play on $tv"
+        override fun tvIsPlaying(tv: String, title: String) = "$tv is playing $title. Playing this will stop it."
+        override fun someoneWatchingSomething(tv: String) = "Someone is watching something on $tv. Play yours instead?"
+        override fun someoneWatching(title: String, tv: String) = "Someone is watching $title on $tv. Play yours instead?"
+        override fun profileWatching(profile: String, title: String, tv: String) =
+            "$profile is watching $title on $tv. Play yours instead?"
+    }
+
     private val request = PrairieCastLaunchRequest(
         serverId = "srv-1",
         playback = PrairieCastPlaybackRequest(contentId = "miasma", startFromBeginning = true),
@@ -51,10 +63,10 @@ class PrairieCastPhonePolicyTest {
             target,
             request,
             PrairieCastNowPlayingSummary(contentId = "oak", title = "Oak Street", subtitle = "Season 1", profileName = "Alex"),
-            fallbackMessage = "Alex is watching Oak Street on this TV.",
+            fallbackMessage = PrairieCastText.Verbatim("Alex is watching Oak Street on this TV."),
         )
-        assertEquals("Alex is watching Season 1 · Oak Street on Living Room. Play yours instead?", pending.message)
-        assertEquals("Replace", pending.confirmLabel)
+        assertEquals("Alex is watching Season 1 · Oak Street on Living Room. Play yours instead?", pending.message(EnglishText))
+        assertEquals("Replace", pending.confirmLabel(EnglishText))
         assertEquals(PrairieCastReplaceConsent(contentId = "oak"), pending.consent)
         assertEquals(request, pending.request)
     }
@@ -63,10 +75,10 @@ class PrairieCastPhonePolicyTest {
     fun aPromptWithoutAProfileNameOrSummaryStillReads() {
         assertEquals(
             "Someone is watching Oak Street on Living Room. Play yours instead?",
-            PrairieCastReplacePrompt.tvMessage(PrairieCastNowPlayingSummary(title = "Oak Street"), "Living Room", null),
+            PrairieCastReplacePrompt.tvMessage(PrairieCastNowPlayingSummary(title = "Oak Street"), "Living Room", null, EnglishText),
         )
-        val fallback = PrairieCastReplacePrompt.fromTv(target, request, nowPlaying = null, fallbackMessage = "Taken.")
-        assertEquals("Taken.", fallback.message)
+        val fallback = PrairieCastReplacePrompt.fromTv(target, request, nowPlaying = null, fallbackMessage = PrairieCastText.Verbatim("Taken."))
+        assertEquals("Taken.", fallback.message(EnglishText))
         assertNull(fallback.consent.contentId)
     }
 
@@ -78,8 +90,8 @@ class PrairieCastPhonePolicyTest {
         assertFalse(PrairieCastReplacePrompt.replacesPlayingTitle("", "miasma"))
 
         val pending = PrairieCastReplacePrompt.beforeSending(target, request, currentContentId = "oak", currentTitle = "Oak Street")
-        assertEquals("Living Room is playing Oak Street. Playing this will stop it.", pending.message)
-        assertEquals("Play on Living Room", pending.confirmLabel)
+        assertEquals("Living Room is playing Oak Street. Playing this will stop it.", pending.message(EnglishText))
+        assertEquals("Play on Living Room", pending.confirmLabel(EnglishText))
         assertEquals(PrairieCastReplaceConsent(contentId = "oak"), pending.consent)
     }
 

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.search
 
+import org.prairieserver.prairie.common.i18n.text
 import org.prairieserver.prairie.model.catalog.CatalogBoxSet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,11 +31,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.MediaModeCapabilities
 import org.prairieserver.prairie.model.navigation.mobileMediaModeCapabilities
@@ -111,7 +114,7 @@ fun SearchScreen(
         topBar = {
             if (onBackClick != null) {
                 PrairieTopBar(
-                    title = "Search",
+                    title = stringResource(CommonR.string.nav_search),
                     onBackClick = onBackClick,
                 )
             }
@@ -153,7 +156,7 @@ fun SearchScreen(
                                 index = index,
                                 count = state.availableMediaTypes.size,
                             ),
-                            label = { Text(type.label) },
+                            label = { Text(stringResource(type.label)) },
                         )
                     }
                 }
@@ -228,7 +231,7 @@ fun SearchScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Searching…",
+                            text = stringResource(CommonR.string.search_searching),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -236,12 +239,11 @@ fun SearchScreen(
                 }
                 !state.hasSearched && state.query.isBlank() -> {
                     SearchEmptyState(
-                        text = "Search Prairie",
+                        text = stringResource(CommonR.string.search_initial),
                         subtitle = if (voiceAvailable) {
-                            "Find movies, shows, books, audio, and people. " +
-                                "Tap the mic to search by voice."
+                            stringResource(CommonR.string.search_initialBodyVoice)
                         } else {
-                            "Find movies, shows, books, audio, and people."
+                            stringResource(CommonR.string.search_initialBodyPhone)
                         },
                     )
                 }
@@ -261,14 +263,14 @@ fun SearchScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = state.error ?: "Search failed",
+                                text = state.error?.text().orEmpty(),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             FilledTonalButton(onClick = { viewModel.retry() }) {
-                                Text("Retry")
+                                Text(stringResource(CommonR.string.common_retry))
                             }
                         }
                     }
@@ -278,8 +280,8 @@ fun SearchScreen(
                     Column(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.weight(1f)) {
                             SearchEmptyState(
-                                text = "No results",
-                                subtitle = "Try a different search term",
+                                text = stringResource(CommonR.string.search_empty),
+                                subtitle = stringResource(CommonR.string.search_emptyBody),
                             )
                         }
                         RequestSearchFooter()

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.cast
 
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,9 +11,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -31,9 +34,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.prairieserver.prairie.android.cast.PrairieCastArtwork
 import org.prairieserver.prairie.android.cast.PrairieCastController
+import org.prairieserver.prairie.android.cast.PrairieCastControllerState
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 
 /**
@@ -47,54 +55,73 @@ import org.prairieserver.prairie.common.ui.components.ThumbhashImage
  * Inset handling is the caller's: on tab screens the bar sits in the
  * Scaffold's bottomBar slot directly above the nav menu (which owns the
  * gesture inset); on menu-less routes the caller adds navigationBarsPadding.
+ *
+ * [inline] is the compact capsule the nav bar shows beside its minimized Home
+ * control (iOS's inline tab bar accessory): it fills the slot the caller gives
+ * it instead of adding its own margins, and uses a smaller poster.
+ * [barModifier] applies to the bar itself, inside its margins, so a caller can
+ * animate the visible card between placements. A caller that shows the bar
+ * in more than one placement passes [sharedArtwork] resolved once above them, so
+ * moving the bar does not drop the loaded title and poster.
  */
 @Composable
 fun PrairieCastMiniBar(
     controller: PrairieCastController,
     onOpenRemote: () -> Unit,
     modifier: Modifier = Modifier,
+    inline: Boolean = false,
+    barModifier: Modifier = Modifier,
+    sharedArtwork: PrairieCastArtwork? = null,
 ) {
     val state by controller.state.collectAsState()
     val playback = state.playbackState
     val launch = state.launch
     val isIdle = playback?.contentId.isNullOrEmpty()
-    val targetName = state.connectedTarget?.name ?: "Prairie TV"
-    // Keep the bar up through a reconnect (with a spinner) instead of having
-    // it vanish and pop back; hide it while an auto-resume probe is still
-    // unconfirmed so idle TVs never surface a phantom session.
-    val visible = (state.hasActiveSession && !state.isAutoResuming) || state.isReconnecting
-
+    val targetName = state.connectedTarget?.name ?: PRAIRIE_TV_NAME
     AnimatedVisibility(
-        visible = visible,
+        visible = state.showsMiniBar,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
         modifier = modifier,
     ) {
-        val artwork = rememberPrairieCastArtwork(launch?.contentId ?: playback?.contentId)
+        val artwork = sharedArtwork ?: rememberPrairieCastArtwork(launch?.contentId ?: playback?.contentId)
         Surface(
             onClick = onOpenRemote,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = if (inline) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            }.then(barModifier),
             tonalElevation = 8.dp,
             shadowElevation = 8.dp,
-            shape = RoundedCornerShape(18.dp),
+            shape = if (inline) CircleShape else RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = if (inline) {
+                    Modifier.padding(start = 14.dp, end = 4.dp)
+                } else {
+                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                },
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (inline) 10.dp else 12.dp),
             ) {
-                MiniBarThumb(posterUrl = artwork.posterUrl, thumbhash = artwork.posterThumbhash)
+                MiniBarThumb(
+                    posterUrl = artwork.posterUrl,
+                    thumbhash = artwork.posterThumbhash,
+                    width = if (inline) 30.dp else 34.dp,
+                    height = if (inline) 44.dp else 50.dp,
+                )
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         when {
-                            state.isReconnecting -> "Reconnecting…"
-                            launch != null -> artwork.title ?: "Starting playback"
-                            isIdle -> "Connected"
-                            else -> playback?.title ?: "Connected"
+                            state.isReconnecting -> stringResource(CommonR.string.cast_reconnecting)
+                            launch != null -> artwork.title ?: stringResource(CommonR.string.cast_startingPlayback)
+                            isIdle -> stringResource(CommonR.string.cast_miniBar_connected)
+                            else -> playback?.title ?: stringResource(CommonR.string.cast_miniBar_connected)
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -102,10 +129,10 @@ fun PrairieCastMiniBar(
                     )
                     Text(
                         when {
-                            state.isReconnecting -> "to $targetName"
-                            launch != null -> "Starting on $targetName…"
-                            isIdle -> "to $targetName"
-                            else -> "Playing on $targetName"
+                            state.isReconnecting -> stringResourceWithNames(CommonR.string.cast_miniBar_toTv, targetName)
+                            launch != null -> stringResourceWithNames(CommonR.string.cast_startingOn, targetName)
+                            isIdle -> stringResourceWithNames(CommonR.string.cast_miniBar_toTv, targetName)
+                            else -> stringResourceWithNames(CommonR.string.cast_playingOn, targetName)
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -125,7 +152,9 @@ fun PrairieCastMiniBar(
                     IconButton(onClick = { controller.setPlaying(playback?.isPlaying != true) }) {
                         Icon(
                             if (playback?.isPlaying == true) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (playback?.isPlaying == true) "Pause" else "Play",
+                            contentDescription = stringResource(
+                                if (playback?.isPlaying == true) CommonR.string.player_controls_pause else CommonR.string.common_play,
+                            ),
                         )
                     }
                 }
@@ -135,11 +164,11 @@ fun PrairieCastMiniBar(
 }
 
 @Composable
-private fun MiniBarThumb(posterUrl: String?, thumbhash: String?) {
+private fun MiniBarThumb(posterUrl: String?, thumbhash: String?, width: Dp, height: Dp) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(width = 34.dp, height = 50.dp)
+            .size(width = width, height = height)
             .clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
     ) {
@@ -149,7 +178,7 @@ private fun MiniBarThumb(posterUrl: String?, thumbhash: String?) {
                 thumbhash = thumbhash,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(width = 34.dp, height = 50.dp),
+                modifier = Modifier.size(width = width, height = height),
             )
         } else {
             Icon(
@@ -161,3 +190,14 @@ private fun MiniBarThumb(posterUrl: String?, thumbhash: String?) {
         }
     }
 }
+
+/**
+ * Whether the Remote Control bar is up. It stays up through a reconnect (with a
+ * spinner) instead of vanishing and popping back, and stays hidden while an
+ * auto-resume probe is unconfirmed so idle TVs never surface a phantom session.
+ */
+val PrairieCastControllerState.showsMiniBar: Boolean
+    get() = (hasActiveSession && !isAutoResuming) || isReconnecting
+
+/** The name a TV goes by before it reports its own; a product name, not translated. */
+internal const val PRAIRIE_TV_NAME = "Prairie TV"

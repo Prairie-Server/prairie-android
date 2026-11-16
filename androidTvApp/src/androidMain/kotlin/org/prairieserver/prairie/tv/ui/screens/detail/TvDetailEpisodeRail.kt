@@ -7,7 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -31,15 +31,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -57,6 +60,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.LayoutDirection
@@ -66,6 +71,8 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.common.i18n.currentFormatLocale
+import org.prairieserver.prairie.common.overlays.wideCardOverlayScale
 import org.prairieserver.prairie.common.ui.components.SpoilerImage
 import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
@@ -75,6 +82,7 @@ import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
 import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import org.prairieserver.prairie.tv.ui.components.TvMediaCardActions
 import org.prairieserver.prairie.tv.ui.components.TvMediaCardContextMenu
+import org.prairieserver.prairie.tv.ui.components.bidiIsolated
 import org.prairieserver.prairie.tv.ui.components.tvEpisodeCardWidth
 import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.theme.TvRailScrollBehavior
@@ -82,11 +90,19 @@ import org.prairieserver.prairie.tv.ui.theme.tvRailPinOnFocus
 import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.tv.ui.theme.DarkSurfaceElevated
-import org.prairieserver.prairie.tv.ui.theme.ProgressFill
 import org.prairieserver.prairie.tv.ui.theme.InterFamily
 import org.prairieserver.prairie.tv.ui.theme.CardOutline
 import org.prairieserver.prairie.tv.ui.theme.cardFocusedScale
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.text
+import org.prairieserver.prairie.common.i18n.localizedResources
+import androidx.compose.ui.platform.LocalConfiguration
+import java.util.Locale
+import org.prairieserver.prairie.common.i18n.isRightToLeftText
+import org.prairieserver.prairie.common.ui.components.WatchProgressBar
+import org.prairieserver.prairie.common.ui.components.WatchProgressBarDefaults
 
 /** Includes the still, the two-line caption, and vertical rail padding from the first frame. */
 @Composable
@@ -192,7 +208,12 @@ internal fun TvDetailEpisodeRail(
     val defaultFocusRequester = remember { FocusRequester() }
     var observedFocusedContentId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(carouselJump) {
+    // The jump can arrive before its season joins the continuous rail (the
+    // selected season publishes ahead of the carousel window). Key on whether
+    // the target is present so the jump still lands once that season arrives.
+    val jumpTargetPresent = carouselJump != null &&
+        episodes.any { it.contentId == carouselJump.contentId }
+    LaunchedEffect(carouselJump, jumpTargetPresent) {
         val jump = carouselJump ?: return@LaunchedEffect
         val index = episodes.indexOfFirst { it.contentId == jump.contentId }
         if (index < 0) return@LaunchedEffect
@@ -214,8 +235,17 @@ internal fun TvDetailEpisodeRail(
     // Left/Right step. Re-running this centering animation would race the
     // one-shot tvRailPinOnFocus glide and make Right visually travel backward
     // even though focus reached the correct episode.
-    LaunchedEffect(episodeSetKey) {
+    //
+    // The rail can mount before the suggested episode is in it: a Continue
+    // Watching entry into Season 2 may first show a cached or default Season 1,
+    // and Season 2 joins the continuous rail later. Wait for the target to
+    // appear instead of giving up, but center at most once, and never after the
+    // viewer has started browsing the rail.
+    var initialCenterDone by remember(episodeSetKey) { mutableStateOf(false) }
+    LaunchedEffect(episodeSetKey, currentIndex != null) {
+        if (initialCenterDone || rememberedFocusedContentId != null) return@LaunchedEffect
         val target = currentIndex ?: return@LaunchedEffect
+        initialCenterDone = true
         val itemIndex = target + if (hasPreviousEpisodes) 1 else 0
         listState.scrollToItem(itemIndex)
         val info = listState.layoutInfo
@@ -223,12 +253,56 @@ internal fun TvDetailEpisodeRail(
             ?: return@LaunchedEffect
         val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2f
         val itemCenter = item.offset + item.size / 2f
-        listState.animateScrollBy(itemCenter - viewportCenter)
+        // Instant: the rail is only just appearing, so a slide reads as a jump.
+        listState.scrollBy(itemCenter - viewportCenter)
+    }
+
+    // When the previous season loads it replaces the "Loading episodes…"
+    // placeholder. LazyRow keeps its place by the first visible item's key, so
+    // if that was the placeholder it would fall back to index 0 and snap the
+    // rail to the series' first episode. Put the episode that replaces the
+    // placeholder in the placeholder's exact slot instead, so nothing moves.
+    val lastFirstEpisodeId = remember { arrayOfNulls<String>(1) }
+    SideEffect {
+        val newFirstId = episodes.first().contentId
+        val oldFirstId = lastFirstEpisodeId[0]
+        lastFirstEpisodeId[0] = newFirstId
+        if (oldFirstId == null || oldFirstId == newFirstId) return@SideEffect
+        if (listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key != PreviousSeasonPlaceholderKey) {
+            return@SideEffect
+        }
+        val oldFirstIndex = episodes.indexOfFirst { it.contentId == oldFirstId }
+        if (oldFirstIndex <= 0) return@SideEffect
+        listState.requestScrollToItem(
+            index = oldFirstIndex - 1 + if (hasPreviousEpisodes) 1 else 0,
+            scrollOffset = listState.firstVisibleItemScrollOffset,
+        )
+    }
+
+    // Series only, on first appearance: keep the skeleton up until the
+    // starting episode and the season before it are in the rail, so the rail
+    // appears already in place. Otherwise it shows a half-loaded row (a
+    // "Loading episodes…" card and a couple of episodes), then slides when the
+    // earlier season fills in. Capped so a slow season load can't hide it.
+    var revealed by remember(episodeSetKey) { mutableStateOf(!usesSeriesGeometry) }
+    val startSettled = (currentContentId == null || currentIndex != null) && !hasPreviousEpisodes
+    LaunchedEffect(revealed) {
+        if (revealed) return@LaunchedEffect
+        delay(InitialRevealTimeoutMillis)
+        revealed = true
+    }
+    LaunchedEffect(revealed, startSettled) {
+        if (revealed || !startSettled) return@LaunchedEffect
+        // Let the centering scroll above land before the rail shows.
+        repeat(2) { withFrameNanos { } }
+        revealed = true
     }
 
     TvRailScrollBehavior {
+    Box {
     LazyRow(
         modifier = modifier
+            .graphicsLayer { alpha = if (revealed) 1f else 0f }
             .fillMaxWidth()
             .then(if (usesSeriesGeometry) Modifier.height(tvSeriesEpisodeRailHeight()) else Modifier)
             .then(
@@ -244,7 +318,9 @@ internal fun TvDetailEpisodeRail(
                     Modifier
                 },
             )
-            .onFocusChanged { if (!it.hasFocus) onCarouselFocusLost() }
+            .onFocusChanged {
+                if (it.hasFocus) revealed = true else onCarouselFocusLost()
+            }
             .focusGroup()
             .then(
                 if (entryIndex != null) {
@@ -263,7 +339,7 @@ internal fun TvDetailEpisodeRail(
         horizontalArrangement = Arrangement.spacedBy(if (usesSeriesGeometry) 20.dp else 18.dp),
     ) {
         if (hasPreviousEpisodes) {
-            item(key = "previous-season-loading", contentType = "episode-loading") {
+            item(key = PreviousSeasonPlaceholderKey, contentType = "episode-loading") {
                 TvEpisodeBoundaryPlaceholder(carouselLoadError)
             }
         }
@@ -327,8 +403,14 @@ internal fun TvDetailEpisodeRail(
             }
         }
     }
+    if (!revealed) TvSeriesEpisodeRailSkeleton()
+    }
     }
 }
+
+private const val InitialRevealTimeoutMillis = 1_000L
+
+private const val PreviousSeasonPlaceholderKey = "previous-season-loading"
 
 @Composable
 private fun TvEpisodeBoundaryPlaceholder(failed: Boolean) {
@@ -342,7 +424,9 @@ private fun TvEpisodeBoundaryPlaceholder(failed: Boolean) {
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = if (failed) "Press again to retry" else "Loading episodes…",
+                text = stringResource(
+                    if (failed) CommonR.string.detail_episodes_pressToRetry else CommonR.string.detail_episodes_loading,
+                ),
                 fontSize = 14.sp,
                 color = PrairieSecondaryText,
             )
@@ -450,6 +534,8 @@ private fun TvDetailEpisodeCard(
             )
 
             if (episode.userData?.played == true) {
+                // At the wide cards' overlay scale, like their badges.
+                val checkScale = wideCardOverlayScale()
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -457,8 +543,8 @@ private fun TvDetailEpisodeCard(
                 )
                 Box(
                     modifier = Modifier
-                        .padding(6.dp)
-                        .size(20.dp)
+                        .padding(6.dp * checkScale)
+                        .size(20.dp * checkScale)
                         .clip(CircleShape)
                         .background(Color.White)
                         .align(Alignment.TopEnd),
@@ -468,26 +554,13 @@ private fun TvDetailEpisodeCard(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
                         tint = Color.Black,
-                        modifier = Modifier.size(9.dp),
+                        modifier = Modifier.size(9.dp * checkScale),
                     )
                 }
             }
 
             episode.progressFraction()?.let { fraction ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(5.dp)
-                        .align(Alignment.BottomStart)
-                        .background(Color.Black.copy(alpha = 0.6f)),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .height(5.dp)
-                            .background(ProgressFill),
-                    )
-                }
+                WatchProgressBar(fraction, height = WatchProgressBarDefaults.TvHeight)
             }
         }
 
@@ -497,12 +570,20 @@ private fun TvDetailEpisodeCard(
         // episode is marked by its still's border, as on tvOS. The card
         // recomposes on every frame of its focus animation, so the text is built
         // once per episode.
-        val title = remember(episode) { EpisodeCardCaption.title(episode) }
-        val metadata = remember(episode) {
+        val resources = localizedResources()
+        val configuration = LocalConfiguration.current
+        val dateLocale = currentFormatLocale()
+        // A right-to-left interface isolates the title as a catalog placeholder (D28).
+        val rtl = isRightToLeftText()
+        val title = remember(episode, configuration) {
+            val episodeForCaption = if (rtl) episode else episode.copy(title = episode.title?.trim()?.let { bidiIsolated(it, false) })
+            EpisodeCardCaption.title(episodeForCaption).text(resources)
+        }
+        val metadata = remember(episode, configuration, dateLocale) {
             EpisodeCardCaption.metadata(
-                airDate = abbreviatedEpisodeDate(episode.airDate),
+                airDate = abbreviatedEpisodeDate(episode.airDate, dateLocale),
                 runtimeMinutes = episode.runtime,
-            )
+            )?.text(resources)
         }
         Column(verticalArrangement = Arrangement.spacedBy(if (usesSeriesGeometry) SeriesCaptionLineGap else 4.dp)) {
             Text(
@@ -561,6 +642,8 @@ private val SeriesCaptionTitleStyle = TextStyle(
     fontSize = 11.5.sp,
     lineHeight = 14.sp,
     fontWeight = FontWeight.SemiBold,
+    textDirection = TextDirection.Content,
+    textAlign = TextAlign.Left,
 )
 private val SeriesCaptionMetadataStyle = TextStyle(
     fontFamily = InterFamily,
@@ -573,6 +656,8 @@ private val CaptionTitleStyle = TextStyle(
     fontSize = 18.sp,
     lineHeight = 22.sp,
     fontWeight = FontWeight.SemiBold,
+    textDirection = TextDirection.Content,
+    textAlign = TextAlign.Left,
 )
 private val CaptionMetadataStyle = TextStyle(
     fontFamily = InterFamily,
@@ -585,11 +670,13 @@ private val CaptionOverviewStyle = TextStyle(
     fontSize = 16.sp,
     lineHeight = 20.sp,
     fontWeight = FontWeight.Normal,
+    textDirection = TextDirection.Content,
+    textAlign = TextAlign.Left,
 )
 
 // Shared with the hero facts row (tvOS parity), so the card dates agree with it.
-private fun abbreviatedEpisodeDate(raw: String?): String? =
-    TvDetailMetadata.abbreviatedDate(raw)
+private fun abbreviatedEpisodeDate(raw: String?, locale: Locale): String? =
+    TvDetailMetadata.abbreviatedDate(raw, locale = locale)
 
 private fun EpisodeListItem.progressFraction(): Float? {
     val user = userData ?: return null

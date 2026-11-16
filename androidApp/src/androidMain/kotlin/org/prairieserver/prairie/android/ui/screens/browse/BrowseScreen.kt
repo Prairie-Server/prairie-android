@@ -1,5 +1,10 @@
 package org.prairieserver.prairie.android.ui.screens.browse
 
+import org.prairieserver.prairie.android.ui.components.PosterArtworkAspectRatio
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.currentFormatLocale
+import org.prairieserver.prairie.common.i18n.currentNumberLocale
+import org.prairieserver.prairie.common.i18n.text
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -43,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +58,11 @@ import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
 import org.prairieserver.prairie.android.ui.components.rememberShimmerProgress
 import org.prairieserver.prairie.android.ui.theme.PrairieSurfaceElevated
 import org.prairieserver.prairie.android.ui.util.formatCardDate
+import org.prairieserver.prairie.catalog.sort.CatalogSortField
+import org.prairieserver.prairie.catalog.sort.CatalogSortRelevance
+import org.prairieserver.prairie.catalog.sort.CatalogSortScope
+import org.prairieserver.prairie.common.catalog.labelRes
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * The catalog/browse screen with filter chips and an infinite-scroll grid.
@@ -73,6 +84,8 @@ fun BrowseScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val letterJump by viewModel.letterJump.collectAsState()
+    val shownRatingSources = org.prairieserver.prairie.android.ui.components.rememberShownRatingSources()
     var showFilterSheet by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -81,7 +94,7 @@ fun BrowseScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = state.title,
+                        text = state.title ?: stringResource(CommonR.string.library_browse),
                         style = MaterialTheme.typography.headlineSmall,
                     )
                 },
@@ -89,7 +102,7 @@ fun BrowseScreen(
                     IconButton(onClick = onBackClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(CommonR.string.common_back),
                         )
                     }
                 },
@@ -100,28 +113,32 @@ fun BrowseScreen(
                     IconButton(onClick = { sortMenuOpen = true }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = "Sort",
+                            contentDescription = stringResource(CommonR.string.library_sort),
                         )
                     }
                     PrairieDropdownMenu(
                         expanded = sortMenuOpen,
                         onDismissRequest = { sortMenuOpen = false },
                     ) {
-                        browseSortOptions(state.mediaType).forEach { (field, label) ->
-                            val active = state.filterState.sort == field
+                        val sortRelevance = browseSortRelevance(state.mediaType)
+                        browseSortOptions(
+                            mediaType = state.mediaType,
+                            shownRatingSources = shownRatingSources,
+                            current = state.filterState.sort,
+                        ).forEach { field ->
+                            val label = stringResource(field.labelRes(sortRelevance))
+                            val active = state.filterState.sort == field.wireValue
+                            val arrow = if (state.filterState.order == "desc") "↓" else "↑"
+                            val shown = if (active) "$label  $arrow" else label
                             PrairieDropdownMenuItem(
                                 text = {
                                     Text(
-                                        text = if (active) {
-                                            "$label  ${if (state.filterState.order == "desc") "↓" else "↑"}"
-                                        } else {
-                                            label
-                                        },
+                                        text = shown,
                                         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                                     )
                                 },
                                 onClick = {
-                                    viewModel.selectSort(field)
+                                    viewModel.selectSort(field.wireValue, field.defaultOrder)
                                     sortMenuOpen = false
                                 },
                             )
@@ -131,7 +148,7 @@ fun BrowseScreen(
                         badge = {
                             if (state.filterState.activeFacetCount > 0) {
                                 androidx.compose.material3.Badge {
-                                    Text("${state.filterState.activeFacetCount}")
+                                    Text(LocaleFormat.integer(state.filterState.activeFacetCount, currentNumberLocale()))
                                 }
                             }
                         },
@@ -139,7 +156,7 @@ fun BrowseScreen(
                         IconButton(onClick = { showFilterSheet = true }) {
                             Icon(
                                 imageVector = Icons.Default.FilterList,
-                                contentDescription = "Filters",
+                                contentDescription = stringResource(CommonR.string.filters_title),
                             )
                         }
                     }
@@ -185,7 +202,16 @@ fun BrowseScreen(
             // Content area
             when {
                 state.isLoading && state.items.isEmpty() -> {
-                    PosterGridSkeleton(progress = rememberShimmerProgress())
+                    // Square once the list has shown audiobooks (a re-sort or
+                    // filter reloads it); the first load can't know yet.
+                    PosterGridSkeleton(
+                        progress = rememberShimmerProgress(),
+                        posterAspect = if (state.mediaType == org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType.Audiobook) {
+                            1f
+                        } else {
+                            PosterArtworkAspectRatio
+                        },
+                    )
                 }
 
                 state.error != null -> {
@@ -204,7 +230,7 @@ fun BrowseScreen(
                                 modifier = Modifier.size(48.dp),
                             )
                             Text(
-                                text = state.error ?: "Something went wrong",
+                                text = state.error?.text() ?: stringResource(CommonR.string.status_errorGeneric),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -215,7 +241,7 @@ fun BrowseScreen(
                                     modifier = Modifier.size(18.dp),
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Retry")
+                                Text(stringResource(CommonR.string.common_retry))
                             }
                         }
                     }
@@ -237,16 +263,20 @@ fun BrowseScreen(
                                 modifier = Modifier.size(64.dp),
                             )
                             Text(
-                                text = if (state.libraryHasItems == false) "This library is empty" else "No items found",
+                                text = if (state.libraryHasItems == false) {
+                                    stringResource(CommonR.string.library_empty)
+                                } else {
+                                    stringResource(CommonR.string.library_noItems)
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                             )
                             Text(
                                 text = if (state.libraryHasItems == false) {
-                                    "There is nothing in this library yet."
+                                    stringResource(CommonR.string.library_emptyBody)
                                 } else {
-                                    "Try adjusting your filters"
+                                    stringResource(CommonR.string.library_tryAdjustingFilters)
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
@@ -258,6 +288,7 @@ fun BrowseScreen(
 
                 else -> {
                     // iOS phone Browse shows the grid directly with no count header.
+                    val dateLocale = currentFormatLocale()
                     CatalogGrid(
                         items = state.items,
                         isLoadingMore = state.isLoadingMore,
@@ -266,12 +297,15 @@ fun BrowseScreen(
                         onLoadMore = { viewModel.loadMore() },
                         // Date sorts surface the sorted-by date under each card.
                         cardSubtitle = when (state.filterState.sort) {
-                            "added_at" -> { item -> formatCardDate(item.addedAt) }
-                            "release_date" -> { item -> formatCardDate(item.releaseDate) }
+                            "added_at" -> { item -> formatCardDate(item.addedAt, dateLocale) }
+                            "release_date" -> { item -> formatCardDate(item.releaseDate, dateLocale) }
+                            "last_air_date" -> { item -> formatCardDate(item.lastAirDate, dateLocale) }
                             else -> null
                         },
-                        selectedNamePrefix = state.selectedNamePrefix,
-                        onNamePrefixSelected = viewModel::selectNamePrefix,
+                        letterJump = letterJump,
+                        listKey = state.filterState,
+                        onPrepareLetterJump = viewModel::prepareLetterJump,
+                        letterJumpPosition = viewModel::letterJumpPosition,
                         viewDensity = state.catalogDensity,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -297,42 +331,79 @@ fun BrowseScreen(
     }
 }
 
-/** Sort keys per media type (iOS CatalogSortKey.available). */
+/**
+ * The sort list's media. Video Browse spans libraries, so it lists every
+ * field, as the web client's cross-library catalog does.
+ */
+internal fun browseSortRelevance(
+    mediaType: org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType,
+): CatalogSortRelevance = when (mediaType) {
+    org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType.Video -> CatalogSortRelevance.Any
+    org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType.Audiobook ->
+        CatalogSortRelevance.Only(CatalogSortScope.Audiobook)
+}
+
+/** Sort fields per media type, in the web client's order. [current] stays listed while it is the active sort. */
 internal fun browseSortOptions(
     mediaType: org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType,
-): List<Pair<String, String>> = when (mediaType) {
-    org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType.Video -> listOf(
-        "title" to "Title",
-        "added_at" to "Date Added",
-        "year" to "Release Year",
-        "rating_imdb" to "IMDb Rating",
-        "runtime" to "Runtime",
-        "resolution" to "Resolution",
-    )
-    org.prairieserver.prairie.catalog.filter.BrowseFacetMediaType.Audiobook -> listOf(
-        "title" to "Title",
-        "author" to "Author",
-        "narrator" to "Narrator",
-        "series" to "Series",
-        "added_at" to "Date Added",
-        "runtime" to "Runtime",
-    )
-}
+    shownRatingSources: Set<String>,
+    current: String? = null,
+): List<CatalogSortField> = CatalogSortField.options(
+    relevance = browseSortRelevance(mediaType),
+    includePersonalized = true,
+    shownRatingSources = shownRatingSources,
+    keep = CatalogSortField.fromWire(current),
+)
 
 /** Chip label for a facet value (decades and watch statuses have labels
  *  distinct from their wire values). */
+@Composable
 internal fun facetValueLabel(
     facet: org.prairieserver.prairie.catalog.filter.CatalogFacet,
     value: String,
 ): String = when (facet) {
-    org.prairieserver.prairie.catalog.filter.CatalogFacet.Decade -> "${value}s"
+    org.prairieserver.prairie.catalog.filter.CatalogFacet.Decade ->
+        value.toIntOrNull()?.let { org.prairieserver.prairie.catalog.filter.decadeLabel(it).text() }
+            ?: stringResource(CommonR.string.filters_decade, value)
     org.prairieserver.prairie.catalog.filter.CatalogFacet.WatchStatus ->
-        org.prairieserver.prairie.catalog.filter.CatalogFacet.WATCH_STATUS_OPTIONS
-            .firstOrNull { it.first == value }?.second ?: value
+        watchStatusLabel(value)?.let { stringResource(it) } ?: value
     org.prairieserver.prairie.catalog.filter.CatalogFacet.DynamicRange ->
         org.prairieserver.prairie.catalog.filter.CatalogFacet.DYNAMIC_RANGE_OPTIONS
-            .firstOrNull { it.first == value }?.second ?: value
+            .firstOrNull { it.first == value }?.second?.text() ?: value
     else -> value
+}
+
+/** A facet's name in the interface language (`shared` keeps an English one). */
+@Composable
+internal fun facetLabel(facet: org.prairieserver.prairie.catalog.filter.CatalogFacet): String = stringResource(
+    when (facet) {
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Genre -> CommonR.string.filters_facet_genres
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Decade -> CommonR.string.filters_facet_decade
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.WatchStatus -> CommonR.string.filters_facet_watchStatus
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.ContentRating -> CommonR.string.filters_facet_contentRating
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Resolution -> CommonR.string.filters_facet_resolution
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.DynamicRange -> CommonR.string.filters_facet_dynamicRange
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Studio -> CommonR.string.filters_facet_studio
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Network -> CommonR.string.filters_facet_network
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Country -> CommonR.string.filters_facet_country
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.AudioLanguage -> CommonR.string.filters_facet_audioLanguage
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.SubtitleLanguage -> CommonR.string.filters_facet_subtitleLanguage
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.OriginalLanguage -> CommonR.string.filters_facet_originalLanguage
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Author -> CommonR.string.filters_facet_author
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.Narrator -> CommonR.string.filters_facet_narrator
+        org.prairieserver.prairie.catalog.filter.CatalogFacet.SeriesName -> CommonR.string.filters_facet_series
+    },
+)
+
+/** Watch-status chip labels by wire value; `shared` keeps English ones. */
+@androidx.annotation.StringRes
+private fun watchStatusLabel(value: String): Int? = when (value) {
+    "unwatched" -> CommonR.string.filters_value_unwatched
+    "inProgress" -> CommonR.string.filters_value_inProgress
+    "watched" -> CommonR.string.filters_value_watched
+    "favorited" -> CommonR.string.filters_value_favorited
+    "watchlist" -> CommonR.string.filters_value_watchlist
+    else -> null
 }
 
 /**
@@ -360,7 +431,7 @@ private fun ActiveFilterChip(
         )
         Icon(
             imageVector = Icons.Filled.Cancel,
-            contentDescription = "Remove filter",
+            contentDescription = stringResource(CommonR.string.filters_remove),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .size(14.dp)

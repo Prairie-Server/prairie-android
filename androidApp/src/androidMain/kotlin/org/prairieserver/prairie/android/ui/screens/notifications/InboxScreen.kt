@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.notifications
 
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,8 @@ import androidx.compose.runtime.LaunchedEffect
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
 import org.prairieserver.prairie.android.ui.components.LoadingIndicator
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.repository.NotificationsRepository
@@ -51,6 +54,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material.icons.filled.DoneAll
+import org.prairieserver.prairie.common.i18n.text
 
 /**
  * Notifications inbox: paginated newest-first list of delivery rows rendered as
@@ -114,7 +118,7 @@ fun InboxScreen(
     Scaffold(
         topBar = {
             PrairieTopBar(
-                title = "Notifications",
+                title = stringResource(CommonR.string.notifications_inbox_title),
                 onBackClick = onBackClick,
                 actions = {
                     if (unreadCount > 0) {
@@ -125,7 +129,7 @@ fun InboxScreen(
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Mark all read")
+                            Text(stringResource(CommonR.string.notifications_inbox_markAllRead))
                         }
                     }
                 },
@@ -141,11 +145,11 @@ fun InboxScreen(
             when {
                 isRefreshing && cards.isEmpty() -> LoadingIndicator()
                 error != null && cards.isEmpty() -> TextButton(onClick = { scope.launch { doRefresh() } }) {
-                    Text("${error} Retry")
+                    Text(stringResource(CommonR.string.notifications_inbox_errorRetry, error?.text?.text().orEmpty()))
                 }
                 cards.isEmpty() -> EmptyStateView(
-                    title = "You're all caught up",
-                    subtitle = "New episode and request notifications will show up here.",
+                    title = stringResource(CommonR.string.notifications_inbox_emptyTitle),
+                    subtitle = stringResource(CommonR.string.notifications_inbox_emptyBody),
                 )
                 else -> DeferImagePresentationWhileScrolling(listState) {
                 LazyColumn(
@@ -155,7 +159,7 @@ fun InboxScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     if (error != null) item(key = "inbox-error") {
-                        TextButton(onClick = { scope.launch { doRefresh() } }) { Text("${error} Retry") }
+                        TextButton(onClick = { scope.launch { doRefresh() } }) { Text(stringResource(CommonR.string.notifications_inbox_errorRetry, error?.text?.text().orEmpty())) }
                     }
                     items(cards, key = { it.id }) { card ->
                         InboxCard(
@@ -194,6 +198,10 @@ private fun InboxCard(
     card: InboxCardModel,
     onClick: () -> Unit,
 ) {
+    val resources = LocalResources.current
+    val title = card.title.resolve(resources)
+    val subtitle = card.subtitle?.resolve(resources)
+    val relativeTime = card.relativeTime?.resolve(resources).orEmpty()
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
@@ -211,7 +219,7 @@ private fun InboxCard(
                 ThumbhashImage(
                     url = card.posterUrl,
                     thumbhash = card.posterThumbhash,
-                    contentDescription = card.title,
+                    contentDescription = title,
                     modifier = Modifier
                         .width(48.dp)
                         .height(72.dp)
@@ -223,13 +231,13 @@ private fun InboxCard(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = card.title,
+                    text = title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (card.isUnread) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                card.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
+                subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
@@ -243,9 +251,9 @@ private fun InboxCard(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (card.relativeTime.isNotBlank()) {
+                if (relativeTime.isNotBlank()) {
                     Text(
-                        text = card.relativeTime,
+                        text = relativeTime,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -47,26 +47,31 @@ class LegacySecureTokenMigrationTest {
         assertEquals("profile-living-room", registry.activeEntry.value?.profileId)
         assertTrue(prefs.getBoolean(AndroidServerRegistry.KEY_MIGRATED, false))
 
-        // Tokens moved under "<serverId>.<baseKey>" and legacy unprefixed keys cleared.
+        // Tokens end up under the migrated account, "<serverId>.<accountId>.<baseKey>"
+        // (the server-scoped slot is only an intermediate step), and legacy keys are cleared.
+        val account = assertNotNull(registry.activeAccount.value)
+        assertEquals(serverId, account.serverId)
+        val accountId = account.localAccountId
+        assertNull(prefs.getString(AndroidServerRegistry.serverScopedKey(serverId, "access_token"), null))
         assertEquals(
             "legacy-access",
-            prefs.getString(AndroidServerRegistry.serverScopedKey(serverId, "access_token"), null),
+            prefs.getString(AndroidServerRegistry.accountScopedKey(serverId, accountId, "access_token"), null),
         )
         assertEquals(
             "legacy-refresh",
-            prefs.getString(AndroidServerRegistry.serverScopedKey(serverId, "refresh_token"), null),
+            prefs.getString(AndroidServerRegistry.accountScopedKey(serverId, accountId, "refresh_token"), null),
         )
         assertEquals(
             1_700_000_000_000L,
-            prefs.getLong(AndroidServerRegistry.serverScopedKey(serverId, "token_expiry_epoch_ms"), -1L),
+            prefs.getLong(AndroidServerRegistry.accountScopedKey(serverId, accountId, "token_expiry_epoch_ms"), -1L),
         )
         assertEquals(
             "profile-living-room",
-            prefs.getString(AndroidServerRegistry.serverScopedKey(serverId, "profile_id"), null),
+            prefs.getString(AndroidServerRegistry.accountScopedKey(serverId, accountId, "profile_id"), null),
         )
         assertEquals(
             "legacy-profile-token",
-            prefs.getString(AndroidServerRegistry.serverScopedKey(serverId, "profile_token"), null),
+            prefs.getString(AndroidServerRegistry.accountScopedKey(serverId, accountId, "profile_token"), null),
         )
         assertNull(prefs.getString("access_token", null))
         assertNull(prefs.getString("refresh_token", null))

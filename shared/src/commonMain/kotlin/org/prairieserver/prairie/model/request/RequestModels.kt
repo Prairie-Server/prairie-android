@@ -29,7 +29,7 @@ object RequestOutcome {
 
 /**
  * Values of [RequestState.reason]: why a title cannot be requested. They are
- * codes for deciding what to offer, not text; show [requestReasonCopy] instead.
+ * codes for deciding what to offer, not text; show [requestReasonText] instead.
  */
 object RequestReason {
     const val AlreadyRequested = "already_requested"
@@ -246,6 +246,13 @@ data class MediaRequest(
     @SerialName("completed_at") val completedAt: String? = null,
 ) {
     val isActive: Boolean get() = outcome == RequestOutcome.Active
+
+    /**
+     * The server's rule for `removeFailedRequest`: it failed and delivered
+     * nothing. One that delivered a quality before failing stays as the record of that copy.
+     */
+    val isRemovableFailure: Boolean
+        get() = outcome == RequestOutcome.Failed && targets.none { it.status == RequestStatus.Completed }
 }
 
 @Serializable
@@ -265,6 +272,8 @@ data class RequestsFeatureStatus(
     val state: String? = null,
     /** The server takes `PUT`/`DELETE /api/v2/requests/follows/{media_type}/{tmdb_id}`; absent (false) on older servers. */
     @SerialName("follow_supported") val followSupported: Boolean = false,
+    /** The server takes `DELETE /api/v2/requests/{id}` for a failed request; absent (false) on older servers. */
+    @SerialName("remove_failed_supported") val removeFailedSupported: Boolean = false,
 ) {
     /** The feature is on and this profile may use it; a blocked account sees `allowed: false`. */
     val isAvailable: Boolean

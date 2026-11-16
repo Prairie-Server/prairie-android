@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.viewmodel
 
+import org.prairieserver.prairie.common.i18n.english
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.watchtogether.AddSuggestionRequest
 import org.prairieserver.prairie.model.watchtogether.CreateRoomRequest
@@ -217,7 +218,7 @@ class WatchPartyViewModelsTest {
         hub.joinInvite(WatchPartyInvite.Link("https://other.example", "secret-token"))
         runCurrent()
         assertEquals(1, f.api.joins.size)
-        assertTrue(hub.uiState.value.error!!.contains("different Prairie server"))
+        assertTrue(hub.uiState.value.error!!.english().contains("different Prairie server"))
     }
 
     @Test
@@ -232,7 +233,7 @@ class WatchPartyViewModelsTest {
         runCurrent()
 
         assertEquals(1, f.api.joins.size)
-        assertTrue(hub.uiState.value.error!!.contains("Leave it first"))
+        assertTrue(hub.uiState.value.error!!.english().contains("Leave it first"))
     }
 
     @Test
@@ -245,7 +246,7 @@ class WatchPartyViewModelsTest {
         hub.join("K7PQ2M4X")
         runCurrent()
 
-        assertEquals("No Watch Party uses that code.", hub.uiState.value.error)
+        assertEquals("No Watch Party uses that code.", hub.uiState.value.error?.english())
         assertNull(hub.uiState.value.destination)
     }
 

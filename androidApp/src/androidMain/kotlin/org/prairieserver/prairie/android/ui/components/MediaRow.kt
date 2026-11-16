@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.android.ui.components
 
+import org.prairieserver.prairie.viewmodel.DetailSeeds
+import org.prairieserver.prairie.common.R as CommonR
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -118,6 +121,9 @@ fun MediaRow(
     val imageCapabilities: ImageCapabilitiesSession = koinInject()
     val heroHandoff = LocalHeroSourceHandoff.current
     val uniqueItems = remember(items) { items.distinctBy { it.contentId } }
+    // Square covers when the row is all audiobooks, as on iOS; the row keeps
+    // one card height otherwise.
+    val posterAspectRatio = remember(uniqueItems) { sharedArtworkAspectRatio(uniqueItems.map { it.type }) }
     val diagnosticsKeySnapshot = remember(items) {
         DiagnosticsListSnapshot.fromKeys(items.map { it.contentId })
     }
@@ -177,7 +183,7 @@ fun MediaRow(
                 modifier = if (onExploreAllClick != null) {
                     Modifier
                         .clip(MaterialTheme.shapes.small)
-                        .clickable(onClickLabel = "Explore all", role = Role.Button, onClick = onExploreAllClick)
+                        .clickable(onClickLabel = stringResource(CommonR.string.rows_exploreAll), role = Role.Button, onClick = onExploreAllClick)
                 } else {
                     Modifier
                 },
@@ -246,6 +252,7 @@ fun MediaRow(
         // vertical fling (the helper ORs in any deferral already in scope).
         val rowState = rememberLazyListState()
         fun openDetail(item: SectionItem) {
+            DetailSeeds.offer(item)
             // An episode opens on its series page, so hand off the series
             // backdrop its card carries. It is never a still.
             item.seriesHeroBackdrop()?.let { series ->
@@ -344,7 +351,7 @@ fun MediaRow(
                             overlay = rowItem.overlay,
                             actions = cardActions(item),
                             overlayIcon = if (rowItem.isBook) Icons.AutoMirrored.Filled.MenuBook else Icons.Default.PlayArrow,
-                            overlayContentDescription = if (rowItem.isBook) "Read" else "Play",
+                            overlayContentDescription = stringResource(if (rowItem.isBook) CommonR.string.shell_card_read else CommonR.string.common_play),
                             onOverlayClick = if (!rowItem.isBook && onItemPlay != null) {
                                 { onItemPlay(item) }
                             } else {
@@ -367,7 +374,9 @@ fun MediaRow(
                             overlay = rowItem.overlay,
                             actions = cardActions(item),
                             modifier = Modifier.animateItem(),
+                            artworkAspectRatio = posterAspectRatio,
                             sharedContentId = item.contentId,
+                            widthIsExact = true,
                         )
                     }
                 }
@@ -376,7 +385,7 @@ fun MediaRow(
             if (onExploreAllClick != null) {
                 item(key = EXPLORE_ALL_KEY, contentType = "explore-all:${cardStyle.name}") {
                     CompositionLocalProvider(LocalViewConfiguration provides baseViewConfiguration) {
-                        ExploreAllCard(cardStyle = cardStyle, onClick = onExploreAllClick)
+                        ExploreAllCard(cardStyle = cardStyle, onClick = onExploreAllClick, posterAspectRatio = posterAspectRatio)
                     }
                 }
             }
@@ -395,10 +404,16 @@ private const val EXPLORE_ALL_KEY = "\u0000explore-all"
  * a movie page's box set row.
  */
 @Composable
-internal fun ExploreAllCard(cardStyle: CardStyle, onClick: () -> Unit, width: Dp? = null) {
+internal fun ExploreAllCard(
+    cardStyle: CardStyle,
+    onClick: () -> Unit,
+    width: Dp? = null,
+    /** The row's poster shape: square in an audiobook row. */
+    posterAspectRatio: Float = PosterArtworkAspectRatio,
+) {
     val scale = LocalCardPresentation.current.posterSize.posterScale
     val (defaultWidth, aspectRatio, shape) = when (cardStyle) {
-        CardStyle.Poster -> Triple(120.dp * scale, 2f / 3.3f, MaterialTheme.shapes.small)
+        CardStyle.Poster -> Triple(120.dp * scale, posterAspectRatio, MaterialTheme.shapes.small)
         CardStyle.Backdrop -> Triple(280.dp * scale, 16f / 9f, RoundedCornerShape(10.dp))
     }
     Box(
@@ -430,7 +445,7 @@ internal fun ExploreAllCard(cardStyle: CardStyle, onClick: () -> Unit, width: Dp
                 )
             }
             Text(
-                text = "Explore all",
+                text = stringResource(CommonR.string.rows_exploreAll),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
             )

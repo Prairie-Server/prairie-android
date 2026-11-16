@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.common.player
 
+import androidx.annotation.StringRes
 import org.prairieserver.prairie.model.playback.PlayMethod
 import org.prairieserver.prairie.model.playback.PlaybackDelivery
 import org.prairieserver.prairie.model.playback.PlaybackExecutionPlan
@@ -45,8 +46,11 @@ sealed interface VideoSessionStartV3 {
 
     data class Terminal(
         val reason: String,
+        /** The server's text, or this client's English for a terminal it wrote itself. */
         val message: String,
         val retryable: Boolean,
+        /** Set when this client wrote [message]: the catalog string to show instead. */
+        @StringRes val messageRes: Int? = null,
     ) : VideoSessionStartV3
 
     data object ServerUpgradeRequired : VideoSessionStartV3

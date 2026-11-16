@@ -58,16 +58,24 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import org.prairieserver.prairie.android.ui.components.LeftToRight
 import org.prairieserver.prairie.android.ui.util.formatClockTime
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.isRightToLeftText
+import org.prairieserver.prairie.common.player.rememberPlayerEndTimeLabel
+import org.prairieserver.prairie.domain.player.MarkerKind
+import org.prairieserver.prairie.domain.player.MarkerTimeline
 import org.prairieserver.prairie.common.player.TrickplayTileImage
-import org.prairieserver.prairie.model.catalog.TimeRange
 import org.prairieserver.prairie.model.catalog.VersionChapter
 import org.prairieserver.prairie.playback.TrickplayInfo
 import org.prairieserver.prairie.playback.resolveTrickplayTile
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * The seek bar. Like iOS, the whole bar is the handle: it grows from 5 to
@@ -82,8 +90,9 @@ import org.prairieserver.prairie.playback.resolveTrickplayTile
  * [onScrubTarget] is only told the target then, so the two never both load.
  *
  * Track regions: played (Paper), buffered (safe to seek into), base. Detected
- * markers are tinted bands under the played fill (intro cyan, recap green,
- * credits orange, preview purple).
+ * markers are tinted bands over the played fill, one per occurrence, so a
+ * marker stays visible after the playhead passes it (intro blue, recap orange,
+ * credits purple, preview cyan: TheIntroDB's segment palette).
  */
 @Composable
 fun PlayerProgressBar(
@@ -94,15 +103,40 @@ fun PlayerProgressBar(
     bufferedPosition: Double = 0.0,
     enabled: Boolean = true,
     chapters: List<VersionChapter> = emptyList(),
-    intro: TimeRange? = null,
+    markers: MarkerTimeline = MarkerTimeline.EMPTY,
     trickplay: TrickplayInfo? = null,
-    credits: TimeRange? = null,
-    recap: TimeRange? = null,
-    preview: TimeRange? = null,
     showTimes: Boolean = true,
     onScrubbingChange: (Boolean) -> Unit = {},
     thumbnail: ImageBitmap? = null,
     onScrubTarget: (Double?) -> Unit = {},
+    playbackSpeed: Double = 1.0,
+) {
+    // A timeline runs left to right in every language: the bar is drawn and
+    // hit-tested from the left edge, so its times sit the same way round.
+    LeftToRight {
+        ProgressBarContent(
+            position, duration, onSeek, modifier, bufferedPosition, enabled, chapters, markers, trickplay,
+            showTimes, onScrubbingChange, thumbnail, onScrubTarget, playbackSpeed,
+        )
+    }
+}
+
+@Composable
+private fun ProgressBarContent(
+    position: Double,
+    duration: Double,
+    onSeek: (Double) -> Unit,
+    modifier: Modifier,
+    bufferedPosition: Double,
+    enabled: Boolean,
+    chapters: List<VersionChapter>,
+    markers: MarkerTimeline,
+    trickplay: TrickplayInfo?,
+    showTimes: Boolean,
+    onScrubbingChange: (Boolean) -> Unit,
+    thumbnail: ImageBitmap?,
+    onScrubTarget: (Double?) -> Unit,
+    playbackSpeed: Double,
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableDoubleStateOf(0.0) }
@@ -156,6 +190,14 @@ fun PlayerProgressBar(
 
     fun chapterIndexAt(seconds: Double): Int = latestChapters.indexOfLast { it.startSeconds <= seconds }
 
+    val endTimeLabel = rememberPlayerEndTimeLabel(
+        remainingSec = if (hasKnownDuration) duration - displayPosition else 0.0,
+        speed = playbackSpeed,
+    )
+    val positionDescription = stringResource(CommonR.string.player_progress_position)
+    // Formatted inside semantics, as before, rather than on every position tick.
+    val resources = LocalResources.current
+
     Column(modifier = modifier.fillMaxWidth()) {
         if (showTimes) {
             Row(
@@ -170,17 +212,25 @@ fun PlayerProgressBar(
                     modifier = Modifier.weight(1f),
                 )
                 // Tap to switch between time left and total length (iOS).
+                val time = if (showTotal && hasKnownDuration) {
+                    formatClockTime(duration)
+                } else {
+                    remainingTimeLabel(displayPosition, duration)
+                }
+                // Beside a right-to-left "Ends" label the "−" would move to
+                // the far end of the time, so the time keeps its own run.
+                val isolatedTime = if (endTimeLabel != null && isRightToLeftText()) {
+                    "\u2066$time\u2069" // i18n-ignore: isolate marks
+                } else {
+                    time
+                }
                 Text(
-                    text = if (showTotal && hasKnownDuration) {
-                        formatClockTime(duration)
-                    } else {
-                        remainingTimeLabel(displayPosition, duration)
-                    },
+                    text = listOfNotNull(isolatedTime, endTimeLabel).joinToString(" · "),
                     style = PlayerType.Time.copy(color = PlayerChrome.Graphite),
                     modifier = Modifier.clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClickLabel = "Switch between time left and total length",
+                        onClickLabel = stringResource(CommonR.string.player_progress_toggleTime),
                     ) { showTotal = !showTotal },
                 )
             }
@@ -192,8 +242,12 @@ fun PlayerProgressBar(
                 .height(36.dp)
                 .onSizeChanged { barWidthPx = it.width.toFloat() }
                 .semantics {
-                    contentDescription = "Playback position"
-                    stateDescription = "${formatClockTime(displayPosition)} of ${formatClockTime(duration)}"
+                    contentDescription = positionDescription
+                    stateDescription = resources.getString(
+                        CommonR.string.player_progress_positionState,
+                        formatClockTime(displayPosition),
+                        formatClockTime(duration),
+                    )
                     if (hasKnownDuration) {
                         progressBarRangeInfo = ProgressBarRangeInfo(
                             current = displayPosition.toFloat(),
@@ -253,12 +307,6 @@ fun PlayerProgressBar(
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            val markers = listOfNotNull(
-                intro?.let { it to Color(0xFF22D3EE) },
-                recap?.let { it to Color(0xFF8BC34A) },
-                credits?.let { it to Color(0xFFFFB74D) },
-                preview?.let { it to Color(0xFFBA68C8) },
-            )
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -273,9 +321,17 @@ fun PlayerProgressBar(
                     } else {
                         emptyList()
                     },
+                    // A band for every occurrence of each kind: a file can
+                    // have two credits ranges, for example.
                     markers = if (hasKnownDuration) {
-                        markers.map { (range, color) ->
-                            Triple((range.start / duration).toFloat(), (range.end / duration).toFloat(), color)
+                        MarkerKind.entries.flatMap { kind ->
+                            markers.ranges(kind).map { range ->
+                                Triple(
+                                    (range.start / duration).toFloat().coerceIn(0f, 1f),
+                                    (range.end / duration).toFloat().coerceIn(0f, 1f),
+                                    markerBandColor(kind),
+                                )
+                            }
                         }
                     } else {
                         emptyList()
@@ -356,6 +412,7 @@ fun PlayerProgressBar(
                             .padding(top = 2.dp)
                             .widthIn(max = 220.dp),
                     )
+                    endTimeLabel?.let { Text(text = it, style = PlayerType.BubbleDetail, maxLines = 1) }
                 }
             }
         }
@@ -368,6 +425,14 @@ private val ScrubThumbnailHeight = 99.dp
 private val ScrubThumbnailGap = 6.dp
 /** The bubble's padding while it shows a preview. */
 private val ScrubThumbnailInset = 7.dp
+
+/** TheIntroDB's segment palette (Tailwind v4 400 shades), shared by every Prairie client. */
+private fun markerBandColor(kind: MarkerKind): Color = when (kind) {
+    MarkerKind.Intro -> Color(0xFF51A2FF)
+    MarkerKind.Recap -> Color(0xFFFF8904)
+    MarkerKind.Credits -> Color(0xFFC27AFF)
+    MarkerKind.Preview -> Color(0xFF00D3F2)
+}
 
 private fun DrawScope.drawSeekBar(
     barHeightPx: Float,
@@ -411,10 +476,10 @@ private fun DrawScope.drawSeekBar(
             cornerRadius = radius,
         )
         fill(Color.White.copy(alpha = 0.22f * alpha), bufferedFraction * width)
+        fill(PlayerChrome.Paper.copy(alpha = alpha), playedFraction * width)
         markers.forEach { (from, to, color) ->
             fill(color.copy(alpha = 0.45f * alpha), untilX = to * width, fromX = maxOf(start, from * width))
         }
-        fill(PlayerChrome.Paper.copy(alpha = alpha), playedFraction * width)
     }
 
     startFraction?.let { fraction ->
@@ -450,7 +515,10 @@ internal fun remainingTimeLabel(position: Double, duration: Double): String =
 
 /** iOS `chapterTitle(at:)`: the last chapter starting at or before [seconds],
  *  falling back to "Chapter N" when the chapter is untitled. */
+@Composable
 internal fun chapterTitleAt(chapters: List<VersionChapter>, seconds: Double): String? {
     val chapter = chapters.lastOrNull { it.startSeconds <= seconds } ?: return null
-    return chapter.title.ifBlank { "Chapter ${chapter.index + 1}" }
+    return chapter.title.ifBlank {
+        stringResource(CommonR.string.options_chapterNumbered, LocaleFormat.integer(chapter.index + 1))
+    }
 }

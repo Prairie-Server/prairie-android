@@ -1,5 +1,10 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.playback.hasResumePoint
+import org.prairieserver.prairie.playback.selectDetailPlaybackVersion
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.errorText
 import kotlinx.coroutines.flow.stateIn
 
 import androidx.lifecycle.SavedStateHandle
@@ -21,7 +26,6 @@ import org.prairieserver.prairie.model.download.DownloadRecord
 import org.prairieserver.prairie.model.download.DownloadStatus
 import org.prairieserver.prairie.model.download.statusEnum
 import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.network.isAccessRefusal
 import org.prairieserver.prairie.model.catalog.isBookLikeItemType
 import org.prairieserver.prairie.metadata.DescriptionTranslationController
@@ -55,6 +59,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
+import org.prairieserver.prairie.viewmodel.DetailSeeds
+
+private const val MISSING_SERIES_ERROR = "missing_series"
 
 /**
  * UI state for the item detail screen.
@@ -62,6 +69,12 @@ import kotlinx.coroutines.ensureActive
 data class ItemDetailUiState(
     val isLoading: Boolean = true,
     val detail: ItemDetail? = null,
+    /**
+     * [detail] is the card the page was opened from ([DetailSeeds]), not a
+     * fetched detail. The page draws it, but actions that need the full
+     * detail (play, download, watched, remote playback) wait for the fetch.
+     */
+    val isProvisional: Boolean = false,
     val similarItems: List<org.prairieserver.prairie.model.catalog.BrowseItem> = emptyList(),
     /** The box set this movie belongs to, for the box set row after the extras; null for none. */
     val boxSet: org.prairieserver.prairie.model.catalog.CatalogBoxSetDetail? = null,
@@ -118,11 +131,13 @@ data class ItemDetailUiState(
     val isFavorite: Boolean = false,
     val isInWatchlist: Boolean = false,
     val userRating: Int? = null,
-    val error: String? = null,
+    val error: UiText? = null,
     val selectedVersionIndex: Int = 0,
     val selectedAudioIndex: Int = 0,
     val selectedSubtitleIndex: Int = -1,
     val hasExplicitVersionSelection: Boolean = false,
+    /** The edition the viewer picked (a `PlaybackEdition.id`); null opens on the last-played one. */
+    val selectedEditionId: String? = null,
     val hasExplicitAudioSelection: Boolean = false,
     val hasExplicitSubtitleSelection: Boolean = false,
     /** Server converts Kindle (mobi/azw/azw3) to EPUB, so they read in-app. */
@@ -197,8 +212,17 @@ class ItemDetailViewModel(
 
     // A route that names its episode starts with it selected, so the series
     // hero opens on that episode instead of showing the series overview until
-    // the season's episodes arrive.
-    private val _uiState = MutableStateFlow(ItemDetailUiState(selectedEpisodeContentId = initialEpisodeContentId))
+    // the season's episodes arrive. The tapped card ([DetailSeeds]) draws the
+    // page on its first frame; the detail request replaces it.
+    private val _uiState = MutableStateFlow(
+        DetailSeeds.take(contentId).let { seed ->
+            ItemDetailUiState(
+                selectedEpisodeContentId = initialEpisodeContentId,
+                detail = seed,
+                isProvisional = seed != null,
+            )
+        },
+    )
     val uiState: StateFlow<ItemDetailUiState> = kotlinx.coroutines.flow.combine(_uiState, personalDataRepository.memberships.actions) { state, actions ->
         var projected = state
         actions.values.filter { it.baseline != null && it.intent.key.itemId == contentId && personalDataRepository.memberships.current(it.intent) }.forEach {
@@ -257,6 +281,7 @@ class ItemDetailViewModel(
         repository = metadataAiRepository,
         delayMs = { kotlinx.coroutines.delay(it) },
     )
+    val translatingSeasonContentId: StateFlow<String?> = episodeTranslation.translatingContentId
 
     init {
         viewModelScope.launch {
@@ -340,13 +365,20 @@ class ItemDetailViewModel(
      *  download limit reached". The screen shows it; without it a rejected
      *  request, and above all a rejected series batch, looked like nothing
      *  happened. */
-    private val _downloadFailureMessages = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
-    val downloadFailureMessages: kotlinx.coroutines.flow.SharedFlow<String> = _downloadFailureMessages
+    private val _downloadFailureMessages =
+        kotlinx.coroutines.flow.MutableSharedFlow<UiText>(extraBufferCapacity = 4)
+    val downloadFailureMessages: kotlinx.coroutines.flow.SharedFlow<UiText> = _downloadFailureMessages
 
     private suspend fun reportDownloadStart(result: ApiResult<*>) {
         _downloadStartEvents.emit(result is ApiResult.Success)
         if (result !is ApiResult.Success) {
-            _downloadFailureMessages.emit(result.errorMessage("Couldn't start the download."))
+            _downloadFailureMessages.emit(
+                if (result is ApiResult.Error && result.error == MISSING_SERIES_ERROR) {
+                    UiText.Res(CommonR.string.detail_error_episodeMissingSeries)
+                } else {
+                    result.errorText(CommonR.string.detail_error_downloadStart)
+                },
+            )
         }
     }
 
@@ -389,7 +421,7 @@ class ItemDetailViewModel(
                     seriesContentId = seriesId,
                     episodeContentId = item.contentId,
                     fileId = version.fileId,
-                    seriesTitle = knownTitle ?: parent?.title?.takeIf { it.isNotBlank() } ?: "Series",
+                    seriesTitle = knownTitle ?: parent?.title?.takeIf { it.isNotBlank() } ?: DownloadEnqueuer.UNKNOWN_SERIES_TITLE,
                     seasonNumber = item.seasonNumber,
                     episodeNumber = item.episodeNumber,
                     episodeTitle = item.title,
@@ -400,7 +432,7 @@ class ItemDetailViewModel(
                 )
             }
             // The server rejects an episode sent without its series.
-            item?.type == "episode" -> ApiResult.Error(0, "missing_series", "This episode isn't linked to a series.")
+            item?.type == "episode" -> ApiResult.Error(0, MISSING_SERIES_ERROR, "")
             else -> downloadEnqueuer.start(
                 contentId = item?.contentId ?: contentId,
                 fileId = version.fileId,
@@ -477,7 +509,19 @@ class ItemDetailViewModel(
             val liveDetail = async {
                 catalogRepository.getItemDetail(contentId, libraryId = libraryId, joinWarmup = !afterAccessChange)
             }
+            // A page that already knows it is a series, from its card or the
+            // durable cache, loads seasons and first episodes alongside the
+            // detail request rather than after it.
+            var seasonsStarted = false
+            fun startSeasonsIfSeries() {
+                if (!seasonsStarted && _uiState.value.detail?.type == "series") {
+                    seasonsStarted = true
+                    loadSeasons(contentId)
+                }
+            }
+            startSeasonsIfSeries()
             seedCachedDetail()
+            startSeasonsIfSeries()
 
             when (val result = liveDetail.await()) {
                 is ApiResult.Success -> {
@@ -486,6 +530,7 @@ class ItemDetailViewModel(
                         it.copy(
                             isLoading = false,
                             detail = detail,
+                            isProvisional = false,
                             userRating = detail.userRating,
                             error = null,
                         )
@@ -496,8 +541,7 @@ class ItemDetailViewModel(
                         similarJob = viewModelScope.launch { loadSimilar(detail, similarOwner, similarRun) }
                     }
                     loadBoxSet(detail)
-                    // For series, load seasons
-                    if (detail.type == "series") {
+                    if (detail.type == "series" && !seasonsStarted) {
                         loadSeasons(detail.contentId)
                     }
                     // For episodes, load the parent series' seasons + this
@@ -527,22 +571,27 @@ class ItemDetailViewModel(
                         // The durable cache still holds a title the server
                         // now refuses; drop the copy seedCachedDetail painted
                         // so the screen shows the error, not stale actions.
-                        val detail = if (dropsDetailOn(result)) null else it.detail
+                        // A card seed is never kept in place of the error.
+                        val detail = if (it.isProvisional || dropsDetailOn(result)) null else it.detail
                         it.copy(
                             isLoading = false,
                             detail = detail,
-                            error = result.message.ifBlank { "Failed to load details" },
+                            isProvisional = false,
+                            error = result.errorText(CommonR.string.detail_error_loadFailed),
                             episodeFallbackContentId = initialEpisodeContentId.takeIf { detail == null },
                         )
                     }
                 }
                 is ApiResult.NetworkError -> {
                     _uiState.update { state ->
+                        val detail = state.detail.takeUnless { state.isProvisional }
                         state.copy(
                             isLoading = false,
-                            error = "Network error. Check your connection.",
+                            detail = detail,
+                            isProvisional = false,
+                            error = UiText.Res(CommonR.string.catalog_error_network),
                             // Offline, the episode may still be cached when its series is not.
-                            episodeFallbackContentId = initialEpisodeContentId.takeIf { state.detail == null },
+                            episodeFallbackContentId = initialEpisodeContentId.takeIf { detail == null },
                         )
                     }
                 }
@@ -618,6 +667,8 @@ class ItemDetailViewModel(
      * [showAccessRefusal]: see [refreshAfterAccessChange].
      */
     private fun quietRefresh(afterWatchedChange: Boolean = false, showAccessRefusal: Boolean = false) {
+        // A card seed has nothing to refresh; its full load is still running.
+        if (_uiState.value.isProvisional) return
         val current = _uiState.value.detail ?: return
         // A newer detail read replaces an unfinished one, so an older answer
         // cannot land after it, for example restoring a title the newer read
@@ -653,7 +704,7 @@ class ItemDetailViewModel(
                         it.copy(
                             isLoading = false,
                             detail = null,
-                            error = result.message.ifBlank { "Failed to load details" },
+                            error = result.errorText(CommonR.string.detail_error_loadFailed),
                         )
                     }
                 }
@@ -688,6 +739,7 @@ class ItemDetailViewModel(
             it.copy(
                 isLoading = true,
                 detail = cached,
+                isProvisional = false,
                 userRating = cached.userRating,
                 error = null,
             )
@@ -954,6 +1006,7 @@ class ItemDetailViewModel(
                 selectedAudioIndex = 0,
                 selectedSubtitleIndex = -1,
                 hasExplicitVersionSelection = false,
+                selectedEditionId = null,
                 hasExplicitAudioSelection = false,
                 hasExplicitSubtitleSelection = false,
             )
@@ -1075,6 +1128,7 @@ class ItemDetailViewModel(
                 selectedAudioIndex = 0,
                 selectedSubtitleIndex = -1,
                 hasExplicitVersionSelection = false,
+                selectedEditionId = null,
                 hasExplicitAudioSelection = false,
                 hasExplicitSubtitleSelection = false,
             )
@@ -1295,6 +1349,13 @@ class ItemDetailViewModel(
         seedPersistedTrackSelection()
     }
 
+    /** Picks an edition: Version goes back to Auto within it, which clears the
+     *  version pin and, like [selectVersion], the file-specific track picks. */
+    fun selectEdition(editionId: String) {
+        _uiState.update { it.copy(selectedEditionId = editionId) }
+        selectAutoVersion()
+    }
+
     /** Back to Auto — clears the version override and, like [selectVersion],
      *  the file-specific audio/subtitle overrides with it. */
     fun selectAutoVersion() {
@@ -1375,7 +1436,54 @@ class ItemDetailViewModel(
     }
 
     private fun trackChoiceVersion(state: ItemDetailUiState, detail: ItemDetail, version: FileVersion?): FileVersion? =
-        version ?: detail.versions.getOrNull(state.selectedVersionIndex)
+        version ?: displayedVersion(state, detail)
+
+    /** The quality preference the page resolves Auto with; the screen reports it. */
+    private var preferredQuality: String? = null
+
+    fun onPreferredQualityChanged(quality: String?) {
+        if (quality == preferredQuality) return
+        val state = _uiState.value
+        // On a series page the selectors show the selected episode's files.
+        val target = state.selectedEpisodeDetail ?: state.detail
+        val shownBefore = target?.let { displayedVersion(state, it)?.fileId }
+        preferredQuality = quality
+        val shownAfter = target?.let { displayedVersion(state, it)?.fileId }
+        // Track picks belong to a file: when Auto now shows another file, start
+        // that file's tracks over from what was saved for it.
+        if (shownAfter != shownBefore) {
+            _uiState.update {
+                it.copy(
+                    selectedAudioIndex = 0,
+                    selectedSubtitleIndex = -1,
+                    hasExplicitAudioSelection = false,
+                    hasExplicitSubtitleSelection = false,
+                )
+            }
+            seedPersistedTrackSelection()
+        }
+    }
+
+    /**
+     * The file the page shows for [detail]: the pinned one, else Auto within
+     * the current edition, as the screen resolves it. Track picks are saved
+     * and restored against this file.
+     */
+    private fun displayedVersion(state: ItemDetailUiState, detail: ItemDetail): FileVersion? =
+        if (state.hasExplicitVersionSelection) {
+            detail.versions.getOrNull(state.selectedVersionIndex)
+        } else {
+            selectDetailPlaybackVersion(
+                versions = detail.versions,
+                variants = detail.playbackVariants,
+                pinnedFileId = null,
+                editionId = state.selectedEditionId,
+                lastFileId = detail.userData?.lastFileId,
+                lastEditionKey = detail.userData?.lastEditionKey,
+                inProgress = detail.userData.hasResumePoint,
+                preferredQuality = preferredQuality,
+            )
+        }
 
     /**
      * A pick here applies to the whole series (or the movie) and the
@@ -1444,7 +1552,7 @@ class ItemDetailViewModel(
     private fun persistTrackSelection() {
         val state = _uiState.value
         val detail = state.detail ?: return
-        val version = detail.versions.getOrNull(state.selectedVersionIndex) ?: return
+        val version = displayedVersion(state, detail) ?: return
         val subtitleFingerprint = when {
             !state.hasExplicitSubtitleSelection -> null
             state.selectedSubtitleIndex == -1 -> SUBTITLE_OFF_FINGERPRINT
@@ -1474,7 +1582,7 @@ class ItemDetailViewModel(
     private fun seedPersistedTrackSelection() {
         val state = _uiState.value
         val detail = state.detail ?: return
-        val version = detail.versions.getOrNull(state.selectedVersionIndex) ?: return
+        val version = displayedVersion(state, detail) ?: return
         viewModelScope.launch {
             val saved = userItemState.localTrackSelection(detail.contentId, version.fileId) ?: return@launch
             // The series choice on the server outranks this device's per-file
@@ -1513,7 +1621,7 @@ class ItemDetailViewModel(
                 // The ordinals were resolved against `version`; if the user
                 // switched versions while this suspended, they'd index into the
                 // wrong track list — leave the new version untouched.
-                if (it.detail?.versions?.getOrNull(it.selectedVersionIndex)?.fileId != version.fileId) {
+                if (it.detail?.let { current -> displayedVersion(it, current) }?.fileId != version.fileId) {
                     return@update it
                 }
                 // Don't clobber a pick the user already made this session.

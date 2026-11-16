@@ -62,6 +62,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -71,8 +72,11 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import org.prairieserver.prairie.android.ui.components.LabelValueLine
 import org.prairieserver.prairie.android.ui.screens.settings.settingsSwitchColors
 import org.prairieserver.prairie.android.ui.theme.PrairieDestructive
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.displayUppercase
 import org.prairieserver.prairie.android.ui.theme.PrairieInterFamily
 
 /**
@@ -218,10 +222,11 @@ internal fun PlayerDisc(
  */
 @Composable
 internal fun PlayerLoadingSpinner(modifier: Modifier = Modifier) {
+    val loading = stringResource(CommonR.string.common_loading)
     CircularProgressIndicator(
         modifier = modifier
             .size(56.dp)
-            .semantics { contentDescription = "Loading" },
+            .semantics { contentDescription = loading },
         color = PlayerChrome.Paper,
         strokeWidth = 3.dp,
     )
@@ -316,7 +321,7 @@ internal fun PlayerPanelHeader(
     title: String,
     onClose: () -> Unit,
     onBack: (() -> Unit)? = null,
-    backDescription: String = "Back",
+    backDescription: String = stringResource(CommonR.string.common_back),
 ) {
     Row(
         modifier = Modifier
@@ -348,7 +353,7 @@ internal fun PlayerPanelHeader(
             modifier = Modifier.weight(1f),
         )
         PlayerDisc(
-            contentDescription = "Close",
+            contentDescription = stringResource(CommonR.string.player_menu_close),
             onClick = onClose,
             size = 32.dp,
             fill = Color.White.copy(alpha = 0.08f),
@@ -551,7 +556,7 @@ internal fun PlayerTrackRow(
         if (selected) {
             Icon(
                 imageVector = Icons.Rounded.Check,
-                contentDescription = "Selected",
+                contentDescription = stringResource(CommonR.string.player_menu_selected),
                 tint = PlayerChrome.Paper,
                 modifier = Modifier.size(21.dp),
             )
@@ -563,7 +568,7 @@ internal fun PlayerTrackRow(
 @Composable
 internal fun PlayerSectionHeader(text: String, modifier: Modifier = Modifier) {
     Text(
-        text = text.uppercase(),
+        text = text.displayUppercase(),
         style = PlayerType.Section,
         modifier = modifier.padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 6.dp),
     )
@@ -633,21 +638,33 @@ internal fun PlayerValueRow(
             .alpha(if (enabled) 1f else 0.4f),
         separator = separator,
     ) {
-        // The label keeps its natural width; the value takes the rest of the
-        // row and ends at the chevron, so every value lines up on one edge.
-        Column(modifier = if (value.isNullOrBlank()) Modifier.weight(1f) else Modifier) {
-            Text(text = label, style = PlayerType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!detail.isNullOrBlank()) {
-                Text(text = detail, style = PlayerType.RowDetail, modifier = Modifier.padding(top = 1.dp))
+        val labelBlock: @Composable () -> Unit = {
+            Column {
+                Text(text = label, style = PlayerType.RowTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (!detail.isNullOrBlank()) {
+                    Text(text = detail, style = PlayerType.RowDetail, modifier = Modifier.padding(top = 1.dp))
+                }
             }
         }
-        if (!value.isNullOrBlank()) {
-            Text(
-                text = value,
-                style = PlayerType.Value,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.End,
+        if (value.isNullOrBlank()) {
+            Box(modifier = Modifier.weight(1f)) { labelBlock() }
+        } else {
+            // The value ends at the chevron, so every value lines up on one
+            // edge. The label keeps its one line and a long value ellipsizes;
+            // a long label wraps so a value of up to half the row shows whole.
+            LabelValueLine(
+                label = labelBlock,
+                value = {
+                    Text(
+                        text = value,
+                        style = PlayerType.Value,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.End,
+                    )
+                },
+                gap = 10.dp,
+                labelFirst = true,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -684,7 +701,7 @@ internal fun PlayerSwitchRow(
         separator = separator,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = label, style = PlayerType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = label, style = PlayerType.RowTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (!detail.isNullOrBlank()) {
                 Text(text = detail, style = PlayerType.RowDetail, modifier = Modifier.padding(top = 1.dp))
             }
@@ -731,7 +748,7 @@ internal fun PlayerCheckRow(
         if (selected) {
             Icon(
                 imageVector = Icons.Rounded.Check,
-                contentDescription = "Selected",
+                contentDescription = stringResource(CommonR.string.player_menu_selected),
                 tint = PlayerChrome.Paper,
                 modifier = Modifier.size(20.dp),
             )
@@ -841,14 +858,14 @@ internal fun PlayerStepperRow(
                 Text(text = detail, style = PlayerType.RowDetail, modifier = Modifier.padding(top = 1.dp))
             }
         }
-        StepperButton(symbol = "−", description = "Decrease $label", enabled = enabled, onClick = onDecrease)
+        StepperButton(symbol = "−", description = stringResource(CommonR.string.player_menu_decrease, label), enabled = enabled, onClick = onDecrease)
         Text(
             text = value,
             style = PlayerType.Value.copy(color = PlayerChrome.Paper, fontWeight = FontWeight.SemiBold),
             textAlign = TextAlign.Center,
             modifier = Modifier.width(72.dp),
         )
-        StepperButton(symbol = "+", description = "Increase $label", enabled = enabled, onClick = onIncrease)
+        StepperButton(symbol = "+", description = stringResource(CommonR.string.player_menu_increase, label), enabled = enabled, onClick = onIncrease)
     }
 }
 

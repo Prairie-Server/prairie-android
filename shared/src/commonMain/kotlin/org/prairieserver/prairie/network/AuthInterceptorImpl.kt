@@ -920,6 +920,7 @@ private suspend fun HttpRequestBuilder.attachSiloDeviceMetadataHeaders(
     device.clientBuild?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Build", it) }
     device.clientChannel?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Channel", it) }
     device.clientFamily?.takeIf { it.isNotBlank() }?.let { header("X-Prairie-Client-Family", it) }
+    device.acceptLanguage?.takeIf { it.isNotBlank() }?.let { header(HttpHeaders.AcceptLanguage, it) }
 }
 
 private fun URLBuilder.rebaseRelativeApiUrl(serverUrl: String) {

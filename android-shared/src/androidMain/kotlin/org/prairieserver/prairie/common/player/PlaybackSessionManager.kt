@@ -3,6 +3,7 @@ package org.prairieserver.prairie.common.player
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsPlaybackLogger
 import android.os.SystemClock
 import android.util.Log
+import org.prairieserver.prairie.common.R
 import org.prairieserver.prairie.domain.player.BufferingPlanSummary
 import org.prairieserver.prairie.domain.player.BufferingQualityMode
 import org.prairieserver.prairie.domain.player.BufferingQualityReplan
@@ -1273,6 +1274,7 @@ open class PlaybackSessionManager(
                                         "replan_loop_detected",
                                         "The server returned a playback plan that already failed on this output route.",
                                         false,
+                                        messageRes = R.string.player_error_planAlreadyFailed,
                                     ),
                                 ),
                             )
@@ -1439,6 +1441,7 @@ open class PlaybackSessionManager(
                                     UNEXECUTABLE_ROUTE_REASON,
                                     UNEXECUTABLE_ROUTE_MESSAGE,
                                     false,
+                                    messageRes = R.string.player_error_unexecutableRoute,
                                 ),
                             ),
                         )
@@ -2543,6 +2546,7 @@ open class PlaybackSessionManager(
                                     reason = "replan_loop_detected",
                                     message = "The server returned a seek-recovery route that already failed.",
                                     retryable = false,
+                                    messageRes = R.string.player_error_seekRecoveryRouteFailed,
                                 ),
                             )
                         }
@@ -3161,5 +3165,5 @@ open class PlaybackSessionManager(
 internal fun ApiResult<*>.isPlaybackSessionMissingError(): Boolean {
     val error = this as? ApiResult.Error ?: return false
     return error.code == 404 &&
-        (error.error == "playback_session_not_found" || error.message == "Playback session not found")
+        (error.error == "playback_session_not_found" || error.detail == "Playback session not found")
 }

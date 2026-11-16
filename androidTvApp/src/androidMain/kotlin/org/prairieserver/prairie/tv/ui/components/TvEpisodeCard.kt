@@ -43,11 +43,13 @@ import org.prairieserver.prairie.common.overlays.CardOverlayVariant
 import org.prairieserver.prairie.common.overlays.CardOverlays
 import org.prairieserver.prairie.common.overlays.LocalCardOverlayUiState
 import org.prairieserver.prairie.overlays.OverlayData
-import org.prairieserver.prairie.tv.ui.theme.ProgressFill
-import org.prairieserver.prairie.tv.ui.theme.ProgressTrack
 import org.prairieserver.prairie.tv.ui.theme.RowDimens
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.currentNumberLocale
+import org.prairieserver.prairie.common.ui.components.WatchProgressBar
+import org.prairieserver.prairie.common.ui.components.WatchProgressBarDefaults
 
 /**
  * 16:9 thumbnail card for "Continue Watching", "Next Up", and episode list rows.
@@ -80,6 +82,11 @@ fun TvEpisodeCard(
     userState: org.prairieserver.prairie.model.catalog.MediaItemUserState? = null,
     overlay: OverlayData? = null,
     actions: TvMediaCardActions = TvMediaCardActions(),
+    /**
+     * The item the card shows. A row can keep a card while its item changes;
+     * a new item closes the menu, whose actions belong to the old one.
+     */
+    contentKey: Any? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
     val overlayState = LocalCardOverlayUiState.current
@@ -89,7 +96,7 @@ fun TvEpisodeCard(
     val cardShape = TvEpisodeCardShape
     val cardFocus = prairieCardDefaults(shape = cardShape)
 
-    var menuExpanded by remember { mutableStateOf(false) }
+    var menuExpanded by remember(contentKey) { mutableStateOf(false) }
 
     Column(
         modifier = modifier.width(width),
@@ -141,36 +148,24 @@ fun TvEpisodeCard(
 
                 // Card-overlay badge layer. Over the still + scrim, under the
                 // play affordance + progress bar. Never intercepts focus.
-                // The bottom inset matches the side inset plus the 3dp progress
-                // bar so the lower badges sit in the corner like the upper ones.
+                // The lower badges sit in the corner like the upper ones, and
+                // rise clear of the progress bar when the card draws one.
                 if (overlayState.enabled && overlay != null) {
                     CardOverlays(
                         data = overlay,
                         prefs = overlayState.prefs,
                         variant = CardOverlayVariant.Wide,
                         scale = TvCardOverlayScale,
-                        forceOpaqueBackground = false,
-                        bottomInset = TvEpisodeCardOverlayBottomInset,
+                        bottomInset = if (progress != null && progress > 0f) {
+                            TvEpisodeCardOverlayProgressBottomInset
+                        } else {
+                            TvEpisodeCardOverlayBottomInset
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
 
-                if (progress != null && progress > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .align(Alignment.BottomStart)
-                            .background(ProgressTrack),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                                .height(3.dp)
-                                .background(ProgressFill),
-                        )
-                    }
-                }
+                if (progress != null) WatchProgressBar(progress, height = WatchProgressBarDefaults.TvHeight)
             }
         }
 
@@ -196,12 +191,9 @@ fun TvEpisodeCard(
             // With the series on the line above, the episode number is what
             // separates two same-named episodes in a rail, so it leads.
             val secondaryLine = when {
-                seriesTitle != null -> listOfNotNull(
-                    episodeTag,
-                    title.takeIf { it.isNotBlank() },
-                ).joinToString(" \u2022 ").ifBlank { null }
+                seriesTitle != null -> tvEpisodeTitleLine(seasonNumber, episodeNumber, title)
                 episodeTag != null -> episodeTag
-                else -> year?.toString()
+                else -> year?.let { LocaleFormat.integer(it, currentNumberLocale()) }
             }
             if (secondaryLine != null) {
                 Text(
@@ -235,5 +227,12 @@ fun tvEpisodeCardWidth(): Dp = TvEpisodeCardWidth.cardScaled()
 /** Hoisted so every card shares one instance instead of allocating a shape per composition. */
 private val TvEpisodeCardShape = RoundedCornerShape(8.dp)
 
-/** Unscaled: 8dp side inset + 3dp progress bar, scaled by [TvCardOverlayScale]. */
+/** Unscaled, scaled by [TvCardOverlayScale]: the badges' bottom inset on a card without progress. */
 private val TvEpisodeCardOverlayBottomInset = 12.dp
+
+/**
+ * Unscaled. Scaled by [TvCardOverlayScale] it puts the badges just above
+ * the progress bar.
+ */
+private val TvEpisodeCardOverlayProgressBottomInset =
+    WatchProgressBarDefaults.BadgeClearance / TvCardOverlayScale

@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.tv.ui.components
 
+import org.prairieserver.prairie.viewmodel.DetailSeeds
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 
@@ -51,6 +54,7 @@ import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.tv.ui.theme.rememberTvGridBringIntoViewSpec
 import org.prairieserver.prairie.tv.ui.util.tvArtworkAspectRatioForMediaType
+import org.prairieserver.prairie.common.i18n.text
 
 /**
  * Poster grid with automatic pagination. Fed by a [List] of
@@ -315,11 +319,14 @@ fun TvCatalogGrid(
                     userState = userState.takeIf { boxSet == null },
                     progress = boxSet?.watchedFraction,
                     mediaType = if (boxSet != null) "movie" else item.type,
-                    badge = if (boxSet != null) "Box set" else null,
-                    cornerLabel = boxSet?.let { boxSetFilmCount(it.movieCount) },
-                    caption = boxSet?.cardCaption(),
+                    badge = if (boxSet != null) stringResource(CommonR.string.shell_card_boxSet) else null,
+                    cornerLabel = boxSet?.let { boxSetFilmCount(it.movieCount).text() },
+                    caption = boxSet?.cardCaption()?.text(),
                     sleeves = org.prairieserver.prairie.tv.ui.theme.BoxSetSleeves.takeIf { boxSet != null },
-                    onClick = { onBrowseItemClick?.invoke(item) ?: onItemClick(item.contentId) },
+                    onClick = {
+                        DetailSeeds.offer(item)
+                        onBrowseItemClick?.invoke(item) ?: onItemClick(item.contentId)
+                    },
                     fillWidth = true,
                     artworkAspectRatio = artworkAspectRatioForItem(item),
                     focusRequester = if (isRestoreTarget) {
@@ -398,7 +405,7 @@ private fun TvLoadMoreRetryFooter(onRetry: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Couldn't load more",
+                text = stringResource(CommonR.string.shell_grid_loadMoreFailed),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -406,7 +413,7 @@ private fun TvLoadMoreRetryFooter(onRetry: () -> Unit) {
                 onClick = onRetry,
                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
             ) {
-                Text("Retry", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(CommonR.string.common_retry), style = MaterialTheme.typography.labelLarge)
             }
         }
     }

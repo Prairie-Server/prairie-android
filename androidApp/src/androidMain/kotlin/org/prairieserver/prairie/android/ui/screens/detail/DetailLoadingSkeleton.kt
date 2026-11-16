@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,7 @@ import org.prairieserver.prairie.android.ui.components.rememberShimmerProgress
 import org.prairieserver.prairie.android.ui.components.skeleton
 import org.prairieserver.prairie.android.ui.theme.PrairieBackground
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
+import org.prairieserver.prairie.common.R as CommonR
 
 /** Uses the detail hero's artwork frame while metadata and actions load. */
 @Composable
@@ -42,9 +44,10 @@ internal fun DetailLoadingSkeleton(
 ) {
     val shimmer = rememberShimmerProgress()
     val tint by rememberDominantColor(artworkUrl, PrairieBackground, artworkThumbhash)
+    val loadingDescription = stringResource(CommonR.string.detail_loadingDetails)
     DetailPageSurface(artworkUrl, artworkThumbhash, tint, modifier) {
         BoxWithConstraints(
-            modifier = Modifier.fillMaxSize().semantics { contentDescription = "Loading details" },
+            modifier = Modifier.fillMaxSize().semantics { contentDescription = loadingDescription },
         ) {
             if (maxWidth >= ExpandedDetailBreakpoint) {
                 val horizontalPadding = expandedDetailHorizontalPadding(maxWidth)

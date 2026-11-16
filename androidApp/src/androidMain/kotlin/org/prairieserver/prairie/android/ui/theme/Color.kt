@@ -35,7 +35,6 @@ val PrairieOverlay = PrairieBackground.copy(alpha = 0.72f)
 // Android (no live backdrop blur), while allowing the title-derived surface
 // underneath to tint them instead of reading as flat white plastic.
 val PrairieOpaqueControl = Color.White.copy(alpha = 0.58f)
-val PrairieOpaqueControlSelected = Color.White.copy(alpha = 0.70f)
 val PrairieOpaqueControlSelectionOverlay = Color.White.copy(alpha = 0.18f)
 // PR #212 PhoneLabeledAction values. These read as the same adaptive material
 // family as the Home tab bar over a dark detail surface without becoming the

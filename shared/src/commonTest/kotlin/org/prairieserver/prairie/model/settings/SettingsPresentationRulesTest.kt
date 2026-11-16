@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.prairieserver.prairie.common.i18n.english
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,7 +16,7 @@ class SettingsPresentationRulesTest {
 
     @Test
     fun cardPresentationLabelsAndRawParsing() {
-        assertEquals(listOf("Compact", "Standard", "Large"), CardPosterSize.entries.map { it.displayName })
+        assertEquals(listOf("Compact", "Standard", "Large"), CardPosterSize.entries.map { it.displayName.english() })
         assertEquals(CardPosterSize.Large, CardPosterSize.fromRaw("large"))
         assertNull(CardPosterSize.fromRaw("huge"))
         assertNull(CardPosterSize.fromRaw(null))
@@ -42,7 +43,7 @@ class SettingsPresentationRulesTest {
         assertEquals(SeekIntervalPair(10, 90), pair.with(SeekDirection.Forward, 90))
         assertEquals(10_000L, pair.backMs)
         assertEquals(30_000L, pair.forwardMs)
-        assertEquals("45 seconds", SeekIntervals.label(45))
+        assertEquals("45 seconds", SeekIntervals.label(45).english())
     }
 
     @Test
@@ -67,17 +68,15 @@ class SettingsPresentationRulesTest {
     }
 
     @Test
-    fun seekImportDescribesFailuresWithAndWithoutMessage() {
+    fun seekImportFlagsFailures() {
         val result = SeekImportResult(
             back = SeekImportOutcome.Failed(10, "  "),
             forward = SeekImportOutcome.Invalid(7),
         )
         assertTrue(result.anyFailed)
         assertFalse(result.allImported)
-        assertEquals("Skip back (10s) failed. Skip forward value 7s is not supported.", result.describe())
         val onlyForwardFailed = SeekImportResult(SeekImportOutcome.NotStored, SeekImportOutcome.Failed(30, "offline"))
         assertTrue(onlyForwardFailed.anyFailed)
-        assertEquals("Skip back had no device value. Skip forward (30s) failed: offline.", onlyForwardFailed.describe())
         assertFalse(SeekImportResult(SeekImportOutcome.Imported(5), SeekImportOutcome.NotStored).anyFailed)
     }
 

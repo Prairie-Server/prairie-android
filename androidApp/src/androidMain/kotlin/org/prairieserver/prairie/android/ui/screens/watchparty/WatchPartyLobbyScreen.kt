@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.watchparty
 
+import org.prairieserver.prairie.common.i18n.text
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,12 +24,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import org.prairieserver.prairie.model.watchtogether.GuestControlPolicy
 import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomSelectionMode
@@ -77,7 +81,7 @@ fun WatchPartyLobbyScreen(
     var confirmHostLeave by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
-        viewModel.messages.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+        viewModel.messages.collect { Toast.makeText(context, it.text(context), Toast.LENGTH_SHORT).show() }
     }
 
     // Only the room's phase opens the player.
@@ -136,7 +140,7 @@ fun WatchPartyLobbyScreen(
                 modifier = Modifier.align(Alignment.Center),
             ) {
                 CircularProgressIndicator(color = PrairieSecondaryText)
-                Text("Connecting to the party…", color = PrairieSecondaryText)
+                Text(stringResource(CommonR.string.watchParty_connection_connectingToParty), color = PrairieSecondaryText)
             }
         }
         return
@@ -206,12 +210,18 @@ fun WatchPartyLobbyScreen(
         extraBanner = state.suggestionRetry?.let { draft ->
             {
                 WatchPartyBanner(
-                    text = "Couldn't confirm your suggestion of ${draft.title}.",
+                    text = stringResourceWithNames(CommonR.string.watchParty_error_suggestionOfUnconfirmed, draft.title),
                     tone = WatchPartyBannerTone.Warning,
                     action = {
-                        TextButton(onClick = viewModel::retrySuggestion) { Text("Try again", color = PrairieOnSurface) }
+                        TextButton(onClick = viewModel::retrySuggestion) {
+                            Text(stringResource(CommonR.string.common_tryAgain), color = PrairieOnSurface)
+                        }
                         IconButton(onClick = viewModel::dismissSuggestionRetry) {
-                            Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = PrairieSecondaryText)
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(CommonR.string.watchParty_action_dismiss),
+                                tint = PrairieSecondaryText,
+                            )
                         }
                     },
                 )

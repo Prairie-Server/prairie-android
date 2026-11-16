@@ -3,6 +3,7 @@ package org.prairieserver.prairie.common.network
 import android.content.Context
 import android.content.pm.PackageInfo
 import android.os.Build
+import org.prairieserver.prairie.common.i18n.AppLocales
 import org.prairieserver.prairie.network.PrairieDeviceMetadata
 import org.prairieserver.prairie.network.DeviceMetadataProvider
 import java.util.UUID
@@ -45,6 +46,8 @@ class AndroidDeviceMetadataProvider(
             clientBuild = buildIdentity.reportedBuildNumber,
             clientChannel = buildIdentity.reportedChannel,
             clientFamily = cachedClientFamily,
+            // Read per request so it follows a language change at once.
+            acceptLanguage = AppLocales.appliedTag(context),
         )
     }
 

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
+import org.prairieserver.prairie.common.i18n.displayUppercase
 import org.prairieserver.prairie.common.ui.components.BoxSetSleeveColors
 import org.prairieserver.prairie.common.ui.components.boxSetSleeves
 import org.prairieserver.prairie.common.ui.components.SpoilerImage
@@ -26,8 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,25 +47,28 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import org.prairieserver.prairie.common.overlays.CardOverlayVariant
 import org.prairieserver.prairie.common.overlays.CardOverlays
+import org.prairieserver.prairie.common.overlays.CardWatchStatusBadge
 import org.prairieserver.prairie.common.overlays.LocalCardOverlayUiState
 import org.prairieserver.prairie.model.catalog.MediaItemUserState
+import org.prairieserver.prairie.overlays.CardWatchStatus
 import org.prairieserver.prairie.overlays.OverlayData
-import org.prairieserver.prairie.tv.ui.theme.ProgressTrack
-import org.prairieserver.prairie.tv.ui.theme.ProgressFill
 import org.prairieserver.prairie.tv.ui.theme.RowDimens
 import org.prairieserver.prairie.tv.ui.theme.cardScaled
 import org.prairieserver.prairie.tv.ui.theme.prairieCardDefaults
 import org.prairieserver.prairie.tv.ui.util.tvArtworkAspectRatioForMediaType
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.currentNumberLocale
+import org.prairieserver.prairie.common.ui.components.WatchProgressBar
+import org.prairieserver.prairie.common.ui.components.WatchProgressBarDefaults
 
 /**
  * The core focusable media card used throughout the TV app.
  *
- * Displays a 2:3 poster with progress bar overlay, watched badge, favorite
+ * Displays a 2:3 poster with progress bar overlay, watch status, favorite
  * indicator, and a title/year caption below. Uses Compose for TV's [Card]
  * with [prairieCardDefaults], so a focused card lifts slightly and gains a
  * white outline, as on tvOS.
@@ -95,6 +97,11 @@ fun TvMediaCard(
     cardModifier: Modifier = Modifier,
     overlay: OverlayData? = null,
     actions: TvMediaCardActions = TvMediaCardActions(),
+    /**
+     * The item the card shows. A row can keep a card while its item changes;
+     * a new item closes the menu, whose actions belong to the old one.
+     */
+    contentKey: Any? = null,
     onLongClick: (() -> Unit)? = null,
     /** A pill in the artwork's top-start corner, such as a box set's "Box set". */
     badge: String? = null,
@@ -112,18 +119,13 @@ fun TvMediaCard(
         ?: tvArtworkAspectRatioForMediaType(mediaType)
         ?: (2f / 3f)
     val height = width / effectiveAspectRatio
-    val watchedBadgeSize = (width * RowDimens.WatchedBadgeSizeFraction)
-        .coerceIn(RowDimens.WatchedBadgeMinSize, RowDimens.WatchedBadgeMaxSize)
-    val watchedBadgeIconSize = watchedBadgeSize * RowDimens.WatchedBadgeIconSizeFraction
-    val watchedBadgePadding = (width * RowDimens.WatchedBadgePaddingFraction)
-        .coerceIn(RowDimens.WatchedBadgeMinPadding, RowDimens.WatchedBadgeMaxPadding)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     val cardShape = TvMediaCardShape
     val cardFocus = prairieCardDefaults(shape = cardShape, outlined = highlighted)
 
-    var menuExpanded by remember { mutableStateOf(false) }
+    var menuExpanded by remember(contentKey) { mutableStateOf(false) }
 
     Column(
         modifier = if (fillWidth) {
@@ -201,38 +203,30 @@ fun TvMediaCard(
                     )
 
                     // Card-overlay badge layer. Over the poster, under the
-                    // watched badge + progress bar. Never intercepts focus.
+                    // watch status + progress bar. Never intercepts focus.
+                    val hasProgressBar = progress != null && progress > 0f
                     if (overlayState.enabled && overlay != null) {
                         CardOverlays(
                             data = overlay,
                             prefs = overlayState.prefs,
                             variant = CardOverlayVariant.Poster,
-                            forceOpaqueBackground = false,
+                            hasProgressBar = hasProgressBar,
                             modifier = Modifier.fillMaxSize(),
+                            // The card is sized width x height unless it fills its cell.
+                            cardWidth = if (fillWidth) null else width,
                         )
                     }
 
-                    if (userState?.played == true) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(watchedBadgePadding)
-                                .size(watchedBadgeSize)
-                                .background(Color.White, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Watched",
-                                tint = Color.Black,
-                                modifier = Modifier.size(watchedBadgeIconSize),
-                            )
-                        }
+                    // Watched check or episodes left, top-right, on
+                    // poster-shaped artwork whether or not badges are on
+                    // (web CardWatchStatus); landscape artwork never shows it.
+                    if (effectiveAspectRatio <= 1f) {
+                        CardWatchStatusBadge(CardWatchStatus.of(userState), Modifier.fillMaxSize())
                     }
 
                     if (badge != null) {
                         Text(
-                            text = badge.uppercase(),
+                            text = badge.displayUppercase(),
                             fontSize = 14.sp,
                             lineHeight = 16.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -263,21 +257,12 @@ fun TvMediaCard(
                         )
                     }
 
-                    if (progress != null && progress > 0f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(3.dp)
-                                .align(Alignment.BottomStart)
-                                .background(ProgressTrack),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                                    .height(3.dp)
-                                    .background(ProgressFill),
-                            )
-                        }
+                    if (hasProgressBar) {
+                        WatchProgressBar(
+                            progress,
+                            height = WatchProgressBarDefaults.TvHeight,
+                            belowCornerLabel = cornerLabel != null,
+                        )
                     }
                 }
             }
@@ -302,7 +287,7 @@ fun TvMediaCard(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        val metadata = caption ?: year?.takeIf { it > 0 }?.toString()
+        val metadata = caption ?: year?.takeIf { it > 0 }?.let { LocaleFormat.integer(it, currentNumberLocale()) }
         if (metadata != null) {
             Text(
                 text = metadata,

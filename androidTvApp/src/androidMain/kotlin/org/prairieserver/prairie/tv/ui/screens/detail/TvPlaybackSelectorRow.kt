@@ -5,7 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.res.stringResource
@@ -13,6 +13,7 @@ import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.model.catalog.PlaybackVariant
 import org.prairieserver.prairie.model.catalog.playbackEditions
 import org.prairieserver.prairie.model.catalog.hasEditionChoices
+import org.prairieserver.prairie.playback.autoVersion
 import org.prairieserver.prairie.model.catalog.FileVersion
 import org.prairieserver.prairie.tv.ui.components.TvAnchoredSelectorMenu
 import org.prairieserver.prairie.tv.ui.components.TvSelectorOption
@@ -81,23 +82,30 @@ internal fun TvPlaybackActionSelectors(
      * what the preview says.
      */
     subtitleAutoContextFor: ((audioLanguage: String?) -> TvPlaybackFormatting.SubtitleAutoContext)? = null,
+    preferredQuality: String?,
     onSelectVersion: (Int?) -> Unit,
+    onSelectEdition: (String) -> Unit,
     onSelectAudioTrack: (Int?) -> Unit,
     onSelectSubtitleTrack: (Int?) -> Unit,
     versionFocusRequester: FocusRequester,
 ) {
+    val text = rememberTvPlaybackText()
+    val autoVersionDetail = stringResource(CommonR.string.detail_autoVersion)
+    val autoAudioDetail = stringResource(CommonR.string.detail_autoAudio)
+    val autoSubtitlesDetail = stringResource(CommonR.string.detail_autoSubtitles)
+    val offDetail = stringResource(CommonR.string.detail_offDetail)
     val editions = playbackEditions(versions, playbackVariants)
     val showEditions = editions.hasEditionChoices()
     val currentEdition = editions.firstOrNull { currentVersion?.fileId in it.fileIds }
         ?: editions.firstOrNull()
     val scopedVersions = if (showEditions) currentEdition?.versions.orEmpty() else versions
     val versionOptions = buildList {
-        // Auto is global; omitting it here keeps quality changes within the edition.
-        if (!showEditions) add(
+        // Auto picks within the current edition, so it is always offered.
+        add(
             TvSelectorOption(
                 key = "version:auto",
-                title = "Auto",
-                detail = "Best match for this device",
+                title = text.auto,
+                detail = autoVersionDetail,
                 selected = selectedVersionFileId == null,
                 onSelect = { onSelectVersion(null) },
             ),
@@ -106,9 +114,9 @@ internal fun TvPlaybackActionSelectors(
             add(
                 TvSelectorOption(
                     key = "version:${version.fileId}",
-                    title = TvPlaybackFormatting.versionShortLabel(version),
-                    detail = TvPlaybackFormatting.versionDetailLabel(version),
-                    selected = (selectedVersionFileId ?: currentVersion?.fileId.takeIf { showEditions }) == version.fileId,
+                    title = TvPlaybackFormatting.versionShortLabel(version, text),
+                    detail = TvPlaybackFormatting.versionDetailLabel(version, text),
+                    selected = selectedVersionFileId == version.fileId,
                     onSelect = { onSelectVersion(version.fileId) },
                 ),
             )
@@ -118,15 +126,16 @@ internal fun TvPlaybackActionSelectors(
         version = currentVersion,
         selectedSubtitleTrackIndex = selectedSubtitleTrackIndex,
         preferredLanguage = preferredSubtitleLanguage,
+        text = text,
     )
     val formattedAudioOptions =
-        TvPlaybackFormatting.audioOptions(currentVersion, selectedAudioTrackIndex)
+        TvPlaybackFormatting.audioOptions(currentVersion, selectedAudioTrackIndex, text)
     val audioOptions = buildList {
         add(
             TvSelectorOption(
                 key = "audio:auto",
-                title = "Auto",
-                detail = "Use your Playback audio preference",
+                title = text.auto,
+                detail = autoAudioDetail,
                 selected = selectedAudioTrackIndex == null,
                 onSelect = { onSelectAudioTrack(null) },
             ),
@@ -143,13 +152,13 @@ internal fun TvPlaybackActionSelectors(
             )
         }
     }
-    val unsupportedFormat = stringResource(CommonR.string.subtitle_track_unsupported_format)
+    val unsupportedFormat = stringResource(CommonR.string.subtitle_trackUnsupportedFormat)
     val subtitleOptions = buildList {
         add(
             TvSelectorOption(
                 key = "subtitle:auto",
-                title = "Auto",
-                detail = "Use your subtitle preferences",
+                title = text.auto,
+                detail = autoSubtitlesDetail,
                 selected = selectedSubtitleTrackIndex == null,
                 onSelect = { onSelectSubtitleTrack(null) },
             ),
@@ -157,8 +166,8 @@ internal fun TvPlaybackActionSelectors(
         add(
             TvSelectorOption(
                 key = "subtitle:off",
-                title = "Off",
-                detail = "Start without subtitles",
+                title = text.off,
+                detail = offDetail,
                 selected = selectedSubtitleTrackIndex == -1,
                 onSelect = { onSelectSubtitleTrack(-1) },
             ),
@@ -177,16 +186,17 @@ internal fun TvPlaybackActionSelectors(
         }
     }
     val versionValue = currentVersion?.let {
-        TvPlaybackFormatting.versionValueLabel(it, selectedVersionFileId ?: it.fileId.takeIf { showEditions })
+        TvPlaybackFormatting.versionValueLabel(it, selectedVersionFileId, text)
     }.orEmpty()
     val audioValue = currentVersion?.let {
         if (selectedAudioTrackIndex == null && !automaticAudioResolutionKnown) {
-            "Auto"
+            text.auto
         } else {
             TvPlaybackFormatting.audioValueLabel(
                 it,
                 selectedAudioTrackIndex,
                 automaticAudioTrackOrdinal,
+                text,
             )
         }
     }.orEmpty()
@@ -209,21 +219,22 @@ internal fun TvPlaybackActionSelectors(
             } else {
                 null
             },
+            text = text,
         )
     }.orEmpty()
 
     if (showEditions) {
         TvAnchoredSelectorMenu(
             icon = Icons.Filled.Layers,
-            label = "Edition",
+            label = stringResource(CommonR.string.detail_edition),
             value = currentEdition?.label.orEmpty(),
             options = editions.map { edition ->
                 TvSelectorOption(
                     key = "edition:${edition.id}",
                     title = edition.label,
-                    detail = TvPlaybackFormatting.versionShortLabel(edition.defaultVersion),
+                    detail = TvPlaybackFormatting.versionShortLabel(edition.autoVersion(preferredQuality), text),
                     selected = edition.id == currentEdition?.id,
-                    onSelect = { onSelectVersion(edition.defaultVersion.fileId) },
+                    onSelect = { onSelectEdition(edition.id) },
                 )
             },
             triggerFocusRequester = versionFocusRequester,
@@ -232,8 +243,8 @@ internal fun TvPlaybackActionSelectors(
         )
     }
     TvAnchoredSelectorMenu(
-        icon = Icons.Filled.Movie,
-        label = "Version",
+        icon = Icons.Filled.VideoLibrary,
+        label = stringResource(CommonR.string.detail_version),
         value = versionValue,
         options = versionOptions,
         triggerFocusRequester = versionFocusRequester.takeUnless { showEditions },
@@ -242,7 +253,7 @@ internal fun TvPlaybackActionSelectors(
     )
     TvAnchoredSelectorMenu(
         icon = Icons.AutoMirrored.Filled.VolumeUp,
-        label = "Audio",
+        label = stringResource(CommonR.string.detail_audio),
         value = audioValue,
         options = audioOptions,
         interactive = currentVersion != null && formattedAudioOptions.isNotEmpty(),
@@ -250,7 +261,7 @@ internal fun TvPlaybackActionSelectors(
     )
     TvAnchoredSelectorMenu(
         icon = Icons.AutoMirrored.Filled.Chat,
-        label = "Subtitles",
+        label = stringResource(CommonR.string.detail_subtitles),
         value = subtitleValue,
         options = subtitleOptions,
         interactive = currentVersion != null,

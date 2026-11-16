@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.android.ui.components
 
+import org.prairieserver.prairie.common.R as CommonR
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.i18n.LocaleFormat
 import org.prairieserver.prairie.common.ui.components.SpoilerImage
 import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
@@ -24,7 +27,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +51,7 @@ import org.prairieserver.prairie.common.overlays.CardOverlays
 import org.prairieserver.prairie.common.overlays.LocalCardOverlayUiState
 import org.prairieserver.prairie.model.catalog.MediaItemUserState
 import org.prairieserver.prairie.overlays.OverlayData
+import org.prairieserver.prairie.common.ui.components.WatchProgressBar
 
 /**
  * Reserved height for the text block under a backdrop card: title (bodySmall)
@@ -91,7 +94,7 @@ fun BackdropCard(
     actions: MediaCardActions = MediaCardActions(),
     // Center overlay glyph — play for watch/listen, a book for reading.
     overlayIcon: ImageVector = Icons.Default.PlayArrow,
-    overlayContentDescription: String = "Play",
+    overlayContentDescription: String = stringResource(CommonR.string.common_play),
     /** Non-null makes the center glyph a direct action (resume playback);
      *  null keeps it decorative and the whole card opens the item page. */
     onOverlayClick: (() -> Unit)? = null,
@@ -177,18 +180,7 @@ fun BackdropCard(
                 )
             }
 
-            // Progress bar at bottom
-            if (progress != null && progress > 0f) {
-                LinearProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .align(Alignment.BottomCenter),
-                    color = Color.White,
-                    trackColor = Color.Black.copy(alpha = 0.4f),
-                )
-            }
+            if (progress != null) WatchProgressBar(progress)
         }
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -234,7 +226,7 @@ fun BackdropCard(
             // Remaining time
             if (remainingMinutes != null && remainingMinutes > 0) {
                 Text(
-                    text = "${remainingMinutes}m left",
+                    text = stringResource(CommonR.string.shell_card_minutesLeft, remainingMinutes),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -252,9 +244,15 @@ fun BackdropCard(
     }
 }
 
+/** "S01E02", "S01" or "E02" (each number at least two digits); null without either. */
+@Composable
 private fun formatEpisodeTag(season: Int?, episode: Int?): String? {
-    if (season == null && episode == null) return null
-    val s = season?.let { "S${it.toString().padStart(2, '0')}" } ?: ""
-    val e = episode?.let { "E${it.toString().padStart(2, '0')}" } ?: ""
-    return "$s$e"
+    val s = season?.let { LocaleFormat.codeNumber(it, minDigits = 2) }
+    val e = episode?.let { LocaleFormat.codeNumber(it, minDigits = 2) }
+    return when {
+        s != null && e != null -> stringResource(CommonR.string.catalog_episodeTag, s, e)
+        s != null -> stringResource(CommonR.string.calendar_seasonShort, s)
+        e != null -> stringResource(CommonR.string.calendar_episodeShort, e)
+        else -> null
+    }
 }

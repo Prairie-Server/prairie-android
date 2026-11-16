@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.screens.cast
 
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +31,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.tv.cast.TvPrairieCastReceiver
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.foundation.layout.width
@@ -85,9 +89,9 @@ fun TvPrairieCastStandbyView(
             ) {
                 Text(
                     text = when {
-                        preparing == null -> "Ready for ${state.controllerLabel}"
-                        preparing.title != null -> "Starting ${preparing.title}"
-                        else -> "Starting playback"
+                        preparing == null -> readyFor(state)
+                        preparing.title != null -> stringResourceWithNames(CommonR.string.cast_standby_starting, preparing.title)
+                        else -> stringResource(CommonR.string.cast_startingPlayback)
                     },
                     color = Color.White,
                     fontSize = 52.sp,
@@ -99,9 +103,11 @@ fun TvPrairieCastStandbyView(
                 )
                 Text(
                     text = if (preparing != null) {
-                        "From ${state.controllerName?.takeIf { it.isNotBlank() } ?: "your phone"}"
+                        state.controllerName?.takeIf { it.isNotBlank() }
+                            ?.let { stringResourceWithNames(CommonR.string.cast_standby_from, it) }
+                            ?: stringResource(CommonR.string.cast_standby_fromYourPhone)
                     } else {
-                        state.serverName ?: "Remote control active"
+                        state.serverName ?: stringResource(CommonR.string.cast_standby_active)
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.titleMedium,
@@ -118,8 +124,21 @@ fun TvPrairieCastStandbyView(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Disconnect Remote")
+                Text(stringResource(CommonR.string.cast_standby_disconnect))
             }
         }
+    }
+}
+
+/** "Ready for <phone>", naming how many other devices also wait. */
+@Composable
+private fun readyFor(state: TvPrairieCastReceiver.StandbyState): String {
+    val name = state.controllerName?.takeIf { it.isNotBlank() }
+    val others = state.otherControllerCount
+    return when {
+        others <= 0 -> name?.let { stringResourceWithNames(CommonR.string.cast_standby_readyFor, it) }
+            ?: stringResource(CommonR.string.cast_standby_readyForPhone)
+        else -> name?.let { pluralStringResource(CommonR.plurals.cast_standby_readyForOthers, others, others, it) }
+            ?: pluralStringResource(CommonR.plurals.cast_standby_readyForPhoneOthers, others, others)
     }
 }

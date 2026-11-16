@@ -29,6 +29,7 @@ import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.network.PrairieJson
 import org.prairieserver.prairie.network.apiv2.Problem
+import org.prairieserver.prairie.network.apiv2.ProblemText
 import org.prairieserver.prairie.network.apiv2.ApiV2Gate
 import org.prairieserver.prairie.network.apiv2.safeApiV2Call
 import org.prairieserver.prairie.network.authScope
@@ -283,7 +284,8 @@ class DefaultExternalSignInApi(
                 status == 422 && "body.password" in locations -> WRONG_PASSWORD
                 else -> problem?.code.orEmpty()
             }
-            return ApiResult.Error(status, code, problem?.detail.orEmpty())
+            val detail = problem?.detail.orEmpty()
+            return ApiResult.Error(status, code, problem?.let { ProblemText.message(it) } ?: detail, detail)
         }
     }
 }

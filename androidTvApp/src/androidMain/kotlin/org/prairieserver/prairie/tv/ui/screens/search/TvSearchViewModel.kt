@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.search
 
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.errorText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
 import org.prairieserver.prairie.repository.BOX_SET_SEARCH_GRACE_MILLIS
@@ -14,7 +16,6 @@ import org.prairieserver.prairie.model.navigation.isAudiobookLikeLibraryType
 import org.prairieserver.prairie.model.navigation.tvMediaModeCapabilities
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
-import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.searchPeopleForQuery
@@ -31,13 +32,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import androidx.annotation.StringRes
+import org.prairieserver.prairie.common.R as CommonR
 
 /** Media type filter in the search header. */
-enum class TvSearchMediaType(val label: String, val wire: String?) {
-    All("All", null),
-    Movies("Movies", "movie"),
-    Series("Series", "series"),
-    Audiobooks("Audiobooks", "audiobook"),
+enum class TvSearchMediaType(@StringRes val label: Int, val wire: String?) {
+    All(CommonR.string.search_filter_all, null),
+    Movies(CommonR.string.search_filter_movies, "movie"),
+    Series(CommonR.string.search_filter_series, "series"),
+    Audiobooks(CommonR.string.search_filter_audiobooks, "audiobook"),
 }
 
 /**
@@ -82,7 +85,7 @@ class TvSearchViewModel(
         val hasMore: Boolean = false,
         val isLoading: Boolean = false,
         val isLoadingMore: Boolean = false,
-        val error: String? = null,
+        val error: UiText? = null,
         val rawResultCount: Int = 0,
         val showAudiobooks: Boolean = false,
     )
@@ -388,7 +391,7 @@ class TvSearchViewModel(
                         it.copy(
                             isLoading = false,
                             isLoadingMore = false,
-                            error = result.message.ifBlank { "Search failed" },
+                            error = result.errorText(CommonR.string.search_failed),
                         )
                     }
                     return
@@ -401,7 +404,7 @@ class TvSearchViewModel(
                             // Never the raw exception: it carries the full
                             // request URL and read like a stack trace on a
                             // ten-foot screen.
-                            error = result.errorMessage("Search failed"),
+                            error = result.errorText(CommonR.string.search_failed),
                         )
                     }
                     return

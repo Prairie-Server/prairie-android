@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.cast
 
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,12 +34,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import org.prairieserver.prairie.android.cast.PrairieCastController
+import org.prairieserver.prairie.android.cast.resolve
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.cast.PrairieCastLaunchRequest
 import org.prairieserver.prairie.cast.PrairieCastProtocol
 import org.prairieserver.prairie.common.cast.PrairieCastTarget
@@ -128,9 +132,11 @@ fun PrairieCastTargetPickerSheet(
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.CenterStart),
-                ) { Text("Done") }
+                ) { Text(stringResource(CommonR.string.common_done)) }
                 Text(
-                    if (launchRequest == null) "Remote Control" else "Play on Prairie TV",
+                    stringResource(
+                        if (launchRequest == null) CommonR.string.cast_picker_remoteControl else CommonR.string.cast_picker_playOnPrairieTv,
+                    ),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.align(Alignment.Center),
@@ -171,11 +177,11 @@ fun PrairieCastTargetPickerSheet(
                             modifier = Modifier.size(36.dp),
                         )
                         Text(
-                            "No Prairie TVs Found",
+                            stringResource(CommonR.string.cast_picker_noneFound),
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            "Foreground Prairie TVs on this network appear here.",
+                            stringResource(CommonR.string.cast_picker_noneFoundHint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -192,7 +198,7 @@ fun PrairieCastTargetPickerSheet(
                     ) {
                         CircularProgressIndicator()
                         Text(
-                            "Searching for Prairie TVs…",
+                            stringResource(CommonR.string.cast_picker_searching),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -206,7 +212,7 @@ fun PrairieCastTargetPickerSheet(
             }
             missingRoku?.let { roku ->
                 Text(
-                    "${roku.name} isn't showing up. Open Prairie on your Roku.",
+                    stringResourceWithNames(CommonR.string.cast_picker_rokuMissing, roku.name),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
@@ -215,7 +221,7 @@ fun PrairieCastTargetPickerSheet(
 
             state.error?.let { error ->
                 Text(
-                    error,
+                    error.resolve(),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp),
@@ -277,17 +283,20 @@ private fun TargetRow(
             )
             val subtitle: Pair<String, androidx.compose.ui.graphics.Color>? = when {
                 needsUpdate ->
-                    "Update Prairie on this TV to use your profile" to MaterialTheme.colorScheme.onSurfaceVariant
+                    stringResource(CommonR.string.cast_picker_updateTv) to MaterialTheme.colorScheme.onSurfaceVariant
                 rokuOnOtherServer ->
-                    "Plays from ${target.serverName ?: "another server"}" to MaterialTheme.colorScheme.onSurfaceVariant
+                    (
+                        target.serverName?.let { stringResourceWithNames(CommonR.string.cast_picker_playsFrom, it) }
+                            ?: stringResource(CommonR.string.cast_picker_playsFromOther)
+                        ) to MaterialTheme.colorScheme.onSurfaceVariant
                 needsPairing ->
-                    "Scan the pairing code on this Roku" to MaterialTheme.colorScheme.onSurfaceVariant
+                    stringResource(CommonR.string.cast_picker_scanPairing) to MaterialTheme.colorScheme.onSurfaceVariant
                 target.isPlaying ->
-                    "Playing now" to MaterialTheme.colorScheme.primary
+                    stringResource(CommonR.string.cast_picker_playingNow) to MaterialTheme.colorScheme.primary
                 targetsActiveServer && target.serverName != null ->
                     target.serverName!! to MaterialTheme.colorScheme.onSurfaceVariant
                 target.serverId != null && !targetsActiveServer ->
-                    "Will temporarily use your server" to MaterialTheme.colorScheme.onSurfaceVariant
+                    stringResource(CommonR.string.cast_picker_temporaryServer) to MaterialTheme.colorScheme.onSurfaceVariant
                 else -> null
             }
             subtitle?.let { (text, color) ->
@@ -301,7 +310,7 @@ private fun TargetRow(
             IconButton(onClick = onForget) {
                 Icon(
                     Icons.Outlined.Close,
-                    contentDescription = "Forget ${target.name}",
+                    contentDescription = stringResourceWithNames(CommonR.string.cast_picker_forget, target.name),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
                 )

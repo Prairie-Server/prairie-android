@@ -16,8 +16,20 @@ import kotlinx.serialization.json.JsonPrimitive
 data class MediaItemUserState(
     val played: Boolean = false,
     @SerialName("is_favorite") val isFavorite: Boolean = false,
-    @SerialName("in_watchlist") val inWatchlist: Boolean = false
-)
+    @SerialName("in_watchlist") val inWatchlist: Boolean = false,
+    /** Episodes the profile has watched; the v2 catalog sends it only for a series or season the profile has not finished. */
+    @SerialName("watched_count") val watchedCount: Int? = null,
+    /** Available episodes the profile has not watched; sent only with [watchedCount]. */
+    @SerialName("unplayed_count") val unplayedCount: Int? = null,
+) {
+    /**
+     * This state optimistically marked watched or unwatched. Both episode
+     * counts go to zero, so a stale "N left" never shows beside the new state
+     * until the server's next answer brings real counts.
+     */
+    fun withPlayed(played: Boolean): MediaItemUserState =
+        copy(played = played, watchedCount = 0, unplayedCount = 0)
+}
 
 /**
  * Tech-level overlay summary derived server-side from the best-ranked file
@@ -43,7 +55,7 @@ data class OverlaySummary(
 
 /** A watched mutation clears resume progress, including optimistic unwatched resets. */
 fun BrowseItem.withWatched(watched: Boolean): BrowseItem = copy(
-    userState = (userState ?: MediaItemUserState()).copy(played = watched),
+    userState = (userState ?: MediaItemUserState()).withPlayed(watched),
     positionSeconds = 0.0,
 )
 
@@ -118,6 +130,8 @@ data class CatalogResponse(
     @SerialName("effective_sort") val effectiveSort: CatalogEffectiveSort? = null,
     @Transient val continuation: CatalogContinuationV2? = null,
     @Transient val searchDiagnostics: CatalogSearchDiagnosticsV2? = null,
+    /** Opaque seed for later `seek` reads of the same list; never persisted. */
+    @Transient val windowCursor: String? = null,
 )
 
 @Serializable
@@ -559,27 +573,34 @@ fun Season.isSpecialsForDisplay(): Boolean =
 
 fun List<Season>.sortedForDisplay(): List<Season> =
     sortedWith(
-        // Match tvOS: numbered seasons first, Specials last.
-        compareBy<Season> { it.isSpecialsForDisplay() }
+        // Specials are season zero: list them first, then numbered seasons
+        // ascending, matching the server, web and the other Prairie clients.
+        compareByDescending<Season> { it.isSpecialsForDisplay() }
             .thenBy { it.seasonNumber }
             .thenBy { it.title.orEmpty() }
             .thenBy { it.contentId },
     )
 
 private fun List<Season>.selectedSeasonForDisplay(preferredSeasonNumber: Int?): Season? {
-    return preferredSeasonNumber
+    preferredSeasonNumber
         ?.let { preferred -> firstOrNull { it.seasonNumber == preferred } }
-        // Open the Show overview while preloading the viewer's actual browse
-        // target: Continue Watching first, then a partially watched season,
-        // then the first not-yet-complete season. This lets the first Down land
-        // on e.g. Season 3 Episode 1 exactly as tvOS does.
-        ?: firstOrNull { (it.userData?.inProgressCount ?: 0) > 0 }
-        ?: firstOrNull { season ->
+        ?.let { return it }
+    // Specials are listed first but don't open a series on their own: each
+    // tier below tries numbered seasons before Specials, so Specials are picked
+    // only when no numbered season matches that tier.
+    val (specials, numbered) = partition { it.isSpecialsForDisplay() }
+    val candidates = numbered + specials
+    // Open the series overview while preloading the viewer's actual browse
+    // target: Continue Watching first, then a partially watched season,
+    // then the first not-yet-complete season. This lets the first Down land
+    // on e.g. Season 3 Episode 1 exactly as tvOS does.
+    return candidates.firstOrNull { (it.userData?.inProgressCount ?: 0) > 0 }
+        ?: candidates.firstOrNull { season ->
             val watched = season.userData?.watchedCount ?: 0
             watched > 0 && watched < season.episodeCount
         }
-        ?: firstOrNull { it.userData?.played != true }
-        ?: firstOrNull()
+        ?: candidates.firstOrNull { it.userData?.played != true }
+        ?: candidates.firstOrNull()
 }
 
 fun List<Season>.initialSeasonForDisplay(preferredSeasonNumber: Int?): Season? =
@@ -665,8 +686,20 @@ data class LeafItemUserData(
     @SerialName("last_file_id") val lastFileId: Int? = null,
     @SerialName("last_resolution") val lastResolution: String? = null,
     @SerialName("last_hdr") val lastHdr: Boolean? = null,
-    @SerialName("last_codec_video") val lastCodecVideo: String? = null
+    @SerialName("last_codec_video") val lastCodecVideo: String? = null,
+    /** The edition the profile last played; the detail page opens on it. */
+    @SerialName("last_edition_key") val lastEditionKey: String? = null,
 )
+
+/**
+ * This history with [fileId] as the last-played file. A different file drops
+ * [LeafItemUserData.lastEditionKey], which named the old file's edition, so
+ * the new file's edition opens the detail page until the server catches up.
+ */
+fun LeafItemUserData.withLastPlayedFile(fileId: Int?): LeafItemUserData = when (fileId) {
+    null, lastFileId -> this
+    else -> copy(lastFileId = fileId, lastEditionKey = null)
+}
 
 @Serializable
 data class SeasonUserData(

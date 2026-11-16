@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.model.catalog
 
+import org.prairieserver.prairie.common.i18n.english
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -26,10 +27,10 @@ class TrailerRailTest {
         // Local extras first (upstream #640).
         assertEquals(listOf("local:x1", "remote:YouTube:abc"), entries.map { it.key })
         val remote = assertIs<TrailerRailEntry.Remote>(entries[1])
-        assertEquals("Official Trailer", remote.title)
+        assertEquals("Official Trailer", remote.title.english())
         assertEquals("trailer", remote.kind)
         val local = assertIs<TrailerRailEntry.Local>(entries[0])
-        assertEquals("Behind the Scenes", local.title)
+        assertEquals("Behind the Scenes", local.title.english())
         assertEquals("behind_the_scenes", local.kind)
         assertEquals(emptyList<TrailerRailEntry>(), trailerRailEntries(detail()))
     }
@@ -47,15 +48,15 @@ class TrailerRailTest {
 
     @Test
     fun kindLabels() {
-        assertEquals("Trailer", extraKindLabel("TRAILER"))
-        assertEquals("Teaser", extraKindLabel("teaser"))
-        assertEquals("Featurette", extraKindLabel("featurette"))
-        assertEquals("Behind the Scenes", extraKindLabel("behind-the-scenes"))
-        assertEquals("Deleted Scene", extraKindLabel("deleted_scene"))
-        assertEquals("Deleted Scene", extraKindLabel("deleted-scene"))
-        assertEquals("Interview", extraKindLabel("interview"))
-        assertEquals("Short Film", extraKindLabel("short_film"))
-        assertEquals("Extra", extraKindLabel(" _ "))
-        assertEquals("Blank Title", TrailerRailEntry.Local(ItemExtra(contentId = "y", kind = "blank-title", title = " ")).title)
+        assertEquals("Trailer", extraKindLabel("TRAILER").english())
+        assertEquals("Teaser", extraKindLabel("teaser").english())
+        assertEquals("Featurette", extraKindLabel("featurette").english())
+        assertEquals("Behind the Scenes", extraKindLabel("behind-the-scenes").english())
+        assertEquals("Deleted Scene", extraKindLabel("deleted_scene").english())
+        assertEquals("Deleted Scene", extraKindLabel("deleted-scene").english())
+        assertEquals("Interview", extraKindLabel("interview").english())
+        assertEquals("Short Film", extraKindLabel("short_film").english())
+        assertEquals("Extra", extraKindLabel(" _ ").english())
+        assertEquals("Blank Title", TrailerRailEntry.Local(ItemExtra(contentId = "y", kind = "blank-title", title = " ")).title.english())
     }
 }

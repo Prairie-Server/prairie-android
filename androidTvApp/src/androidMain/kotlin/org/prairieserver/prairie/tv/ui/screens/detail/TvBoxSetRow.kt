@@ -15,6 +15,8 @@ import org.prairieserver.prairie.model.section.SectionItem
 import org.prairieserver.prairie.tv.ui.components.TvMediaRow
 import org.prairieserver.prairie.tv.ui.components.TvRowStyle
 import org.prairieserver.prairie.tv.ui.components.tvCardWidth
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * The box set row on a movie's page: the box set's title over as many of its
@@ -83,7 +85,7 @@ internal fun TvBoxSetRowSection(
                 onExploreAllClick = onExploreAll,
                 onExploreAllFocused = onExploreAllFocused,
                 markedContentId = currentContentId,
-                markedBadge = "THIS FILM",
+                markedBadge = stringResource(CommonR.string.boxSets_thisFilm),
             )
         }
     }

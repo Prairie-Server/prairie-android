@@ -38,7 +38,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import org.prairieserver.prairie.common.R as CommonR
 import org.koin.compose.koinInject
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.layout.width
@@ -76,7 +78,7 @@ fun PrairieCastButton(
     ) {
         Icon(
             imageVector = if (castState.isConnected) Icons.Default.CastConnected else Icons.Default.Cast,
-            contentDescription = "Cast",
+            contentDescription = stringResource(CommonR.string.cast_button),
             tint = if (castState.isConnected) MaterialTheme.colorScheme.primary else Color.White,
             modifier = Modifier.size(22.dp),
         )
@@ -84,9 +86,9 @@ fun PrairieCastButton(
 
     if (showPicker) {
         PrairieDialog(
-            title = "Cast to",
+            title = stringResource(CommonR.string.cast_picker_title),
             message = if (routes.isEmpty()) {
-                "No cast devices found. Make sure your Chromecast is on the same Wi-Fi network."
+                stringResource(CommonR.string.cast_picker_empty)
             } else {
                 null
             },
@@ -96,7 +98,7 @@ fun PrairieCastButton(
                 if (castState.isConnected) {
                     add(
                         PrairieDialogAction(
-                            label = "Stop casting",
+                            label = stringResource(CommonR.string.cast_stopCasting),
                             style = PrairieDialogActionStyle.Destructive,
                             onClick = {
                                 castManager.disconnect()
@@ -105,7 +107,7 @@ fun PrairieCastButton(
                         ),
                     )
                 }
-                add(PrairieDialogAction("Close", { showPicker = false }))
+                add(PrairieDialogAction(stringResource(CommonR.string.cast_picker_close), { showPicker = false }))
             },
         ) {
             if (routes.isNotEmpty()) {
@@ -139,13 +141,13 @@ fun PrairieCastButton(
                             ) {
                                 Text(text = route.name, color = PrairieForeground, fontSize = 15.sp)
                                 if (route.isConnecting) {
-                                    Text(text = "Connecting…", fontSize = 12.sp)
+                                    Text(text = stringResource(CommonR.string.cast_picker_connecting), fontSize = 12.sp)
                                 }
                             }
                             if (route.isSelected) {
                                 Icon(
                                     imageVector = Icons.Rounded.Check,
-                                    contentDescription = "Selected",
+                                    contentDescription = stringResource(CommonR.string.player_menu_selected),
                                     tint = PrairieForeground,
                                     modifier = Modifier.size(20.dp),
                                 )

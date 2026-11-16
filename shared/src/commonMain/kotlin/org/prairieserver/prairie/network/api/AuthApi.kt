@@ -6,6 +6,8 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.prairieserver.prairie.model.auth.*
 import org.prairieserver.prairie.network.ApiErrorBody
 import org.prairieserver.prairie.network.ApiResult
@@ -20,6 +22,7 @@ import org.prairieserver.prairie.network.skipPrairieAuth
 import org.prairieserver.prairie.network.apiv2.Account
 import org.prairieserver.prairie.network.apiv2.ApiV2Gate
 import org.prairieserver.prairie.network.apiv2.Problem
+import org.prairieserver.prairie.network.apiv2.ProblemText
 import org.prairieserver.prairie.network.apiv2.invalidResponse
 import org.prairieserver.prairie.network.apiv2.SetupStatus
 import org.prairieserver.prairie.network.apiv2.safeApiV2Call
@@ -98,16 +101,27 @@ class AuthApi(
 
     /**
      * Resolves an emailed-invitation claim token against the given server.
-     * Unauthenticated: this runs before any account exists.
+     * Unauthenticated: this runs before any account exists. With [tokenInBody]
+     * the token goes in the request body, so proxies in front of the server
+     * never log it; otherwise this uses the older path form.
      */
     suspend fun lookupInvitation(
         serverUrl: String,
         token: String,
+        tokenInBody: Boolean,
     ): ApiResult<InvitationLookupResponse> = safeApiV2Call(ApiV2Gate.Unrestricted) {
-        // The token arrives from an emailed link and is not ours to trust as
-        // path-safe: a '/' or '?' in it would otherwise re-shape the request.
-        client.get("${serverUrl.trimEnd('/')}/api/v2/invitations/${token.encodeURLPathPart()}") {
-            skipPrairieAuth()
+        if (tokenInBody) {
+            client.post("${serverUrl.trimEnd('/')}/api/v2/invitations/lookup") {
+                skipPrairieAuth()
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject { put("token", token) })
+            }
+        } else {
+            // The token arrives from an emailed link and is not ours to trust as
+            // path-safe: a '/' or '?' in it would otherwise re-shape the request.
+            client.get("${serverUrl.trimEnd('/')}/api/v2/invitations/${token.encodeURLPathPart()}") {
+                skipPrairieAuth()
+            }
         }.requireAuthStatus(200)
     }
 
@@ -117,12 +131,20 @@ class AuthApi(
                 .requireAuthStatus(200)
         }
 
-    suspend fun acceptInvitation(serverUrl: String, token: String, password: String): ApiResult<InvitationAcceptance> =
+    /** [tokenInBody] picks the request form, as for [lookupInvitation]. */
+    suspend fun acceptInvitation(
+        serverUrl: String,
+        token: String,
+        password: String,
+        tokenInBody: Boolean,
+    ): ApiResult<InvitationAcceptance> =
         safeApiV2Call<InvitationAcceptanceV2>(ApiV2Gate.Unrestricted) {
-            client.post("${serverUrl.trimEnd('/')}/api/v2/invitations/${token.encodeURLPathPart()}/accept") {
+            val base = "${serverUrl.trimEnd('/')}/api/v2/invitations"
+            val url = if (tokenInBody) "$base/accept" else "$base/${token.encodeURLPathPart()}/accept"
+            client.post(url) {
                 skipPrairieAuth(); singleAttempt()
                 contentType(ContentType.Application.Json)
-                setBody(AcceptInvitationRequest(password = password))
+                setBody(AcceptInvitationRequest(password = password, token = token.takeIf { tokenInBody }))
             }.requireAuthStatus(201)
         }.map { it.domain() }
 
@@ -212,12 +234,11 @@ const val WRONG_CURRENT_PASSWORD = "wrong_current_password"
 internal fun passwordChangeError(status: Int, body: String): ApiResult.Error {
     val problem = runCatching { PrairieJson.decodeFromString(Problem.serializer(), body) }.getOrNull()
     val rejected = problem?.errors?.firstOrNull()
-    return when {
-        status == 422 && rejected?.location == "body.current_password" ->
-            ApiResult.Error(status, WRONG_CURRENT_PASSWORD, rejected.detail)
-        status == 422 -> ApiResult.Error(status, problem?.code.orEmpty(), rejected?.detail.orEmpty())
-        else -> ApiResult.Error(status, problem?.code.orEmpty(), problem?.detail.orEmpty())
-    }
+    // A refused field's own detail is the most specific server text.
+    val detail = if (status == 422) rejected?.detail.orEmpty() else problem?.detail.orEmpty()
+    val message = problem?.let { ProblemText.message(it, detail) } ?: detail
+    val code = if (status == 422 && rejected?.location == "body.current_password") WRONG_CURRENT_PASSWORD else problem?.code.orEmpty()
+    return ApiResult.Error(status, code, message, detail)
 }
 
 private fun AuthScopeSnapshot.withoutProfile() = copy(profileId = null, profileToken = null)
@@ -271,3 +292,29 @@ internal fun Account.toUser(): User = User(
     },
     passwordChangeRequired = passwordChangeRequired,
 )
+
+/**
+ * `GET /api/v2/account/me` at [serverUrl] with an access token that isn't
+ * saved anywhere yet (a TV checking whose account a pairing approval signed
+ * in before committing it). Runs on a client with no Prairie auth plugin, so the
+ * active server's credentials never go with it. Null when it can't be read.
+ */
+class UnsavedSessionAccountReader(
+    private val client: HttpClient = org.prairieserver.prairie.network.createPlatformHttpClient(retryOnConnectionFailure = false),
+) {
+    suspend fun read(serverUrl: String, accessToken: String): User? = try {
+        val response = client.get("${serverUrl.trimEnd('/')}/api/v2/account/me") {
+            header(HttpHeaders.Authorization, "Bearer $accessToken")
+            accept(ContentType.Application.Json)
+        }
+        if (response.status.value != 200) {
+            null
+        } else {
+            PrairieJson.decodeFromString(Account.serializer(), response.bodyAsText()).toUser()
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+}

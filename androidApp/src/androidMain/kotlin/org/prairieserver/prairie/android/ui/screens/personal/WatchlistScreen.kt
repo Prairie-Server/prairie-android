@@ -4,7 +4,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * Screen displaying the user's watchlist items in a grid layout.
@@ -19,7 +21,7 @@ fun WatchlistScreen(
     Scaffold(
         topBar = {
             PrairieTopBar(
-                title = "Watchlist",
+                title = stringResource(CommonR.string.personal_watchlist_title),
                 onBackClick = onBackClick,
             )
         },

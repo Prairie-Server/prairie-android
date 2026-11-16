@@ -55,9 +55,6 @@ val RailGradientEnd = Color(0x00141820)
 
 val CardShadowColor = DarkBackground.copy(alpha = 0.55f)
 
-val ProgressTrack = PrairieOnSurface.copy(alpha = 0.20f)
-val ProgressFill = PrairiePrimary
-
 val StageLightStrong = PrairiePrimary.copy(alpha = 0.18f)
 val StageLightSoft = PrairiePrimary.copy(alpha = 0.10f)
 

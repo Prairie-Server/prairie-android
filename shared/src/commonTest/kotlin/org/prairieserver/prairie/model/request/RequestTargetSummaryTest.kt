@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.model.request
 
+import org.prairieserver.prairie.common.i18n.english
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -32,7 +33,7 @@ class RequestTargetSummaryTest {
         )
         assertEquals(
             "1080p downloading · 4K queued · 720p queued · 480p pending · 360p done · 240p failed",
-            RequestTargetSummary.text(targets),
+            RequestTargetSummary.text(targets)?.english(),
         )
     }
 
@@ -40,7 +41,7 @@ class RequestTargetSummaryTest {
     fun textSkipsBlankQualitiesAndUnknownStatuses() {
         assertEquals(
             "1080p done",
-            RequestTargetSummary.text(listOf(target("1080p", RequestStatus.Completed), target("", RequestStatus.Completed), target("4K", "weird"))),
+            RequestTargetSummary.text(listOf(target("1080p", RequestStatus.Completed), target("", RequestStatus.Completed), target("4K", "weird")))?.english(),
         )
         assertNull(RequestTargetSummary.text(listOf(target("", RequestStatus.Completed), target("4K", "weird"))))
     }

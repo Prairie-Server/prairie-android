@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.theme.PrairieNavPillBorder
 import org.prairieserver.prairie.android.ui.theme.PrairieOverlayPillSurface
 import org.prairieserver.prairie.android.ui.theme.PrairiePageBackground
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * The controls floating over a detail page's artwork: a back button, an
@@ -120,7 +122,7 @@ internal fun DetailTopChrome(
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
+                contentDescription = stringResource(CommonR.string.common_back),
                 tint = Color.White,
             )
         }

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.catalog.filter
 
+import org.prairieserver.prairie.common.i18n.english
 import org.prairieserver.prairie.model.catalog.CatalogFiltersResponse
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,22 +44,22 @@ class CatalogFilterStateCoverageTest {
             narrators = listOf("Grace"),
             series = listOf("Discworld"),
         )
-        assertEquals(listOf("2020" to "2020s"), facetOptionPairs(CatalogFacet.Decade, vocab).take(1))
+        assertEquals(listOf("2020" to "2020s"), facetOptionPairs(CatalogFacet.Decade, vocab).take(1).map { it.first to it.second.english() })
         assertEquals(CatalogFacet.WATCH_STATUS_OPTIONS, facetOptionPairs(CatalogFacet.WatchStatus, vocab))
         assertTrue(facetOptionPairs(CatalogFacet.WatchStatus, vocab, hasProfile = false).isEmpty())
         assertEquals(CatalogFacet.DYNAMIC_RANGE_OPTIONS, facetOptionPairs(CatalogFacet.DynamicRange, vocab))
-        assertEquals(listOf("Drama" to "Drama"), facetOptionPairs(CatalogFacet.Genre, vocab))
-        assertEquals(listOf("PG" to "PG"), facetOptionPairs(CatalogFacet.ContentRating, vocab))
-        assertEquals(listOf("1080p" to "1080p"), facetOptionPairs(CatalogFacet.Resolution, vocab))
-        assertEquals(listOf("A24" to "A24"), facetOptionPairs(CatalogFacet.Studio, vocab))
-        assertEquals(listOf("HBO" to "HBO"), facetOptionPairs(CatalogFacet.Network, vocab))
-        assertEquals(listOf("US" to "US"), facetOptionPairs(CatalogFacet.Country, vocab))
-        assertEquals(listOf("en" to "en"), facetOptionPairs(CatalogFacet.AudioLanguage, vocab))
-        assertEquals(listOf("es" to "es"), facetOptionPairs(CatalogFacet.SubtitleLanguage, vocab))
-        assertEquals(listOf("fr" to "fr"), facetOptionPairs(CatalogFacet.OriginalLanguage, vocab))
-        assertEquals(listOf("Ada" to "Ada"), facetOptionPairs(CatalogFacet.Author, vocab))
-        assertEquals(listOf("Grace" to "Grace"), facetOptionPairs(CatalogFacet.Narrator, vocab))
-        assertEquals(listOf("Discworld" to "Discworld"), facetOptionPairs(CatalogFacet.SeriesName, vocab))
+        assertEquals(listOf("Drama" to "Drama"), facetOptionPairs(CatalogFacet.Genre, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("PG" to "PG"), facetOptionPairs(CatalogFacet.ContentRating, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("1080p" to "1080p"), facetOptionPairs(CatalogFacet.Resolution, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("A24" to "A24"), facetOptionPairs(CatalogFacet.Studio, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("HBO" to "HBO"), facetOptionPairs(CatalogFacet.Network, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("US" to "US"), facetOptionPairs(CatalogFacet.Country, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("en" to "en"), facetOptionPairs(CatalogFacet.AudioLanguage, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("es" to "es"), facetOptionPairs(CatalogFacet.SubtitleLanguage, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("fr" to "fr"), facetOptionPairs(CatalogFacet.OriginalLanguage, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("Ada" to "Ada"), facetOptionPairs(CatalogFacet.Author, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("Grace" to "Grace"), facetOptionPairs(CatalogFacet.Narrator, vocab).map { it.first to it.second.english() })
+        assertEquals(listOf("Discworld" to "Discworld"), facetOptionPairs(CatalogFacet.SeriesName, vocab).map { it.first to it.second.english() })
     }
 
     @Test

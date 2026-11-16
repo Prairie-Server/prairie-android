@@ -1,6 +1,8 @@
 package org.prairieserver.prairie.tv.ui.screens.servers
 
+import androidx.annotation.StringRes
 import kotlinx.coroutines.CancellationException
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
 import org.prairieserver.prairie.network.CleartextOriginConsent
 import org.prairieserver.prairie.network.ServerRegistry
@@ -8,16 +10,18 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.requiresApproval
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.tv.profiles.TvActiveProfileReset
+import org.prairieserver.prairie.tv.profiles.noAccountOpenButAnotherSignedIn
 
-/** Apple's wording (prairie-apple `AppRouter.requestSignOut`). */
-internal const val TV_REMOVE_SERVER_FAILED = "Prairie couldn't remove the saved server. Please try again."
+/** Apple's wording (prairie-apple `AppRouter.requestSignOut`), as a string resource for a toast. */
+@StringRes
+internal val TV_REMOVE_SERVER_FAILED: Int = CommonR.string.servers_remove_failedToast
 
 /**
  * [ServerSetup] is manual server-address entry. [Setup] (Prairie) is the
  * first-run admin setup of a server picked from LAN discovery that still
  * needs it.
  */
-enum class TvServerSwitchDestination { Home, ProfileSelection, Login, ServerSetup, Setup }
+enum class TvServerSwitchDestination { Home, ProfileSelection, ChangeAccount, Login, ServerSetup, Setup }
 
 /**
  * Where the TV goes once the active server changed: picked in Manage Servers,
@@ -87,6 +91,10 @@ class TvServerResolver(
         val accessToken = tokenManager.getAccessToken()
         val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
         return when {
+            // No account open here: Change Account while another account
+            // has a session to go to, else this server's sign-in.
+            accessToken.isNullOrBlank() && serverRegistry.noAccountOpenButAnotherSignedIn() ->
+                TvServerSwitchDestination.ChangeAccount
             accessToken.isNullOrBlank() -> TvServerSwitchDestination.Login
             profileId.isNullOrBlank() -> TvServerSwitchDestination.ProfileSelection
             profileLaunchPreferences.requiresSelectionAtLaunch() -> {

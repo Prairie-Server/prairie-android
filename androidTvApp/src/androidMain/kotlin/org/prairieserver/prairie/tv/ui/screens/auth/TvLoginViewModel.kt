@@ -41,6 +41,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.errorTextOrNull
 
 /** The form's error for a refused password sign-in. */
 internal fun tvLoginError(result: ApiResult.Error): TvLoginError = when {
@@ -57,7 +59,7 @@ internal fun tvLoginError(result: ApiResult.Error): TvLoginError = when {
         PasswordLoginFailure.IdentityLinkedElsewhere -> TvLoginError.IdentityLinkedElsewhere
         PasswordLoginFailure.RateLimited -> TvLoginError.RateLimited
         PasswordLoginFailure.AccountRequired -> TvLoginError.AccountRequired
-        PasswordLoginFailure.Other -> TvLoginError.Server(result.message.takeIf { it.isNotBlank() })
+        PasswordLoginFailure.Other -> TvLoginError.Server(result.errorTextOrNull())
     }
 }
 
@@ -75,7 +77,7 @@ internal fun tvNetworkSignInError(result: ApiResult.Error): TvLoginError = when 
         NetworkSignInFailure.IdentityLinkedElsewhere -> TvLoginError.IdentityLinkedElsewhere
         NetworkSignInFailure.ProviderUnavailable -> TvLoginError.ProviderUnavailable
         NetworkSignInFailure.RateLimited -> TvLoginError.RateLimited
-        NetworkSignInFailure.Other -> TvLoginError.Server(result.message.takeIf { it.isNotBlank() })
+        NetworkSignInFailure.Other -> TvLoginError.Server(result.errorTextOrNull())
     }
 }
 
@@ -128,7 +130,7 @@ sealed interface TvLoginError {
     data object NetworkProviderGone : TvLoginError
 
     /** The server's own explanation, or null for a generic failure. */
-    data class Server(val message: String?) : TvLoginError
+    data class Server(val message: UiText?) : TvLoginError
 }
 
 data class TvLoginUiState(
@@ -400,6 +402,9 @@ class TvLoginViewModel(
                             accessToken = result.data.accessToken,
                             refreshToken = result.data.refreshToken,
                             expiresIn = result.data.expiresIn,
+                            // The same server user refreshes its saved account
+                            // instead of adding a second one.
+                            account = authRepository.accountSignIn(expected.serverId, result.data.user),
                         )
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -533,7 +538,13 @@ class TvLoginViewModel(
         leavingServer = true
         viewModelScope.launch {
             try {
-                if (tokenManager.getAccessTokenForScope(serverId).isNullOrBlank()) registry.remove(serverId)
+                // A server that still holds an account (another one, or one
+                // waiting to be signed in again) stays: Change Account still lists it.
+                if (registry.accounts.value.none { it.serverId == serverId } &&
+                    tokenManager.getAccessTokenForScope(serverId).isNullOrBlank()
+                ) {
+                    registry.remove(serverId)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -701,6 +712,7 @@ class TvLoginViewModel(
                 accessToken = accessToken,
                 refreshToken = refreshToken,
                 expiresIn = response.expiresIn ?: 0L,
+                account = authRepository.accountSignIn(expected.serverId, response.user),
             )
         } catch (cancelled: CancellationException) {
             throw cancelled

@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.overlays
 
+import org.prairieserver.prairie.common.i18n.english
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -7,7 +8,7 @@ import kotlin.test.assertNull
 
 class OverlayRegistryValuesTest {
     private fun value(id: OverlayId, data: OverlayData): String? =
-        assertNotNull(OverlayRegistry.def(id)).getValue(data)
+        assertNotNull(OverlayRegistry.def(id)).getValue(data)?.english()
 
     private fun icon(id: OverlayId, data: OverlayData): OverlayIconId? =
         OverlayRegistry.def(id)?.getIcon?.invoke(data)
@@ -34,7 +35,8 @@ class OverlayRegistryValuesTest {
         assertEquals(OverlayIconId.DolbyVision, icon(OverlayId.ResolutionHdr, OverlayData(resolution = "2160p", hdr = "DV")))
         assertNull(icon(OverlayId.ResolutionHdr, OverlayData(resolution = "2160p", hdr = "HDR10")))
 
-        assertEquals(OverlayIconId.Atmos, icon(OverlayId.Audio, OverlayData(audio = "TrueHD Atmos")))
+        assertEquals(OverlayIconId.Atmos, icon(OverlayId.Audio, OverlayData(audio = "Atmos")))
+        assertEquals(OverlayIconId.Volume, icon(OverlayId.Audio, OverlayData(audio = "TrueHD Atmos")))
         assertEquals(OverlayIconId.Volume, icon(OverlayId.Audio, OverlayData(audio = "AAC")))
         assertNull(icon(OverlayId.Audio, OverlayData()))
         assertEquals("AAC", value(OverlayId.Audio, OverlayData(audio = "AAC")))
@@ -87,11 +89,11 @@ class OverlayRegistryValuesTest {
 
     @Test
     fun ratingsFormatting() {
-        assertEquals("7.5", value(OverlayId.RatingTmdb, OverlayData(ratingTmdb = 7.5)))
+        assertEquals("TMDB 7.5", value(OverlayId.RatingTmdb, OverlayData(ratingTmdb = 7.5)))
         assertNull(value(OverlayId.RatingTmdb, OverlayData()))
-        assertEquals("93%", value(OverlayId.RatingRt, OverlayData(ratingRtCritic = 93)))
+        assertEquals("RT 93%", value(OverlayId.RatingRt, OverlayData(ratingRtCritic = 93)))
         assertNull(value(OverlayId.RatingRt, OverlayData()))
-        assertEquals("88%", value(OverlayId.RatingRtAudience, OverlayData(ratingRtAudience = 88)))
+        assertEquals("RT Audience 88%", value(OverlayId.RatingRtAudience, OverlayData(ratingRtAudience = 88)))
         assertNull(value(OverlayId.RatingRtAudience, OverlayData()))
     }
 
@@ -102,8 +104,8 @@ class OverlayRegistryValuesTest {
         assertEquals("Cancelled", value(OverlayId.ShowStatus, OverlayData(showStatus = "Cancelled")))
         assertEquals("Upcoming", value(OverlayId.ShowStatus, OverlayData(showStatus = "planned")))
         assertEquals("Returning", value(OverlayId.ShowStatus, OverlayData(showStatus = "Returning Series")))
-        assertEquals("Pilot", value(OverlayId.ShowStatus, OverlayData(showStatus = " Pilot ")))
-        assertNull(value(OverlayId.ShowStatus, OverlayData(showStatus = "  ")))
+        assertEquals("Pilot", value(OverlayId.ShowStatus, OverlayData(showStatus = "Pilot")))
+        assertNull(value(OverlayId.ShowStatus, OverlayData(showStatus = "")))
     }
 
     @Test

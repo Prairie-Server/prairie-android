@@ -10,6 +10,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
@@ -30,6 +31,7 @@ import org.prairieserver.prairie.model.settings.SeekIntervalPair
 import org.prairieserver.prairie.cast.PrairieCastPlaybackState
 import org.prairieserver.prairie.common.player.PrairieMediaSessionBitmapLoader
 import org.prairieserver.prairie.repository.CatalogRepository
+import org.prairieserver.prairie.common.R as CommonR
 import kotlin.math.roundToLong
 
 /**
@@ -59,11 +61,22 @@ class PrairieCastMediaSessionService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        // The local player's PrairiePlaybackService can run in this process at the
+        // same time: it outlives the player screen, and a download plays on the
+        // phone while a TV is playing. Media3 refuses a second session with the
+        // same id, and both services would otherwise post their media
+        // notification under Media3's default id, each replacing the other's.
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setNotificationId(NOTIFICATION_ID)
+                .build(),
+        )
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        player = PrairieCastRemotePlayer(Looper.getMainLooper(), controller)
+        player = PrairieCastRemotePlayer(Looper.getMainLooper(), controller) { tv -> getString(CommonR.string.cast_playingOn, tv) }
         val bitmapLoader = PrairieMediaSessionBitmapLoader(this)
         mediaSessionBitmapLoader = bitmapLoader
         mediaSession = MediaSession.Builder(this, player)
+            .setId(SESSION_ID)
             .setBitmapLoader(bitmapLoader)
             .build()
             .also(::addSession)
@@ -141,12 +154,21 @@ class PrairieCastMediaSessionService : MediaSessionService() {
         player.release()
         super.onDestroy()
     }
+
+    private companion object {
+        const val SESSION_ID = "silocast-remote"
+
+        /** Not Media3's default 1001, which the local player's notification uses. */
+        const val NOTIFICATION_ID = 1002
+    }
 }
 
 @UnstableApi
 internal class PrairieCastRemotePlayer(
     looper: Looper,
     private val controller: PrairieCastController,
+    /** The session subtitle "Playing on <TV>" for a title without its own. */
+    private val playingOn: (String) -> String,
 ) : SimpleBasePlayer(looper) {
     private var playback: PrairieCastPlaybackState? = null
     private var targetName: String? = null
@@ -212,7 +234,7 @@ internal class PrairieCastRemotePlayer(
         }
         val metadata = MediaMetadata.Builder()
             .setTitle(remote.title)
-            .setSubtitle(remote.subtitle ?: targetName?.let { "Playing on $it" })
+            .setSubtitle(remote.subtitle ?: targetName?.let(playingOn))
             .setIsPlayable(true)
             .apply {
                 remote.subtitle?.takeIf(String::isNotBlank)?.let { setArtist(it) }

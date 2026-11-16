@@ -42,11 +42,28 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
         super.onCreate()
         ImageFormats.configureForApiLevel(Build.VERSION.SDK_INT)
         DiagnosticsStartup.installCrashCapture(this)
+        // Before any request: v2 problem details show in the app's language.
+        org.prairieserver.prairie.common.i18n.ServerText.install(this)
+        org.prairieserver.prairie.common.i18n.LocaleFormat.refresh(this)
+        org.prairieserver.prairie.common.i18n.EnglishText.install(this)
         val koinApp = startKoin {
             androidContext(this@PrairieApplication)
             modules(sharedModules() + playerModule + playerInfraModule + marqueeModule + watchPartyModule + androidModule + diagnosticsModule)
         }
         DiagnosticsStartup.startCoordinator { koinApp.koin.get<DiagnosticsCoordinator>() }
+        // Account-scoped preferences and local state: adopt pre-account values
+        // into the migrated account (synchronously, before any store reads
+        // them), purge signed-out accounts, and remember the last tile.
+        // Guarded — never load-bearing for cold start.
+        runCatching {
+            org.prairieserver.prairie.common.store.AccountLocalData(
+                context = this@PrairieApplication,
+                registry = koinApp.koin.get(),
+                launchPreferences = koinApp.koin.get(),
+            ).start()
+        }.onFailure {
+            android.util.Log.w("PrairieApplication", "Account local data init failed: ${it::class.simpleName}")
+        }
         koinApp.koin.get<org.prairieserver.prairie.repository.ImageCapabilitiesSession>().start(
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
         )
@@ -72,6 +89,7 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
             AndroidPushRegistrationStarter(
                 registrar = koinApp.koin.get(),
                 notificationsRepository = koinApp.koin.get(),
+                registry = koinApp.koin.get(),
             ).register()
         }.onFailure {
             android.util.Log.w("PrairieApplication", "Android push registration starter init failed", it)
@@ -168,6 +186,7 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
                 registry = koinApp.koin.get(),
                 database = koinApp.koin.get(),
                 storage = koinApp.koin.get(),
+                legacyImporter = koinApp.koin.getOrNull(),
             )
         }.onFailure {
             android.util.Log.w("PrairieApplication", "Orphaned server purge init failed", it)
@@ -226,12 +245,14 @@ class PrairieApplication : Application(), Configuration.Provider, SingletonImage
     private fun registerDownloadsNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java) ?: return
+        // Shown in system settings: use the app language, as the activities do.
+        val text = org.prairieserver.prairie.common.i18n.AppLocales.wrap(this)
         val channel = NotificationChannel(
             DownloadWorker.NOTIFICATION_CHANNEL_ID,
-            "Downloads",
+            text.getString(org.prairieserver.prairie.common.R.string.downloads_notification_channelName),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Progress and completion for offline downloads"
+            description = text.getString(org.prairieserver.prairie.common.R.string.downloads_notification_channelDescription)
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)
