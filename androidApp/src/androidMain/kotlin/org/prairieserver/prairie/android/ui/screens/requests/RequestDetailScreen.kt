@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,10 +74,14 @@ import org.prairieserver.prairie.android.ui.theme.PrairieBackground
 import org.prairieserver.prairie.android.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
+import android.content.res.Resources
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import org.prairieserver.prairie.common.requests.RequestColors
 import org.prairieserver.prairie.common.requests.RequestRouter
 import org.prairieserver.prairie.common.requests.RequestRowCopy
 import org.prairieserver.prairie.common.requests.rememberRequestRouter
+import org.prairieserver.prairie.common.requests.requestResources
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.catalog.ExternalRatings
 import org.prairieserver.prairie.model.catalog.ItemDetail
@@ -89,7 +94,9 @@ import org.prairieserver.prairie.model.request.RequestStep
 import org.prairieserver.prairie.model.request.RequestTargetSummary
 import org.prairieserver.prairie.model.request.requestBackdropUrl
 import org.prairieserver.prairie.model.request.requestPosterUrl
-import org.prairieserver.prairie.model.request.requestReasonCopy
+import org.prairieserver.prairie.model.request.requestReasonText
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.text
 import org.prairieserver.prairie.viewmodel.RequestDetailUiState
 import org.prairieserver.prairie.viewmodel.RequestDetailViewModel
 import org.prairieserver.prairie.viewmodel.RequestPrimaryAction
@@ -151,7 +158,7 @@ fun RequestDetailScreen(
                         router = router,
                     )
                 }
-                "error" -> ErrorView(message = state.error.orEmpty(), onRetry = viewModel::load)
+                "error" -> ErrorView(message = state.error?.text().orEmpty(), onRetry = viewModel::load)
                 else -> DetailLoadingSkeleton()
             }
         }
@@ -192,7 +199,7 @@ private fun RequestDetailContent(
                 item(key = "hero", contentType = "detail-hero") {
                     AdaptiveDetailHero(
                         detail = itemDetail,
-                        eyebrow = state.eyebrow,
+                        eyebrow = state.eyebrow?.text(),
                         // The library hero's facts: year and runtime or
                         // seasons, then two genres as one token.
                         sourceTokens = if (itemDetail.type == "series") {
@@ -219,7 +226,7 @@ private fun RequestDetailContent(
                             modifier = Modifier.padding(bottom = 40.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            RequestsSectionHeader(title = "More like this")
+                            RequestsSectionHeader(title = stringResource(CommonR.string.requests_moreLikeThis))
                             RequestCardRail(items = recommendations, key = { "${it.mediaType}:${it.tmdbId}" }) { result ->
                                 RequestMediaCard(item = result, onClick = { router.openResult(result) })
                             }
@@ -247,7 +254,7 @@ private fun RequestDetailActions(
         val message = state.actionErrorMessage ?: state.shownFollowNotice
         if (message != null) {
             Text(
-                text = message,
+                text = message.text.text(),
                 fontSize = 12.sp,
                 color = PrairieSecondaryText,
                 textAlign = TextAlign.Center,
@@ -255,7 +262,7 @@ private fun RequestDetailActions(
             )
         } else if (state.showsRequestHint) {
             Text(
-                text = "Not in your library yet. Your server admin reviews requests.",
+                text = stringResource(CommonR.string.requests_detail_hint),
                 fontSize = 12.sp,
                 color = PrairieSecondaryText,
                 textAlign = TextAlign.Center,
@@ -268,7 +275,7 @@ private fun RequestDetailActions(
         }
         if (state.canCancel) {
             Text(
-                text = "Cancel Request",
+                text = stringResource(CommonR.string.requests_action_cancel),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = RequestColors.Rose,
@@ -310,7 +317,7 @@ private fun FollowButton(state: RequestDetailUiState, onClick: () -> Unit) {
             )
         }
         Text(
-            text = state.followActionTitle,
+            text = state.followActionTitle.text(),
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             color = PrairieOnSurface,
@@ -350,7 +357,7 @@ private fun PrimaryActionButton(state: RequestDetailUiState, onClick: () -> Unit
             RequestPrimaryAction.Loading -> Unit
         }
         Text(
-            text = state.primaryActionTitle,
+            text = state.primaryActionTitle.text(),
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
             color = content,
@@ -373,7 +380,7 @@ private fun RequestStatusCard(progress: RequestProgress, record: MediaRequest?) 
             .padding(16.dp),
     ) {
         Text(
-            text = "REQUEST STATUS",
+            text = stringResource(CommonR.string.requests_detail_statusHeading),
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.6.sp,
@@ -407,12 +414,12 @@ private fun StepRow(step: RequestStep, progress: RequestProgress, record: MediaR
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = stepTitle(step, isCurrent, progress),
+                text = stepTitle(step, isCurrent, progress).text(),
                 fontSize = 15.sp,
                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                 color = if (isDone || isCurrent) PrairieOnSurface else PrairieOnSurface.copy(alpha = 0.45f),
             )
-            stepDetail(step, isDone, isCurrent, progress, record)?.let {
+            stepDetail(requestResources(), step, isDone, isCurrent, progress, record)?.let {
                 Text(text = it, fontSize = 12.sp, color = PrairieSecondaryText)
             }
         }
@@ -435,30 +442,37 @@ private fun StepMarker(isDone: Boolean, isCurrent: Boolean, tint: Color) {
 }
 
 /** The current step reads as what's happening now: "Declined" instead of "Approved", "Queued" instead of "Downloading". */
-private fun stepTitle(step: RequestStep, isCurrent: Boolean, progress: RequestProgress): String {
-    if (!isCurrent) return step.title
+private fun stepTitle(step: RequestStep, isCurrent: Boolean, progress: RequestProgress): UiText {
+    if (!isCurrent) return step.text
     return when (progress.display) {
-        is RequestDisplayState.NeedsAttention, RequestDisplayState.OnTheWay -> progress.shortLabel
-        else -> step.title
+        is RequestDisplayState.NeedsAttention, RequestDisplayState.OnTheWay -> progress.shortText
+        else -> step.text
     }
 }
 
-private fun stepDetail(step: RequestStep, isDone: Boolean, isCurrent: Boolean, progress: RequestProgress, record: MediaRequest?): String? {
+private fun stepDetail(
+    resources: Resources,
+    step: RequestStep,
+    isDone: Boolean,
+    isCurrent: Boolean,
+    progress: RequestProgress,
+    record: MediaRequest?,
+): String? {
     val reason = (progress.display as? RequestDisplayState.NeedsAttention)?.reason
     return when (step) {
-        RequestStep.Requested -> RequestRowCopy.stamp(record?.createdAt)
+        RequestStep.Requested -> RequestRowCopy.stamp(resources, record?.createdAt)
         RequestStep.Approval -> when {
-            isDone -> RequestRowCopy.stamp(record?.approvedAt)
-            isCurrent && progress.display is RequestDisplayState.NeedsAttention -> requestReasonCopy(reason)
-            isCurrent -> "Waiting for your server admin"
+            isDone -> RequestRowCopy.stamp(resources, record?.approvedAt)
+            isCurrent && progress.display is RequestDisplayState.NeedsAttention -> requestReasonText(reason)?.text(resources)
+            isCurrent -> resources.getString(CommonR.string.requests_step_waitingForAdmin)
             else -> null
         }
         RequestStep.Download -> when {
             !isCurrent && !isDone -> null
-            isCurrent && progress.display is RequestDisplayState.NeedsAttention -> requestReasonCopy(reason)
-            else -> record?.let { RequestTargetSummary.text(it.targets) }
+            isCurrent && progress.display is RequestDisplayState.NeedsAttention -> requestReasonText(reason)?.text(resources)
+            else -> record?.let { RequestTargetSummary.text(it.targets)?.text(resources) }
         }
-        RequestStep.Library -> if (isCurrent) "Your library is picking it up" else null
+        RequestStep.Library -> if (isCurrent) resources.getString(CommonR.string.requests_step_libraryPickingUp) else null
     }
 }
 
@@ -478,9 +492,10 @@ private fun RequestMediaDetail.toHeroDetail(): ItemDetail = ItemDetail(
     ratings = listOfNotNull(ExternalRatings.tmdb(voteAverage)),
 )
 
+@Composable
 private fun RequestMediaDetail.creditText(): String? = when {
-    director.isNotBlank() -> "Directed by $director"
-    creators.isNotEmpty() -> "Created by ${creators.take(2).joinToString(", ")}"
+    director.isNotBlank() -> stringResourceWithNames(CommonR.string.detail_directedBy, director)
+    creators.isNotEmpty() -> stringResourceWithNames(CommonR.string.requests_createdBy, creators.take(2).joinToString(", "))
     else -> null
 }
 

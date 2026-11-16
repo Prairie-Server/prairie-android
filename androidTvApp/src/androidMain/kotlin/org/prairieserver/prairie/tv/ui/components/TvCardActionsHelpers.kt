@@ -10,17 +10,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.domain.MediaActionsCoordinator
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.catalog.withWatched
 import org.prairieserver.prairie.model.catalog.MediaItemUserState
 import org.prairieserver.prairie.network.ApiResult
-import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.repository.MembershipActions
 import org.prairieserver.prairie.repository.port.MembershipPort
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.common.i18n.errorText
+import org.prairieserver.prairie.common.i18n.text
 
 /**
  * TV-side counterpart to
@@ -121,10 +123,13 @@ fun MediaActionsCoordinator.tvCardActions(
 // The menu has already closed, so without this the rollback is the only sign
 // that the write failed.
 private fun showWatchedWriteFailed(context: Context, watched: Boolean, result: ApiResult<*>) {
-    val action = if (watched) "watched" else "unwatched"
+    val detail = result.errorText(CommonR.string.shell_card_markFailedRetry).text(context)
     Toast.makeText(
         context,
-        "Couldn't mark as $action. ${result.errorMessage("Try again.")}",
+        context.getString(
+            if (watched) CommonR.string.shell_card_markWatchedFailed else CommonR.string.shell_card_markUnwatchedFailed,
+            detail,
+        ),
         Toast.LENGTH_LONG,
     ).show()
 }

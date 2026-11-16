@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.tv.ui.screens.library
 
+import org.prairieserver.prairie.viewmodel.DetailSeeds
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.text
 import org.prairieserver.prairie.model.section.ResolvedSection
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -52,6 +55,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
@@ -225,7 +233,7 @@ fun TvLibraryDetailScreen(
                 if (state.selectedAudiobookGroup == null) {
                     AudiobookGroupsTab(
                         state = state,
-                        groupLabel = "authors",
+                        emptyMessage = CommonR.string.library_noAudiobookAuthors,
                         onGroupClick = viewModel::onAudiobookGroupSelected,
                         onLoadMore = viewModel::loadMoreAudiobookGroups,
                         onRetry = viewModel::retryAudiobookGroups,
@@ -248,7 +256,7 @@ fun TvLibraryDetailScreen(
                 if (state.selectedAudiobookGroup == null) {
                     AudiobookGroupsTab(
                         state = state,
-                        groupLabel = "series",
+                        emptyMessage = CommonR.string.library_noAudiobookSeries,
                         onGroupClick = viewModel::onAudiobookGroupSelected,
                         onLoadMore = viewModel::loadMoreAudiobookGroups,
                         onRetry = viewModel::retryAudiobookGroups,
@@ -306,7 +314,7 @@ private fun RecommendedTab(
         }
         state.recommendedError != null && state.sections.isEmpty() -> {
             TvErrorScreen(
-                message = state.recommendedError,
+                message = state.recommendedError.text(),
                 onRetry = onRetry,
                 modifier = Modifier.padding(
                     start = Spacing.safeArea,
@@ -317,7 +325,7 @@ private fun RecommendedTab(
         }
         rows.isEmpty() -> {
             TvCatalogEmptyState(
-                message = "${state.title} is empty.",
+                message = stringResourceWithNames(CommonR.string.library_namedIsEmpty, state.title),
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -340,8 +348,8 @@ private fun RecommendedTab(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(message, modifier = Modifier.weight(1f))
-                        Button(onClick = onRetry) { Text("Retry") }
+                        Text(message.text(), modifier = Modifier.weight(1f))
+                        Button(onClick = onRetry) { Text(stringResource(CommonR.string.common_retry)) }
                     }
                 }
             }
@@ -394,7 +402,7 @@ private fun LibraryTab(
         itemIds = state.browseItems.map { it.contentId },
         hasMore = state.browseHasMore,
         isLoadingMore = state.browseLoadingMore,
-        errorMessage = state.browseError,
+        errorMessage = state.browseError?.text(),
         surfaceKey = state.selectedTab.name,
         onLoadMore = onLoadMore,
         // Headers occupy full-span slots ahead of the cards, so the grid's own
@@ -415,9 +423,9 @@ private fun LibraryTab(
         // also overwrites the saved state.
         val canClearFilters = showBrowseControls && state.browseFilter.facetSelection.canReset
         TvErrorScreen(
-            message = state.browseError,
+            message = state.browseError.text(),
             onRetry = onRetry,
-            secondaryActionLabel = "Clear filters".takeIf { canClearFilters },
+            secondaryActionLabel = stringResource(CommonR.string.library_clearFilters).takeIf { canClearFilters },
             onSecondaryAction = { onFacetSelectionApplied(TvCatalogFacetSelection()) }.takeIf { canClearFilters },
             modifier = Modifier.padding(
                 start = Spacing.safeArea,
@@ -480,7 +488,12 @@ private fun LibraryTab(
 
     when (openPanel) {
         TvBrowsePanel.Sort -> TvBrowseSortPanel(
-            options = TvLibrarySortOption.availableFor(state.libraryType),
+            options = TvLibrarySortOption.availableFor(
+                libraryType = state.libraryType,
+                mediaScope = state.mediaScope,
+                shownRatingSources = rememberShownRatingSources(),
+                current = state.browseFilter.sort,
+            ),
             currentSort = state.browseFilter.sort,
             order = state.browseFilter.order,
             onSelect = { option ->
@@ -591,7 +604,10 @@ private fun LibraryGrid(
         ) {
             if (showBrowseControls) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "browse-controls") {
-                    val sortOption = TvLibrarySortOption.fromWire(state.browseFilter.sort)
+                    val sortOption = TvLibrarySortOption.fromWire(
+                        state.browseFilter.sort,
+                        org.prairieserver.prairie.catalog.sort.CatalogSortRelevance.forLibrary(state.libraryType, state.mediaScope),
+                    )
                     var controlsFocused by remember { mutableStateOf(false) }
                     // Scrolling back up lands the pills via minimal
                     // bring-into-view (pinned at the viewport top edge);
@@ -652,9 +668,9 @@ private fun LibraryGrid(
                 item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
                     TvCatalogEmptyState(
                         message = if (state.browseLibraryHasItems == false) {
-                            "This library is empty."
+                            stringResource(CommonR.string.library_isEmptySentence)
                         } else {
-                            "No titles match the current filters."
+                            stringResource(CommonR.string.library_noTitlesMatchFilters)
                         },
                     )
                 }
@@ -698,7 +714,10 @@ private fun LibraryGrid(
                         mediaType = item.type,
                         width = TvCardWidth,
                         fillWidth = true,
-                        onClick = { onItemClick(item.contentId) },
+                        onClick = {
+                            DetailSeeds.offer(item)
+                            onItemClick(item.contentId)
+                        },
                         focusRequester = restoredItemFocusRequester.takeIf { index == restoredItemIndex },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -722,7 +741,8 @@ private fun LibraryGrid(
 @Composable
 private fun AudiobookGroupsTab(
     state: TvLibraryDetailViewModel.UiState,
-    groupLabel: String,
+    /** What the grid says when there are no groups, e.g. no audiobook authors. */
+    @StringRes emptyMessage: Int,
     onGroupClick: (AudiobookGroup) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
@@ -800,12 +820,12 @@ private fun AudiobookGroupsTab(
                 }
                 state.audiobookGroupsError != null -> {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "error") {
-                        TvErrorScreen(message = state.audiobookGroupsError, onRetry = onRetry)
+                        TvErrorScreen(message = state.audiobookGroupsError.text(), onRetry = onRetry)
                     }
                 }
                 state.audiobookGroups.isEmpty() -> {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
-                        TvCatalogEmptyState(message = "No audiobook $groupLabel found.")
+                        TvCatalogEmptyState(message = stringResource(emptyMessage))
                     }
                 }
                 else -> {
@@ -846,7 +866,9 @@ private fun AudiobookGroupDrillInHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TvFilterChip(
-            text = "All ${tab.label}",
+            text = stringResource(
+                if (tab == TvLibraryTab.Series) CommonR.string.library_allSeries else CommonR.string.library_allAuthors,
+            ),
             selected = false,
             onClick = onClear,
         )
@@ -956,7 +978,7 @@ private fun GenreChipCloud(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Text(
-            text = if (loading) "Loading genres" else "Genres",
+            text = stringResource(if (loading) CommonR.string.library_loadingGenres else CommonR.string.library_genres),
             style = MaterialTheme.typography.titleMedium,
             color = Color.White.copy(alpha = 0.74f),
         )
@@ -970,7 +992,7 @@ private fun GenreChipCloud(
         ) {
             item(key = "genre-all") {
                 TvFilterChip(
-                    text = "All",
+                    text = stringResource(CommonR.string.filters_all),
                     selected = selectedGenre == null,
                     onClick = { onGenreChanged(null) },
                 )
@@ -1095,12 +1117,12 @@ private fun CollectionsTab(
                 }
                 state.collectionsError != null && state.collections.isEmpty() -> {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "error") {
-                        TvErrorScreen(message = state.collectionsError, onRetry = onRetry)
+                        TvErrorScreen(message = state.collectionsError.text(), onRetry = onRetry)
                     }
                 }
                 state.collections.isEmpty() -> {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
-                        TvCatalogEmptyState(message = "No collections in this library.")
+                        TvCatalogEmptyState(message = stringResource(CommonR.string.library_noCollectionsInLibrary))
                     }
                 }
                 // Grouped collections (tvOS `TVLibraryCollectionsView`): the
@@ -1239,29 +1261,36 @@ private fun TvCollectionCard(
 private val TvCollectionCardShape = RoundedCornerShape(8.dp)
 private val CollectionsGroupHeaderNudge = 10.dp
 
+@Composable
 private fun audiobookGroupSubtitle(group: AudiobookGroup): String? {
     val parts = mutableListOf<String>()
     if (group.itemCount > 0) {
-        parts += "${group.itemCount} ${if (group.itemCount == 1) "book" else "books"}"
+        parts += pluralStringResource(CommonR.plurals.library_audiobookGroup_books, group.itemCount, group.itemCount, LocaleFormat.integer(group.itemCount))
     }
     group.totalDurationSeconds
         ?.takeIf { it > 0 }
-        ?.let(::formatAudiobookGroupDuration)
-        ?.let { parts += it }
+        ?.let { parts += formatAudiobookGroupDuration(it) }
     if (group.inProgressCount > 0) {
-        parts += "${group.inProgressCount} in progress"
+        parts += pluralStringResource(
+            CommonR.plurals.library_audiobookGroup_inProgress,
+            group.inProgressCount,
+            group.inProgressCount,
+            LocaleFormat.integer(group.inProgressCount),
+        )
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" • ")
 }
 
+@Composable
 private fun formatAudiobookGroupDuration(seconds: Long): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
     return when {
-        hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
-        hours > 0 -> "${hours}h"
-        minutes > 0 -> "${minutes}m"
-        else -> "<1m"
+        hours > 0 && minutes > 0 ->
+            stringResource(CommonR.string.catalog_runtimeHoursMinutes, LocaleFormat.integer(hours), LocaleFormat.integer(minutes))
+        hours > 0 -> stringResource(CommonR.string.catalog_runtimeHours, LocaleFormat.integer(hours))
+        minutes > 0 -> stringResource(CommonR.string.catalog_runtimeMinutesShort, LocaleFormat.integer(minutes))
+        else -> stringResource(CommonR.string.catalog_runtimeUnderMinute)
     }
 }
 

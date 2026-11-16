@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.viewmodel.DetailSeeds
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -18,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.components.CardStyle
 import org.prairieserver.prairie.android.ui.components.ExploreAllCard
 import org.prairieserver.prairie.android.ui.components.MediaCard
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.model.catalog.BrowseItem
 import org.prairieserver.prairie.model.catalog.CatalogBoxSet
@@ -117,11 +120,14 @@ private fun BoxSetRailCard(item: BrowseItem, width: Dp, isCurrent: Boolean, onCl
         userState = item.userState,
         progress = boxSetMovieProgress(item),
         // The movie on screen opens nothing new; tapping it is a no-op.
-        onClick = if (isCurrent) ({}) else onClick,
+        onClick = if (isCurrent) ({}) else ({
+            DetailSeeds.offer(item)
+            onClick()
+        }),
         overlay = OverlayDataExtractor.fromBrowseItem(item),
         sharedContentId = item.contentId.takeUnless { isCurrent },
         // Bottom corner: the top corners hold the quality overlays and watched check.
-        cornerLabel = "THIS FILM".takeIf { isCurrent },
+        cornerLabel = stringResource(CommonR.string.boxSets_thisFilm).takeIf { isCurrent },
         highlighted = isCurrent,
     )
 }

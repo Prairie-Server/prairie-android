@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -45,11 +47,13 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -70,7 +74,10 @@ import org.prairieserver.prairie.android.ui.components.marquee.MarqueeStage
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeTextField
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeWordmark
 import org.prairieserver.prairie.android.ui.components.marquee.marqueePressHaptic
+import org.prairieserver.prairie.common.i18n.text
 import org.prairieserver.prairie.common.network.ServerSetupScheme
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import org.prairieserver.prairie.common.discovery.DiscoveredServer
 import org.prairieserver.prairie.common.discovery.LanServerDiscovery
 import org.prairieserver.prairie.common.ui.marquee.MarqueeColors
@@ -148,10 +155,9 @@ fun ServerSetupScreen(
 
     state.pendingCleartextUrl?.let { origin ->
         PrairieConfirmDialog(
-            title = "Connect without encryption?",
-            body = "Your password and what you watch will be sent unencrypted to " +
-                "${ServerBranding.hostLabel(origin)}. Only do this on a network you trust.",
-            confirmLabel = "Connect",
+            title = stringResource(CommonR.string.setup_cleartext_title),
+            body = stringResourceWithNames(CommonR.string.setup_cleartext_body, ServerBranding.hostLabel(origin)),
+            confirmLabel = stringResource(CommonR.string.setup_cleartext_connect),
             destructive = false,
             confirmEnabled = !state.isLoading,
             onConfirm = viewModel::confirmCleartextConnection,
@@ -164,13 +170,13 @@ fun ServerSetupScreen(
         frostStart = 0.30f,
         topBar = { MarqueeWordmark() },
     ) {
-        MarqueeHeadline(title = "Connect to\nyour server", lead = "Type the address you use for Prairie.")
+        MarqueeHeadline(title = stringResource(CommonR.string.setup_connectHeadline), lead = stringResource(CommonR.string.setup_body))
 
         MarqueeTextField(
             value = state.serverUrl,
             onValueChange = viewModel::onServerUrlChanged,
             icon = Icons.Outlined.Language,
-            placeholder = "media.example.com",
+            placeholder = stringResource(CommonR.string.setup_placeholder),
             keyboardType = KeyboardType.Uri,
             imeAction = ImeAction.Go,
             onImeAction = viewModel::onConnectClick,
@@ -182,11 +188,11 @@ fun ServerSetupScreen(
         )
 
         state.error?.let { error ->
-            MarqueeErrorText(error, Modifier.padding(top = 10.dp, start = 4.dp))
+            MarqueeErrorText(error.text(), Modifier.padding(top = 10.dp, start = 4.dp))
         }
         if (state.usesCleartext && state.error == null) {
             Text(
-                "This address uses unencrypted HTTP. Fine on a trusted home network; avoid it on public Wi-Fi.",
+                stringResource(CommonR.string.setup_cleartext_warning),
                 color = MarqueeColors.Warning,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 10.dp, start = 4.dp),
@@ -211,7 +217,7 @@ fun ServerSetupScreen(
         if (!fieldFocused) {
             if (found.isNotEmpty()) {
                 Text(
-                    "Found nearby",
+                    stringResource(CommonR.string.setup_foundNearby),
                     color = MarqueeColors.InkSecondary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -225,13 +231,13 @@ fun ServerSetupScreen(
                 )
             }
             state.discoveryError?.let { error ->
-                MarqueeErrorText(error, Modifier.padding(top = 10.dp, start = 4.dp))
+                MarqueeErrorText(error.text(), Modifier.padding(top = 10.dp, start = 4.dp))
             }
         }
 
         if (recents.isNotEmpty() && !fieldFocused) {
             Text(
-                "Recent",
+                stringResource(CommonR.string.setup_recent),
                 color = MarqueeColors.InkSecondary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -249,7 +255,7 @@ fun ServerSetupScreen(
         }
 
         MarqueeButton(
-            text = if (state.isLoading) "Connecting…" else "Continue",
+            text = stringResource(if (state.isLoading) CommonR.string.setup_connecting else CommonR.string.setup_continue),
             onClick = viewModel::onConnectClick,
             icon = Icons.Default.Link,
             isLoading = state.isLoading,
@@ -273,19 +279,20 @@ private fun AdvancedOptions(
     Column(modifier.fillMaxWidth().animateContentSize()) {
         val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "advancedChevron")
         val interaction = remember { MutableInteractionSource() }
+        val toggleState = stringResource(if (expanded) CommonR.string.setup_advanced_expanded else CommonR.string.setup_advanced_collapsed)
         Row(
             modifier = Modifier
                 .heightIn(min = 32.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .clickable(enabled = enabled, role = Role.Button, interactionSource = interaction, indication = null, onClick = onToggle)
                 .marqueePressHaptic(interaction)
-                .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
+                .semantics { stateDescription = toggleState }
                 .padding(start = 4.dp, end = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Outlined.Settings, contentDescription = null, tint = MarqueeColors.InkSecondary, modifier = Modifier.size(16.dp))
-            Text("Advanced options", color = MarqueeColors.InkSecondary, fontSize = 14.sp)
+            Text(stringResource(CommonR.string.setup_advanced_show), color = MarqueeColors.InkSecondary, fontSize = 14.sp)
             Icon(
                 Icons.Filled.KeyboardArrowDown,
                 contentDescription = null,
@@ -307,11 +314,11 @@ private fun AdvancedOptions(
                         Modifier.fillMaxWidth().height(MarqueeMetrics.FieldHeight).padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Protocol", color = MarqueeColors.Ink, fontSize = MarqueeMetrics.FieldFont, modifier = Modifier.weight(1f))
+                        Text(stringResource(CommonR.string.setup_protocol_field), color = MarqueeColors.Ink, fontSize = MarqueeMetrics.FieldFont, modifier = Modifier.weight(1f))
                         SegmentedPicker(
                             options = ServerSetupScheme.entries,
                             selected = scheme,
-                            label = { it.label },
+                            label = { schemeLabel(it) },
                             onSelect = onSchemeSelected,
                         )
                     }
@@ -320,10 +327,11 @@ private fun AdvancedOptions(
                         Modifier.fillMaxWidth().height(MarqueeMetrics.FieldHeight).padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Port", color = MarqueeColors.Ink, fontSize = MarqueeMetrics.FieldFont, modifier = Modifier.weight(1f))
+                        val portLabel = stringResource(CommonR.string.setup_port_field)
+                        Text(portLabel, color = MarqueeColors.Ink, fontSize = MarqueeMetrics.FieldFont, modifier = Modifier.weight(1f))
                         Box(Modifier.width(120.dp), contentAlignment = Alignment.CenterEnd) {
                             if (port.isEmpty()) {
-                                Text("Auto", color = MarqueeColors.InkTertiary, fontSize = MarqueeMetrics.FieldFont)
+                                Text(stringResource(CommonR.string.setup_port_auto), color = MarqueeColors.InkTertiary, fontSize = MarqueeMetrics.FieldFont)
                             }
                             BasicTextField(
                                 value = port,
@@ -332,13 +340,13 @@ private fun AdvancedOptions(
                                 textStyle = TextStyle(color = MarqueeColors.Ink, fontSize = MarqueeMetrics.FieldFont, textAlign = TextAlign.End),
                                 cursorBrush = SolidColor(Color(0xFF0A84FF)),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Port" },
+                                modifier = Modifier.fillMaxWidth().semantics { contentDescription = portLabel },
                             )
                         }
                     }
                 }
                 Text(
-                    "Auto tries HTTPS first, then HTTP, then Prairie's port 8090.",
+                    stringResource(CommonR.string.setup_advanced_hint),
                     color = MarqueeColors.InkTertiary,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(start = 4.dp),
@@ -348,9 +356,19 @@ private fun AdvancedOptions(
     }
 }
 
+/** The protocol picker's label for [scheme]. */
+@Composable
+private fun schemeLabel(scheme: ServerSetupScheme): String = stringResource(
+    when (scheme) {
+        ServerSetupScheme.Auto -> CommonR.string.setup_scheme_auto
+        ServerSetupScheme.Https -> CommonR.string.setup_scheme_https
+        ServerSetupScheme.Http -> CommonR.string.setup_scheme_http
+    },
+)
+
 /** A small iOS-style segmented control. */
 @Composable
-private fun <T> SegmentedPicker(options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
+private fun <T> SegmentedPicker(options: List<T>, selected: T, label: @Composable (T) -> String, onSelect: (T) -> Unit) {
     Row(
         Modifier
             .width(190.dp)
@@ -370,12 +388,19 @@ private fun <T> SegmentedPicker(options: List<T>, selected: T, label: (T) -> Str
                     .clickable(role = Role.RadioButton) { onSelect(option) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
+                // Steps down from 13sp when a translated label is wider than its
+                // segment ("Automático"), instead of being cut.
+                BasicText(
                     label(option),
-                    color = MarqueeColors.Ink,
-                    fontSize = 13.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    style = LocalTextStyle.current.merge(
+                        TextStyle(
+                            color = MarqueeColors.Ink,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        ),
+                    ),
                     maxLines = 1,
+                    autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 13.sp, stepSize = 0.5.sp),
                 )
             }
         }
@@ -455,6 +480,7 @@ private fun ServerPickerRow(
     isConnecting: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val connecting = stringResource(CommonR.string.setup_connectingState)
     Row(
         Modifier
             .fillMaxWidth()
@@ -462,7 +488,7 @@ private fun ServerPickerRow(
             .marqueePressHaptic(interaction)
             .semantics {
                 contentDescription = "$name, $detail"
-                if (isConnecting) stateDescription = "Connecting"
+                if (isConnecting) stateDescription = connecting
             }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),

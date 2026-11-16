@@ -57,6 +57,9 @@ import org.prairieserver.prairie.tv.ui.theme.PrairieOnSurface
 import org.prairieserver.prairie.tv.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.tv.ui.theme.TvRailScrollBehavior
 import org.prairieserver.prairie.tv.ui.theme.tvRailPinOnFocus
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.text
 
 @Composable
 internal fun TvDetailTrailersSection(
@@ -74,7 +77,7 @@ internal fun TvDetailTrailersSection(
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         TvDetailSectionHeader(
-            title = "Trailers & More",
+            title = stringResource(CommonR.string.detail_trailers),
             modifier = Modifier.padding(horizontal = TvDetailHorizontalInset),
         )
         TvRailScrollBehavior {
@@ -196,7 +199,7 @@ private fun TvDetailTrailerCard(
         }
 
         Text(
-            text = entry.title,
+            text = entry.title.text(),
             color = if (isFocused) PrairieOnSurface else PrairieOnSurface.copy(alpha = 0.92f),
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,

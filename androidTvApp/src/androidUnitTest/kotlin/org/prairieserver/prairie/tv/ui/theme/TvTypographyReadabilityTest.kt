@@ -25,11 +25,19 @@ class TvTypographyReadabilityTest {
         // First-run chrome at tvOS half scale: the SECURE/HTTP badge on the
         // server card, and the label inside the "Tap Set up" step picture.
         "org/prairieserver/prairie/tv/ui/components/marquee/TvMarquee.kt|fontSize = 9.sp,",
-        "org/prairieserver/prairie/tv/ui/components/marquee/TvMarqueeSetupSteps.kt|Text(\"Set up\", color = Color.Black, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)",
+        // The same badge on Change Account's account cards (Roku ServerCard).
+        "org/prairieserver/prairie/tv/ui/screens/servers/TvChangeAccountScreen.kt|fontSize = 9.sp,",
+        "org/prairieserver/prairie/tv/ui/components/marquee/TvMarqueeSetupSteps.kt|Text(stringResource(CommonR.string.companion_offerSetupAction), color = Color.Black, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)",
         // Player chrome at tvOS half scale: the uppercase tracked eyebrow over
         // the title and panel sections, and the SDH/FORCED track chips.
         "org/prairieserver/prairie/tv/ui/screens/player/TvPlayerChrome.kt|fontSize = 11.sp,",
         "org/prairieserver/prairie/tv/ui/screens/player/TvPlayerChrome.kt|fontSize = 9.sp,",
+        // Audiobook detail at tvOS half scale: the uppercase tracked eyebrow and
+        // gold series line over the title, and the About card's fact labels,
+        // at the detail hero eyebrow's 12sp.
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvAudiobookDetailHero.kt|fontSize = 12.sp,",
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvAudiobookDetailHero.kt|fontSize = 12.sp,",
+        "org/prairieserver/prairie/tv/ui/screens/detail/TvItemDetailScreen.kt|fontSize = 12.sp,",
     )
 
     @Test

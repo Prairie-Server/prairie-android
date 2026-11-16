@@ -37,6 +37,8 @@ import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhil
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
 import org.prairieserver.prairie.model.catalog.Person
 import org.prairieserver.prairie.model.catalog.personInitials
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * Cast and crew matching the search, as a horizontal rail of circular
@@ -56,7 +58,7 @@ fun SearchPeopleRow(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = "People",
+            text = stringResource(CommonR.string.search_people),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = PrairieOnSurface,

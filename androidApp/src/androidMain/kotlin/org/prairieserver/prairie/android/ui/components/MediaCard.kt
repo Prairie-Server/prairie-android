@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.android.ui.components
 
+import org.prairieserver.prairie.common.i18n.displayUppercase
 import org.prairieserver.prairie.common.ui.components.SpoilerImage
 import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
@@ -30,12 +31,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import org.prairieserver.prairie.android.ui.navigation.LocalHeroSourceHandoff
 import org.prairieserver.prairie.android.ui.navigation.heroSharedKeyPrefix
@@ -44,9 +48,15 @@ import java.util.UUID
 import org.prairieserver.prairie.common.cards.LocalCardPresentation
 import org.prairieserver.prairie.common.overlays.CardOverlayVariant
 import org.prairieserver.prairie.common.overlays.CardOverlays
+import org.prairieserver.prairie.common.overlays.CardWatchStatusBadge
 import org.prairieserver.prairie.common.overlays.LocalCardOverlayUiState
 import org.prairieserver.prairie.model.catalog.MediaItemUserState
+import org.prairieserver.prairie.model.catalog.isAudiobookItemType
+import org.prairieserver.prairie.overlays.CardWatchStatus
 import org.prairieserver.prairie.overlays.OverlayData
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.currentNumberLocale
+import org.prairieserver.prairie.common.ui.components.WatchProgressBar
 
 object MediaGridDefaults {
     // Same minimum as the Library grid's Normal density (CatalogViewDensity),
@@ -68,12 +78,27 @@ object MediaGridDefaults {
             PosterGridMinWidth * LocalCardPresentation.current.posterSize.posterScale
 }
 
+/** iOS `posterAspectRatio`: 2 : 3.3 (posterCardWidth 120 / height 198). */
+const val PosterArtworkAspectRatio = 2f / 3.3f
+
+/** The artwork shape of a card for an item of [type]: audiobook covers are square everywhere, as on iOS and tvOS. */
+fun cardArtworkAspectRatio(type: String?): Float =
+    if (isAudiobookItemType(type)) 1f else PosterArtworkAspectRatio
+
+/** Every item is an audiobook, so a row or grid of them shows square covers (iOS `isAudiobookRow`). */
+fun areAllAudiobooks(types: List<String?>): Boolean =
+    types.isNotEmpty() && types.all(::isAudiobookItemType)
+
+/** One artwork shape for a whole row or grid of [types], so its cards keep one height. */
+fun sharedArtworkAspectRatio(types: List<String?>): Float =
+    if (areAllAudiobooks(types)) 1f else PosterArtworkAspectRatio
+
 /**
  * The core media poster card used throughout the app.
  *
- * 120dp × 180dp poster (2:3, matching server poster artwork) with a white
- * watched-checkmark circle in the top-right and a thin progress bar at the
- * bottom of the artwork.
+ * 120dp × 180dp poster (2:3, matching server poster artwork) with the watch
+ * status (a check, or the episodes left) in the top-right and a thin progress
+ * bar at the bottom of the artwork.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -91,7 +116,7 @@ fun MediaCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     width: Dp = 120.dp * LocalCardPresentation.current.posterSize.posterScale,
-    artworkAspectRatio: Float = 2f / 3.3f,
+    artworkAspectRatio: Float = cardArtworkAspectRatio(type),
     overlay: OverlayData? = null,
     actions: MediaCardActions = MediaCardActions(),
     /**
@@ -111,6 +136,17 @@ fun MediaCard(
     sleeves: BoxSetSleeveColors? = null,
     /** Outlines the artwork, such as the movie being viewed in its box set row. */
     highlighted: Boolean = false,
+    /**
+     * Set by hosts whose layout always gives the card exactly [width], such
+     * as a lazy row (unbounded width). A grid cell or a fill modifier
+     * overrides [width], so those hosts leave it false.
+     */
+    widthIsExact: Boolean = false,
+    /**
+     * Always takes two title lines and a caption line, so every card in a grid
+     * is one height and a [MediaCardPlaceholder] beside it matches.
+     */
+    reserveTextLines: Boolean = false,
 ) {
     val overlayState = LocalCardOverlayUiState.current
     var menuExpanded by remember { mutableStateOf(false) }
@@ -147,7 +183,6 @@ fun MediaCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                // iOS posterAspectRatio = 2 : 3.3 (posterCardWidth 120 / height 198).
                 .aspectRatio(artworkAspectRatio)
                 // Outside the clip below, so they show above the artwork.
                 .then(if (sleeves != null) Modifier.boxSetSleeves(sleeves) else Modifier)
@@ -174,27 +209,30 @@ fun MediaCard(
             )
 
             // Card-overlay badge layer (resolution / audio / ratings, etc.).
-            // Sits over the image but under the watched-check + progress so
+            // Sits over the image but under the watch status and progress so
             // those remain visually on top. Gated on the admin/user enable
             // flag and only when the caller supplied overlay data.
+            val hasProgressBar = progress != null && progress > 0f
             if (overlayState.enabled && overlay != null) {
                 CardOverlays(
                     data = overlay,
                     prefs = overlayState.prefs,
                     variant = CardOverlayVariant.Poster,
+                    hasProgressBar = hasProgressBar,
                     modifier = Modifier.fillMaxSize(),
+                    cardWidth = width.takeIf { widthIsExact && it.isSpecified },
                 )
             }
 
-            // Watched indicator: white circle + checkmark, top-right.
-            // Mirrors iOS MediaCard.swift:104–119.
-            if (userState?.played == true) {
-                WatchedBadge(modifier = Modifier.align(Alignment.TopEnd))
+            // Watched check or episodes left, top-right, on poster-shaped
+            // artwork whether or not badges are on (web CardWatchStatus).
+            if (artworkAspectRatio <= 1f) {
+                CardWatchStatusBadge(CardWatchStatus.of(userState), Modifier.fillMaxSize())
             }
 
             if (badge != null) {
                 Text(
-                    text = badge.uppercase(),
+                    text = badge.displayUppercase(),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.2.sp,
@@ -224,47 +262,25 @@ fun MediaCard(
             }
 
             // Progress bar at bottom of artwork.
-            if (progress != null && progress > 0f) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .height(4.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.4f)),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progress.coerceIn(0f, 1f))
-                            .height(4.dp)
-                            .background(MaterialTheme.colorScheme.onSurface),
-                    )
-                }
+            if (hasProgressBar) {
+                WatchProgressBar(
+                    progress,
+                    belowCornerLabel = cornerLabel != null,
+                )
             }
         }
 
-        // iOS titleText: .prairieSubheadline (14sp), 2 lines.
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        val caption = subtitle ?: year?.takeIf { it > 0 }?.toString()
-        if (caption != null) {
-            // iOS yearText: .siloCaption (12sp) at secondary text.
-            Text(
-                text = caption,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        val caption = subtitle ?: year?.takeIf { it > 0 }?.let { LocaleFormat.integer(it, currentNumberLocale()) }
+        if (reserveTextLines) {
+            // Always as tall as two title lines and a caption, so rows keep one
+            // height; a short title keeps its caption under it and the spare
+            // room goes below.
+            Box {
+                MediaCardTextLinesTemplate()
+                MediaCardTitleAndCaption(title, caption, captionMaxLines = 1)
+            }
+        } else {
+            MediaCardTitleAndCaption(title, caption)
         }
 
         MediaCardContextMenu(
@@ -275,5 +291,70 @@ fun MediaCard(
             isFavorite = userState?.isFavorite == true,
             isInWatchlist = userState?.inWatchlist == true,
         )
+    }
+}
+
+@Composable
+private fun MediaCardTitleAndCaption(title: String, caption: String?, captionMaxLines: Int = Int.MAX_VALUE) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // iOS titleText: .prairieSubheadline (14sp), 2 lines.
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (caption != null) {
+            // iOS yearText: .siloCaption (12sp) at secondary text.
+            Text(
+                text = caption,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = captionMaxLines,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+/** Invisible lines the height of two title lines and a caption, for fixed-height cards. */
+@Composable
+private fun MediaCardTextLinesTemplate() {
+    Column(
+        modifier = Modifier
+            .graphicsLayer { alpha = 0f }
+            .clearAndSetSemantics {},
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(text = " ", style = MaterialTheme.typography.titleSmall, minLines = 2, maxLines = 2) // i18n-ignore
+        Text(text = " ", style = MaterialTheme.typography.bodySmall, maxLines = 1) // i18n-ignore
+    }
+}
+
+/**
+ * A card-shaped stand-in for a title that has not arrived yet, the height of a
+ * [MediaCard] with `reserveTextLines`, so rows keep their size when it fills in.
+ */
+@Composable
+fun MediaCardPlaceholder(
+    modifier: Modifier = Modifier,
+    width: Dp = 120.dp * LocalCardPresentation.current.posterSize.posterScale,
+    artworkAspectRatio: Float = PosterArtworkAspectRatio,
+) {
+    Column(
+        modifier = modifier.width(width),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(artworkAspectRatio)
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+        )
+        MediaCardTextLinesTemplate()
     }
 }

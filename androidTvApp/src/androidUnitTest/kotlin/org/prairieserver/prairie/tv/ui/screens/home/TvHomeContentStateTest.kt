@@ -3,6 +3,7 @@ package org.prairieserver.prairie.tv.ui.screens.home
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.prairieserver.prairie.common.i18n.UiText
 
 class TvHomeContentStateTest {
     @Test fun filteredEmptyHomeShowsEmptyState() {
@@ -11,7 +12,7 @@ class TvHomeContentStateTest {
 
     @Test fun loadingAndErrorOwnTheirStates() {
         assertFalse(shouldShowHomeEmptyState(true, null, 0))
-        assertFalse(shouldShowHomeEmptyState(false, "offline", 0))
+        assertFalse(shouldShowHomeEmptyState(false, UiText.Raw("offline"), 0))
         assertFalse(shouldShowHomeEmptyState(false, null, 2))
     }
 }

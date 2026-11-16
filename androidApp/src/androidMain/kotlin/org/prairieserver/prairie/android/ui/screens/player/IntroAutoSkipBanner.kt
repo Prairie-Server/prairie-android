@@ -31,7 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.prairieserver.prairie.android.R
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.ui.components.rememberNoticeCountdownFill
 import org.prairieserver.prairie.domain.player.IntroAutoSkipController
 import org.prairieserver.prairie.domain.player.IntroAutoSkipState
@@ -87,14 +87,14 @@ fun IntroAutoSkipBanner(
                 Spacer(Modifier.size(0.dp))
             }
             1 -> IntroPromptPill(
-                label = stringResource(R.string.intro_skip_pill_skip),
+                label = stringResource(CommonR.string.introSkip_pill_skip),
                 icon = Icons.Filled.SkipNext,
                 progress = fill.floatValue,
                 onClick = onSelect,
             )
             else -> IntroPromptPill(
-                label = stringResource(R.string.intro_skip_pill_undo),
-                caption = stringResource(R.string.intro_skip_pill_undo_caption),
+                label = stringResource(CommonR.string.introSkip_pill_undo),
+                caption = stringResource(CommonR.string.introSkip_pill_undoCaption),
                 icon = Icons.Filled.Replay,
                 progress = fill.floatValue,
                 onClick = onSelect,

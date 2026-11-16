@@ -5,11 +5,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
 import org.prairieserver.prairie.android.ui.components.PrairieDialog
 import org.prairieserver.prairie.android.ui.components.PrairieDialogAction
 import org.prairieserver.prairie.android.ui.components.PrairieDialogActionStyle
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsPrompt
+import org.prairieserver.prairie.common.diagnostics.diagnosticsReportsReadyText
+import org.prairieserver.prairie.common.R as CommonR
 
 @Composable
 fun DiagnosticsPromptDialog(
@@ -23,40 +26,35 @@ fun DiagnosticsPromptDialog(
     var confirmAlways by remember { mutableStateOf(false) }
     if (confirmAlways && allowAlwaysSend) {
         PrairieConfirmDialog(
-            title = "Always send crash reports?",
-            body = "Future eligible reports may be uploaded automatically until you change this setting.",
-            confirmLabel = "Always send",
+            title = stringResource(CommonR.string.diagnostics_alwaysSend_title),
+            body = stringResource(CommonR.string.diagnostics_alwaysSend_promptBody),
+            confirmLabel = stringResource(CommonR.string.diagnostics_alwaysSend_action),
             destructive = false,
             onConfirm = onAlwaysSend,
             onDismiss = { confirmAlways = false },
         )
         return
     }
-    val reportDescription =
-        if (prompt.reportCount == 1) {
-            "A ${prompt.reportType.displayName().lowercase()} report is ready. " +
-                "Review it before deciding whether to send it."
-        } else {
-            "${prompt.reportCount} diagnostics reports are ready. " +
-                "Review them before deciding whether to send them."
-        }
+    val reportDescription = diagnosticsReportsReadyText(prompt)
     PrairieDialog(
-        title = "Prairie encountered a problem",
+        title = stringResource(CommonR.string.diagnostics_prompt_title),
         message = if (allowAlwaysSend) {
             reportDescription
         } else {
-            "$reportDescription\n\nThe report includes the Prairie app version and build, Android version, " +
-                "device model, crash details, and diagnostic logs. Its pseudonymous credential is not " +
-                "linked to an account on your self-hosted server. Username, email, profile, server " +
-                "address, and playback session IDs are omitted. It never sends automatically and may " +
-                "be retained for up to 30 days."
+            reportDescription + "\n\n" + stringResource(CommonR.string.diagnostics_prompt_privacyNotice)
         },
         onDismissRequest = onDontSend,
-        actions = buildList {
-            add(PrairieDialogAction("Review", onReview, PrairieDialogActionStyle.Primary))
-            add(PrairieDialogAction("Send", onSend))
-            if (allowAlwaysSend) add(PrairieDialogAction("Always send", { confirmAlways = true }))
-            add(PrairieDialogAction("Don't send", onDontSend))
+        actions = run {
+            val review = stringResource(CommonR.string.diagnostics_prompt_review)
+            val send = stringResource(CommonR.string.diagnostics_consent_confirm)
+            val alwaysSend = stringResource(CommonR.string.diagnostics_alwaysSend_action)
+            val dontSend = stringResource(CommonR.string.diagnostics_prompt_dontSend)
+            buildList {
+                add(PrairieDialogAction(review, onReview, PrairieDialogActionStyle.Primary))
+                add(PrairieDialogAction(send, onSend))
+                if (allowAlwaysSend) add(PrairieDialogAction(alwaysSend, { confirmAlways = true }))
+                add(PrairieDialogAction(dontSend, onDontSend))
+            }
         },
     )
 }

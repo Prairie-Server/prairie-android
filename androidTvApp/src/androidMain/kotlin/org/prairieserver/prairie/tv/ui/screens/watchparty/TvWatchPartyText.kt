@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.tv.ui.screens.watchparty
 
+import androidx.annotation.StringRes
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.model.watchtogether.RoomMember
 import org.prairieserver.prairie.model.watchtogether.RoomPhase
 import org.prairieserver.prairie.model.watchtogether.RoomPlaybackState
@@ -7,11 +9,20 @@ import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
 import org.prairieserver.prairie.repository.WatchPartyEndReason
 
 /** Plain-language reason this device's Watch Party ended. */
-internal fun tvWatchPartyEndedMessage(reason: String): String = when (reason) {
-    WatchPartyEndReason.Replaced -> "This profile joined the Watch Party on another device."
-    WatchPartyEndReason.ConnectionLost -> "Lost connection to the party."
-    else -> "The Watch Party has ended."
+@StringRes
+internal fun tvWatchPartyEndedMessage(reason: String): Int = when (reason) {
+    WatchPartyEndReason.Replaced -> CommonR.string.watchParty_endReason_replaced
+    WatchPartyEndReason.ConnectionLost -> CommonR.string.watchParty_endReason_connectionLost
+    else -> CommonR.string.watchParty_endReason_ended
 }
+
+/*
+ * The English name, name list and notes below serve the player's overlays
+ * (`player/TvWatchPartyPlayerOverlays.kt`, another area) and their tests.
+ * Screens here use the catalog's `watchPartyDisplayName` and
+ * `watchPartyNameList` (`org.prairieserver.prairie.common.watchparty`) and the
+ * `watchParty.leave.hostNote` message; drop these once the player moves too.
+ */
 
 /** A member's name for display; the server may omit it. */
 internal fun tvWatchPartyMemberName(member: RoomMember): String =

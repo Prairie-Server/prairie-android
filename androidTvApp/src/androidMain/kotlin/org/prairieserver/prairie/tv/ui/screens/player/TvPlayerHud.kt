@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.tv.ui.screens.player
 
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.displayUppercase
+import org.prairieserver.prairie.common.i18n.text
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateContentSize
@@ -95,6 +98,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -110,6 +114,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import kotlinx.coroutines.launch
 import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.LocaleFormat
 import org.prairieserver.prairie.common.player.AudioOutputPath
 import org.prairieserver.prairie.common.player.PlayerStatsSnapshot
 import org.prairieserver.prairie.common.player.healthRows
@@ -126,13 +131,14 @@ import org.prairieserver.prairie.model.playback.SubtitleIdentity
 import org.prairieserver.prairie.model.settings.SubtitleAppearance
 import org.prairieserver.prairie.model.settings.SubtitleBackgroundStylePreset
 import org.prairieserver.prairie.playback.SubtitleTimingActions
-import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.tv.ui.components.tvDialogSurface
 import org.prairieserver.prairie.tv.ui.focus.TvContentInitialFocusMaxAttempts
 import org.prairieserver.prairie.tv.ui.focus.TvFocusLog
 import org.prairieserver.prairie.tv.ui.focus.TvFrameRelocationMaxAttempts
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
+import org.prairieserver.prairie.common.i18n.text
+import org.prairieserver.prairie.common.i18n.currentNumberLocale
 
 // Geometry follows the options mockup on a 960×540dp screen: a capsule tab
 // rail 24dp from the top, and a smoked panel 10dp under it, 780dp (81%) wide
@@ -378,8 +384,9 @@ internal fun TvPlayerHud(
     }
 
     // Every picker names the tab it came from above its title.
+    val selectedTabLabel = selectedTab.displayLabel()
     val presentPicker: (HudPickerPresentation) -> Unit = { picker ->
-        activePicker = if (picker.eyebrow == null) picker.copy(eyebrow = selectedTab.label) else picker
+        activePicker = if (picker.eyebrow == null) picker.copy(eyebrow = selectedTabLabel) else picker
     }
     val closePicker: () -> Unit = { activePicker = null }
 
@@ -478,7 +485,7 @@ internal fun TvPlayerHud(
             ) {
                 tabs.forEach { tab ->
                     HudTabPill(
-                        label = tab.label,
+                        label = tab.displayLabel(),
                         isSelected = tab == selectedTab,
                         enabled = activePicker == null,
                         focusRequester = tabFocusRequesters[tab]
@@ -572,7 +579,7 @@ internal fun TvPlayerHud(
                         subtitleLabel = subtitlePresentation.rows
                             .firstOrNull { row -> row.checked }
                             ?.let { row -> tvSubtitleRowParts(row.label).title }
-                            ?: "Off",
+                            ?: stringResource(CommonR.string.player_tracks_subtitlesOff),
                         chapters = chapters,
                     )
                     HudTab.Stats -> HudPaneViewport {
@@ -592,7 +599,7 @@ internal fun TvPlayerHud(
                     }
                     HudTab.Video -> HudVideoPane(
                         videoQualities = if (autoQualityLimited) {
-                            val limitedAuto = stringResource(R.string.buffering_quality_auto_limited)
+                            val limitedAuto = stringResource(CommonR.string.bufferingQuality_autoLimited)
                             videoQualities.map { option ->
                                 if (option.id == PLAYBACK_QUALITY_AUTO) option.copy(label = limitedAuto) else option
                             }
@@ -730,14 +737,21 @@ private class HudPanelWindow {
 
 private val LocalHudPanelWindow = staticCompositionLocalOf<HudPanelWindow?> { null }
 
-enum class HudTab(val label: String) {
-    Info("Info"),
+enum class HudTab(@StringRes val labelRes: Int, val literalLabel: String? = null) {
+    Info(CommonR.string.options_tabInfo),
+    // Prairie: the stats tab reads "Stats for nerds" (literal, not the upstream resource).
     Stats("Stats for nerds"),
-    Video("Video"),
-    Audio("Audio"),
-    Subtitles("Subtitles"),
-    Chapters("Chapters"),
+    Video(CommonR.string.options_tabVideo),
+    Audio(CommonR.string.options_tabAudio),
+    Subtitles(CommonR.string.options_tabSubtitles),
+    Chapters(CommonR.string.options_tabChapters),
+    ;
+
+    constructor(literal: String) : this(CommonR.string.options_tabStats, literal)
 }
+
+@Composable
+private fun HudTab.displayLabel(): String = literalLabel ?: stringResource(labelRes)
 
 /**
  * Tabs shown for the current session. Info + Video are always present; Stats,
@@ -881,27 +895,35 @@ private fun HudInfoPane(
     chapters: List<VersionChapter>,
 ) {
     val episodeTag = if (seasonNumber != null && episodeNumber != null) {
-        "S$seasonNumber · E$episodeNumber"
+        stringResource(CommonR.string.catalog_episodeCaption, LocaleFormat.codeNumber(seasonNumber), LocaleFormat.codeNumber(episodeNumber))
     } else {
         null
     }
+    val routeLabel = stringResource(CommonR.string.player_hud_route)
+    val sourceLabel = stringResource(CommonR.string.player_hud_source)
+    val alternateVersion = stringResource(CommonR.string.player_hud_alternateVersion)
+    val videoLabel = stringResource(CommonR.string.player_hud_video)
+    val audioLabel = stringResource(CommonR.string.player_hud_audio)
+    val subtitlesLabel = stringResource(CommonR.string.player_hud_subtitles)
+    val chapterLabel = stringResource(CommonR.string.player_hud_chapter)
+    val currentChapter = currentChapterTitle(chapters, positionSec)
     val streamRows = buildList<Pair<String, String>> {
-        stats.backendRoute?.let { add("Route" to it) }
+        stats.backendRoute?.let { add(routeLabel to it) }
         playbackPlan?.takeIf {
             it.requestedMediaFileId != null &&
                 it.effectiveMediaFileId != null &&
                 it.requestedMediaFileId != it.effectiveMediaFileId
-        }?.let { add("Source" to "Alternate version") }
+        }?.let { add(sourceLabel to alternateVersion) }
         // Names people know, not shouted mimes: "H.264" rather than
         // "AVC1.640029", "DTS-HD" rather than "AUDIO/VND.DTS.HD". Stats keeps
         // the raw strings for anyone who needs them.
-        videoCodecShortName(stats.videoCodec)?.let { add("Video" to it) }
-        audioFormatShortName(stats.audioCodec)?.let { add("Audio" to it) }
+        videoCodecShortName(stats.videoCodec)?.let { add(videoLabel to it) }
+        audioFormatShortName(stats.audioCodec)?.let { add(audioLabel to it) }
         // The adapter's COMMITTED identity, exactly as the Subtitles tab reads
         // it. This used to ask Media3 which text track was selected, which is a
         // different authority — so the two tabs could and did disagree.
-        add("Subtitles" to subtitleLabel)
-        currentChapterTitle(chapters, positionSec)?.let { add("Chapter" to it) }
+        add(subtitlesLabel to subtitleLabel)
+        currentChapter?.let { add(chapterLabel to it) }
     }
     val badges = buildList {
         playbackPlan.validatedHdrBadge()?.let { add(it) }
@@ -910,16 +932,16 @@ private fun HudInfoPane(
 
     HudColumns(
         left = {
-            HudEyebrow("Title")
+            HudEyebrow(stringResource(CommonR.string.player_hud_title))
             Column(
                 modifier = Modifier.padding(horizontal = HudRowPadding),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (episodeTag != null) {
-                    Text(text = episodeTag.uppercase(), style = TvPlayerType.Eyebrow)
+                    Text(text = episodeTag.displayUppercase(), style = TvPlayerType.Eyebrow)
                 }
                 Text(
-                    text = title.ifBlank { "Now Playing" },
+                    text = title.ifBlank { stringResource(CommonR.string.player_hud_nowPlaying) },
                     style = TvPlayerType.DialogTitle,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -938,7 +960,7 @@ private fun HudInfoPane(
             }
         },
         right = {
-            HudEyebrow("Stream")
+            HudEyebrow(stringResource(CommonR.string.player_hud_stream))
             streamRows.forEach { (label, value) ->
                 HudReadOnlyRow(label = label, value = value)
             }
@@ -974,10 +996,11 @@ private fun PlaybackExecutionPlan?.validatedHdrBadge(): String? {
     }
 }
 
+@Composable
 private fun currentChapterTitle(chapters: List<VersionChapter>, positionSec: Double): String? {
     if (chapters.isEmpty()) return null
     val current = chapters.lastOrNull { it.startSeconds <= positionSec } ?: return null
-    return current.title.ifBlank { "Chapter ${current.index + 1}" }
+    return chapterTitle(current)
 }
 
 /** A section label inside a pane, inset to line up with row text. */
@@ -990,7 +1013,7 @@ private fun HudEyebrow(text: String, modifier: Modifier = Modifier, trailing: St
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = text.uppercase(),
+            text = text.displayUppercase(),
             style = TvPlayerType.Eyebrow,
             maxLines = 1,
             modifier = Modifier.weight(1f),
@@ -1053,7 +1076,7 @@ private fun HudStatsPane(
     }
 
     if (rows.isEmpty() && planRows.isEmpty() && stats.events.isEmpty) {
-        HudEmptyStatePane("Stats unavailable", modifier)
+        HudEmptyStatePane(stringResource(CommonR.string.player_hud_statsUnavailable), modifier)
         return
     }
 
@@ -1070,7 +1093,12 @@ private fun HudStatsPane(
     ) {
         listOf(rows.take(split), rows.drop(split)).forEach { column ->
             Column(modifier = Modifier.weight(1f)) {
-                column.forEach { (label, value) -> HudReadOnlyRow(label = label, value = value) }
+                column.forEach { row ->
+                    HudReadOnlyRow(
+                        label = stringResource(row.label),
+                        value = row.valueRes?.let { stringResource(it) } ?: row.value,
+                    )
+                }
             }
         }
     }
@@ -1180,39 +1208,51 @@ private val PLAYBACK_SPEED_OPTIONS = listOf(0.75, 1.0, 1.25, 1.5, 2.0)
 private fun speedOptionId(speed: Double): String =
     String.format(java.util.Locale.ROOT, "%.2f", speed)
 
-/** 1.0 -> "1×", 1.25 -> "1.25×", 2.0 -> "2×": no trailing zero, as on the phone. */
-private fun formatTvPlaybackSpeed(speed: Double): String {
-    // Locale.ROOT so comma-decimal devices render "1.25×", not "1,25×",
-    // matching the dot-formatted speedOptionId used to commit the choice.
-    val text = String.format(java.util.Locale.ROOT, "%.2f", speed).trimEnd('0').trimEnd('.')
-    return "$text×"
-}
+/**
+ * 1.0 -> "1×", 1.25 -> "1.25×", 2.0 -> "2×": no trailing zero, as on the phone,
+ * in the app language's digits and decimal separator. Only the label is
+ * localized; [speedOptionId] stays dot-formatted for the commit.
+ */
+private fun formatTvPlaybackSpeed(speed: Double): String =
+    "${LocaleFormat.decimal(speed, maxFractionDigits = 2)}×"
 
 /** Sleep-timer presets (minutes) — mirrors the phone SleepTimerSheet. */
 private val SLEEP_TIMER_PRESETS = listOf(15, 30, 45, 60, 90)
 
+@Composable
 private fun formatSleepRemaining(totalSeconds: Int): String {
     val s = totalSeconds.coerceAtLeast(0)
     val m = s / 60
-    val sec = s % 60
-    return if (m > 0) "${m}m ${sec}s" else "${sec}s"
+    val sec = LocaleFormat.integer(s % 60)
+    return if (m > 0) {
+        stringResource(CommonR.string.catalog_runtimeMinutesSeconds, LocaleFormat.integer(m), sec)
+    } else {
+        stringResource(CommonR.string.catalog_runtimeSeconds, sec)
+    }
 }
 
-private fun sleepPresetLabel(minutes: Int): String =
-    if (minutes >= 60) {
-        "${minutes / 60}h${if (minutes % 60 != 0) " ${minutes % 60}m" else ""}"
-    } else {
-        "${minutes}m"
-    }
+@Composable
+private fun sleepPresetLabel(minutes: Int): String = when {
+    minutes >= 60 && minutes % 60 != 0 -> stringResource(
+        CommonR.string.catalog_runtimeHoursMinutes,
+        LocaleFormat.integer(minutes / 60),
+        LocaleFormat.integer(minutes % 60),
+    )
+    minutes >= 60 -> stringResource(CommonR.string.catalog_runtimeHours, LocaleFormat.integer(minutes / 60))
+    else -> stringResource(CommonR.string.catalog_runtimeMinutesShort, LocaleFormat.integer(minutes))
+}
 
 /** Aspect (video-gravity) option labels — mirrors tvOS VideoGravity. */
-private fun fillModeLabel(mode: VideoFillMode): String = when (mode) {
-    VideoFillMode.Fit -> "Letterbox"
-    VideoFillMode.Zoom -> "Zoom (crop)"
-    VideoFillMode.Stretch -> "Stretch"
+@StringRes
+private fun fillModeLabel(mode: VideoFillMode): Int = when (mode) {
+    VideoFillMode.Fit -> CommonR.string.player_hud_aspectLetterbox
+    VideoFillMode.Zoom -> CommonR.string.player_hud_aspectZoom
+    VideoFillMode.Stretch -> CommonR.string.player_aspect_stretch
 }
 
-private fun onOffLabel(value: Boolean): String = if (value) "On" else "Off"
+@Composable
+private fun onOffLabel(value: Boolean): String =
+    stringResource(if (value) CommonR.string.options_on else CommonR.string.options_off)
 
 /**
  * Video pane — drill-in setting rows opening picker dialogs: Quality, Speed,
@@ -1248,6 +1288,7 @@ private fun HudVideoPane(
     onPresentPicker: (HudPickerPresentation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val playbackText = org.prairieserver.prairie.tv.ui.screens.detail.rememberTvPlaybackText()
     // Which row carries the pane's entry requester: the first row that is
     // actually focusable. A disabled row is not focusable, so pointing the
     // requester at it would cancel the move in from the rail.
@@ -1261,11 +1302,21 @@ private fun HudVideoPane(
         speedRowVisible -> "speed"
         else -> "aspect"
     }
+    val versionLabel = stringResource(CommonR.string.detail_version)
+    val qualityLabel = stringResource(CommonR.string.options_quality)
+    val playbackSpeedTitle = stringResource(CommonR.string.player_speed_title)
+    val normalSpeedLabel = stringResource(CommonR.string.player_settings_speedNormal)
+    val aspectLabel = stringResource(CommonR.string.player_hud_aspect)
+    val fillModeLabels = VideoFillMode.entries.associateWith { stringResource(fillModeLabel(it)) }
+    val sleepTimerTitle = stringResource(CommonR.string.player_sleepTimer_title)
+    val cancelTimerLabel = stringResource(CommonR.string.player_sleepTimer_cancel)
+    val sleepOffLabel = stringResource(CommonR.string.player_sleepTimer_off)
+    val sleepPresetLabels = SLEEP_TIMER_PRESETS.map { sleepPresetLabel(it) }
     HudColumns(
         modifier = modifier,
         left = {
             // Playback column — Version / Quality / Speed / Aspect.
-            HudEyebrow("Playback")
+            HudEyebrow(stringResource(CommonR.string.player_hud_playback))
             Column {
                 // Version — the server's file versions (4K / 1080p encodes).
                 // Switching restarts the session on that file at the current
@@ -1274,19 +1325,19 @@ private fun HudVideoPane(
                     val currentVersion = fileVersions.firstOrNull { it.fileId == selectedFileId }
                         ?: fileVersions.firstOrNull()
                     HudFocusedSettingRow(
-                        label = "Version",
+                        label = versionLabel,
                         value = org.prairieserver.prairie.tv.ui.screens.detail.TvPlaybackFormatting
-                            .versionShortLabel(currentVersion),
+                            .versionShortLabel(currentVersion, playbackText),
                         enabled = enabled,
                         entryFocusRequester = entryFocusRequester.takeIf { entryRow == "version" },
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Version",
+                                    title = versionLabel,
                                     // Disambiguated as a set: two 4K DV files
                                     // otherwise render as two identical rows.
                                     options = org.prairieserver.prairie.tv.ui.screens.detail
-                                        .TvPlaybackFormatting.versionPickerLabels(fileVersions)
+                                        .TvPlaybackFormatting.versionPickerLabels(fileVersions, playbackText)
                                         .mapIndexed { index, label ->
                                             HudPickerOption(
                                                 id = fileVersions[index].fileId.toString(),
@@ -1309,15 +1360,15 @@ private fun HudVideoPane(
                 if (hasQualityRow) {
                     val selectedQuality = videoQualities.firstOrNull { it.isSelected }
                     HudFocusedSettingRow(
-                        label = "Quality",
+                        label = qualityLabel,
                         // No row lit: a saved resolution the source plays under.
-                        value = selectedQuality?.label ?: QualityChoices.resolutionLabel(videoQualityPreference),
+                        value = selectedQuality?.label ?: QualityChoices.resolutionLabel(videoQualityPreference).text(),
                         enabled = enabled,
                         entryFocusRequester = entryFocusRequester.takeIf { entryRow == "quality" },
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Quality",
+                                    title = qualityLabel,
                                     options = videoQualities.map {
                                         HudPickerOption(id = it.id, label = it.label, trailing = it.bitrateLabel)
                                     },
@@ -1332,17 +1383,17 @@ private fun HudVideoPane(
 
                 if (speedRowVisible) {
                     HudFocusedSettingRow(
-                        label = "Speed",
+                        label = stringResource(CommonR.string.player_settings_speed),
                         value = formatTvPlaybackSpeed(playbackSpeed),
                         enabled = enabled,
                         entryFocusRequester = entryFocusRequester.takeIf { entryRow == "speed" },
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Playback speed",
+                                    title = playbackSpeedTitle,
                                     options = PLAYBACK_SPEED_OPTIONS.map {
                                         if (it == 1.0) {
-                                            HudPickerOption(speedOptionId(it), "Normal", trailing = formatTvPlaybackSpeed(it))
+                                            HudPickerOption(speedOptionId(it), normalSpeedLabel, trailing = formatTvPlaybackSpeed(it))
                                         } else {
                                             HudPickerOption(speedOptionId(it), formatTvPlaybackSpeed(it))
                                         }
@@ -1359,16 +1410,16 @@ private fun HudVideoPane(
                 }
 
                 HudFocusedSettingRow(
-                    label = "Aspect",
-                    value = fillModeLabel(fillMode),
+                    label = aspectLabel,
+                    value = fillModeLabels.getValue(fillMode),
                     enabled = enabled,
                     entryFocusRequester = entryFocusRequester.takeIf { entryRow == "aspect" },
                     onActivate = {
                         onPresentPicker(
                             HudPickerPresentation(
-                                title = "Aspect",
+                                title = aspectLabel,
                                 options = VideoFillMode.entries.map {
-                                    HudPickerOption(it.name, fillModeLabel(it))
+                                    HudPickerOption(it.name, fillModeLabels.getValue(it))
                                 },
                                 selectedId = fillMode.name,
                                 onSelect = { id ->
@@ -1386,10 +1437,10 @@ private fun HudVideoPane(
         // rows against a lone Sleep timer here — the pane scrolled while
         // half the card sat empty.
         right = {
-            HudEyebrow("Output")
+            HudEyebrow(stringResource(CommonR.string.player_hud_output))
             Column {
                 HudFocusedSettingRow(
-                    label = "HDR passthrough",
+                    label = stringResource(CommonR.string.player_hud_hdrPassthrough),
                     value = onOffLabel(hdrEnabled),
                     enabled = enabled,
                     showsChevron = false,
@@ -1411,7 +1462,7 @@ private fun HudVideoPane(
                     // focus off the row the viewer just pressed left the
                     // next press landing on nothing.
                     value = if (dolbyVisionSwitchInFlight) {
-                        "${onOffLabel(dolbyVisionEnabled)} · Applying…"
+                        "${onOffLabel(dolbyVisionEnabled)} · ${stringResource(CommonR.string.player_hud_applying)}"
                     } else {
                         onOffLabel(dolbyVisionEnabled)
                     },
@@ -1425,13 +1476,13 @@ private fun HudVideoPane(
                 )
             }
             HudSectionSpacer()
-            HudEyebrow("Automation")
+            HudEyebrow(stringResource(CommonR.string.player_hud_automation))
             Column {
                 // Three values, so Select cycles rather than toggles —
                 // the same one-press shape as the rows around it, without
                 // a picker sheet over the picture. Settings has the list.
                 HudFocusedSettingRow(
-                    label = stringResource(R.string.settings_intro_skip_title),
+                    label = stringResource(CommonR.string.settings_introSkip_title),
                     value = stringResource(introSkipModeLabel(introSkipMode)),
                     enabled = enabled,
                     showsChevron = false,
@@ -1439,7 +1490,7 @@ private fun HudVideoPane(
                 )
 
                 HudFocusedSettingRow(
-                    label = "Auto-play next",
+                    label = stringResource(CommonR.string.options_autoplayNext),
                     value = onOffLabel(autoPlayNext),
                     enabled = enabled,
                     showsChevron = false,
@@ -1448,21 +1499,23 @@ private fun HudVideoPane(
 
                 val activeSleep = sleepTimerState as? SleepTimerState.Active
                 HudFocusedSettingRow(
-                    label = "Sleep timer",
-                    value = activeSleep?.let { "Sleeping in ${formatSleepRemaining(it.remainingSeconds)}" } ?: "Off",
+                    label = sleepTimerTitle,
+                    value = activeSleep?.let {
+                        stringResource(CommonR.string.player_sleepTimer_sleepingIn, formatSleepRemaining(it.remainingSeconds))
+                    } ?: sleepOffLabel,
                     enabled = enabled,
                     onActivate = {
                         onPresentPicker(
                             HudPickerPresentation(
-                                title = "Sleep timer",
+                                title = sleepTimerTitle,
                                 options = buildList {
                                     if (activeSleep != null) {
-                                        add(HudPickerOption("cancel", "Cancel timer"))
+                                        add(HudPickerOption("cancel", cancelTimerLabel))
                                     }
-                                    add(HudPickerOption("off", "Off"))
+                                    add(HudPickerOption("off", sleepOffLabel))
                                     addAll(
-                                        SLEEP_TIMER_PRESETS.map { minutes ->
-                                            HudPickerOption(minutes.toString(), sleepPresetLabel(minutes))
+                                        SLEEP_TIMER_PRESETS.zip(sleepPresetLabels) { minutes, label ->
+                                            HudPickerOption(minutes.toString(), label)
                                         },
                                     )
                                 },
@@ -1503,6 +1556,7 @@ private fun HudAudioPane(
     onPresentPicker: (HudPickerPresentation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val playbackText = org.prairieserver.prairie.tv.ui.screens.detail.rememberTvPlaybackText()
     // Two columns like every other pane. A lone full-width column put the
     // value 500dp from its label — "Audio track ……… English · DTS · 5.1" —
     // and left the card two-thirds empty. The right column is read-only
@@ -1514,23 +1568,39 @@ private fun HudAudioPane(
     // passthrough and offload both skip the app's PCM processing, so there
     // is nothing to delay. Until the first track exists, fall back to the
     // plan.
+    val codecLabel = stringResource(CommonR.string.player_hud_codec)
+    val modeLabel = stringResource(CommonR.string.player_hud_mode)
+    val decoderLabel = stringResource(CommonR.string.player_hud_decoder)
+    val mode = stringResource(
+        when (audioOutputPath) {
+            AudioOutputPath.Pcm -> CommonR.string.player_hud_audioDecodedPcm
+            AudioOutputPath.Passthrough -> CommonR.string.player_hud_audioPassthrough
+            AudioOutputPath.Offload -> CommonR.string.player_hud_audioOffload
+            null -> if (audioDelayEnabled) {
+                CommonR.string.player_hud_audioDecodedPcm
+            } else {
+                CommonR.string.player_hud_audioPassthrough
+            }
+        },
+    )
     val outputRows = buildList<Pair<String, String>> {
-        audioFormatShortName(stats.audioCodec)?.let { add("Codec" to it) }
-        val mode = when (audioOutputPath) {
-            AudioOutputPath.Pcm -> "Decoded to PCM"
-            AudioOutputPath.Passthrough -> "Passthrough"
-            AudioOutputPath.Offload -> "Hardware offload"
-            null -> if (audioDelayEnabled) "Decoded to PCM" else "Passthrough"
-        }
-        add("Mode" to mode)
+        audioFormatShortName(stats.audioCodec)?.let { add(codecLabel to it) }
+        add(modeLabel to mode)
         stats.audioDecoderName
             ?.takeIf { audioDelayEnabled }
-            ?.let { add("Decoder" to it.removePrefix("OMX.").removePrefix("c2.")) }
+            ?.let { add(decoderLabel to it.removePrefix("OMX.").removePrefix("c2.")) }
+    }
+    val audioTrackLabel = stringResource(CommonR.string.player_hud_audioTrack)
+    val defaultTrackLabel = stringResource(CommonR.string.detail_trackDefault)
+    val audioDelayTitle = stringResource(CommonR.string.player_settings_audioDelay)
+    // Picker rows are built on Select, outside composition, so the fallback names are resolved here.
+    val trackFallbackLabels = activeVersion?.audioTracks.orEmpty().indices.map { ordinal ->
+        stringResource(CommonR.string.options_track, LocaleFormat.integer(ordinal + 1))
     }
     HudColumns(
         modifier = modifier,
         left = {
-            HudEyebrow("Track")
+            HudEyebrow(stringResource(CommonR.string.player_hud_track))
             Column {
                 val selectedTrack = audioTracks.firstOrNull { it.isSelected }
                 val catalogAudio = activeVersion?.audioTracks.orEmpty()
@@ -1544,7 +1614,7 @@ private fun HudAudioPane(
                 // row when there is a choice, else the delay row when PCM.
                 val trackSelectable = catalogAudio.size > 1
                 HudFocusedSettingRow(
-                    label = "Audio track",
+                    label = audioTrackLabel,
                     entryFocusRequester = entryFocusRequester.takeIf { trackSelectable },
                     // SOURCE identity, from the catalog row the plan selected.
                     // The mounted Media3 track is the delivered representation,
@@ -1568,22 +1638,22 @@ private fun HudAudioPane(
                             ordinal = effectiveOrdinal,
                             tracks = catalogAudio,
                         )
-                        ?: selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it)) }
-                        ?: "Default",
+                        ?: selectedTrack?.let { audioChoiceLabel(it, audioTracks.indexOf(it), tvLabelResources()) }
+                        ?: defaultTrackLabel,
                     // Gated on the CATALOG, not on what this stream delivered.
                     enabled = enabled && catalogAudio.size > 1,
                     onActivate = {
                         onPresentPicker(
                             HudPickerPresentation(
-                                title = "Audio track",
+                                title = audioTrackLabel,
                                 // Ids are catalog ordinals, the server's audio
                                 // contract, so an undelivered row stays
                                 // selectable and survives the round trip.
                                 options = catalogAudio.indices.map { ordinal ->
                                     HudPickerOption(
                                         id = ordinal.toString(),
-                                        label = formatting.audioChoiceLabelForOrdinal(catalogAudio, ordinal)
-                                            ?: "Track ${ordinal + 1}",
+                                        label = formatting.audioChoiceLabelForOrdinal(catalogAudio, ordinal, playbackText)
+                                            ?: trackFallbackLabels[ordinal],
                                     )
                                 },
                                 selectedId = effectiveOrdinal?.toString().orEmpty(),
@@ -1594,15 +1664,19 @@ private fun HudAudioPane(
                 )
 
                 HudFocusedSettingRow(
-                    label = "Delay (PCM only)",
+                    label = stringResource(CommonR.string.player_hud_audioDelayPcmOnly),
                     // Output → Mode says why; the row itself just says it can't.
-                    value = if (audioDelayEnabled) delayLabel(audioDelayMs) else "Unavailable",
+                    value = if (audioDelayEnabled) {
+                        delayLabel(audioDelayMs)
+                    } else {
+                        stringResource(CommonR.string.player_hud_unavailable)
+                    },
                     enabled = enabled && audioDelayEnabled,
                     entryFocusRequester = entryFocusRequester.takeIf { !trackSelectable && audioDelayEnabled },
                     onActivate = {
                         onPresentPicker(
                             delayPicker(
-                                title = "Audio delay",
+                                title = audioDelayTitle,
                                 current = audioDelayMs,
                                 from = -1_000,
                                 to = 1_000,
@@ -1615,7 +1689,7 @@ private fun HudAudioPane(
             }
         },
         right = {
-            HudEyebrow("Output")
+            HudEyebrow(stringResource(CommonR.string.player_hud_output))
             outputRows.forEach { (label, value) ->
                 // Same row metrics as the setting rows on the left, so the
                 // two columns rule up; not focusable, nothing to open.
@@ -1676,7 +1750,7 @@ private fun HudSubtitlesPane(
     onSearchSubtitles: (() -> Unit)?,
     onTranslateWithAi: (() -> Unit)?,
     timing: SubtitleTimingActions?,
-    syncStatus: (SubtitleIdentity) -> String?,
+    syncStatus: (SubtitleIdentity) -> UiText?,
     onSyncSubtitle: (String) -> Unit,
     onResetTiming: (String) -> Unit,
     entryFocusRequester: FocusRequester,
@@ -1693,6 +1767,11 @@ private fun HudSubtitlesPane(
     )
     val geometryEnabled = enabled && applicability.geometryApplies
     val stylingEnabled = enabled && applicability.stylingApplies
+    val labelResources = tvLabelResources()
+    val fontSizes = TvSubtitleAppearanceOptions.fontSizes(labelResources)
+    val fontFamilies = TvSubtitleAppearanceOptions.fontFamilies(labelResources)
+    val backgroundStyles = TvSubtitleAppearanceOptions.backgroundStyles(labelResources)
+    val positions = TvSubtitleAppearanceOptions.positions(labelResources)
 
     // Moving between the root and a page removes the focused row, so focus is
     // handed on explicitly: into a page's first row, or back to the row that
@@ -1732,7 +1811,8 @@ private fun HudSubtitlesPane(
         modifier = modifier,
         leftHeader = {
             val trackCount = presentation.rows.count { row -> row.identity != SubtitleIdentity.Off }
-            HudEyebrow(if (trackCount > 0) "Tracks · $trackCount" else "Tracks")
+            val tracksLabel = stringResource(CommonR.string.player_hud_tracks)
+            HudEyebrow(if (trackCount > 0) "$tracksLabel · $trackCount" else tracksLabel)
         },
         left = {
             // The entry row is the checked track, so Down from the rail lands
@@ -1743,7 +1823,7 @@ private fun HudSubtitlesPane(
                 key(row.stableId) {
                     HudSubtitleTrackRow(
                         row = row,
-                        syncStatus = syncStatus(row.identity),
+                        syncStatus = syncStatus(row.identity)?.text(),
                         enabled = enabled,
                         focusRequester = entryFocusRequester.takeIf { row == entryRow },
                         onFocused = { presentation.onFocused(row.stableId) },
@@ -1756,19 +1836,20 @@ private fun HudSubtitlesPane(
             HudSubtitlePreview(appearance = appearance)
             when (page) {
                 HudSubtitlePage.Root -> {
-                    HudEyebrow("Style")
+                    HudEyebrow(stringResource(CommonR.string.player_hud_subtitleStyle))
+                    val subtitleSizeTitle = stringResource(CommonR.string.player_hud_subtitleSizeTitle)
                     HudFocusedSettingRow(
-                        label = "Size",
-                        value = TvSubtitleAppearanceOptions.fontSizeLabel(appearance.fontSize),
+                        label = stringResource(CommonR.string.player_subtitles_style_size),
+                        value = TvSubtitleAppearanceOptions.fontSizeLabel(appearance.fontSize, labelResources),
                         enabled = geometryEnabled,
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Subtitle size",
-                                    options = FONT_SIZES.map { HudPickerOption(it.first.name, it.second) },
+                                    title = subtitleSizeTitle,
+                                    options = fontSizes.map { HudPickerOption(it.first.name, it.second) },
                                     selectedId = appearance.fontSize.name,
                                     onSelect = { id ->
-                                        FONT_SIZES.firstOrNull { it.first.name == id }?.let {
+                                        fontSizes.firstOrNull { it.first.name == id }?.let {
                                             onAppearanceChanged(appearance.copy(fontSize = it.first))
                                         }
                                     },
@@ -1777,7 +1858,7 @@ private fun HudSubtitlesPane(
                         },
                     )
                     HudFocusedSettingRow(
-                        label = "Appearance",
+                        label = stringResource(CommonR.string.player_hud_subtitleAppearance),
                         value = subtitleAppearanceSummary(appearance),
                         // Position is geometry, so the page is useful even
                         // when only geometry applies (image subtitles).
@@ -1787,20 +1868,20 @@ private fun HudSubtitlesPane(
                         onActivate = { onPageChange(HudSubtitlePage.Appearance) },
                     )
                     HudFocusedSettingRow(
-                        label = "Timing",
+                        label = stringResource(CommonR.string.player_tracks_timing),
                         value = subtitleTimingSummary(subtitleDelayMs, subtitleDelayEnabled, timing),
                         enabled = enabled && (subtitleDelayEnabled || timing != null),
                         focusRequester = timingRowFocus,
                         modifier = Modifier.trackPageFocus("root:timing"),
                         onActivate = { onPageChange(HudSubtitlePage.Timing) },
                     )
-                    applicability.note?.let { note -> HudNote(note) }
+                    applicability.note?.let { note -> HudNote(stringResource(note)) }
                     if (onSearchSubtitles != null || onTranslateWithAi != null) {
                         HudSectionSpacer()
-                        HudEyebrow("Find more")
+                        HudEyebrow(stringResource(CommonR.string.player_hud_findMore))
                         if (onSearchSubtitles != null) {
                             HudActionRow(
-                                label = "Search online",
+                                label = stringResource(CommonR.string.player_hud_searchOnline),
                                 icon = Icons.Rounded.Search,
                                 enabled = enabled,
                                 onClick = onSearchSubtitles,
@@ -1808,7 +1889,7 @@ private fun HudSubtitlesPane(
                         }
                         if (onTranslateWithAi != null) {
                             HudActionRow(
-                                label = "Translate with AI",
+                                label = stringResource(CommonR.string.player_aiTranslate_title),
                                 icon = Icons.Rounded.AutoAwesome,
                                 enabled = enabled,
                                 onClick = onTranslateWithAi,
@@ -1818,10 +1899,11 @@ private fun HudSubtitlesPane(
                 }
 
                 HudSubtitlePage.Appearance -> {
-                    HudEyebrow("Appearance")
+                    HudEyebrow(stringResource(CommonR.string.player_hud_subtitleAppearance))
+                    val subtitleFontTitle = stringResource(CommonR.string.player_hud_subtitleFontTitle)
                     HudFocusedSettingRow(
-                        label = "Font",
-                        value = TvSubtitleAppearanceOptions.fontFamilyLabel(appearance.fontFamily),
+                        label = stringResource(CommonR.string.player_subtitles_style_font),
+                        value = TvSubtitleAppearanceOptions.fontFamilyLabel(appearance.fontFamily, labelResources),
                         enabled = stylingEnabled,
                         // Entry is Position when styling is out (image tracks):
                         // a disabled row cannot take focus.
@@ -1830,11 +1912,11 @@ private fun HudSubtitlesPane(
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Subtitle font",
-                                    options = FONT_FAMILIES.map { HudPickerOption(it.first, it.second) },
+                                    title = subtitleFontTitle,
+                                    options = fontFamilies.map { HudPickerOption(it.first, it.second) },
                                     selectedId = appearance.fontFamily,
                                     onSelect = { id ->
-                                        FONT_FAMILIES.firstOrNull { it.first == id }?.let {
+                                        fontFamilies.firstOrNull { it.first == id }?.let {
                                             onAppearanceChanged(appearance.copy(fontFamily = it.first))
                                         }
                                     },
@@ -1843,22 +1925,23 @@ private fun HudSubtitlesPane(
                         },
                     )
                     HudSwatchRow(
-                        label = "Text color",
+                        label = stringResource(CommonR.string.player_subtitles_style_textColor),
                         swatches = TEXT_COLOR_SWATCHES,
                         selectedHex = appearance.fontColor,
-                        swatchLabel = TvSubtitleAppearanceOptions::fontColorLabel,
+                        swatchLabel = { hex -> TvSubtitleAppearanceOptions.fontColorLabel(hex, labelResources) },
                         enabled = stylingEnabled,
                         onSelect = { hex -> onAppearanceChanged(appearance.copy(fontColor = hex)) },
                     )
                     if (showTextOpacity) {
+                        val textOpacityLabel = stringResource(CommonR.string.player_subtitles_style_textOpacity)
                         HudFocusedSettingRow(
-                            label = "Text opacity",
+                            label = textOpacityLabel,
                             value = "${appearance.textOpacity}%",
                             enabled = stylingEnabled,
                             onActivate = {
                                 onPresentPicker(
                                     HudPickerPresentation(
-                                        title = "Text opacity",
+                                        title = textOpacityLabel,
                                         options = TvSubtitleAppearanceOptions.percentOptions(
                                             TEXT_OPACITY_STEPS,
                                             appearance.textOpacity,
@@ -1874,19 +1957,20 @@ private fun HudSubtitlesPane(
                             },
                         )
                     }
+                    val subtitleBackgroundTitle = stringResource(CommonR.string.player_hud_subtitleBackgroundTitle)
                     HudFocusedSettingRow(
-                        label = "Background",
-                        value = BACKGROUND_STYLES.firstOrNull { it.first == appearance.backgroundStyle }?.second
+                        label = stringResource(CommonR.string.player_subtitles_style_background),
+                        value = backgroundStyles.firstOrNull { it.first == appearance.backgroundStyle }?.second
                             ?: appearance.backgroundStyle.name,
                         enabled = stylingEnabled,
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Subtitle background",
-                                    options = BACKGROUND_STYLES.map { HudPickerOption(it.first.name, it.second) },
+                                    title = subtitleBackgroundTitle,
+                                    options = backgroundStyles.map { HudPickerOption(it.first.name, it.second) },
                                     selectedId = appearance.backgroundStyle.name,
                                     onSelect = { id ->
-                                        BACKGROUND_STYLES.firstOrNull { it.first.name == id }?.let {
+                                        backgroundStyles.firstOrNull { it.first.name == id }?.let {
                                             onAppearanceChanged(appearance.copy(backgroundStyle = it.first))
                                         }
                                     },
@@ -1895,21 +1979,22 @@ private fun HudSubtitlesPane(
                         },
                     )
                     HudSwatchRow(
-                        label = "Background color",
+                        label = stringResource(CommonR.string.player_subtitles_style_backgroundColor),
                         swatches = BACKGROUND_COLOR_SWATCHES,
                         selectedHex = appearance.backgroundColor,
-                        swatchLabel = TvSubtitleAppearanceOptions::backgroundColorLabel,
+                        swatchLabel = { hex -> TvSubtitleAppearanceOptions.backgroundColorLabel(hex, labelResources) },
                         enabled = stylingEnabled,
                         onSelect = { hex -> onAppearanceChanged(appearance.copy(backgroundColor = hex)) },
                     )
+                    val backgroundOpacityLabel = stringResource(CommonR.string.player_subtitles_style_backgroundOpacity)
                     HudFocusedSettingRow(
-                        label = "Background opacity",
+                        label = backgroundOpacityLabel,
                         value = "${appearance.backgroundOpacity}%",
                         enabled = stylingEnabled,
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Background opacity",
+                                    title = backgroundOpacityLabel,
                                     options = TvSubtitleAppearanceOptions.percentOptions(
                                         OPACITY_STEPS,
                                         appearance.backgroundOpacity,
@@ -1925,7 +2010,7 @@ private fun HudSubtitlesPane(
                         },
                     )
                     HudFocusedSettingRow(
-                        label = "Outline",
+                        label = stringResource(CommonR.string.player_hud_subtitleOutline),
                         value = onOffLabel(appearance.textOutline),
                         enabled = stylingEnabled,
                         showsChevron = false,
@@ -1933,17 +2018,18 @@ private fun HudSubtitlesPane(
                     )
                     if (appearance.textOutline) {
                         HudSwatchRow(
-                            label = "Outline color",
+                            label = stringResource(CommonR.string.player_subtitles_style_outlineColor),
                             swatches = OUTLINE_COLOR_SWATCHES,
                             selectedHex = appearance.textOutlineColor,
-                            swatchLabel = TvSubtitleAppearanceOptions::outlineColorLabel,
+                            swatchLabel = { hex -> TvSubtitleAppearanceOptions.outlineColorLabel(hex, labelResources) },
                             enabled = stylingEnabled,
                             onSelect = { hex -> onAppearanceChanged(appearance.copy(textOutlineColor = hex)) },
                         )
                     }
+                    val subtitlePositionTitle = stringResource(CommonR.string.player_hud_subtitlePositionTitle)
                     HudFocusedSettingRow(
-                        label = "Position",
-                        value = POSITIONS.firstOrNull { it.first == appearance.position }?.second
+                        label = stringResource(CommonR.string.player_subtitles_style_position),
+                        value = positions.firstOrNull { it.first == appearance.position }?.second
                             ?: appearance.position.name,
                         enabled = geometryEnabled,
                         focusRequester = pageEntryFocus.takeIf { !stylingEnabled },
@@ -1951,11 +2037,11 @@ private fun HudSubtitlesPane(
                         onActivate = {
                             onPresentPicker(
                                 HudPickerPresentation(
-                                    title = "Subtitle position",
-                                    options = POSITIONS.map { HudPickerOption(it.first.name, it.second) },
+                                    title = subtitlePositionTitle,
+                                    options = positions.map { HudPickerOption(it.first.name, it.second) },
                                     selectedId = appearance.position.name,
                                     onSelect = { id ->
-                                        POSITIONS.firstOrNull { it.first.name == id }?.let {
+                                        positions.firstOrNull { it.first.name == id }?.let {
                                             onAppearanceChanged(appearance.copy(position = it.first))
                                         }
                                     },
@@ -1963,17 +2049,18 @@ private fun HudSubtitlesPane(
                             )
                         },
                     )
-                    applicability.note?.let { note -> HudNote(note) }
+                    applicability.note?.let { note -> HudNote(stringResource(note)) }
                 }
 
                 HudSubtitlePage.Timing -> {
-                    HudEyebrow("Timing")
+                    HudEyebrow(stringResource(CommonR.string.player_tracks_timing))
+                    val subtitleDelayTitle = stringResource(CommonR.string.player_settings_subtitleDelay)
                     HudFocusedSettingRow(
-                        label = "Delay",
+                        label = stringResource(CommonR.string.player_hud_delay),
                         value = if (subtitleDelayEnabled) {
                             delayLabel(subtitleDelayMs)
                         } else {
-                            "Unavailable for burned-in subtitles"
+                            stringResource(CommonR.string.player_hud_delayUnavailableBurnedIn)
                         },
                         enabled = enabled && subtitleDelayEnabled,
                         focusRequester = pageEntryFocus.takeIf { subtitleDelayEnabled },
@@ -1981,7 +2068,7 @@ private fun HudSubtitlesPane(
                         onActivate = {
                             onPresentPicker(
                                 delayPicker(
-                                    title = "Subtitle delay",
+                                    title = subtitleDelayTitle,
                                     current = subtitleDelayMs,
                                     from = -2_000,
                                     to = 2_000,
@@ -1996,7 +2083,7 @@ private fun HudSubtitlesPane(
                         // would otherwise strand focus on a row that just
                         // stopped being focusable.
                         HudFocusedSettingRow(
-                            label = "Sync to audio",
+                            label = stringResource(CommonR.string.player_tracks_syncToAudio),
                             value = subtitleTimingValue(timing),
                             enabled = enabled,
                             showsChevron = false,
@@ -2010,7 +2097,7 @@ private fun HudSubtitlesPane(
                         )
                         if (timing.canReset) {
                             HudFocusedSettingRow(
-                                label = "Reset timing",
+                                label = stringResource(CommonR.string.player_tracks_resetTiming),
                                 value = "",
                                 enabled = enabled,
                                 showsChevron = false,
@@ -2028,32 +2115,36 @@ private fun HudSubtitlesPane(
 }
 
 /** "White · Box": the two appearance facts a viewer recognizes at a glance. */
+@Composable
 private fun subtitleAppearanceSummary(appearance: SubtitleAppearance): String {
-    val color = TvSubtitleAppearanceOptions.fontColorLabel(appearance.fontColor)
-    val background = when (appearance.backgroundStyle) {
-        SubtitleBackgroundStylePreset.None -> "No background"
-        SubtitleBackgroundStylePreset.Box -> "Box"
-        SubtitleBackgroundStylePreset.Shadow -> "Shadow"
-        SubtitleBackgroundStylePreset.Outline -> "Outline"
-    }
+    val color = TvSubtitleAppearanceOptions.fontColorLabel(appearance.fontColor, tvLabelResources())
+    val background = stringResource(
+        when (appearance.backgroundStyle) {
+            SubtitleBackgroundStylePreset.None -> CommonR.string.player_hud_subtitleBackgroundNone
+            SubtitleBackgroundStylePreset.Box -> CommonR.string.player_subtitles_background_box
+            SubtitleBackgroundStylePreset.Shadow -> CommonR.string.player_subtitles_background_shadow
+            SubtitleBackgroundStylePreset.Outline -> CommonR.string.player_subtitles_background_outline
+        },
+    )
     return "$color · $background"
 }
 
 /** The Timing row's value: the delay in seconds, or what a sync is doing. */
+@Composable
 private fun subtitleTimingSummary(
     delayMs: Int,
     delayEnabled: Boolean,
     timing: SubtitleTimingActions?,
 ): String = when {
-    timing != null && (timing.busy || timing.inProgress) -> "Working…"
+    timing != null && (timing.busy || timing.inProgress) -> stringResource(CommonR.string.player_hud_working)
     delayEnabled -> delaySecondsLabel(delayMs)
     timing != null -> subtitleTimingValue(timing)
-    else -> "Unavailable"
+    else -> stringResource(CommonR.string.player_hud_unavailable)
 }
 
 /** 0 -> "0.0 s", 300 -> "+0.3 s", -1200 -> "−1.2 s" (true minus sign). */
 private fun delaySecondsLabel(valueMs: Int): String {
-    val seconds = String.format(java.util.Locale.ROOT, "%.1f", kotlin.math.abs(valueMs) / 1000.0)
+    val seconds = String.format(LocaleFormat.locale(), "%.1f", kotlin.math.abs(valueMs) / 1000.0)
     return when {
         valueMs > 0 -> "+$seconds s"
         valueMs < 0 -> "−$seconds s"
@@ -2079,7 +2170,12 @@ internal data class TvSubtitleRowParts(
     val aiKind: String? = null,
 )
 
-internal fun tvSubtitleRowParts(label: String): TvSubtitleRowParts {
+/**
+ * Splits a [subtitleChoiceLabel] into its title, chips and detail. The label
+ * writes "Forced" in the app language, so the caller passes that word
+ * ([forcedLabel]) to find the chip in any language.
+ */
+internal fun tvSubtitleRowParts(label: String, forcedLabel: String = "Forced"): TvSubtitleRowParts {
     val separator = listOf(" — ", " • ").firstOrNull { it in label }
     val title = separator?.let { label.substringBefore(it) } ?: label
     val facts = separator
@@ -2088,10 +2184,12 @@ internal fun tvSubtitleRowParts(label: String): TvSubtitleRowParts {
         ?.map(String::trim)
         ?.filter(String::isNotEmpty)
         .orEmpty()
-    val chips = facts.mapNotNull { fact -> TvSubtitleChipNames[fact.lowercase(java.util.Locale.US)] }
+    fun chipName(fact: String): String? =
+        TvSubtitleChipNames[fact.lowercase(java.util.Locale.US)] ?: "Forced".takeIf { fact == forcedLabel }
+    val chips = facts.mapNotNull(::chipName)
     val aiKind = facts.firstNotNullOfOrNull { fact -> TvSubtitleAiKinds[fact.lowercase(java.util.Locale.US)] }
     val detail = facts
-        .filter { fact -> fact.lowercase(java.util.Locale.US) !in TvSubtitleChipNames }
+        .filter { fact -> chipName(fact) == null }
         .joinToString(" · ")
         .ifBlank { null }
     return TvSubtitleRowParts(title = title.trim(), chips = chips.distinct(), detail = detail, aiKind = aiKind)
@@ -2108,6 +2206,20 @@ private val TvSubtitleChipNames = mapOf(
 private val TvSubtitleAiKinds = mapOf(
     "ai translation" to "Translation",
     "ai transcription" to "Transcription",
+)
+
+// [TvSubtitleRowParts] keeps the English chip and kind names (tests read
+// them); the row shows the catalog text for each.
+private val TvSubtitleChipLabels = mapOf(
+    "Forced" to CommonR.string.detail_trackForced,
+    "SDH" to CommonR.string.detail_trackSdh,
+    "CC" to CommonR.string.overlays_subtitles,
+    "AI" to CommonR.string.player_hud_subtitleChipAi,
+)
+
+private val TvSubtitleAiKindLabels = mapOf(
+    "Translation" to CommonR.string.player_hud_subtitleKindTranslation,
+    "Transcription" to CommonR.string.player_hud_subtitleKindTranscription,
 )
 
 /**
@@ -2128,11 +2240,13 @@ private fun HudSubtitleTrackRow(
     val scope = rememberCoroutineScope()
     val isFocused by interactionSource.collectIsFocusedAsState()
     val colors = hudRowColors(focused = isFocused, current = row.checked)
-    val parts = remember(row.label) { tvSubtitleRowParts(row.label) }
-    val unsupportedFormat = stringResource(CommonR.string.subtitle_track_unsupported_format)
+    val forcedLabel = stringResource(CommonR.string.detail_trackForced)
+    val parts = remember(row.label, forcedLabel) { tvSubtitleRowParts(row.label, forcedLabel) }
+    val unsupportedFormat = stringResource(CommonR.string.subtitle_trackUnsupportedFormat)
+    val aiKind = parts.aiKind?.let { kind -> TvSubtitleAiKindLabels[kind]?.let { stringResource(it) } ?: kind }
     // The AI kind leads so it survives the detail's ellipsis.
     val detail = listOfNotNull(
-        parts.aiKind,
+        aiKind,
         row.status ?: unsupportedFormat.takeIf { row.unplayable } ?: syncStatus,
         parts.detail,
     ).joinToString(" · ").ifBlank { null }
@@ -2179,7 +2293,7 @@ private fun HudSubtitleTrackRow(
             )
             parts.chips.forEach { chip ->
                 Spacer(modifier = Modifier.width(6.dp))
-                HudChip(chip, onPaper = isFocused)
+                HudChip(TvSubtitleChipLabels[chip]?.let { stringResource(it) } ?: chip, onPaper = isFocused)
             }
         }
         if (detail != null) {
@@ -2259,7 +2373,7 @@ private fun HudSubtitlePreview(
             if (decoration.outline) {
                 listOf(-1 to -1, -1 to 1, 1 to -1, 1 to 1).forEach { (x, y) ->
                     Text(
-                        text = HudPreviewLine,
+                        text = stringResource(CommonR.string.player_hud_subtitlePreview),
                         color = outline,
                         style = textStyle.copy(shadow = null),
                         maxLines = 1,
@@ -2268,7 +2382,7 @@ private fun HudSubtitlePreview(
                 }
             }
             Text(
-                text = HudPreviewLine,
+                text = stringResource(CommonR.string.player_hud_subtitlePreview),
                 color = foreground,
                 style = textStyle,
                 maxLines = 1,
@@ -2277,8 +2391,6 @@ private fun HudSubtitlePreview(
         }
     }
 }
-
-private const val HudPreviewLine = "Subtitles will look like this."
 
 /**
  * A row of colour swatches under its label. Swatches stay inline, as on
@@ -2345,6 +2457,7 @@ private fun StyleColorSwatch(
     val swatchColor = hexToColor(hex)
     val isLightSwatch = isLightHexColor(hex)
     val checkTint = if (isLightSwatch) Color.Black.copy(alpha = 0.78f) else Color.White
+    val selectedDescription = stringResource(CommonR.string.search_filterSelected, label)
     // Focus is a Paper ring outside the swatch, so it reads on any colour.
     Box(
         modifier = Modifier
@@ -2365,7 +2478,7 @@ private fun StyleColorSwatch(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(enabled = enabled, interactionSource = interactionSource, indication = null) { onClick() }
             .semantics {
-                contentDescription = if (selected) "$label, selected" else label
+                contentDescription = if (selected) selectedDescription else label
                 this.selected = selected
             },
         contentAlignment = Alignment.Center,
@@ -2410,10 +2523,6 @@ private fun isLightHexColor(hex: String): Boolean {
 // Subtitle-appearance option sets are shared with the Settings → Subtitles
 // Appearance block via [TvSubtitleAppearanceOptions] so the HUD and Settings
 // always offer the identical choices.
-private val FONT_SIZES = TvSubtitleAppearanceOptions.FONT_SIZES
-private val FONT_FAMILIES = TvSubtitleAppearanceOptions.FONT_FAMILIES
-private val BACKGROUND_STYLES = TvSubtitleAppearanceOptions.BACKGROUND_STYLES
-private val POSITIONS = TvSubtitleAppearanceOptions.POSITIONS
 private val OPACITY_STEPS = TvSubtitleAppearanceOptions.OPACITY_STEPS
 private val TEXT_OPACITY_STEPS = TvSubtitleAppearanceOptions.TEXT_OPACITY_STEPS
 private val TEXT_COLOR_SWATCHES = TvSubtitleAppearanceOptions.TEXT_COLOR_SWATCHES
@@ -2566,25 +2675,38 @@ private fun Modifier.hudFadingEdges(
 private fun PlayerStatsSnapshot.hasHudRows(): Boolean =
     hudRows().isNotEmpty() || healthRows().isNotEmpty() || !events.isEmpty
 
-private fun PlayerStatsSnapshot.hudRows(): List<Pair<String, String>> = buildList {
-    backendDisplayName?.let { add("Backend" to it) }
-    backendRoute?.let { add("Route" to it) }
-    subtitleRendering?.let { add("Subtitles" to it) }
-    hardContainers?.let { add("Hard containers" to it) }
-    videoCodec?.let { add("Video codec" to it) }
-    resolution?.let { add("Resolution" to it) }
-    frameRate?.let { add("Frame rate" to String.format(java.util.Locale.ROOT, "%.3f fps", it)) }
-    hdrMode?.let { add("HDR mode" to it) }
-    videoDecoderName?.let { add("Video decoder" to it) }
-    audioCodec?.let { add("Audio codec" to it) }
-    audioDecoderName?.let { add("Audio decoder" to it) }
+/** A Stats row: [label] and [valueRes] are catalog text, [value] is shown when [valueRes] is null. */
+private data class HudStatRow(@StringRes val label: Int, val value: String, @StringRes val valueRes: Int? = null)
+
+private fun PlayerStatsSnapshot.hudRows(): List<HudStatRow> = buildList {
+    backendDisplayName?.let { add(HudStatRow(CommonR.string.player_stats_backend, it)) }
+    backendRoute?.let { add(HudStatRow(CommonR.string.player_hud_route, it)) }
+    subtitleRendering?.let { add(HudStatRow(CommonR.string.player_stats_subtitles, it)) }
+    // The ViewModel records "Yes"/"No"; shown in the interface language.
+    hardContainers?.let {
+        val valueRes = when (it) {
+            "Yes" -> CommonR.string.player_stats_yes
+            "No" -> CommonR.string.player_stats_no
+            else -> null
+        }
+        add(HudStatRow(CommonR.string.player_stats_hardContainers, it, valueRes))
+    }
+    videoCodec?.let { add(HudStatRow(CommonR.string.player_stats_videoCodec, it)) }
+    resolution?.let { add(HudStatRow(CommonR.string.player_stats_resolution, it)) }
+    frameRate?.let {
+        add(HudStatRow(CommonR.string.player_stats_frameRate, String.format(java.util.Locale.ROOT, "%.3f fps", it)))
+    }
+    hdrMode?.let { add(HudStatRow(CommonR.string.player_stats_hdrMode, it)) }
+    videoDecoderName?.let { add(HudStatRow(CommonR.string.player_stats_videoDecoder, it)) }
+    audioCodec?.let { add(HudStatRow(CommonR.string.player_stats_audioCodec, it)) }
+    audioDecoderName?.let { add(HudStatRow(CommonR.string.player_stats_audioDecoder, it)) }
     // NOT the media bitrate: this is Media3's onBandwidthEstimate value, i.e.
     // measured network throughput. Labelling it "Bitrate" read as a ~19 Mbps
     // stream reporting 151.3 Mbps on a fast LAN, which is actively misleading
     // in a panel whose whole job is diagnosing playback.
-    bitrateBps?.let { add("Estimated bandwidth" to formatBitrate(it)) }
-    if (droppedFrames > 0) add("Dropped frames" to droppedFrames.toString())
-    if (audioUnderruns > 0) add("Audio underruns" to audioUnderruns.toString())
+    bitrateBps?.let { add(HudStatRow(CommonR.string.player_stats_estimatedBandwidth, formatBitrate(it))) }
+    if (droppedFrames > 0) add(HudStatRow(CommonR.string.player_stats_droppedFrames, droppedFrames.toString()))
+    if (audioUnderruns > 0) add(HudStatRow(CommonR.string.player_stats_audioUnderruns, audioUnderruns.toString()))
 }
 
 private fun formatBitrate(bps: Long): String = when {
@@ -2629,7 +2751,7 @@ private fun HudChaptersPane(
     modifier: Modifier = Modifier,
 ) {
     if (chapters.isEmpty()) {
-        HudEmptyStatePane("No chapters in this title", modifier)
+        HudEmptyStatePane(stringResource(CommonR.string.player_chapters_noneInTitle), modifier)
         return
     }
     val currentIndex = chapters.indexOfLast { it.startSeconds <= positionSec }.coerceAtLeast(0)
@@ -2640,9 +2762,11 @@ private fun HudChaptersPane(
 
     Column(modifier = modifier.fillMaxWidth()) {
         HudEyebrow(
-            text = if (chapters.size == 1) "1 chapter" else "${chapters.size} chapters",
+            text = pluralStringResource(CommonR.plurals.player_chapters_count, chapters.size, chapters.size),
             trailing = if (currentEnd > positionSec) {
-                "${chapterTitle(current)} · ${formatTime(currentEnd - positionSec)} left in this chapter"
+                "${chapterTitle(current)} · ${
+                    stringResource(CommonR.string.player_chapters_timeLeft, formatTime(currentEnd - positionSec))
+                }"
             } else {
                 null
             },
@@ -2686,8 +2810,11 @@ private fun chapterEndSeconds(chapters: List<VersionChapter>, index: Int, durati
     }
 }
 
+@Composable
 private fun chapterTitle(chapter: VersionChapter): String =
-    chapter.title.ifBlank { "Chapter ${chapter.index + 1}" }
+    chapter.title.ifBlank {
+        stringResource(CommonR.string.options_chapterNumbered, LocaleFormat.integer(chapter.index + 1))
+    }
 
 @Composable
 private fun HudChapterRow(
@@ -2725,13 +2852,13 @@ private fun HudChapterRow(
                 if (isCurrent && !isFocused) {
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = "Now playing",
+                        contentDescription = stringResource(CommonR.string.player_chapters_nowPlaying),
                         tint = TvPlayerChrome.Paper,
                         modifier = Modifier.size(18.dp),
                     )
                 } else {
                     Text(
-                        text = number.toString().padStart(2, '0'),
+                        text = LocaleFormat.integer(number, currentNumberLocale(), minDigits = 2),
                         style = TvPlayerType.Figures.copy(fontWeight = FontWeight.SemiBold),
                         color = numberColor,
                     )
@@ -2822,10 +2949,11 @@ internal data class HudPickerPresentation(
  * sync state. The refusal is shortened to fit the row; the line under it says
  * it in full.
  */
+@Composable
 private fun subtitleTimingValue(timing: SubtitleTimingActions): String = when {
-    timing.forbidden -> "Not allowed"
-    timing.busy -> "Working…"
-    else -> timing.error ?: timing.statusLabel ?: "Not synced"
+    timing.forbidden -> stringResource(CommonR.string.player_hud_syncNotAllowed)
+    timing.busy -> stringResource(CommonR.string.player_hud_working)
+    else -> (timing.error ?: timing.statusLabel)?.text() ?: stringResource(CommonR.string.player_hud_notSynced)
 }
 
 /**
@@ -2840,16 +2968,17 @@ private fun HudSubtitleTimingDetail(timing: SubtitleTimingActions) {
     if (timing.inProgress && percent != null) {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             TvSyncProgressBar(percent = percent)
-            timing.phaseLabel?.let { HudTimingText(it) }
+            timing.phaseLabel?.let { HudTimingText(it.text()) }
         }
     }
-    val message = when {
-        timing.forbidden -> SubtitleTimingActions.FORBIDDEN_MESSAGE to null
-        timing.error != null -> timing.error.orEmpty() to Color(0xFFFCA5A5)
-        timing.result != null -> timing.result?.let { it.text to if (it.warning) Color(0xFFFDE68A) else null }
-        else -> timing.note?.let { it to null }
+    val message = if (timing.forbidden) {
+        SubtitleTimingActions.FORBIDDEN_MESSAGE to null
+    } else {
+        timing.error?.let { it to Color(0xFFFCA5A5) }
+            ?: timing.result?.let { it.text to if (it.warning) Color(0xFFFDE68A) else null }
+            ?: timing.note?.let { it to null }
     }
-    message?.let { (text, color) -> HudTimingText(text, color, modifier) }
+    message?.let { (text, color) -> HudTimingText(text.text(), color, modifier) }
 }
 
 @Composable
@@ -3030,7 +3159,7 @@ internal fun HudPickerDialog(
             Column(modifier = Modifier.padding(start = HudRowPadding, end = HudRowPadding, bottom = 12.dp)) {
                 presentation.eyebrow?.let { eyebrow ->
                     Text(
-                        text = eyebrow.uppercase(),
+                        text = eyebrow.displayUppercase(),
                         style = TvPlayerType.Eyebrow,
                         modifier = Modifier.padding(bottom = 4.dp),
                     )
@@ -3141,20 +3270,20 @@ private fun HudPickerOptionRow(
 }
 
 private fun formatTime(seconds: Double): String {
-    if (seconds <= 0 || seconds.isNaN()) return "0:00"
+    if (seconds <= 0 || seconds.isNaN()) return LocaleFormat.clock(0, 0, 0)
     val total = seconds.toInt()
     val h = total / 3600
     val m = (total % 3600) / 60
     val s = total % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+    return LocaleFormat.clock(h, m, s)
 }
 
 /** The label each intro-skip mode is offered under; the copy is contract-fixed. */
 @StringRes
 private fun introSkipModeLabel(mode: IntroSkipMode): Int = when (mode) {
-    IntroSkipMode.NEVER -> R.string.settings_intro_skip_never
-    IntroSkipMode.ASK -> R.string.settings_intro_skip_ask
-    IntroSkipMode.ALWAYS -> R.string.settings_intro_skip_always
+    IntroSkipMode.NEVER -> CommonR.string.settings_introSkip_never
+    IntroSkipMode.ASK -> CommonR.string.settings_introSkip_ask
+    IntroSkipMode.ALWAYS -> CommonR.string.settings_introSkip_always
 }
 
 /** Declaration order, wrapping: never -> ask -> always -> never. */

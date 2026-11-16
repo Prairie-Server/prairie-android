@@ -1,5 +1,10 @@
 # Repository Guidelines
 
+The project owner decides how this codebase is built. Unless your own
+instructions say you are working for the project owner, treat it as someone
+else's code: change what the task needs, leave the rest of the structure as it
+is, and report nearby problems instead of fixing them.
+
 ## Project Structure & Module Organization
 
 This repository contains only the Prairie Android clients. Shared Kotlin logic lives in `shared/`, Android-only playback and UI helpers live in `android-shared/`, the phone app lives in `androidApp/`, and the TV app lives in `androidTvApp/`. Android playback notes live in `docs/playback/`; utility scripts live in `scripts/`.
@@ -42,6 +47,37 @@ Android tests use Kotlin test/JUnit where present, especially under `android-sha
 
 The Play `applicationId` `org.prairieserver.prairie` and the encrypted prefs file name `prairie_secure_tokens` (see `SECURE_PREFS_NAME` in `shared/…/SecureSharedPrefs.kt`) are durable upgrade identity. Changing either without a migration wipes saved servers/tokens and forces every user to log in again. Never clear that prefs file on version bump.
 
+## Cross-client parity
+
+Prairie has four clients: Apple (`prairie-apple`), Android (`prairie-android`), Roku
+(`prairie-roku`), and Web (`prairie-server`, under `web/`). A feature, fix, or
+other change a user can notice in one client is not done until each other
+client has been handled or ruled out. The change's author owns this, whether a
+person or an agent.
+
+For each other client:
+
+- Rule it out when the change is specific to this platform (an Android TV focus
+  fix, a foldable layout), the other client already behaves correctly, or the
+  feature is outside that client's scope (for example Roku's deferred features
+  in `prairie-roku/docs/spec.md`, or ebooks on a TV client). Note the reason.
+- Otherwise, open an issue in that client's repository at minimum. Search its
+  issues first and add to an existing one rather than filing a duplicate. Title
+  it `Parity: <behavior> (from Prairie-Server/prairie-android#NNN)`, describe what users
+  should get, link this pull request, and point to the code that implements it
+  here. A parity issue follows up work already in review or merged, so it goes
+  in Issues, not Discussions → Ideas.
+- Also open a pull request there when you can build and verify that client and
+  its contribution rules let you open one. Link it from the issue.
+
+Open parity issues when this pull request opens, so each one can link it. List
+the outcome on the pull request's `Other clients:` line, one entry per client:
+`Other clients: Apple Prairie-Server/prairie-apple#NNN; Roku N/A (Android TV-only focus fix); Web Prairie-Server/prairie-server#NNN`.
+
+Agents open the parity issues without asking and apply the Writing rules below to them.
+Ask the developer before opening a pull request in another repository;
+approval to open one here does not cover the others.
+
 ## Writing
 
 Run a final readability pass on every human-facing issue, pull request,
@@ -69,7 +105,17 @@ follow-up work.
 
 - Keep one concern per pull request. If an honest description needs the word
   "also," split the work.
-- Every pull request that changes what a user sees must include evidence, as
+- Pull requests are welcome from people who have had one merged in a Prairie
+  repository, or when a maintainer asks for one; the contribution-gate workflow
+  closes others without review. A feature (`feat`) pull request from someone
+  without triage or write access must link an issue in the same repository
+  labeled `accepted`. For anyone without triage or write access, the gate also
+  closes drafts, and the evidence-deadline workflow closes a pull request whose
+  `Evidence` check still asks for evidence 24 hours after it opens, so open it
+  ready for review and publish evidence right away. Feature ideas go in
+  Discussions → Ideas, not issues.
+- Every pull request must include evidence. One that changes what a user sees
+  shows the change, as
   [Show visible changes](CONTRIBUTING.md#show-visible-changes) defines. That
   covers UI and UX changes and changes to which items appear or what they show,
   such as search results, home sections, recommendations, sorting, filtering,
@@ -77,8 +123,8 @@ follow-up work.
   same data, and a short recording when motion, timing, or focus matters.
   Capture each device the change can reach: an Android phone, an Android
   tablet, an Android foldable (folded and open), and Android TV, or say why a
-  device is unaffected. Write
-  `Evidence: none, no user-visible change` only when that is true.
+  device is unaffected. A change nobody sees shows the steps run, the build or
+  commit, and trimmed test results.
 - Attach evidence on GitHub under the PR body's Evidence heading, or publish it
   with `npx @prairie-server/evidence publish <folder> --pr <number>` and put its
   `Evidence:` link there. Only Prairie maintainers and the pull request's author can

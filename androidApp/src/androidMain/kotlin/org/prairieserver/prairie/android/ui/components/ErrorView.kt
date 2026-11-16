@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.components
 
+import org.prairieserver.prairie.common.R as CommonR
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -44,7 +46,7 @@ fun ErrorView(
     ) {
         Icon(
             imageVector = Icons.Outlined.ErrorOutline,
-            contentDescription = "Error",
+            contentDescription = stringResource(CommonR.string.shell_errorView_icon),
             modifier = Modifier.size(64.dp),
             tint = MaterialTheme.colorScheme.error,
         )
@@ -52,7 +54,7 @@ fun ErrorView(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Something went wrong",
+            text = stringResource(CommonR.string.status_errorGeneric),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
@@ -83,7 +85,7 @@ fun ErrorView(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Retry")
+                Text(stringResource(CommonR.string.common_retry))
             }
         }
     }

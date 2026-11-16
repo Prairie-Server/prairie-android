@@ -49,6 +49,8 @@ val networkModule = module {
     single { OnboardingApi(get(), get(), get()) }
     single<DeviceLoginApi> { DefaultDeviceLoginApi(get(), get()) }
     single<ServerIdentityApi> { DefaultServerIdentityApi(get()) }
+    // /me with a token not saved yet, on a client without the Prairie auth plugin.
+    single { UnsavedSessionAccountReader() }
     single<org.prairieserver.prairie.network.api.ExternalSignInApi> {
         org.prairieserver.prairie.network.api.DefaultExternalSignInApi(get(), get())
     }
@@ -83,6 +85,9 @@ val networkModule = module {
     // Prairie-only: Live TV (/api/v2/livetv on prairie-server).
     single<LiveTvApi> { DefaultLiveTvApi(get(), get()) }
     single<MetadataAiApi> { DefaultMetadataAiApi(get(), get(), get()) }
+    single<org.prairieserver.prairie.network.api.RatingsCapabilityApi> {
+        org.prairieserver.prairie.network.api.DefaultRatingsCapabilityApi(get(), get(), get())
+    }
     single { EventsSocketV2Api(get(), get(), get(), getOrNull()) }
     single<HomeRealtimeClient> { DefaultHomeRealtimeClient(get()) }
     single<CalendarApi> { DefaultCalendarApi(get(), get(), get()) }

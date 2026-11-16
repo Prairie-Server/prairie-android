@@ -3,7 +3,9 @@ package org.prairieserver.prairie.android.ui.screens.personal
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import org.prairieserver.prairie.android.ui.components.PrairieTopBar
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * Screen displaying the user's watch history in a poster grid layout,
@@ -17,7 +19,7 @@ fun HistoryScreen(
     Scaffold(
         topBar = {
             PrairieTopBar(
-                title = "History",
+                title = stringResource(CommonR.string.personal_history_title),
                 onBackClick = onBackClick,
             )
         },

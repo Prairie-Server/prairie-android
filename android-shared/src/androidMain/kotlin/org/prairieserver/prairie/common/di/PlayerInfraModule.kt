@@ -2,6 +2,7 @@
 
 package org.prairieserver.prairie.common.di
 
+import org.prairieserver.prairie.common.i18n.AppLanguageStore
 import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
 import org.prairieserver.prairie.common.player.ActivePlayerHolder
@@ -46,9 +47,11 @@ import org.prairieserver.prairie.common.player.probe.PlayerMediaActivity
 import org.prairieserver.prairie.common.player.probe.profileSwitches
 import org.prairieserver.prairie.model.server.ServerEntry
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -105,8 +108,10 @@ val playerInfraModule = module {
                 .map { it.signedInServerId() }
                 .stateIn(probeScope, SharingStarted.Eagerly, registry.activeEntry.value.signedInServerId()),
             scope = probeScope,
+            // The account is part of the profile: two accounts on one server
+            // both have a `default` profile.
             profileSwitches = registry.activeEntry
-                .map { it?.id to it?.profileId?.takeIf(String::isNotBlank) }
+                .map { entry -> entry?.id to entry?.profileId?.takeIf(String::isNotBlank)?.let { "${entry.accountId}|$it" } }
                 .distinctUntilChanged()
                 .profileSwitches(),
             localRoute = org.prairieserver.prairie.network.localroute.LocalRoutes.state.active,
@@ -166,19 +171,42 @@ val playerInfraModule = module {
 
     single {
         val userItemState = get<org.prairieserver.prairie.repository.port.UserItemStatePort>()
-        val syncScheduler = get<org.prairieserver.prairie.common.data.sync.OutboxSyncScheduler>()
+        val tokenManager = get<TokenManager>()
         FinalPlaybackPositionWriter(
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-            scopeProvider = { get<TokenManager>().snapshotCurrentScope() },
+            scopeProvider = { tokenManager.snapshotCurrentScope() },
         ) { snapshot ->
-            val written = userItemState.recordPosition(
-                snapshot.scope,
-                snapshot.contentId,
-                snapshot.fileId,
-                snapshot.positionSeconds,
-                snapshot.durationSeconds,
-            )
-            if (written) syncScheduler.requestSync()
+            val serverTrackedAtMs = snapshot.serverTrackedAtMs
+            if (serverTrackedAtMs != null) {
+                // Otherwise an older local sample outlives the server's answer:
+                // a finished title kept offering Resume at it (#842). Same scope
+                // check as recordPosition, so a switch since exit clears nothing.
+                val current = tokenManager.snapshotCurrentScope()
+                if (current != null &&
+                    current.serverId == snapshot.scope.serverId &&
+                    current.profileId == snapshot.scope.profileId &&
+                    current.credentialGenerationId == snapshot.scope.credentialGenerationId &&
+                    current.identityGeneration == snapshot.scope.identityGeneration
+                ) {
+                    userItemState.clearLocalPlaybackProgressBefore(
+                        listOf(snapshot.contentId),
+                        admittedAtMs = serverTrackedAtMs,
+                        identityGeneration = snapshot.scope.identityGeneration,
+                    )
+                }
+            } else if (snapshot.runStartedAtMs != null) {
+                // Downloaded playback: queued for the server. A stream's session
+                // already reports its progress, so it writes nothing locally.
+                userItemState.recordPosition(
+                    snapshot.scope,
+                    snapshot.contentId,
+                    snapshot.fileId,
+                    snapshot.positionSeconds,
+                    snapshot.durationSeconds,
+                    eventTimeMs = snapshot.eventTimeMs,
+                    runStartedAtMs = snapshot.runStartedAtMs,
+                )
+            }
         }
     }
 
@@ -241,7 +269,7 @@ val playerInfraModule = module {
     single<PlayerSettingsStore> {
         val registry = get<ServerRegistry>()
         val profileChangeSignal = registry.activeEntry
-            .map { it?.profileId }
+            .map { it?.accountId to it?.profileId }
             .distinctUntilChanged()
             .map { Unit }
         val serverChangeSignal = registry.activeEntry
@@ -263,6 +291,7 @@ val playerInfraModule = module {
             // server records as `device_id` for each override.
             getDeviceId = { get<DeviceMetadataProvider>().current()?.id },
             contractRevision = get(),
+            getActiveAccountId = { get<TokenManager>().getCurrentAccountId() },
         )
     }
 
@@ -293,6 +322,7 @@ val playerInfraModule = module {
             getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
             getServerUrl = { get<TokenManager>().getServerUrl() },
             getDeviceMetadata = { get<DeviceMetadataProvider>().current() },
+            getActiveAccountId = { get<TokenManager>().getCurrentAccountId() },
         )
     }
 
@@ -302,7 +332,7 @@ val playerInfraModule = module {
     single<SeekIntervalStore> {
         val registry = get<ServerRegistry>()
         val identityChanges = registry.activeEntry
-            .map { it?.url to it?.profileId }
+            .map { Triple(it?.url, it?.accountId, it?.profileId) }
             .distinctUntilChanged()
             .map { Unit }
         DefaultSeekIntervalStore(
@@ -311,6 +341,7 @@ val playerInfraModule = module {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
             getServerUrl = { get<TokenManager>().getServerUrl() },
+            getActiveAccountId = { get<TokenManager>().getCurrentAccountId() },
             identityChanges = identityChanges,
         )
     }
@@ -322,7 +353,7 @@ val playerInfraModule = module {
     // Add Server → sign in → pick profile clears nothing on its own.
     single<EpisodeSpoilerStore> {
         val identityChanges = get<ServerRegistry>().activeEntry
-            .map { it?.url to it?.profileId }
+            .map { Triple(it?.url, it?.accountId, it?.profileId) }
             .distinctUntilChanged()
             .map { Unit }
         DefaultEpisodeSpoilerStore(
@@ -331,6 +362,29 @@ val playerInfraModule = module {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
             getServerUrl = { get<TokenManager>().getServerUrl() },
+            captureAuthority = { get<TokenManager>().snapshotCurrentScope() },
+            getActiveAccountId = { get<TokenManager>().getCurrentAccountId() },
+            identityChanges = identityChanges,
+        )
+    }
+
+    // App language (settings revision 28): applies the active profile's
+    // ui.app_language to the per-app language and writes a system-settings
+    // change back as this device's value. Resets on a server, account or
+    // profile change like the other settings stores.
+    single {
+        val identityChanges = get<ServerRegistry>().activeEntry
+            .map { Triple(it?.url, it?.accountId, it?.profileId) }
+            .distinctUntilChanged()
+            .map { Unit }
+        AppLanguageStore(
+            context = androidContext(),
+            repository = get<SettingsRepository>(),
+            // Off the main thread: it commits preferences synchronously.
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
+            getServerUrl = { get<TokenManager>().getServerUrl() },
+            getActiveAccountId = { get<TokenManager>().getCurrentAccountId() },
             captureAuthority = { get<TokenManager>().snapshotCurrentScope() },
             identityChanges = identityChanges,
         )
@@ -342,7 +396,7 @@ val playerInfraModule = module {
     single<TitleArtStore> {
         val registry = get<ServerRegistry>()
         val identityChanges = registry.activeEntry
-            .map { it?.url to it?.profileId }
+            .map { Triple(it?.url, it?.accountId, it?.profileId) }
             .distinctUntilChanged()
             .map { Unit }
         DefaultTitleArtStore(
@@ -358,7 +412,7 @@ val playerInfraModule = module {
     // continues from one detail page to the next one with the same theme.
     single {
         val identityChanges = get<ServerRegistry>().activeEntry
-            .map { it?.url to it?.profileId }
+            .map { Triple(it?.url, it?.accountId, it?.profileId) }
             .distinctUntilChanged()
             .drop(1)
             .map { Unit }
@@ -387,6 +441,7 @@ val playerInfraModule = module {
             episodeSpoilerStore = get(),
             titleArtStore = get(),
             hiddenLibrariesStore = get(),
+            appLanguageStore = get(),
             hasAuthenticatedProfile = {
                 !get<ProfileRepository>().getActiveProfileId().isNullOrBlank()
             },
@@ -397,6 +452,7 @@ val playerInfraModule = module {
         val registry = get<ServerRegistry>()
         val transitions = get<org.prairieserver.prairie.network.IdentityTransitionBarrier>()
         val discovery = get<org.prairieserver.prairie.network.apiv2.ApiV2Probe>()
+        val outboxWakeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         ServerReachabilityMonitor(
             probe = discovery::probeFresh,
             captureTarget = {
@@ -409,6 +465,21 @@ val playerInfraModule = module {
             onServerReconnected = {
                 get<ServerDrivenConfigRefresher>().forceRefresh()
             },
+            onServerReachable = {
+                // Download playback progress waits for the server; send it now,
+                // not at the end of its backoff. Off the probe lock and main thread.
+                outboxWakeScope.launch {
+                    try {
+                        val queued = get<org.prairieserver.prairie.common.data.db.PrairieDatabase>().dirtyOperationDao()
+                            .makeDownloadProgressDue(System.currentTimeMillis())
+                        if (queued > 0) org.prairieserver.prairie.common.data.sync.SyncWorker.enqueueNow(androidContext())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.w("ServerReachability", "couldn't start the outbox drain", e)
+                    }
+                }
+            },
         )
     }
 
@@ -418,13 +489,14 @@ val playerInfraModule = module {
     single {
         val registry = get<ServerRegistry>()
         val profileChangeSignal = registry.activeEntry
-            .map { it?.profileId }
+            .map { it?.accountId to it?.profileId }
             .distinctUntilChanged()
             .map { Unit }
         AudiobookSettingsStore(
             context = androidContext(),
             getActiveProfileId = { get<ProfileRepository>().getActiveProfileId() },
             profileChangeSignal = profileChangeSignal,
+            getActiveAccountId = { get<TokenManager>().getCurrentAccountId() },
         )
     }
 

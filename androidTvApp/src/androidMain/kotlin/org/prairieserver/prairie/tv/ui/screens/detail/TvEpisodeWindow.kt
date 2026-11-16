@@ -2,7 +2,7 @@ package org.prairieserver.prairie.tv.ui.screens.detail
 
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.Season
-import org.prairieserver.prairie.model.catalog.isSpecialsForDisplay
+import org.prairieserver.prairie.model.catalog.sortedForDisplay
 
 /** A bounded cache; missing seasons never silently join two nonadjacent episode runs. */
 internal class TvEpisodeWindow {
@@ -22,8 +22,7 @@ internal class TvEpisodeWindow {
     }
 
     fun orderedSeasons(seasons: List<Season>): List<Int> =
-        seasons.sortedWith(compareBy<Season> { it.isSpecialsForDisplay() }.thenBy { it.seasonNumber })
-            .map { it.seasonNumber }.distinct()
+        seasons.sortedForDisplay().map { it.seasonNumber }.distinct()
 
     fun retainNear(seasons: List<Season>, selected: Int) {
         val order = orderedSeasons(seasons)

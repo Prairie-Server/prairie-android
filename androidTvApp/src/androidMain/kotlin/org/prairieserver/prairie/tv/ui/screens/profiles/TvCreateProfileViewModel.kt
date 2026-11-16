@@ -2,8 +2,9 @@ package org.prairieserver.prairie.tv.ui.screens.profiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.UiText
 import org.prairieserver.prairie.model.profile.AssignableLibraries
-import org.prairieserver.prairie.model.profile.CHOOSE_A_LIBRARY_MESSAGE
 import org.prairieserver.prairie.model.profile.CreateProfileRequest
 import org.prairieserver.prairie.model.profile.ProfileAccessLimits
 import org.prairieserver.prairie.model.profile.withAccessLimits
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.prairieserver.prairie.common.i18n.errorText
+import org.prairieserver.prairie.model.profile.CHOOSE_A_LIBRARY_TEXT
 
 /**
  * Mirrors the phone app's `CreateProfileViewModel`. Drives the TV create-profile
@@ -33,7 +36,7 @@ data class TvCreateProfileUiState(
     val pin: String = "",
     val subtitleMode: String? = null,
     val isLoading: Boolean = false,
-    val error: String? = null,
+    val error: UiText? = null,
     val createSuccess: Boolean = false,
 )
 
@@ -142,19 +145,19 @@ class TvCreateProfileViewModel(
         val current = _uiState.value
 
         if (current.name.isBlank()) {
-            _uiState.update { it.copy(error = "Profile name is required") }
+            _uiState.update { it.copy(error = UiText.Res(CommonR.string.profiles_error_nameRequired)) }
             return
         }
         if (existingProfiles.hasProfileNamed(current.name)) {
-            _uiState.update { it.copy(error = "A profile with this name already exists") }
+            _uiState.update { it.copy(error = UiText.Res(CommonR.string.profiles_error_nameTaken)) }
             return
         }
         if (current.pinEnabled && current.pin.length != 4) {
-            _uiState.update { it.copy(error = "PIN must be 4 digits") }
+            _uiState.update { it.copy(error = UiText.Res(CommonR.string.profiles_error_pinLength)) }
             return
         }
         if (current.access.needsLibrary(assignable = current.libraries.ids)) {
-            _uiState.update { it.copy(error = CHOOSE_A_LIBRARY_MESSAGE) }
+            _uiState.update { it.copy(error = CHOOSE_A_LIBRARY_TEXT) }
             return
         }
 
@@ -179,14 +182,14 @@ class TvCreateProfileViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            error = result.message.ifBlank { "Failed to create profile" },
+                            error = result.errorText(CommonR.string.newProfile_error_createFailed),
                         )
                     }
                 }
 
                 is ApiResult.NetworkError -> {
                     _uiState.update {
-                        it.copy(isLoading = false, error = "Network error. Please try again.")
+                        it.copy(isLoading = false, error = UiText.Res(CommonR.string.profiles_error_network))
                     }
                 }
             }

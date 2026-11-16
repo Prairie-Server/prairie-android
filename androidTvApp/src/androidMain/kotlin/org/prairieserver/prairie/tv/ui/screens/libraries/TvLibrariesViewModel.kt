@@ -1,11 +1,15 @@
 package org.prairieserver.prairie.tv.ui.screens.libraries
 
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.errorText
+import org.prairieserver.prairie.common.i18n.detailedErrorText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.personal.UserLibrary
 import org.prairieserver.prairie.common.network.ServerReachabilityState
 import org.prairieserver.prairie.common.network.ServerReachabilityStatus
 import org.prairieserver.prairie.network.ApiResult
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.tv.data.preferences.LegacyTvPrefsMigration
 import org.prairieserver.prairie.tv.data.preferences.TvLibrarySelectionStore
@@ -40,7 +44,7 @@ class TvLibrariesViewModel(
         val isLoading: Boolean = true,
         val libraries: List<UserLibrary> = emptyList(),
         val selectedLibraryId: Int? = null,
-        val error: String? = null,
+        val error: UiText? = null,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -134,7 +138,7 @@ class TvLibrariesViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            error = result.message.ifBlank { "Failed to load libraries" },
+                            error = result.errorText(CommonR.string.library_error_loadLibraries),
                         )
                     }
                 }
@@ -143,7 +147,7 @@ class TvLibrariesViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            error = "Network error: ${result.exception.message ?: "unknown"}",
+                            error = result.detailedErrorText(),
                         )
                     }
                 }

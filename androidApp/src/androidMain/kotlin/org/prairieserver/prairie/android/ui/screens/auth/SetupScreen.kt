@@ -15,6 +15,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeButton
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeErrorHaptic
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeErrorText
@@ -24,6 +26,7 @@ import org.prairieserver.prairie.android.ui.components.marquee.MarqueeSeparator
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeStage
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeTextField
 import org.prairieserver.prairie.android.ui.components.marquee.MarqueeWordmark
+import org.prairieserver.prairie.common.i18n.text
 import org.prairieserver.prairie.common.ui.marquee.MarqueeScrimStyle
 
 /**
@@ -53,22 +56,22 @@ fun SetupScreen(
         topBar = { MarqueeWordmark() },
     ) {
         MarqueeHeadline(
-            title = "Set up\nyour server",
-            lead = "This server has no accounts yet. Create the first one; it becomes the admin.",
+            title = stringResource(CommonR.string.setup_firstAdmin_headline),
+            lead = stringResource(CommonR.string.setup_firstAdmin_lead),
         )
         MarqueeFieldGroup(isError = state.error != null, modifier = Modifier.padding(top = 24.dp)) {
             MarqueeTextField(
                 value = state.username,
                 onValueChange = viewModel::onUsernameChanged,
                 icon = Icons.Outlined.Person,
-                placeholder = "Username",
+                placeholder = stringResource(CommonR.string.tvSignIn_form_usernamePlaceholder),
             )
             MarqueeSeparator()
             MarqueeTextField(
                 value = state.email,
                 onValueChange = viewModel::onEmailChanged,
                 icon = Icons.Outlined.Email,
-                placeholder = "Email",
+                placeholder = stringResource(CommonR.string.account_create_email),
                 keyboardType = KeyboardType.Email,
             )
             MarqueeSeparator()
@@ -76,15 +79,15 @@ fun SetupScreen(
                 value = state.password,
                 onValueChange = viewModel::onPasswordChanged,
                 icon = Icons.Outlined.Lock,
-                placeholder = "Password",
+                placeholder = stringResource(CommonR.string.tvSignIn_form_passwordPlaceholder),
                 isSecure = true,
                 imeAction = ImeAction.Go,
                 onImeAction = viewModel::onCreateAccountClick,
             )
         }
-        state.error?.let { MarqueeErrorText(it, Modifier.padding(top = 10.dp)) }
+        state.error?.let { MarqueeErrorText(it.text(), Modifier.padding(top = 10.dp)) }
         MarqueeButton(
-            text = if (state.isLoading) "Creating…" else "Create account",
+            text = stringResource(if (state.isLoading) CommonR.string.account_create_creating else CommonR.string.account_create_submit),
             onClick = viewModel::onCreateAccountClick,
             icon = Icons.Default.PersonAdd,
             isLoading = state.isLoading,

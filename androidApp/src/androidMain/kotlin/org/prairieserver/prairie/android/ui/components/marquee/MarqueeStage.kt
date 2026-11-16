@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.components.marquee
 
+import org.prairieserver.prairie.common.R as CommonR
+import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -105,7 +107,7 @@ fun MarqueeStage(
 fun MarqueeWordmark(width: Dp = 92.dp) {
     Image(
         painter = painterResource(R.drawable.prairie_wordmark),
-        contentDescription = "Prairie",
+        contentDescription = stringResource(CommonR.string.app_name),
         contentScale = ContentScale.Fit,
         modifier = Modifier.width(width),
     )

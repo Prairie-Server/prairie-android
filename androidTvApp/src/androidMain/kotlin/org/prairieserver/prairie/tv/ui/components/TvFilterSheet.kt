@@ -26,9 +26,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.tv.ui.focus.tvModalFocusBoundary
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 import org.prairieserver.prairie.tv.ui.theme.Spacing
@@ -114,7 +116,7 @@ fun TvFilterSheet(
                     verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                 ) {
                     Text(
-                        text = "Filters",
+                        text = stringResource(CommonR.string.filters_title),
                         style = MaterialTheme.typography.headlineLarge,
                     )
                     content()

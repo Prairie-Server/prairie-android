@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,12 +42,19 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import org.prairieserver.prairie.android.ui.components.EmptyStateView
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.android.ui.components.ErrorView
 import org.prairieserver.prairie.android.ui.components.rememberShimmerProgress
 import org.prairieserver.prairie.android.ui.theme.PrairieNavPillBorder
 import org.prairieserver.prairie.android.ui.theme.PrairieOverlayPillSurface
 import org.prairieserver.prairie.android.ui.theme.PrairieSecondaryText
 import org.prairieserver.prairie.model.request.MyRequestsBucket
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
+import org.prairieserver.prairie.common.i18n.text
+import org.prairieserver.prairie.android.ui.components.PrairieConfirmDialog
+import android.widget.Toast
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import org.prairieserver.prairie.viewmodel.MyRequestsViewModel
 
 /**
@@ -64,14 +72,26 @@ fun MyRequestsScreen(
     val state by viewModel.uiState.collectAsState()
     val router = rememberRequestRouter(koinInject(), onLibraryItemClick, onRequestDetailClick)
     var filter by remember { mutableStateOf<MyRequestsBucket?>(null) }
+    var removeTarget by remember { mutableStateOf<MediaRequest?>(null) }
+    val context = LocalContext.current
+    // The view model outlives a detail push and Back, so a notice shows once.
+    var seenNotice by rememberSaveable { mutableStateOf(state.notice?.sequence) }
+    LaunchedEffect(state.notice) {
+        val notice = state.notice ?: return@LaunchedEffect
+        if (notice.sequence == seenNotice) return@LaunchedEffect
+        seenNotice = notice.sequence
+        Toast.makeText(context, notice.message.text.text(context), Toast.LENGTH_SHORT).show()
+    }
 
     // A filter whose last request moved on would leave a blank list.
     LaunchedEffect(state.buckets) {
         if (filter != null && state.buckets.none { it.first == filter }) filter = null
     }
 
+    // Section headings for the list builder, which can't read resources itself.
+    val bucketTitles = MyRequestsBucket.entries.associateWith { it.text.text() }
     RequestsLargeTitlePage(
-        title = "My Requests",
+        title = stringResource(CommonR.string.requests_myRequests),
         onBackClick = onBackClick,
         isRefreshing = state.isRefreshing,
         onRefresh = viewModel::refresh,
@@ -84,15 +104,15 @@ fun MyRequestsScreen(
     ) {
         when {
             state.error != null && state.buckets.isEmpty() -> item(key = "error") {
-                ErrorView(message = state.error.orEmpty(), onRetry = viewModel::load, modifier = Modifier.padding(top = 60.dp))
+                ErrorView(message = state.error?.text().orEmpty(), onRetry = viewModel::load, modifier = Modifier.padding(top = 60.dp))
             }
             state.isLoading && state.buckets.isEmpty() -> item(key = "loading") {
                 Box(modifier = Modifier.padding(top = RequestGroupGap)) { RequestRowsSkeleton(progress = rememberShimmerProgress()) }
             }
             state.isEmpty -> item(key = "empty") {
                 EmptyStateView(
-                    title = "No requests yet",
-                    subtitle = "Movies and series you request will show up here",
+                    title = stringResource(CommonR.string.requests_mine_emptyTitle),
+                    subtitle = stringResource(CommonR.string.requests_mine_emptyBody),
                     icon = Icons.Outlined.Inbox,
                     modifier = Modifier.padding(top = 80.dp),
                 )
@@ -101,7 +121,7 @@ fun MyRequestsScreen(
                 state.actionErrorMessage?.let { message ->
                     item(key = "action-error") {
                         Text(
-                            text = message,
+                            text = message.text.text(),
                             fontSize = 12.sp,
                             color = PrairieSecondaryText,
                             textAlign = TextAlign.Center,
@@ -110,19 +130,34 @@ fun MyRequestsScreen(
                     }
                 }
                 state.buckets.filter { filter == null || it.first == filter }.forEach { (bucket, requests) ->
-                    requestGroupedSection(key = "bucket:${bucket.name}", title = bucket.title, items = requests, itemKey = { it.id }) { record, showDivider ->
+                    requestGroupedSection(key = "bucket:${bucket.name}", title = bucketTitles.getValue(bucket), items = requests, itemKey = { it.id }) { record, showDivider ->
                         MyRequestRow(
                             record = record,
-                            isBusy = state.cancellingId == record.id,
+                            isBusy = state.cancellingId == record.id || state.removingId == record.id,
                             showDivider = showDivider,
                             onOpen = { router.openRecord(record) },
                             onOpenInLibrary = record.libraryContentId?.takeIf { it.isNotBlank() }?.let { id -> { onLibraryItemClick(id) } },
                             onCancel = if (state.canCancel(record)) ({ viewModel.cancel(record) }) else null,
+                            onRemove = if (state.canRemove(record)) ({ removeTarget = record }) else null,
                         )
                     }
                 }
             }
         }
+    }
+
+    removeTarget?.let { record ->
+        PrairieConfirmDialog(
+            title = stringResource(CommonR.string.requests_remove_title),
+            body = stringResourceWithNames(CommonR.string.requests_remove_message, record.title),
+            confirmLabel = stringResource(CommonR.string.requests_remove_confirm),
+            dismissLabel = stringResource(CommonR.string.requests_remove_keep),
+            onConfirm = {
+                removeTarget = null
+                viewModel.removeFailed(record)
+            },
+            onDismiss = { removeTarget = null },
+        )
     }
 }
 
@@ -145,12 +180,13 @@ private fun FilterMenu(
         ) {
             Icon(
                 imageVector = Icons.Filled.FilterList,
-                contentDescription = filter?.let { "Filter: ${it.title}" } ?: "Filter",
+                contentDescription = filter?.let { stringResource(CommonR.string.requests_filter_active, it.text.text()) }
+                    ?: stringResource(CommonR.string.requests_filter_button),
                 tint = Color.White,
             )
         }
         PrairieDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            FilterItem(label = "All Requests", icon = Icons.Outlined.Inventory2, selected = filter == null) {
+            FilterItem(label = stringResource(CommonR.string.requests_filter_all), icon = Icons.Outlined.Inventory2, selected = filter == null) {
                 open = false
                 onFilter(null)
             }
@@ -160,7 +196,7 @@ private fun FilterMenu(
                     MyRequestsBucket.NeedsAttention -> Icons.Outlined.ErrorOutline
                     MyRequestsBucket.Landed -> Icons.Outlined.CheckCircle
                 }
-                FilterItem(label = "${bucket.title} (${requests.size})", icon = icon, selected = filter == bucket) {
+                FilterItem(label = "${bucket.text.text()} (${requests.size})", icon = icon, selected = filter == bucket) {
                     open = false
                     onFilter(bucket)
                 }
@@ -175,7 +211,7 @@ private fun FilterItem(label: String, icon: ImageVector, selected: Boolean, onCl
         text = { Text(label) },
         leadingIcon = {
             Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected") else Icon(icon, contentDescription = null)
+                if (selected) Icon(Icons.Filled.Check, contentDescription = stringResource(CommonR.string.requests_filter_selected)) else Icon(icon, contentDescription = null)
             }
         },
         onClick = onClick,

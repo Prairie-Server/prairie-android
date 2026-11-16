@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import androidx.compose.runtime.remember
+import org.prairieserver.prairie.android.ui.components.sharedArtworkAspectRatio
+import org.prairieserver.prairie.viewmodel.DetailSeeds
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,8 +12,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import org.prairieserver.prairie.android.ui.components.MediaCard
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.ui.components.DeferImagePresentationWhileScrolling
 import org.prairieserver.prairie.model.catalog.BrowseItem
 
@@ -36,7 +41,7 @@ fun SimilarRail(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = modifier,
         ) {
-            SectionHeader(title = "More Like This")
+            SectionHeader(title = stringResource(CommonR.string.detail_moreLikeThis))
             SimilarRailContent(items = items, onSelect = onSelect)
         }
     }
@@ -49,6 +54,8 @@ private fun SimilarRailContent(
     modifier: Modifier = Modifier,
 ) {
     val rowState = rememberLazyListState()
+    // Square covers when every title is an audiobook; one card height otherwise.
+    val posterAspectRatio = remember(items) { sharedArtworkAspectRatio(items.map { it.type }) }
     DeferImagePresentationWhileScrolling(rowState) {
     LazyRow(
         state = rowState,
@@ -71,9 +78,14 @@ private fun SimilarRailContent(
                 type = item.type,
                 userState = null,
                 progress = null,
-                onClick = { onSelect(item.contentId) },
+                onClick = {
+                    DetailSeeds.offer(item)
+                    onSelect(item.contentId)
+                },
+                artworkAspectRatio = posterAspectRatio,
                 overlay = org.prairieserver.prairie.overlays.OverlayDataExtractor.fromBrowseItem(item),
                 sharedContentId = item.contentId,
+                widthIsExact = true,
             )
         }
     }

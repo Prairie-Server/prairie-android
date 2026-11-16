@@ -10,7 +10,7 @@ A detailed inventory of what the Android **phone** and **TV** clients do today. 
 
 File pointers are repository-relative.
 
-> **Important exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v2/requests/status`), and reached from the profile menu and search on phone and from a top-bar tab and search on TV — matching the Apple clients. Request administration (approve, decline, retry, limits, auto-approve) stays in web admin. The admin screens (users/sessions/logs/scans) remain inaccessible. Watch Party is experimental, behind Settings → Experimental → Watch Party.
+> **Important exposure note:** Requests is live on both Android surfaces, gated by the server's `requests_enabled` flag (`/api/v2/requests/status`), and reached from the profile menu and search on phone and TV — matching the Apple clients. Request administration (approve, decline, retry, limits, auto-approve) stays in web admin. The admin screens (users/sessions/logs/scans) remain inaccessible. Watch Party is experimental, behind Settings → Experimental → Watch Party.
 
 ---
 
@@ -89,7 +89,7 @@ Shown only while Settings → Experimental → Watch Party is on (default on in 
 | Release calendar | ✅ | ✅ | Top-level mobile tab and TV top-menu tab |
 | Live home refresh (events websocket) | ✅ | ✅ | `HomeRealtimeCoordinator`: user_state/catalog channels, 2s debounce; TV also refreshes on resume |
 | System "Watch Next" row integration | ➖ | ✅ | `WatchNextRepository` (tvprovider) |
-| Requests | ✅ | ✅ | Server-gated by `requests_enabled`; phone: profile menu + search; TV: top-bar tab + search; "Notify me when available" on titles someone else requested (when the server reports `follow_supported`); request administration stays in web admin |
+| Requests | ✅ | ✅ | Server-gated by `requests_enabled`, re-checked when the app returns to the foreground and when the server refuses a requests call as off (open Requests screens close once it answers off, never on a failed check); phone: profile menu + search; TV: profile menu + search; "Notify me when available" on titles someone else requested (when the server reports `follow_supported`); request administration stays in web admin |
 
 ## Reading (ebooks)
 
@@ -129,8 +129,9 @@ Shown only while Settings → Experimental → Watch Party is on (default on in 
 | Feature | Phone | TV | Notes |
 |---|:---:|:---:|---|
 | Household profiles (multiple per account) | ✅ | ✅ | `ProfileRepository` |
+| Profile menu: Switch Profile, or Add Profile while the account has one profile | ✅ | ✅ | The row follows the open account's profile count and its profile limit (`max_profiles`): no row when it has one profile and the limit is one. Change Account is always there; on TV the profile row and Change Account sit together between Settings and Sign Out, as on the phone. Shared `profileMenuRow` |
 | PIN-protected & child profiles, content-rating limits | ✅ | ✅ | |
-| Profile Selection at launch (Automatic, Every Time, After 1 Hour, After 12 Hours) | ✅ | ✅ | Phone: Settings → Preferences; TV: Settings → General. Device-local; shared rules in `android-shared/.../profiles/`. TV also hides Watch Next |
+| Profile Selection at launch (Automatic, Every Time, After 1 Hour, After 12 Hours) | ✅ | ✅ | Phone: Settings → Preferences; TV: Settings → General. Device-local; shared rules in `android-shared/.../profiles/`. When it asks and several accounts are saved on the device, Change Account shows in place of Who's Watching, with no profile open. TV also hides Watch Next |
 | Per-profile language / subtitle / playback prefs | ✅ | ✅ | |
 | Library access restrictions per profile | ✅ | ✅ | |
 | Favorites & watchlist | ✅ | ✅ | TV: from Settings |

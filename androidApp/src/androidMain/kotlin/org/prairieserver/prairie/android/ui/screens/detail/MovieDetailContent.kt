@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import org.prairieserver.prairie.common.i18n.localizedResources
+import androidx.compose.ui.res.stringResource
 import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,6 +38,7 @@ import org.prairieserver.prairie.android.ui.theme.PrairieBackground
 import org.prairieserver.prairie.android.ui.theme.PrairieDetailActionControl
 import org.prairieserver.prairie.android.ui.theme.PrairieDetailActionControlActive
 import org.prairieserver.prairie.android.ui.util.rememberDominantColor
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
 import org.prairieserver.prairie.common.ui.movieDirectorCredit
 import org.prairieserver.prairie.model.catalog.EpisodeListItem
@@ -75,6 +78,7 @@ fun MovieDetailContent(
     isInWatchlist: Boolean,
     selectedVersionIndex: Int,
     isAutoVersion: Boolean,
+    preferredQuality: String?,
     selectedAudioIndex: Int?,
     selectedSubtitleIndex: Int?,
     onPlayClick: () -> Unit,
@@ -84,6 +88,7 @@ fun MovieDetailContent(
     onWatchlistClick: () -> Unit,
     onToggleWatched: () -> Unit,
     onVersionSelected: (Int?) -> Unit,
+    onEditionSelected: (String) -> Unit,
     onAudioSelected: (Int?) -> Unit,
     onSubtitleSelected: (Int?) -> Unit,
     onPersonClick: (String) -> Unit,
@@ -123,8 +128,9 @@ fun MovieDetailContent(
     val hasTrackSelectors = detail.versions.isNotEmpty()
     val hasOverflow = onSeriesClick != null || partyAction != null
 
+    val resources = localizedResources()
     val eyebrow = if (detail.type == "episode") {
-        HeroMetadata.episodeEyebrow(detail)
+        HeroMetadata.episodeEyebrow(resources, detail)
     } else {
         null
     }
@@ -187,14 +193,17 @@ fun MovieDetailContent(
                                 detail = detail,
                                 selectedVersionIndex = selectedVersionIndex,
                                 isAutoVersion = isAutoVersion,
+                                preferredQuality = preferredQuality,
                                 onVersionSelected = onVersionSelected,
+                                onEditionSelected = onEditionSelected,
                             )
                             if (audioTracks.isNotEmpty()) {
                                 PlaybackSelectorDivider()
                                 TrackSelectorRow(
                                     icon = Icons.Outlined.AudioFile,
-                                    label = "Audio",
+                                    label = stringResource(CommonR.string.detail_audio),
                                     value = formatAudioValueLabel(
+                                        resources,
                                         audioTracks,
                                         selectedAudioIndex,
                                         selectedVersion?.effectiveAudioTrackIndex,
@@ -207,8 +216,9 @@ fun MovieDetailContent(
                                 PlaybackSelectorDivider()
                                 TrackSelectorRow(
                                     icon = Icons.Outlined.ClosedCaption,
-                                    label = "Subtitles",
+                                    label = stringResource(CommonR.string.detail_subtitles),
                                     value = formatSubtitleValueLabel(
+                                        resources,
                                         subtitleTracks,
                                         selectedSubtitleIndex,
                                         seriesSignature = detail.effectiveSubtitleTrackSignature,
@@ -224,7 +234,7 @@ fun MovieDetailContent(
                 },
             ) {
                 HeroActionStack(
-                    primaryLabel = computePlayLabel(detail),
+                    primaryLabel = computePlayLabel(resources, detail),
                     onPlay = onPlayClick,
                     onPlayFromBeginning = onPlayFromBeginning,
                     resumeStoppedAtLabel = resumeStoppedAtLabel,
@@ -238,7 +248,7 @@ fun MovieDetailContent(
                         { dismiss ->
                             if (onSeriesClick != null) {
                                 PrairieDropdownMenuItem(
-                                    text = { Text("Go to Series") },
+                                    text = { Text(stringResource(CommonR.string.detail_goToSeries)) },
                                     onClick = {
                                         dismiss()
                                         onSeriesClick()
@@ -297,13 +307,11 @@ fun MovieDetailContent(
                         it.seasonNumber == selectedSeasonNumber
                     }
                     SectionHeader(
-                        title = selectedSeason?.let(::seriesSeasonSectionTitle) ?: if (
-                            selectedSeasonNumber == 0
-                        ) {
-                            "Specials Episodes"
-                        } else {
-                            "Season $selectedSeasonNumber Episodes"
-                        },
+                        title = selectedSeason?.let { seriesSeasonSectionTitle(resources, it) }
+                            ?: stringResource(
+                                CommonR.string.detail_seasonEpisodes,
+                                phoneSeasonNumberLabel(resources, selectedSeasonNumber),
+                            ),
                     )
                     SeasonEpisodePager(
                         seasons = seasons,
@@ -326,7 +334,7 @@ fun MovieDetailContent(
         if (detail.cast.isNotEmpty()) {
             item(contentType = "detail-cast") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(title = "Cast & Crew")
+                    SectionHeader(title = stringResource(CommonR.string.detail_cast))
                     CastCrewSection(
                         cast = detail.cast,
                         onPersonClick = onPersonClick,
@@ -425,17 +433,18 @@ internal fun DownloadCircleButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
+    val clickable = enabled && LocalDetailActionsReady.current
     val isInFlight = progress != null && !isDownloaded
     Box(
         modifier = Modifier
             .size(42.dp)
-            .alpha(if (enabled) 1f else 0.45f)
+            .alpha(if (clickable) 1f else DetailActionDisabledAlpha)
             .clip(CircleShape)
             .background(
                 if (isDownloaded) PrairieDetailActionControlActive
                 else PrairieDetailActionControl
             )
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = clickable, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         if (isInFlight) {
@@ -449,7 +458,9 @@ internal fun DownloadCircleButton(
         }
         Icon(
             imageVector = if (isDownloaded) Icons.Filled.Check else Icons.Filled.Download,
-            contentDescription = if (isDownloaded) "Downloaded" else "Download",
+            contentDescription = stringResource(
+                if (isDownloaded) CommonR.string.detail_downloaded else CommonR.string.detail_download,
+            ),
             tint = Color.White,
             modifier = Modifier.size(if (isDownloaded) 22.dp else 18.dp),
         )

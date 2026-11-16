@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.screens.libraries
 
+import org.prairieserver.prairie.common.i18n.text
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -7,6 +8,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import org.prairieserver.prairie.common.R as CommonR
 import androidx.tv.material3.MaterialTheme
 import org.prairieserver.prairie.tv.ui.components.TvCatalogEmptyState
 import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
@@ -51,12 +54,12 @@ fun TvLibrariesScreen(
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
         )
         state.error != null && state.libraries.isEmpty() -> TvErrorScreen(
-            message = state.error!!,
+            message = state.error!!.text(),
             onRetry = viewModel::load,
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
         )
         state.libraries.isEmpty() -> TvCatalogEmptyState(
-            message = "No libraries available for this profile.",
+            message = stringResource(CommonR.string.library_noLibrariesForProfile),
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
         )
         selectedLibrary != null -> {

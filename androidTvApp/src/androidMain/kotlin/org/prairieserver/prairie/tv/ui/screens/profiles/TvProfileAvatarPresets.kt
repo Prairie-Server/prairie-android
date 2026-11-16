@@ -1,6 +1,8 @@
 package org.prairieserver.prairie.tv.ui.screens.profiles
 
 import android.net.Uri
+import androidx.annotation.StringRes
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * DiceBear avatar presets. Mirrors prairie-apple's ProfileAvatarPresets and the
@@ -11,7 +13,7 @@ import android.net.Uri
 object TvProfileAvatarPresets {
     data class Style(
         val id: String,
-        val label: String,
+        @StringRes val label: Int,
         val summary: String,
     )
 
@@ -25,11 +27,11 @@ object TvProfileAvatarPresets {
     }
 
     val styles = listOf(
-        Style("identicon", "Identicon", "Geometric patterns"),
-        Style("initials", "Initials", "Letter-based with bold backgrounds"),
-        Style("bottts-neutral", "Bottts", "Modular robot faces"),
-        Style("fun-emoji", "Fun Emoji", "Big, colorful faces"),
-        Style("pixel-art-neutral", "Pixel Art", "Retro pixel characters"),
+        Style("identicon", CommonR.string.profiles_avatarStyle_identicon, "Geometric patterns"),
+        Style("initials", CommonR.string.profiles_avatarStyle_initials, "Letter-based with bold backgrounds"),
+        Style("bottts-neutral", CommonR.string.profiles_avatarStyle_bottts, "Modular robot faces"),
+        Style("fun-emoji", CommonR.string.profiles_avatarStyle_funEmoji, "Big, colorful faces"),
+        Style("pixel-art-neutral", CommonR.string.profiles_avatarStyle_pixelArt, "Retro pixel characters"),
     )
 
     const val DefaultStyleId = "fun-emoji"

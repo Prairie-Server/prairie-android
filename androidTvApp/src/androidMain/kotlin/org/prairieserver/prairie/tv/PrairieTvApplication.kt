@@ -37,11 +37,28 @@ class PrairieTvApplication : Application(), Configuration.Provider, SingletonIma
         super.onCreate()
         ImageFormats.configureForApiLevel(android.os.Build.VERSION.SDK_INT)
         DiagnosticsStartup.installCrashCapture(this)
+        // Before any request: v2 problem details show in the app's language.
+        org.prairieserver.prairie.common.i18n.ServerText.install(this)
+        org.prairieserver.prairie.common.i18n.LocaleFormat.refresh(this)
+        org.prairieserver.prairie.common.i18n.EnglishText.install(this)
         val koinApp = startKoin {
             androidContext(this@PrairieTvApplication)
             modules(sharedModules() + playerModule + playerInfraModule + marqueeModule + watchPartyModule + androidTvModule + diagnosticsModule)
         }
         DiagnosticsStartup.startCoordinator { koinApp.koin.get<DiagnosticsCoordinator>() }
+        // Account-scoped preferences and local state: adopt pre-account values
+        // into the migrated account (synchronously, before any store reads
+        // them), purge signed-out accounts, and remember the last tile.
+        // Guarded — never load-bearing for cold start.
+        runCatching {
+            org.prairieserver.prairie.common.store.AccountLocalData(
+                context = this@PrairieTvApplication,
+                registry = koinApp.koin.get(),
+                launchPreferences = koinApp.koin.get(),
+            ).start()
+        }.onFailure {
+            android.util.Log.w("PrairieTvApplication", "Account local data init failed: ${it::class.simpleName}")
+        }
         koinApp.koin.get<org.prairieserver.prairie.repository.ImageCapabilitiesSession>().start(
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
         )
@@ -127,6 +144,7 @@ class PrairieTvApplication : Application(), Configuration.Provider, SingletonIma
                 registry = koinApp.koin.get(),
                 database = koinApp.koin.get(),
                 storage = koinApp.koin.get(),
+                legacyImporter = koinApp.koin.getOrNull(),
             )
         }.onFailure {
             android.util.Log.w("PrairieTvApplication", "Orphaned server purge init failed", it)

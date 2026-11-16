@@ -2,6 +2,7 @@ package org.prairieserver.prairie.android
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.content.pm.PackageManager
@@ -38,6 +39,7 @@ import org.prairieserver.prairie.android.downloads.hasLegacyPublicDownloadPermis
 import org.prairieserver.prairie.android.auth.ActiveProfileReset
 import org.prairieserver.prairie.android.cast.PrairieCastController
 import org.prairieserver.prairie.android.profiles.ProfileLaunchAction
+import org.prairieserver.prairie.android.profiles.launchOnlyProfileId
 import org.prairieserver.prairie.android.profiles.profileLaunchAction
 import org.prairieserver.prairie.android.push.PushNotificationPresenter
 import org.prairieserver.prairie.android.ui.navigation.AppNavigation
@@ -50,12 +52,17 @@ import org.prairieserver.prairie.android.ui.navigation.ExternalRouteScope
 import org.prairieserver.prairie.android.ui.navigation.notificationExternalRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.deviceLoginPairRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.hasLocalDownloadsForScope
+import org.prairieserver.prairie.android.ui.navigation.hasOtherSession
+import org.prairieserver.prairie.android.ui.navigation.hasSingleOpenTile
+import org.prairieserver.prairie.android.ui.navigation.onlyOpenTile
 import org.prairieserver.prairie.android.ui.navigation.inviteClaimRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.notificationNavigationRouteOrNull
 import org.prairieserver.prairie.android.ui.navigation.shouldStartOnDownloads
 import org.prairieserver.prairie.android.ui.screens.watchparty.WatchPartyHandoff
 import org.prairieserver.prairie.android.ui.screens.watchparty.watchPartyAppLinkOrNull
 import org.prairieserver.prairie.android.ui.screens.watchparty.watchPartyInviteRoute
+import org.prairieserver.prairie.common.i18n.AppLanguageStore
+import org.prairieserver.prairie.common.i18n.AppLocales
 import org.prairieserver.prairie.common.watchparty.WatchPartyExperiment
 import org.prairieserver.prairie.android.ui.screens.onboarding.OnboardingTourLocalCache
 import org.prairieserver.prairie.android.ui.theme.PrairieTheme
@@ -64,6 +71,8 @@ import org.prairieserver.prairie.common.pip.PrairiePictureInPictureCoordinator
 import org.prairieserver.prairie.common.profiles.ProfileAwayTracker
 import org.prairieserver.prairie.common.profiles.ProfileLaunchBehavior
 import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.ProfileSelectionPrompt
+import org.prairieserver.prairie.common.profiles.profileSelectionPrompt
 import org.prairieserver.prairie.common.pip.PrairiePictureInPictureSurface
 import org.prairieserver.prairie.common.settings.PlayerSettingsStore
 import org.prairieserver.prairie.common.settings.ServerDrivenConfigRefresher
@@ -76,9 +85,11 @@ import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.network.requiresApproval
 import org.prairieserver.prairie.repository.AuthRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
+import org.prairieserver.prairie.repository.ProfileCommitResult
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.SectionRepository
 import org.prairieserver.prairie.repository.port.HomeCachePort
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -103,6 +114,11 @@ class MainActivity : ComponentActivity() {
         @Volatile
         private var hasResolvedLaunchProfile = false
 
+        // Saved accounts migrated from one-account-per-server lack their
+        // server user id and username; fill them in once per process.
+        @Volatile
+        private var hasStartedAccountBackfill = false
+
         /**
          * Set on the launch Intent once its external route has been delivered.
          * `putExtra` mutates the process-local Intent, which covers ordinary
@@ -123,6 +139,13 @@ class MainActivity : ComponentActivity() {
         /** Saved-state key for [consumedExternalRoute]. */
         private const val STATE_CONSUMED_EXTERNAL_ROUTE =
             "org.prairieserver.prairie.CONSUMED_EXTERNAL_ROUTE"
+
+        /**
+         * Longest a launch with no remembered profile waits for the server's
+         * profile list before the cached list decides. The splash is still
+         * playing meanwhile.
+         */
+        private const val LAUNCH_PROFILE_LIST_TIMEOUT_MS = 3_000L
     }
 
     private val externalRouteRequestFactory = ExternalRouteRequestFactory()
@@ -191,6 +214,7 @@ class MainActivity : ComponentActivity() {
                     queueExternalRouteFrom(intent)
                 }
                 launchAuthenticatedStartupWarmup(route)
+                launchAccountBackfill()
             }
 
             PrairieTheme {
@@ -308,6 +332,30 @@ class MainActivity : ComponentActivity() {
         val monitor = get<ServerReachabilityMonitor>(ServerReachabilityMonitor::class.java)
         monitor.startForeground()
         lifecycleScope.launch(Dispatchers.IO) { refresher.refreshIfStale() }
+        // A return to Prairie: the open account's profiles and profile limit
+        // may have changed elsewhere, and the profile menu's row reads both.
+        // The launch refreshes every account (launchAccountBackfill).
+        if (hasStartedAccountBackfill) refreshOpenAccountProfiles()
+        // A language chosen in system settings while Prairie was away.
+        get<AppLanguageStore>(AppLanguageStore::class.java).check(this)
+    }
+
+    // Before Android 13 the app language is applied here (from 13 the
+    // platform does it), and a device language without a catalog is shown as
+    // its stand-in on every version (D64).
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocales.wrap(newBase))
+    }
+
+    // `locale|layoutDirection` are handled in place, so a language chosen in
+    // system settings while this stays started (picture-in-picture, split
+    // screen) arrives here rather than as a recreation.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // attachBaseContext fixed this activity's locale; a change it can't take in place
+        // recreates it, though not in picture-in-picture: leaving it brings another change.
+        if (!isInPictureInPictureMode && AppLocales.needsRecreate(this)) return recreate()
+        get<AppLanguageStore>(AppLanguageStore::class.java).check(this)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -419,6 +467,7 @@ class MainActivity : ComponentActivity() {
             route = notificationRouteOrNull(intent),
             serverId = intent?.getStringExtra(PushNotificationPresenter.EXTRA_SERVER_ID),
             profileId = intent?.getStringExtra(PushNotificationPresenter.EXTRA_PROFILE_ID),
+            accountId = intent?.getStringExtra(PushNotificationPresenter.EXTRA_ACCOUNT_ID),
         )
         val notificationRoute = notification?.first
         val contentRoute = contentDeepLinkRouteOrNull(intent?.dataString)
@@ -475,6 +524,7 @@ class MainActivity : ComponentActivity() {
                 serverId = scope.serverId,
                 profileId = scope.profileId,
                 identityGeneration = scope.identityGeneration,
+                accountId = scope.accountId,
             )
         }
         // A null snapshot means "no active server" — nothing to pin to, and the
@@ -511,6 +561,9 @@ class MainActivity : ComponentActivity() {
      *  - No active server → `ServerSetup` (registry is empty)
      *  - Active server but no access token → `Login`
      *  - Tokens but no profile selected for THIS server → `ProfileSelection`
+     *    (its only profile, with no PIN, opens without it)
+     *  - Profile Selection asks → `ProfileSelection`, or `ChangeAccount` when
+     *    several accounts are saved
      *  - All set → `Home`
      */
     private suspend fun resolveStartDestination(): String {
@@ -529,6 +582,23 @@ class MainActivity : ComponentActivity() {
 
         // Prairie: first run lands on the server list (LAN discovery; manual
         // URL entry is the secondary path from there).
+
+        val authRepository = get<AuthRepository>(AuthRepository::class.java)
+        val launchPreferences = get<ProfileLaunchPreferences>(ProfileLaunchPreferences::class.java)
+
+        // Automatic reopens the last tile (multi-account spec §4.2), whichever
+        // server and account it is on. The registry normally still has that
+        // account active; it differs only when a sign-in for another account
+        // was left unfinished. A tile that is gone falls through to the picker.
+        if (processStart && launchPreferences.state.value.behavior == ProfileLaunchBehavior.Automatic) {
+            val tile = launchPreferences.restorableTile(registry.accounts.value)
+            if (tile != null &&
+                (tile.serverId != registry.activeServerId.value || tile.accountId != registry.activeAccountId.value)
+            ) {
+                authRepository.switchToAccount(tile.serverId, tile.accountId)
+            }
+        }
+
         val activeEntry = registry.activeEntry.value
             ?: return Route.ServerList.route
 
@@ -540,7 +610,6 @@ class MainActivity : ComponentActivity() {
         // receive raw v2 404s from a v1-only server. Both wait (bounded) for
         // the probe before routing; only a settled V2 skips the wait. A null
         // result (V2, timeout, or failure) makes the name refresh re-probe.
-        val authRepository = get<AuthRepository>(AuthRepository::class.java)
         val knownContract = kotlinx.coroutines.withContext(Dispatchers.IO) {
             authRepository.awaitContractRefreshIfUnsettled()
         }
@@ -555,22 +624,22 @@ class MainActivity : ComponentActivity() {
             return Route.ServerSetup.route
         }
 
+        // No signed-in account here (signed out, its sign-in expired, or a
+        // new account's sign-in left unfinished): Change Account while
+        // another account still has a session, else sign-in (an expired
+        // account's username filled in).
         val accessToken = tokenManager.getAccessToken()
-        if (accessToken.isNullOrBlank()) return Route.Login.route
-
-        // Profile id is per-server: prefer the registry entry's saved value,
-        // fall back to whatever the token manager has cached.
-        val profileId = activeEntry.profileId ?: tokenManager.getProfileId()
-        if (profileId.isNullOrBlank()) return Route.ProfileSelection.route
+        if (accessToken.isNullOrBlank()) {
+            return if (registry.hasOtherSession()) Route.ChangeAccount.ROUTE else Route.Login.route
+        }
 
         // Profile Selection (prairie-apple `ProfileLaunchState.resolution`). A
         // process start applies the launch rule: Every Time, or a timed choice
         // whose away interval ran out while Prairie was closed. A later Activity
         // in this process follows the return rule the away tracker evaluated
         // in onStart. Applied below, after the offline check.
-        val launchPreferences = get<ProfileLaunchPreferences>(ProfileLaunchPreferences::class.java)
         val profileAwayTracker = get<ProfileAwayTracker>(ProfileAwayTracker::class.java)
-        val requiresSelection = if (processStart) {
+        val selectionRequired = if (processStart) {
             // A process the playback service started (Android's media
             // resumption) can already be playing this profile's audiobook;
             // that is use of the profile, as on a return.
@@ -578,6 +647,31 @@ class MainActivity : ComponentActivity() {
         } else {
             profileAwayTracker.selectionRequired.value
         }
+        val savedAccounts = registry.accounts.value.size
+
+        // Profile id is per-server: prefer the registry entry's saved value,
+        // fall back to whatever the token manager has cached.
+        val rememberedProfileId = activeEntry.profileId ?: tokenManager.getProfileId()
+        val profileId: String = if (!rememberedProfileId.isNullOrBlank()) {
+            rememberedProfileId
+        } else {
+            // No profile is open. When Profile Selection asks and several
+            // accounts are saved, Change Account takes the picker's place.
+            val prompt = profileSelectionPrompt(selectionRequired, savedAccounts, onlyProfileNeedsNoChoice = false)
+            if (prompt == ProfileSelectionPrompt.ChangeAccount) return Route.ChangeAccount.ROUTE
+            // The open account's only profile, with no PIN, opens here, so
+            // a one-tile picker is never drawn.
+            openOnlyProfileAtLaunch(registry) ?: return Route.ProfileSelection.route
+        }
+        // With one account saved, its only profile, with no PIN, is never
+        // asked for. A profile opened just above is that profile, by the
+        // list that decided it, whatever the cached list says.
+        val openedOnlyProfile = rememberedProfileId.isNullOrBlank()
+        val prompt = profileSelectionPrompt(
+            selectionRequired = selectionRequired,
+            savedAccounts = savedAccounts,
+            onlyProfileNeedsNoChoice = openedOnlyProfile || registry.hasSingleOpenTile(),
+        )
 
         // Offline-with-downloads fast path: if local media exists and either
         // the device has no network OR the configured Silo server fails the
@@ -587,7 +681,7 @@ class MainActivity : ComponentActivity() {
         // in a main-thread LaunchedEffect during cold start and would
         // otherwise block first-frame work.
         val hasDownloads = kotlinx.coroutines.withContext(Dispatchers.IO) {
-            hasLocalDownloads(activeEntry.id, profileId)
+            hasLocalDownloads(activeEntry.id, activeEntry.accountId, profileId)
         }
         val online = isOnline()
         val canUseServer = if (hasDownloads && online) {
@@ -603,14 +697,20 @@ class MainActivity : ComponentActivity() {
             canUseServer = canUseServer,
         )
         when (
-            profileLaunchAction(requiresSelection = requiresSelection, startsOfflineOnDownloads = startsOnDownloads)
+            val action = profileLaunchAction(prompt = prompt, startsOfflineOnDownloads = startsOnDownloads)
         ) {
-            ProfileLaunchAction.AskWhoIsWatching -> {
-                // Cleared before the picker loads; losing its PIN proof makes
-                // a protected profile ask for its PIN again.
+            ProfileLaunchAction.AskWhoIsWatching, ProfileLaunchAction.AskWhichAccount -> {
+                // Cleared before the next screen loads; losing its PIN proof
+                // makes a protected profile ask for its PIN again.
                 get<ActiveProfileReset>(ActiveProfileReset::class.java).clearActiveProfile()
                 hasResolvedLaunchProfile = true
-                return Route.ProfileSelection.route
+                // Several accounts are saved: whose account comes first, with
+                // no profile open while Change Account shows.
+                return if (action == ProfileLaunchAction.AskWhichAccount) {
+                    Route.ChangeAccount.ROUTE
+                } else {
+                    Route.ProfileSelection.route
+                }
             }
             // The away interval stays recorded, so Prairie asks once the server
             // can be reached again (AppNavigation watches for it). Every Time
@@ -630,11 +730,29 @@ class MainActivity : ComponentActivity() {
         // launches after the first; the gate itself fails open to Home on
         // any error, so it can't strand an offline start.
         val tourCache = get<OnboardingTourLocalCache>(OnboardingTourLocalCache::class.java)
-        if (!tourCache.isDone(activeEntry.id, profileId)) {
+        if (!tourCache.isDone(activeEntry.id, activeEntry.accountId, profileId)) {
             return Route.OnboardingTour.route
         }
 
         return Route.Home.route
+    }
+
+    /**
+     * Opens the open account's only profile, when it has no PIN, and returns
+     * its id; null sends the launch to the picker. The server's current list
+     * decides when it answers within [LAUNCH_PROFILE_LIST_TIMEOUT_MS], as the
+     * picker's own load does on TV; the account's cached list decides when
+     * it does not (see [launchOnlyProfileId]).
+     */
+    private suspend fun openOnlyProfileAtLaunch(registry: ServerRegistry): String? {
+        val profileRepository = get<ProfileRepository>(ProfileRepository::class.java)
+        val scope = profileRepository.captureIdentityScope()
+        val fresh = kotlinx.coroutines.withTimeoutOrNull(LAUNCH_PROFILE_LIST_TIMEOUT_MS) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) { profileRepository.listProfiles() }
+        }
+        val onlyId = launchOnlyProfileId(fresh, registry.onlyOpenTile()?.id) ?: return null
+        val opened = profileRepository.selectProfile(onlyId, expectedScope = scope)
+        return onlyId.takeIf { opened == ProfileCommitResult.Committed }
     }
 
     private fun launchAuthenticatedStartupWarmup(startRoute: String) {
@@ -643,6 +761,8 @@ class MainActivity : ComponentActivity() {
         // (Apple's prefetchForInitialRoute(.needsProfile)).
         if (startRoute == Route.ProfileSelection.route) {
             lifecycleScope.launch(Dispatchers.IO) {
+                // The picker can open with no signed-in account; nothing to warm then.
+                if (get<TokenManager>(TokenManager::class.java).getAccessToken().isNullOrBlank()) return@launch
                 warmProfileSelectionStartup(
                     context = applicationContext,
                     profileRepository = get(ProfileRepository::class.java),
@@ -669,6 +789,41 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Brings the open account's cached profiles and profile limit up to date, in the background. */
+    private fun refreshOpenAccountProfiles() {
+        val accountId = get<ServerRegistry>(ServerRegistry::class.java).activeAccountId.value ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                get<org.prairieserver.prairie.repository.AccountProfilesRefresher>(
+                    org.prairieserver.prairie.repository.AccountProfilesRefresher::class.java,
+                ).refresh(accountId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best effort: the cached list and limit stand.
+            }
+        }
+    }
+
+    /**
+     * Background, once per process: fill in migrated accounts' identities
+     * (§5) and refresh every account's cached profiles and profile limits,
+     * for the picker and the profile menu's row. An account whose only
+     * profile opens without the picker never loads them there.
+     */
+    private fun launchAccountBackfill() {
+        if (hasStartedAccountBackfill) return
+        hasStartedAccountBackfill = true
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { get<AuthRepository>(AuthRepository::class.java).backfillAccountIdentities() }
+            runCatching {
+                get<org.prairieserver.prairie.repository.AccountProfilesRefresher>(
+                    org.prairieserver.prairie.repository.AccountProfilesRefresher::class.java,
+                ).refreshAll()
+            }
+        }
+    }
+
     private fun isOnline(): Boolean {
         val cm = getSystemService(android.net.ConnectivityManager::class.java)
             ?: return true   // unknown — assume online so we don't surprise online users
@@ -678,10 +833,10 @@ class MainActivity : ComponentActivity() {
             caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun hasLocalDownloads(serverId: String, profileId: String): Boolean {
+    private fun hasLocalDownloads(serverId: String, accountId: String?, profileId: String): Boolean {
         val storage = get<org.prairieserver.prairie.common.downloads.DownloadStorage>(
             org.prairieserver.prairie.common.downloads.DownloadStorage::class.java
         )
-        return hasLocalDownloadsForScope(storage, serverId, profileId)
+        return hasLocalDownloadsForScope(storage, serverId, accountId, profileId)
     }
 }

@@ -3,7 +3,10 @@ package org.prairieserver.prairie.tv.ui.screens.profiles
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.text
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.tv.ui.components.TvPinEntryDialog
 
@@ -21,9 +24,9 @@ fun TvHouseholdReverifyHost(profileRepository: ProfileRepository = koinInject())
             profile = it.profile,
             onPinEntered = session::submitPin,
             onDismiss = session::cancelReverify,
-            errorMessage = it.error,
+            errorMessage = it.error?.text(),
             isVerifying = it.isVerifying,
-            prompt = "Enter this PIN to manage profiles",
+            prompt = stringResource(CommonR.string.pin_prompt_manage),
         )
     }
 }

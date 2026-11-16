@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.watchparty
 
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.text
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -10,10 +12,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.model.watchtogether.GuestControlPolicy
 import org.prairieserver.prairie.model.watchtogether.MemberRole
 import org.prairieserver.prairie.model.watchtogether.RoomSnapshot
@@ -22,7 +26,7 @@ import org.prairieserver.prairie.repository.WatchTogetherRepository
 import org.prairieserver.prairie.watchtogether.WatchPartyAvailability
 import org.prairieserver.prairie.watchtogether.WatchPartyAvailabilityRepository
 import org.prairieserver.prairie.watchtogether.WatchPartyEligibility
-import org.prairieserver.prairie.watchtogether.watchPartyErrorMessage
+import org.prairieserver.prairie.watchtogether.watchPartyErrorText
 
 /**
  * The party panel over a retained party player (Back opens it). It is the
@@ -48,6 +52,7 @@ internal fun WatchPartyPanelSheet(
     val personalVotesKnown by repository.personalVotesKnown.collectAsState()
     val connection by repository.connectionState.collectAsState()
     val context = LocalContext.current
+    val policyError = stringResource(CommonR.string.watchParty_error_policy)
     val scope = rememberCoroutineScope()
     val isHost = room?.selfRole == MemberRole.Host
     var inviteOpen by rememberSaveable { mutableStateOf(false) }
@@ -80,7 +85,7 @@ internal fun WatchPartyPanelSheet(
                 if (result !is ApiResult.Success) {
                     Toast.makeText(
                         context,
-                        watchPartyErrorMessage(result, "Couldn't change who can play and pause."),
+                        watchPartyErrorText(result, UiText.Raw(policyError)).text(context),
                         Toast.LENGTH_SHORT,
                     ).show()
                 }

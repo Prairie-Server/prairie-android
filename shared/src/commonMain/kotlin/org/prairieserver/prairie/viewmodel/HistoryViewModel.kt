@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.prairieserver.prairie.common.i18n.SharedString
+import org.prairieserver.prairie.common.i18n.UiText
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.DefaultIdentityTransitionBarrier
 import org.prairieserver.prairie.network.IdentityTransitionBarrier
@@ -87,11 +89,11 @@ class HistoryViewModel(
                 }
                 is ApiResult.Error -> state.update {
                     val retained = if (result.error == "identity_changed") PersonalListUiState() else it
-                    retained.copy(isLoading = false, isLoadingMore = false, isRefreshing = false, error = result.message)
+                    retained.copy(isLoading = false, isLoadingMore = false, isRefreshing = false, error = result.text ?: UiText.Raw(result.message))
                 }
                 is ApiResult.NetworkError -> state.update {
                     it.copy(isLoading = false, isLoadingMore = false, isRefreshing = false,
-                        error = result.exception.message ?: "History could not be loaded.")
+                        error = result.exception.message?.let(UiText::Raw) ?: UiText.Key(SharedString.HistoryLoadFailed))
                 }
             }
         }

@@ -18,6 +18,7 @@ import org.prairieserver.prairie.repository.LibraryPlaybackPrefsRepository
 import org.prairieserver.prairie.repository.NotificationsRepository
 import org.prairieserver.prairie.repository.PersonalDataRepository
 import org.prairieserver.prairie.repository.PlaybackRepository
+import org.prairieserver.prairie.repository.AccountProfilesRefresher
 import org.prairieserver.prairie.repository.ProfileRepository
 import org.prairieserver.prairie.repository.PushRegistrationRepository
 import org.prairieserver.prairie.repository.RecommendationRepository
@@ -95,6 +96,7 @@ val repositoryModule = module {
     }
     single { org.prairieserver.prairie.repository.HiddenLibrariesStore(get(), get()) }
     single { ProfileRepository(get(), get(), getOrNull(), get(), get(), get()) }
+    single { AccountProfilesRefresher(get(), get(), get()) }
     // Resolved by each Application right after startKoin (guarded there, like
     // the other starters) so a stale-profile refusal from background work
     // (downloads, outbox replay) is handled before any screen exists. Clears
@@ -108,7 +110,7 @@ val repositoryModule = module {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
         )
     }
-    single { org.prairieserver.prairie.repository.ForegroundAccessCheck(get(), get()) }
+    single { org.prairieserver.prairie.repository.ForegroundAccessCheck(get(), get(), get(), get()) }
     single { CollectionRepository(get()) }
     single {
         SectionRepository(
@@ -129,12 +131,19 @@ val repositoryModule = module {
             ),
         )
     }
-    single { RequestsFeatureStore(get()) }
+    single {
+        RequestsFeatureStore(
+            repository = get(),
+            // Main, like the repository it listens to and the shells that probe it.
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+        )
+    }
     single { LiveTvRepository(get()) }
     single { LiveTvFeatureStore(get()) }
     single { ActiveProfileStore(get()) }
     single { org.prairieserver.prairie.repository.MetadataAiRepository(get()) }
     single { org.prairieserver.prairie.model.feature.MetadataAiFeatureStore(get()) }
+    single { org.prairieserver.prairie.model.feature.RatingSourcesStore(get()) }
     single { org.prairieserver.prairie.model.feature.ShuffleFeatureStore(get()) }
     single { org.prairieserver.prairie.repository.HomeRealtimeCoordinator(get(), get(), getOrNull()) }
     single { SettingsRepository(get()) }

@@ -1,36 +1,76 @@
 package org.prairieserver.prairie.tv.ui.components
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import org.koin.core.context.GlobalContext
+import org.prairieserver.prairie.common.R as CommonR
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
+import org.prairieserver.prairie.network.ServerRegistry
 
 /**
- * Sign Out's choice, as on Apple TV (prairie-apple `TVMainTabView`,
- * `TVSettingsView`, `ProfileSelectionView`): keep the server and go back to
- * its sign-in screen, or forget it too. Cancel comes first and takes focus.
- * Wider than the default card so the third label fits on its row.
+ * Sign Out's confirmation (multi-account spec §4.4, Roku spec §7.5): the
+ * app's own dialog, naming the account and the server, "Sign out of alex on
+ * Home?". Signing out leaves the other accounts and the server itself. Sign
+ * Out & Remove Server is offered only while the server has no other account.
+ * Android TV keeps no downloads, so there is no download count to state;
+ * the message says what leaves and what stays, as Roku's does.
+ *
+ * Cancel comes first and takes focus: a dialog that opened on Sign Out
+ * signed someone out by accident on a real TV.
+ *
+ * [accountName], [serverName] and [serverId] default to the active account
+ * and server.
  */
 @Composable
 fun TvSignOutDialog(
     onSignOut: (removeServer: Boolean) -> Unit,
     onDismiss: () -> Unit,
+    accountName: String? = null,
+    serverName: String? = null,
+    serverId: String? = null,
 ) {
+    val registry = remember { GlobalContext.getOrNull()?.getOrNull<ServerRegistry>() }
+    val activeAccount = registry?.activeAccount?.collectAsState()?.value
+    val activeEntry = registry?.activeEntry?.collectAsState()?.value
+    val accounts = registry?.accounts?.collectAsState()?.value.orEmpty()
+    val account = accountName ?: activeAccount?.username?.takeIf { it.isNotBlank() }
+    val server = serverName ?: activeEntry?.displayName
+    val targetServerId = serverId ?: activeEntry?.id
+    val offerRemoveServer = targetServerId != null && accounts.count { it.serverId == targetServerId } <= 1
     TvDialog(
-        title = "Sign Out",
-        message = "Choose whether to keep or remove this server from this TV.",
+        title = tvSignOutTitle(account, server),
+        message = stringResource(
+            if (offerRemoveServer) CommonR.string.shell_signOut_messageTvRemoveServer else CommonR.string.shell_signOut_messageTv,
+        ),
         onDismissRequest = onDismiss,
-        width = 640.dp,
-        actions = listOf(
-            TvDialogAction(label = "Cancel", onClick = onDismiss),
+        // Wide enough for the third label to sit on the same row.
+        width = if (offerRemoveServer) 640.dp else TvDialogDefaults.Width,
+        actions = listOfNotNull(
+            TvDialogAction(label = stringResource(CommonR.string.common_cancel), onClick = onDismiss),
             TvDialogAction(
-                label = "Sign Out",
+                label = stringResource(CommonR.string.shell_signOut_confirm),
                 onClick = { onSignOut(false) },
                 style = TvDialogActionStyle.Destructive,
             ),
             TvDialogAction(
-                label = "Sign Out & Remove Server",
+                label = stringResource(CommonR.string.shell_signOut_confirmRemoveServer),
                 onClick = { onSignOut(true) },
                 style = TvDialogActionStyle.Destructive,
-            ),
+            ).takeIf { offerRemoveServer },
         ),
+        initialFocusIndex = 0,
     )
+}
+
+/** "Sign out of alex on Home?", dropping whichever part is unknown. */
+@Composable
+internal fun tvSignOutTitle(account: String?, server: String?): String = when {
+    account != null && server != null -> stringResourceWithNames(CommonR.string.shell_signOut_titleNamed, account, server)
+    account != null -> stringResourceWithNames(CommonR.string.shell_signOut_titleAccount, account)
+    server != null -> stringResourceWithNames(CommonR.string.shell_signOut_titleServer, server)
+    else -> stringResource(CommonR.string.shell_signOut_titleUnnamed)
 }

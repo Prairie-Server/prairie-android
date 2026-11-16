@@ -65,6 +65,7 @@ class AppWorkerFactory : WorkerFactory() {
                         koin.get<org.prairieserver.prairie.network.ServerRegistry>().activeServerId.value to
                             koin.get<org.prairieserver.prairie.repository.ProfileRepository>().getActiveProfileId()
                     },
+                    activeAccount = { koin.get<org.prairieserver.prairie.network.ServerRegistry>().activeAccountId.value },
                 )
             }
             DownloadStatusWorker::class.java.name -> {

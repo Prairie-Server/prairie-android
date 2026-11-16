@@ -1,6 +1,7 @@
 package org.prairieserver.prairie.android.cast
 
 import android.util.Log
+import androidx.annotation.StringRes
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -19,6 +20,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -72,6 +74,7 @@ import org.prairieserver.prairie.model.server.ServerEntry
 import org.prairieserver.prairie.network.api.DeviceLoginApi
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.ServerIdentityRepository
+import org.prairieserver.prairie.common.R as CommonR
 
 data class PrairieCastControllerState(
     val targets: List<PrairieCastTarget> = emptyList(),
@@ -100,7 +103,7 @@ data class PrairieCastControllerState(
     val volumeMuteOnly: Boolean = false,
     /** The connected TV cannot change speed ([PrairieCastFeature.NoPlaybackSpeed], Roku). */
     val noPlaybackSpeed: Boolean = false,
-    val error: String? = null,
+    val error: PrairieCastText? = null,
 ) {
     val isConnected: Boolean get() = connectedTarget != null && !isReconnecting
     val hasActiveSession: Boolean get() = connectedTarget != null || isReconnecting
@@ -187,6 +190,10 @@ class PrairieCastController(
     private val launchMutex = Mutex()
     private val launchJobLock = Any()
     private var launchJob: Job? = null
+    // Guards [disconnects] with the saved target, so a disconnect and a
+    // connection attempt finishing at the same moment cannot interleave.
+    private val lastTargetLock = Any()
+    private var disconnects = 0
     private val clock = PrairieCastPlaybackClock()
     private val volumeStateLock = Any()
     private val volumeReconciler = RemoteVolumeReconciler()
@@ -271,7 +278,7 @@ class PrairieCastController(
                 // stream. Drop its backlog instead of applying it to the new TV.
                 if (controlTransport !== queued.transport) continue
                 runCatching { sendControl(queued) }
-                    .onFailure { error -> _state.update { it.copy(error = error.message) } }
+                    .onFailure { error -> _state.update { it.copy(error = error.castTextOrNull()) } }
             }
         }
     }
@@ -355,6 +362,7 @@ class PrairieCastController(
         replaceConsent: PrairieCastReplaceConsent? = null,
     ) {
         val pending = PrairieCastPendingLaunch(contentId = request.playback.contentId)
+        val disconnectsAtTap = disconnectCount()
         val job = scope.launch(start = CoroutineStart.LAZY) {
             val self = currentCoroutineContext()[Job] ?: return@launch
             // Looked up alongside the connect: the TV shows it while a full
@@ -363,7 +371,7 @@ class PrairieCastController(
             val title = async { detail.await()?.let(::castDisplayTitle) }
             try {
                 launchMutex.withLock {
-                    ensureConnected(target, allowCrossServer = true)
+                    ensureConnected(target, allowCrossServer = true, disconnectsAtStart = disconnectsAtTap)
                     // Sending a title is engaging with the TV, even on a
                     // session that attached silently.
                     markEngaged()
@@ -387,7 +395,8 @@ class PrairieCastController(
                     // server after the socket was opened. Persist the actual
                     // remote session scope, not the target's stale discovery
                     // value, so foreground auto-resume can reattach.
-                    lastTargetStore.save(
+                    rememberTarget(
+                        disconnectsAtTap,
                         PrairieCastPersistedTarget(
                             deviceId = target.deviceId,
                             name = target.name,
@@ -402,7 +411,7 @@ class PrairieCastController(
                 val sent = _state.value.launch?.takeIf { it.isSent && it.contentId == pending.contentId }
                 if (sent != null) {
                     val ended = withTimeoutOrNull(LAUNCH_START_TIMEOUT_MS) { _state.first { it.launch !== sent } }
-                    if (ended == null && isCurrentLaunch(self)) failLaunch("The TV didn't start playback.")
+                    if (ended == null && isCurrentLaunch(self)) failLaunch(PrairieCastText.Res(CommonR.string.cast_remote_error_didNotStart))
                 }
             } catch (error: CancellationException) {
                 // Transport teardown cancels the handoff deferreds. Clear the
@@ -422,14 +431,14 @@ class PrairieCastController(
                             isConnecting = false,
                             connectingDeviceId = null,
                             launch = null,
-                            pendingReplace = PrairieCastReplacePrompt.fromTv(target, request, error.nowPlaying, error.message),
+                            pendingReplace = PrairieCastReplacePrompt.fromTv(target, request, error.nowPlaying, error.text),
                         )
                     }
                 } else {
                     // The TV turned this handoff down (another device's play
                     // superseded it, a watch party is on); the session stays.
                     _state.update {
-                        it.copy(isConnecting = false, connectingDeviceId = null, launch = null, error = error.message)
+                        it.copy(isConnecting = false, connectingDeviceId = null, launch = null, error = error.text)
                     }
                     _launchFeedback.tryEmit(PrairieCastLaunchFeedback.Failed)
                 }
@@ -440,7 +449,7 @@ class PrairieCastController(
                             isConnecting = false,
                             connectingDeviceId = null,
                             launch = null,
-                            error = error.message ?: "Unable to cast.",
+                            error = error.castText(CommonR.string.cast_remote_error_unableToCast),
                         )
                     }
                     _launchFeedback.tryEmit(PrairieCastLaunchFeedback.Failed)
@@ -467,7 +476,7 @@ class PrairieCastController(
     }
 
     /** Ends the pending launch as failed; the haptic fires only if one was pending. */
-    private fun failLaunch(message: String?) {
+    private fun failLaunch(message: PrairieCastText?) {
         var failed = false
         _state.update {
             failed = it.launch != null
@@ -503,6 +512,20 @@ class PrairieCastController(
 
     private fun isCurrentLaunch(job: Job): Boolean = synchronized(launchJobLock) { launchJob === job }
 
+    private fun disconnectCount(): Int = synchronized(lastTargetLock) { disconnects }
+
+    /**
+     * Saves [target] for foreground auto-resume, unless the user disconnected
+     * since the connection attempt read [disconnectsAtStart]: a disconnect
+     * forgets the TV on purpose, and an attempt it overtook must not bring
+     * it back.
+     */
+    private fun rememberTarget(disconnectsAtStart: Int, target: PrairieCastPersistedTarget) {
+        synchronized(lastTargetLock) {
+            if (disconnects == disconnectsAtStart) lastTargetStore.save(target)
+        }
+    }
+
     /**
      * Makes an active Remote Control session the destination for an ordinary
      * Play action. Returns false only when no TV is connected, allowing the UI
@@ -512,7 +535,7 @@ class PrairieCastController(
         val target = _state.value.connectedTarget ?: return false
         val server = serverRegistry.activeEntry.value
         if (server == null) {
-            _state.update { it.copy(error = "Choose a server before controlling a TV.") }
+            _state.update { it.copy(error = PrairieCastText.Res(CommonR.string.cast_remote_error_chooseServer)) }
             return true
         }
         val request = PrairieCastLaunchRequest(serverId = server.id, playback = playback)
@@ -551,12 +574,13 @@ class PrairieCastController(
     }
 
     fun connect(target: PrairieCastTarget) {
+        val disconnectsAtTap = disconnectCount()
         scope.launch {
-            runCatching { ensureConnected(target) }
+            runCatching { ensureConnected(target, disconnectsAtStart = disconnectsAtTap) }
                 .onFailure { error ->
                     if (error !is CancellationException) {
                         _state.update {
-                            it.copy(isConnecting = false, connectingDeviceId = null, error = error.message ?: "Unable to connect.")
+                            it.copy(isConnecting = false, connectingDeviceId = null, error = error.castText(CommonR.string.cast_remote_error_unableToConnect))
                         }
                     }
                 }
@@ -568,10 +592,22 @@ class PrairieCastController(
      * foreground probe doesn't silently reattach to a TV the user let go of.
      */
     fun disconnect() {
-        lastTargetStore.clear()
+        // A Play still connecting goes with the session: left running, it
+        // would dial the TV the user just let go of and report its failure.
+        // No longer current, its error handling leaves the state alone.
+        val pendingLaunch = synchronized(launchJobLock) { launchJob.also { launchJob = null } }
+        pendingLaunch?.cancel(CancellationException("Remote Control was turned off."))
+        synchronized(lastTargetLock) {
+            disconnects += 1
+            lastTargetStore.clear()
+        }
         cancelReconnect()
         cancelAutoResumeProbe()
         suppressReconnect = true
+        // The close below can wait behind a connection attempt for seconds.
+        // The UI lets go now, so nothing reads as connected, and no Play is
+        // sent to this TV, in between.
+        clearSessionState()
         scope.launch {
             runCatching { send(PrairieCastMessage.Close()) }
             closeConnection()
@@ -824,7 +860,7 @@ class PrairieCastController(
         if (transport == null ||
             controlCommands.trySend(QueuedControlCommand(command, transport)).isFailure
         ) {
-            _state.update { it.copy(error = "Remote Control is unavailable.") }
+            _state.update { it.copy(error = PrairieCastText.Res(CommonR.string.cast_remote_error_unavailable)) }
         }
     }
 
@@ -862,18 +898,21 @@ class PrairieCastController(
         target: PrairieCastTarget,
         allowCrossServer: Boolean = false,
         passive: Boolean = false,
+        // Read when the request is made, not once it holds the lock: a
+        // disconnect can come while it waits behind another attempt.
+        disconnectsAtStart: Int = disconnectCount(),
     ) = connectionMutex.withLock {
+        // An uncontended lock does not notice a cancelled caller, which must
+        // not mark a connection as starting.
+        currentCoroutineContext().ensureActive()
         val activeServer = serverRegistry.activeEntry.value
-            ?: error("Choose a server before controlling a TV.")
+            ?: throw PrairieCastFailure(CommonR.string.cast_remote_error_chooseServer)
         val activeServerId = activeServer.id
         val targetsActiveServer = AndroidServerRegistry.serversMatch(
             target.serverId, target.serverIdentity, activeServerId, activeServer.verifiedServerId,
         )
-        require(
-            targetsActiveServer ||
-                (allowCrossServer && target.version >= PrairieCastProtocol.version),
-        ) {
-            "That TV is connected to a different server."
+        if (!targetsActiveServer && !(allowCrossServer && target.version >= PrairieCastProtocol.version)) {
+            throw PrairieCastFailure(CommonR.string.cast_remote_error_differentServer)
         }
         if (_state.value.connectedTarget?.deviceId == target.deviceId && session?.isConnected == true) return@withLock
         reconnectJob?.cancel()
@@ -893,7 +932,8 @@ class PrairieCastController(
             // Saved under the active server's key: a TV matched by deployment
             // identity advertises another address's key, which auto-resume
             // would no longer recognise as this server.
-            lastTargetStore.save(
+            rememberTarget(
+                disconnectsAtStart,
                 PrairieCastPersistedTarget(
                     deviceId = target.deviceId,
                     name = target.name,
@@ -920,7 +960,7 @@ class PrairieCastController(
             withContext(Dispatchers.IO) {
                 created = dial(target, pairingKey)
             }
-            val newSession = created ?: error("PrairieCast connection failed.")
+            val newSession = created ?: throw PrairieCastFailure(CommonR.string.cast_remote_error_connectionFailed)
             session = newSession
             negotiatedVersion = CompletableDeferred()
             missedHeartbeats = 0
@@ -963,35 +1003,34 @@ class PrairieCastController(
         return try {
             PrairieCastDialer.dial(target, pairingKey, CONNECT_TIMEOUT_MS)
         } catch (e: PrairieCastPairingRefusedException) {
-            throw IllegalStateException(pairingChangedMessage(target), e)
+            throw PrairieCastFailure(pairingChangedMessage(target), e)
         } catch (e: IOException) {
-            throw IllegalStateException(openPrairieOnRokuMessage(target), e)
+            throw PrairieCastFailure(openPrairieOnRokuMessage(target), e)
         }
     }
 
     /** The stored key for a sealed Roku, or a message telling the user to scan its pairing code. */
     private fun sealedPairingKey(target: PrairieCastTarget): ByteArray {
-        pairingProblem(target)?.let { error(it) }
+        pairingProblem(target)?.let { throw PrairieCastFailure(it) }
         return checkNotNull(pairingKeyFor(target.deviceId))
     }
 
     private fun pairingKeyFor(deviceId: String): ByteArray? =
         rememberedRokus.value.firstOrNull { it.deviceId == deviceId }?.pairingKey
 
-    private fun pairingProblem(target: PrairieCastTarget): String? {
+    private fun pairingProblem(target: PrairieCastTarget): PrairieCastText? {
         val key = pairingKeyFor(target.deviceId)
-            ?: return "${target.name} requires pairing. On the Roku, open Prairie's profile menu, choose " +
-                "Connect a Phone, and scan its code with this phone's camera."
+            ?: return PrairieCastText.Res(CommonR.string.cast_remote_error_requiresPairing, target.name)
         // TXT `kid` names the Roku's current key; a reset draws a new one.
         if (target.keyId != null && target.keyId != PrairieCastSealed.keyId(key)) return pairingChangedMessage(target)
         return null
     }
 
-    private fun pairingChangedMessage(target: PrairieCastTarget) =
-        "${target.name}'s pairing code has changed. Scan the new code on its Connect a Phone screen."
+    private fun pairingChangedMessage(target: PrairieCastTarget): PrairieCastText =
+        PrairieCastText.Res(CommonR.string.cast_remote_error_pairingChanged, target.name)
 
-    private fun openPrairieOnRokuMessage(target: PrairieCastTarget) =
-        "Can't reach ${target.name}. Open Prairie on your Roku."
+    private fun openPrairieOnRokuMessage(target: PrairieCastTarget): PrairieCastText =
+        PrairieCastText.Res(CommonR.string.cast_remote_error_openPrairieOnRoku, target.name)
 
     private fun makeHello(passive: Boolean): PrairieCastHello {
         val server = serverRegistry.activeEntry.value
@@ -1014,17 +1053,17 @@ class PrairieCastController(
         title: Deferred<String?>,
         replaceConsent: PrairieCastReplaceConsent?,
     ) {
-        val version = awaitHandoffStep(VERSION_TIMEOUT_MS, "The TV did not respond.") { negotiatedVersion.await() }
-        require(version == PrairieCastProtocol.version) { "Update Prairie on both devices to use Remote Control." }
+        val version = awaitHandoffStep(VERSION_TIMEOUT_MS, CommonR.string.cast_remote_error_noResponse) { negotiatedVersion.await() }
+        if (version != PrairieCastProtocol.version) throw PrairieCastFailure(CommonR.string.cast_remote_error_updateBoth)
 
         val server = serverRegistry.activeEntry.value
-            ?: error("Choose a server before controlling a TV.")
-        require(server.id == request.serverId) { "The active server changed before playback started." }
+            ?: throw PrairieCastFailure(CommonR.string.cast_remote_error_chooseServer)
+        if (server.id != request.serverId) throw PrairieCastFailure(CommonR.string.cast_remote_error_serverChanged)
         val profileId = tokenManager.getProfileId()?.takeIf { it.isNotBlank() }
-            ?: error("Choose a profile before controlling a TV.")
+            ?: throw PrairieCastFailure(CommonR.string.cast_remote_error_chooseProfile)
         val scope = tokenManager.snapshotCurrentScope()
-            ?: error("The active Prairie account is unavailable.")
-        require(scope.serverId == server.id) { "The active server changed before playback started." }
+            ?: throw PrairieCastFailure(CommonR.string.cast_remote_error_accountUnavailable)
+        if (scope.serverId != server.id) throw PrairieCastFailure(CommonR.string.cast_remote_error_serverChanged)
 
         val handoff = PendingHandoff(requestId = UUID.randomUUID().toString())
         pendingHandoff = handoff
@@ -1054,7 +1093,7 @@ class PrairieCastController(
             // controller/server/profile (e.g. switching items mid-playback),
             // it skips the challenge and replies handoff_ready directly —
             // waiting only on the challenge would deadlock into a timeout.
-            val readyOrChallenge = awaitHandoffStep(CHALLENGE_TIMEOUT_MS, "The TV did not start the profile handshake.") {
+            val readyOrChallenge = awaitHandoffStep(CHALLENGE_TIMEOUT_MS, CommonR.string.cast_remote_error_noHandshake) {
                 select<Any> {
                     handoff.handoffReady.onAwait { it }
                     handoff.handoffChallenge.onAwait { it }
@@ -1067,26 +1106,26 @@ class PrairieCastController(
                     val lookup = deviceLoginApi
                         .lookupDeviceLoginForScope(scope.withProfile(profileId), readyOrChallenge.userCode)
                         .successOrThrow()
-                    require(
-                        lookup.matchCode == readyOrChallenge.matchCode &&
-                            lookup.clientPurpose == "remote_playback" &&
-                            lookup.temporary == true,
-                    ) { "The TV's remote playback code could not be verified." }
+                    if (!(
+                            lookup.matchCode == readyOrChallenge.matchCode &&
+                                lookup.clientPurpose == "remote_playback" &&
+                                lookup.temporary == true
+                            )
+                    ) {
+                        throw PrairieCastFailure(CommonR.string.cast_remote_error_codeUnverified)
+                    }
 
                     deviceLoginApi
                         .approveRemotePlaybackForScope(scope.withProfile(profileId), readyOrChallenge.userCode)
                         .successOrThrow()
-                    awaitHandoffStep(READY_TIMEOUT_MS, "The TV did not activate the profile in time.") {
+                    awaitHandoffStep(READY_TIMEOUT_MS, CommonR.string.cast_remote_error_profileTimeout) {
                         handoff.handoffReady.await()
                     }
                 }
-                else -> error("The TV sent an unexpected handoff reply.")
+                else -> throw PrairieCastFailure(CommonR.string.cast_remote_error_unexpectedReply)
             }
-            require(
-                AndroidServerRegistry.serverIdsMatch(ready.serverId, server.id) &&
-                    ready.profileId == profileId,
-            ) {
-                "The TV activated a different remote playback profile."
+            if (!(AndroidServerRegistry.serverIdsMatch(ready.serverId, server.id) && ready.profileId == profileId)) {
+                throw PrairieCastFailure(CommonR.string.cast_remote_error_differentProfile)
             }
             resumeTokens.store(ready.resumeToken, target.deviceId, server.id, profileId)
         } catch (t: Throwable) {
@@ -1146,9 +1185,9 @@ class PrairieCastController(
                 } else {
                     val target = _state.value.connectedTarget
                     val reason = if (target?.isRoku == true) {
-                        "Lost connection to ${target.name}. Open Prairie on your Roku."
+                        PrairieCastText.Res(CommonR.string.cast_remote_error_lostRoku, target.name)
                     } else {
-                        "Lost connection to the TV."
+                        PrairieCastText.Res(CommonR.string.cast_remote_error_lostTv)
                     }
                     beginReconnect(activeSession, reason)
                 }
@@ -1181,7 +1220,7 @@ class PrairieCastController(
      * Transport dropped without a goodbye: keep the target and retry with
      * 1–4 s backoff (up to 5 attempts) while the UI shows "Reconnecting…".
      */
-    private fun beginReconnect(deadSession: PrairieCastConnection, reason: String) {
+    private fun beginReconnect(deadSession: PrairieCastConnection, reason: PrairieCastText) {
         val target = _state.value.connectedTarget
         if (target == null || suppressReconnect) {
             scope.launch { closeConnection() }
@@ -1221,7 +1260,7 @@ class PrairieCastController(
                                 return@launch
                             }
                         }
-                        Log.w(TAG, "PrairieCast reconnect exhausted: $reason")
+                        Log.w(TAG, "PrairieCast reconnect exhausted: ${reason.english()}")
                         closeConnection()
                         _state.update { it.copy(error = reason) }
                     } finally {
@@ -1286,7 +1325,8 @@ class PrairieCastController(
                     val error = PrairieCastHandoffRefusal(
                         reason = cancel.reason,
                         nowPlaying = cancel.nowPlaying,
-                        message = cancel.message ?: "The TV cancelled profile setup.",
+                        text = cancel.message?.let(PrairieCastText::Verbatim)
+                            ?: PrairieCastText.Res(CommonR.string.cast_remote_error_setupCancelled),
                     )
                     it.handoffChallenge.completeExceptionally(error)
                     it.handoffReady.completeExceptionally(error)
@@ -1303,6 +1343,7 @@ class PrairieCastController(
                 }
                 val now = nowMs()
                 var started = false
+                var applied = false
                 val reconciled = synchronized(volumeStateLock) {
                     val next = if (isIdle) {
                         volumeReconciler.clear()
@@ -1314,6 +1355,11 @@ class PrairieCastController(
                         )
                     }
                     _state.update {
+                        // A frame from a TV the user just disconnected from:
+                        // its socket closes moments after the state is cleared,
+                        // and must not bring the session back in between.
+                        applied = it.connectedTarget != null
+                        if (!applied) return@update it
                         // The launch ends when the TV reports that title, or
                         // anything besides what it was playing at the tap (the
                         // TV may report a resolved id for the same title).
@@ -1329,6 +1375,7 @@ class PrairieCastController(
                     }
                     next
                 }
+                if (!applied) return
                 clock.ingest(reconciled, now)
                 if (started) _launchFeedback.tryEmit(PrairieCastLaunchFeedback.Started)
             }
@@ -1336,11 +1383,13 @@ class PrairieCastController(
                 if (sessionIsAutoResumed && !remoteScreenVisible) {
                     quietDisconnect()
                 } else if (_state.value.launch?.isSent == true && message.error.code !in CONTROL_REPLY_ERRORS) {
-                    failLaunch(message.error.message)
+                    failLaunch(PrairieCastText.Verbatim(message.error.message))
                 } else {
                     // A reply to a control pressed mid-launch, or an error the
                     // launch's own handoff will surface, does not end it.
-                    _state.update { it.copy(error = message.error.message) }
+                    _state.update {
+                        if (it.connectedTarget == null) it else it.copy(error = PrairieCastText.Verbatim(message.error.message))
+                    }
                 }
             }
             is PrairieCastMessage.Ping -> send(PrairieCastMessage.Pong())
@@ -1378,7 +1427,7 @@ class PrairieCastController(
     }
 
     private suspend fun send(message: PrairieCastMessage) {
-        val connection = session ?: error("PrairieCast is not connected.")
+        val connection = session ?: throw PrairieCastFailure(CommonR.string.cast_remote_error_notConnected)
         val payload = json.encodeToString(PrairieCastMessage.serializer(), message).encodeToByteArray()
         sendMutex.withLock {
             withContext(Dispatchers.IO) { connection.writeFrame(payload) }
@@ -1426,6 +1475,11 @@ class PrairieCastController(
     private fun closeConnectionLocked() {
         teardownTransportLocked()
         sessionIsAutoResumed = false
+        clearSessionState()
+    }
+
+    /** Resets what the UI shows of a session; the transport is torn down separately. */
+    private fun clearSessionState() {
         synchronized(volumeStateLock) {
             volumeReconciler.clear()
             _state.update {
@@ -1459,11 +1513,11 @@ class PrairieCastController(
      * genuine cancellation remains cancellation and is handled by the launch
      * owner without being mistaken for a timeout.
      */
-    private suspend fun <T> awaitHandoffStep(timeoutMs: Long, timeoutMessage: String, block: suspend () -> T): T =
+    private suspend fun <T> awaitHandoffStep(timeoutMs: Long, @StringRes timeoutMessage: Int, block: suspend () -> T): T =
         try {
             withTimeout(timeoutMs) { block() }
         } catch (e: TimeoutCancellationException) {
-            error(timeoutMessage)
+            throw PrairieCastFailure(timeoutMessage)
         }
 
     private fun nowMs(): Long = android.os.SystemClock.elapsedRealtime()
@@ -1489,12 +1543,17 @@ class PrairieCastController(
     private class PrairieCastHandoffRefusal(
         val reason: String,
         val nowPlaying: PrairieCastNowPlayingSummary?,
-        message: String,
-    ) : IllegalStateException(message)
+        text: PrairieCastText,
+    ) : PrairieCastFailure(text)
 
     private fun <T> ApiResult<T>.successOrThrow(): T = when (this) {
         is ApiResult.Success -> data
-        is ApiResult.Error -> error(message.ifBlank { "Server returned HTTP $code." })
+        is ApiResult.Error -> throw if (message.isBlank()) {
+            PrairieCastFailure(PrairieCastText.Res(CommonR.string.cast_remote_error_serverHttp, code))
+        } else {
+            // Shown in the app language; the TV gets the server's own text.
+            PrairieCastFailure(PrairieCastText.Verbatim(message), english = detail)
+        }
         is ApiResult.NetworkError -> throw exception
     }
 

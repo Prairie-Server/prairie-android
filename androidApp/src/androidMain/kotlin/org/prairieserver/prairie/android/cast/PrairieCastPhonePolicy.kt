@@ -1,5 +1,8 @@
 package org.prairieserver.prairie.android.cast
 
+import org.prairieserver.prairie.common.i18n.getStringWithNames
+import android.content.res.Resources
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.cast.PrairieCastCloseReason
 import org.prairieserver.prairie.cast.PrairieCastPlaybackRequest
 import org.prairieserver.prairie.model.catalog.FileVersion
@@ -71,16 +74,61 @@ data class PrairieCastReplaceConsent(
 /**
  * A launch waiting for the user to agree to replace what the TV plays. Asked
  * either by the phone before sending a different title to an engaged TV, or by
- * the TV when another profile's title is on screen.
+ * the TV when another profile's title is on screen. The wording is resolved
+ * when the prompt is drawn ([message], [confirmLabel]).
  */
 data class PrairieCastPendingReplace(
     val target: PrairieCastTarget,
     val request: PrairieCastLaunchRequest,
-    val message: String,
-    val confirmLabel: String,
+    val prompt: PrairieCastReplaceReason,
     /** Consent sent with the launch once the user agrees. */
     val consent: PrairieCastReplaceConsent,
-)
+) {
+    fun message(text: PrairieCastReplaceText): String = when (prompt) {
+        is PrairieCastReplaceReason.FromTv ->
+            PrairieCastReplacePrompt.tvMessage(prompt.nowPlaying, target.name, prompt.fallbackMessage, text)
+        is PrairieCastReplaceReason.BeforeSending -> text.tvIsPlaying(target.name, prompt.currentTitle)
+    }
+
+    fun confirmLabel(text: PrairieCastReplaceText): String = when (prompt) {
+        is PrairieCastReplaceReason.FromTv -> text.replace
+        is PrairieCastReplaceReason.BeforeSending -> text.playOn(target.name)
+    }
+}
+
+/** Who asked to confirm the replacement, with what the prompt names. */
+sealed interface PrairieCastReplaceReason {
+    /** The TV refused the handoff; [fallbackMessage] is its own text when it sent no summary. */
+    data class FromTv(val nowPlaying: PrairieCastNowPlayingSummary?, val fallbackMessage: PrairieCastText?) : PrairieCastReplaceReason
+
+    /** The phone asks before sending a title over [currentTitle]. */
+    data class BeforeSending(val currentTitle: String) : PrairieCastReplaceReason
+}
+
+/** The replace prompt's wording; the remote supplies the catalog's ([PrairieCastResourceReplaceText]). */
+interface PrairieCastReplaceText {
+    val replace: String
+    fun resolve(text: PrairieCastText): String
+    fun playOn(tv: String): String
+    fun tvIsPlaying(tv: String, title: String): String
+    fun someoneWatchingSomething(tv: String): String
+    fun someoneWatching(title: String, tv: String): String
+    fun profileWatching(profile: String, title: String, tv: String): String
+}
+
+class PrairieCastResourceReplaceText(private val resources: Resources) : PrairieCastReplaceText {
+    override val replace: String get() = resources.getString(CommonR.string.cast_replace_confirm)
+    override fun resolve(text: PrairieCastText): String = text.resolve(resources)
+    override fun playOn(tv: String): String = resources.getStringWithNames(CommonR.string.cast_replace_playOn, tv)
+    override fun tvIsPlaying(tv: String, title: String): String =
+        resources.getStringWithNames(CommonR.string.cast_replace_tvIsPlaying, tv, title)
+    override fun someoneWatchingSomething(tv: String): String =
+        resources.getStringWithNames(CommonR.string.cast_replace_someoneWatchingSomething, tv)
+    override fun someoneWatching(title: String, tv: String): String =
+        resources.getStringWithNames(CommonR.string.cast_replace_someoneWatching, title, tv)
+    override fun profileWatching(profile: String, title: String, tv: String): String =
+        resources.getStringWithNames(CommonR.string.cast_replace_profileWatching, profile, title, tv)
+}
 
 object PrairieCastReplacePrompt {
     /** The TV refused the handoff because another profile's title is on screen. */
@@ -88,12 +136,11 @@ object PrairieCastReplacePrompt {
         target: PrairieCastTarget,
         request: PrairieCastLaunchRequest,
         nowPlaying: PrairieCastNowPlayingSummary?,
-        fallbackMessage: String?,
+        fallbackMessage: PrairieCastText?,
     ): PrairieCastPendingReplace = PrairieCastPendingReplace(
         target = target,
         request = request,
-        message = tvMessage(nowPlaying, target.name, fallbackMessage),
-        confirmLabel = "Replace",
+        prompt = PrairieCastReplaceReason.FromTv(nowPlaying, fallbackMessage),
         consent = PrairieCastReplaceConsent(contentId = nowPlaying?.contentId),
     )
 
@@ -106,8 +153,7 @@ object PrairieCastReplacePrompt {
     ): PrairieCastPendingReplace = PrairieCastPendingReplace(
         target = target,
         request = request,
-        message = "${target.name} is playing $currentTitle. Playing this will stop it.",
-        confirmLabel = "Play on ${target.name}",
+        prompt = PrairieCastReplaceReason.BeforeSending(currentTitle),
         consent = PrairieCastReplaceConsent(contentId = currentContentId),
     )
 
@@ -116,13 +162,18 @@ object PrairieCastReplacePrompt {
         !playingContentId.isNullOrEmpty() && playingContentId != contentId
 
     /** The same sentence prairie-apple builds from the TV's summary. */
-    fun tvMessage(nowPlaying: PrairieCastNowPlayingSummary?, tvName: String, fallbackMessage: String?): String {
-        if (nowPlaying == null) return fallbackMessage ?: "Someone is watching something on $tvName. Play yours instead?"
-        val who = nowPlaying.profileName ?: "Someone"
+    fun tvMessage(
+        nowPlaying: PrairieCastNowPlayingSummary?,
+        tvName: String,
+        fallbackMessage: PrairieCastText?,
+        text: PrairieCastReplaceText,
+    ): String {
+        if (nowPlaying == null) return fallbackMessage?.let(text::resolve) ?: text.someoneWatchingSomething(tvName)
         val what = listOfNotNull(nowPlaying.subtitle, nowPlaying.title)
             .filter { it.isNotEmpty() }
             .joinToString(" · ")
-        return "$who is watching $what on $tvName. Play yours instead?"
+        return nowPlaying.profileName?.let { text.profileWatching(it, what, tvName) }
+            ?: text.someoneWatching(what, tvName)
     }
 }
 

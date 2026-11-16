@@ -36,6 +36,7 @@ import org.prairieserver.prairie.common.player.cast.CastStagedSubtitleChange
 import org.prairieserver.prairie.common.player.cast.CastSubtitleChangeResult
 import org.prairieserver.prairie.common.player.cast.castReceiverTrackId
 import org.prairieserver.prairie.common.diagnostics.DiagnosticsCastLogger
+import org.prairieserver.prairie.common.R as CommonR
 
 data class PrairieCastState(
     val isConnected: Boolean = false,
@@ -681,7 +682,7 @@ class PrairieCastSessionManager(private val context: Context) {
                     id = track.id,
                     label = track.name?.takeIf { it.isNotBlank() }
                         ?: track.language?.takeIf { it.isNotBlank() }
-                        ?: "Subtitle ${index + 1}",
+                        ?: context.getString(CommonR.string.player_tracks_subtitleNumbered, index + 1),
                 )
             }
             val activeIds = remoteClient?.mediaStatus?.activeTrackIds

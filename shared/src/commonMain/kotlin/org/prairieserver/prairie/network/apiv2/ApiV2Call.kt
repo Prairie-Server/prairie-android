@@ -11,6 +11,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.decodeFromJsonElement
 import org.prairieserver.prairie.model.auth.PASSWORD_CHANGE_REQUIRED
 import org.prairieserver.prairie.model.auth.PASSWORD_CHANGE_REQUIRED_MESSAGE
+import org.prairieserver.prairie.model.auth.PASSWORD_CHANGE_REQUIRED_TEXT
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.AuthScopeSnapshot
 import org.prairieserver.prairie.network.resolveArtworkUrls
@@ -60,12 +61,19 @@ internal suspend fun HttpResponse.toApiV2Error(): ApiResult.Error {
     // A stale profile proof is the server's way of asking for the PIN again
     // after an access change; the recovery decides whether it applies.
     reportStaleProfileIfRefused(code)
+    val detail = problem?.detail ?: ""
     return ApiResult.Error(
         code = status.value,
         error = code,
         // The temporary-password refusal's detail is a protocol instruction;
-        // screens that show `message` get copy a person can act on.
-        message = if (code == PASSWORD_CHANGE_REQUIRED) PASSWORD_CHANGE_REQUIRED_MESSAGE else problem?.detail ?: "",
+        // screens get copy a person can act on.
+        message = when {
+            code == PASSWORD_CHANGE_REQUIRED -> PASSWORD_CHANGE_REQUIRED_MESSAGE
+            problem != null -> ProblemText.message(problem)
+            else -> ""
+        },
+        detail = detail,
+        text = PASSWORD_CHANGE_REQUIRED_TEXT.takeIf { code == PASSWORD_CHANGE_REQUIRED },
     )
 }
 

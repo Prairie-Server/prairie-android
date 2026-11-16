@@ -2,6 +2,9 @@
 
 package org.prairieserver.prairie.tv.ui.screens.player
 
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.displayUppercase
+import org.prairieserver.prairie.common.i18n.stringResourceWithNames
 import org.prairieserver.prairie.playback.SubtitleSyncNotice
 import android.app.Activity
 import android.content.ComponentName
@@ -74,6 +77,8 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -183,6 +188,9 @@ import org.prairieserver.prairie.tv.ui.focus.TvFocusLog
 import org.prairieserver.prairie.tv.ui.focus.claimFocusOrReport
 import org.prairieserver.prairie.tv.ui.focus.requestFocusUntilObserved
 import org.prairieserver.prairie.tv.ui.theme.TvSmoothBringIntoViewSpec
+import org.prairieserver.prairie.tv.ui.components.bidiIsolated
+import org.prairieserver.prairie.common.i18n.isRightToLeftText
+import org.prairieserver.prairie.common.i18n.currentNumberLocale
 
 private const val CONTROLS_AUTO_HIDE_MS = 5_000L
 // Pre-revision-9 relative seeks: 10s back, 30s forward, matching tvOS
@@ -689,15 +697,18 @@ fun TvPlayerScreen(
         showQuickSubtitlePicker = chrome.pickerVisible
         viewModel.setControlsVisible(chrome.controlsVisible)
     }
+    val labelResources = tvLabelResources()
     val subtitlePresentation = buildTvSubtitleHudPresentation(
         options = buildTvSubtitleHudOptions(
             subtitleUrls = state.subtitleUrls,
             subtitleTracks = state.subtitleTracks,
+            resources = labelResources,
         ),
         committedIdentity = state.committedSubtitleIdentity,
         pendingIdentity = state.pendingSubtitleIdentity,
         hudOpen = state.hudOpen || showQuickSubtitlePicker,
         focusedStableId = subtitleFocusedStableId,
+        resources = labelResources,
         onSelect = selectTvSubtitle,
         onFocused = { stableId -> subtitleFocusedStableId = stableId },
     )
@@ -752,13 +763,10 @@ fun TvPlayerScreen(
         null -> viewModel.onBufferingSelectPrimary()
     }
 
-    // The pill takes its focus with it when it hides. Aim where the intro
+    // A pill takes its focus with it when it hides. Aim where the intro
     // pill's dismissal does: the scrubber with the controls up, otherwise the
     // player root, which must own focus while the overlay is hidden.
-    var bufferingPillHeldFocus by remember { mutableStateOf(false) }
-    LaunchedEffect(bufferingPill.isVisible) {
-        if (bufferingPill.isVisible || !bufferingPillHeldFocus) return@LaunchedEffect
-        bufferingPillHeldFocus = false
+    suspend fun refocusAfterPillHides() {
         if (viewModel.uiState.value.showControls) {
             requestIdleOverlayFocus(TvIdleOverlayFocusTarget.Scrubber)
         } else {
@@ -770,6 +778,29 @@ fun TvPlayerScreen(
             )
         }
     }
+    var bufferingPillHeldFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(bufferingPill.isVisible) {
+        if (bufferingPill.isVisible || !bufferingPillHeldFocus) return@LaunchedEffect
+        bufferingPillHeldFocus = false
+        refocusAfterPillHides()
+    }
+    // The same for the skip pills: one that times out or leaves its range
+    // while focused would otherwise strand focus with the controls up, where
+    // Left/Right then do nothing (prairie-android#926). Tracked per pill, since
+    // the intro pill can hand straight over to the recap or credits pill.
+    val refocusAfterSkipPillHides: suspend () -> Unit = {
+        // The HUD and Up Next replace the pills and own focus themselves.
+        val current = viewModel.uiState.value
+        if (!current.hudOpen && !current.showNextUp) refocusAfterPillHides()
+    }
+    val onIntroPillFocusChanged = rememberRefocusWhenPillHides(
+        visible = visibleIntroSkipState.isVisible,
+        refocus = refocusAfterSkipPillHides,
+    )
+    val onMarkerPillFocusChanged = rememberRefocusWhenPillHides(
+        visible = manualSkipTarget != null,
+        refocus = refocusAfterSkipPillHides,
+    )
     val onBufferingPillFocusChanged: (TvBufferingPillAction?) -> Unit = remember(viewModel) {
         { action ->
             bufferingPillFocusedAction = action
@@ -860,6 +891,16 @@ fun TvPlayerScreen(
         return true
     }
 
+    // The scrubber's tap skip, shared with the skip pills.
+    fun overlaySkip(direction: Int) {
+        if (!canSeekInRoom) return
+        performRelativeSeek(
+            if (direction < 0) -resolvedSkipBackMs() else resolvedSkipForwardMs(),
+            roomSnapshot,
+            revealControls = true,
+        )
+    }
+
     fun clearPendingCleanSeekPress() {
         cleanSeekHoldJob?.cancel()
         cleanSeekHoldJob = null
@@ -884,10 +925,10 @@ fun TvPlayerScreen(
         if (cleanSeekRate != 0 || mediaController == null) return
         if (watchParty != null && !watchParty.canSeek()) {
             // Guests never seek: say so instead of scanning a preview nobody can commit.
+            val denied = org.prairieserver.prairie.watchtogether.RoomPlaybackNotice.Denied(RoomTransportIntent.Seek)
             viewModel.showPlayerMessage(
-                org.prairieserver.prairie.common.player.watchparty.watchPartyNoticeText(
-                    org.prairieserver.prairie.watchtogether.RoomPlaybackNotice.Denied(RoomTransportIntent.Seek),
-                ),
+                org.prairieserver.prairie.common.player.watchparty.watchPartyNoticeText(denied),
+                textRes = org.prairieserver.prairie.common.player.watchparty.watchPartyNoticeRes(denied),
             )
             return
         }
@@ -933,6 +974,18 @@ fun TvPlayerScreen(
                 previous = cleanSeekRate
             }
         }
+    }
+
+    // Left/Right on a skip pill with the controls up (while they're hidden the
+    // remote bridge takes them first) seek as with the controls hidden: a tap
+    // skips by the seek interval, a hold starts the hold seek. Focus stays on
+    // the pill; if the seek takes it away, focus moves on with it.
+    fun handleSkipPillSeek(direction: Int, hold: Boolean) {
+        // The pill can outlive the picture (an error, a reload); there the
+        // remote does nothing, as in the bridge, rather than move the resume point.
+        val current = viewModel.uiState.value
+        if (current.streamUrl == null || current.isLoading || current.error != null || current.awaitingFirstFrame) return
+        if (hold) beginCleanPlaybackSeek(direction, latestRoomSnapshot) else overlaySkip(direction)
     }
 
     fun beginCleanSeekPress(direction: Int, allowsHold: Boolean) {
@@ -1108,6 +1161,17 @@ fun TvPlayerScreen(
                     return@handler true
                 }
             }
+            // Stop leaves the player from every state, overlays and loading
+            // included, so no Stop press can reach the Media3 session, whose
+            // Player.stop() idles the player and leaves Play unable to resume.
+            // In a party it opens the party panel, like Back: a local stop
+            // would desync the room.
+            if (event.keyCode == KeyEvent.KEYCODE_MEDIA_STOP) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    if (watchParty != null) showPartyPanel = true else stopPlaybackAndExit()
+                }
+                return@handler true
+            }
             // Until the item's first frame there are no controls to drive, so
             // the remote does nothing but Back (the BackHandler), as during the
             // session request.
@@ -1222,6 +1286,7 @@ fun TvPlayerScreen(
                 // clean playback. The HUD-open and modal cases never reach the
                 // dispatch below — the guard beneath this call returns first.
                 dpadDownOpensHud = !playerState.showControls && !playerState.showNextUp,
+                metaState = event.metaState,
             )
             // Apple parity (TVPlayerControls.rearmAutoHideOnFocusMove): any key
             // activity while the overlay is up re-arms the 5s auto-hide so the
@@ -1436,7 +1501,10 @@ fun TvPlayerScreen(
                     viewModel.openHUD()
                     true
                 }
-                TvPlayerRemoteKeyAction.ConsumeOnly -> true
+                // Handled above, before the overlay and loading guards.
+                TvPlayerRemoteKeyAction.Stop,
+                TvPlayerRemoteKeyAction.ConsumeOnly,
+                -> true
                 null -> {
                     if (
                         event.action == KeyEvent.ACTION_DOWN &&
@@ -1464,7 +1532,10 @@ fun TvPlayerScreen(
     // they were equally silent.
     LaunchedEffect(state.subtitleFailureId) {
         val message = state.subtitleFailureMessage ?: return@LaunchedEffect
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        // A catalog string a shared producer named, only while it still belongs to this message.
+        val text = state.subtitleFailureRes?.takeIf { it.message == message }?.let { context.getString(it.res) }
+            ?: context.resources.tvPlayerMessage(message)
+        Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         viewModel.onSubtitleFailureShown(state.subtitleFailureId)
     }
 
@@ -2285,14 +2356,14 @@ fun TvPlayerScreen(
     ) {
         when {
             state.error != null -> TvErrorScreen(
-                message = state.error!!,
+                message = tvPlayerErrorText(state.error!!, state.errorRes),
                 // Server-unreachable: Retry re-probes then reloads, and Try Anyway
                 // bypasses the gate (issue #33). Other errors keep the plain retry.
                 onRetry = {
                     if (state.serverUnreachable) viewModel.retryServerReachability()
                     else viewModel.retry()
                 },
-                secondaryActionLabel = "Try Anyway".takeIf { state.serverUnreachable },
+                secondaryActionLabel = stringResource(CommonR.string.player_tryAnyway).takeIf { state.serverUnreachable },
                 onSecondaryAction = { viewModel.playIgnoringServerReachability() }
                     .takeIf { state.serverUnreachable },
             )
@@ -2372,7 +2443,7 @@ fun TvPlayerScreen(
                         subtitlesValue = subtitlePresentation.rows
                             .firstOrNull { row -> row.checked }
                             ?.let { row -> tvSubtitleRowParts(row.label).title }
-                            ?: "Off",
+                            ?: stringResource(CommonR.string.player_tracks_subtitlesOff),
                         positionSec = clock.position,
                         durationSec = clock.duration,
                         isPaused = state.isPaused,
@@ -2381,13 +2452,10 @@ fun TvPlayerScreen(
                         scrubThumbnail = trickplayThumbnail,
                         bufferedAheadSec = bufferedAheadSec,
                         chapters = state.chapters,
-                        introRange = state.intro,
+                        markers = state.markerTimeline,
                         trickplay = state.trickplay,
                         isBuffering = state.isBuffering,
                         sleepTimerState = sleepTimerState,
-                        creditsRange = state.credits,
-                        recapRange = state.recap,
-                        previewRange = state.preview,
                         // In a room, skip/scrub/seek are routed through the
                         // controller (transport_request → server → broadcast
                         // command → engine applies the seek locally). Solo
@@ -2400,24 +2468,8 @@ fun TvPlayerScreen(
                         skipForwardSeconds = seekIntervals.forwardSeconds,
                         canToggleAfterCommit = watchParty == null,
                         playbackSpeed = if (watchParty != null) 1.0 else playbackSpeed,
-                        onSkipBack = {
-                            if (canSeekInRoom) {
-                                performRelativeSeek(
-                                    -resolvedSkipBackMs(),
-                                    roomSnapshot,
-                                    revealControls = true,
-                                )
-                            }
-                        },
-                        onSkipForward = {
-                            if (canSeekInRoom) {
-                                performRelativeSeek(
-                                    resolvedSkipForwardMs(),
-                                    roomSnapshot,
-                                    revealControls = true,
-                                )
-                            }
-                        },
+                        onSkipBack = { overlaySkip(-1) },
+                        onSkipForward = { overlaySkip(1) },
                         onBeginScrub = {
                             // In a room the scrub starts from a pending seek's
                             // target, where the overlay already shows the playhead.
@@ -2702,9 +2754,9 @@ fun TvPlayerScreen(
 
         val bufferingPlayerNotice = when (bufferingNoticeKind) {
             BufferingQualityNotice.LOWERED ->
-                PlayerNotice(stringResource(R.string.buffering_quality_lowered), NoticeTone.Info)
+                PlayerNotice(stringResource(CommonR.string.bufferingQuality_lowered), NoticeTone.Info)
             BufferingQualityNotice.CANT_LOWER ->
-                PlayerNotice(stringResource(R.string.buffering_quality_cant_lower), NoticeTone.Info)
+                PlayerNotice(stringResource(CommonR.string.bufferingQuality_cantLower), NoticeTone.Info)
             null -> null
         }
         TvPlayerOverlays(
@@ -2734,6 +2786,9 @@ fun TvPlayerScreen(
             introSkipState = visibleIntroSkipState,
             manualSkipTarget = manualSkipTarget,
             onManualMarkerSelect = { handleManualMarkerSelect() },
+            onSkipPillSeek = { direction, hold -> handleSkipPillSeek(direction, hold) },
+            onIntroPillFocusChanged = onIntroPillFocusChanged,
+            onMarkerPillFocusChanged = onMarkerPillFocusChanged,
             introSkipCountdownRun = introSkipCountdownRun,
             introSkipTimerRunning = introSkipTimerRunning,
             introSkipTotalSeconds = viewModel.introSkipTotalSeconds,
@@ -2953,7 +3008,7 @@ private fun TvPrairieCastPlayerRegistration(
                 if (watchParty != null) {
                     watchParty.setPlaying(play = true)
                 } else {
-                    viewModel.setPaused(false)
+                    viewModel.setPausedByViewer(false)
                     latestSiloCastMediaController?.play()
                 }
             },
@@ -2961,7 +3016,7 @@ private fun TvPrairieCastPlayerRegistration(
                 if (watchParty != null) {
                     watchParty.setPlaying(play = false)
                 } else {
-                    viewModel.setPaused(true)
+                    viewModel.setPausedByViewer(true)
                     latestSiloCastMediaController?.pause()
                 }
             },
@@ -3061,13 +3116,10 @@ private fun TvPlayerIdleOverlay(
     scrubThumbnail: androidx.compose.ui.graphics.ImageBitmap?,
     bufferedAheadSec: Double,
     chapters: List<org.prairieserver.prairie.model.catalog.VersionChapter>,
-    introRange: org.prairieserver.prairie.model.catalog.TimeRange?,
+    markers: org.prairieserver.prairie.domain.player.MarkerTimeline,
     trickplay: org.prairieserver.prairie.playback.TrickplayInfo? = null,
     isBuffering: Boolean,
     sleepTimerState: SleepTimerState,
-    creditsRange: org.prairieserver.prairie.model.catalog.TimeRange?,
-    recapRange: org.prairieserver.prairie.model.catalog.TimeRange?,
-    previewRange: org.prairieserver.prairie.model.catalog.TimeRange?,
     onPlayPause: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
@@ -3141,6 +3193,7 @@ private fun TvPlayerIdleOverlay(
                         keyCode = event.nativeKeyEvent.keyCode,
                         action = event.nativeKeyEvent.action,
                         repeatCount = event.nativeKeyEvent.repeatCount,
+                        metaState = event.nativeKeyEvent.metaState,
                     )
                 ) {
                     TvPlayerRemoteKeyAction.PlayPause -> {
@@ -3172,7 +3225,11 @@ private fun TvPlayerIdleOverlay(
                         onOpenHUD()
                         true
                     }
-                    TvPlayerRemoteKeyAction.ConsumeOnly -> true
+                    // The activity-level remote key bridge acts on Stop before
+                    // Compose sees it; consume any copy that gets here.
+                    TvPlayerRemoteKeyAction.Stop,
+                    TvPlayerRemoteKeyAction.ConsumeOnly,
+                    -> true
                     null -> false
                 }
             },
@@ -3261,18 +3318,7 @@ private fun TvPlayerIdleOverlay(
                         title = it.title.ifBlank { null },
                     )
                 },
-                introRangeSec = introRange
-                    ?.takeIf { it.end > it.start }
-                    ?.let { it.start..it.end },
-                creditsRangeSec = creditsRange
-                    ?.takeIf { it.end > it.start }
-                    ?.let { it.start..it.end },
-                recapRangeSec = recapRange
-                    ?.takeIf { it.end > it.start }
-                    ?.let { it.start..it.end },
-                previewRangeSec = previewRange
-                    ?.takeIf { it.end > it.start }
-                    ?.let { it.start..it.end },
+                markers = markers,
                 cancelOnBlur = false,
                 skipBackSeconds = skipBackSeconds,
                 skipForwardSeconds = skipForwardSeconds,
@@ -3327,21 +3373,31 @@ private fun TvPlayerIdleOverlay(
  * The small line above the player title: "SEVERANCE · S2:E4" for an episode
  * (whose title is the episode's own), "MOVIE · 2026" for a film.
  */
+@Composable
 internal fun tvPlayerEyebrow(state: TvPlayerViewModel.UiState): String? {
     val series = state.seriesTitle?.takeIf { it.isNotBlank() }
     if (series != null) {
-        val code = state.seasonNumber?.let { season -> state.episodeNumber?.let { "S$season:E$it" } }
+        val code = state.seasonNumber?.let { season ->
+            state.episodeNumber?.let {
+                stringResource(CommonR.string.player_eyebrow_episode, LocaleFormat.codeNumber(season), LocaleFormat.codeNumber(it))
+            }
+        }
         return listOfNotNull(series, code).joinToString(" · ")
     }
-    val kind = "Movie".takeIf { state.contentType == "movie" }
-    return listOfNotNull(kind, state.year?.toString()).joinToString(" · ").ifBlank { null }
+    val kind = stringResource(CommonR.string.player_eyebrow_movie).takeIf { state.contentType == "movie" }
+    return listOfNotNull(kind, state.year?.let { LocaleFormat.integer(it, currentNumberLocale()) }).joinToString(" · ").ifBlank { null }
 }
 
+@Composable
 private fun formatSleepCountdown(seconds: Int): String {
     val s = seconds.coerceAtLeast(0)
     val m = s / 60
-    val sec = s % 60
-    return if (m > 0) "${m}m ${sec}s" else "${sec}s"
+    val sec = LocaleFormat.integer(s % 60)
+    return if (m > 0) {
+        stringResource(CommonR.string.catalog_runtimeMinutesSeconds, LocaleFormat.integer(m), sec)
+    } else {
+        stringResource(CommonR.string.catalog_runtimeSeconds, sec)
+    }
 }
 
 @Composable
@@ -3353,11 +3409,12 @@ private fun TvQuickSubtitlePicker(
 ) {
     val checkedRow = presentation.rows.firstOrNull { row -> row.checked }
     val focusedRow = presentation.rows.firstOrNull { row -> row.focused }
-    val unsupportedFormat = stringResource(CommonR.string.subtitle_track_unsupported_format)
+    val unsupportedFormat = stringResource(CommonR.string.subtitle_trackUnsupportedFormat)
+    val applying = stringResource(CommonR.string.player_hud_applying)
     val options = presentation.rows.map { row ->
         HudPickerOption(
             id = row.stableId,
-            label = if (row.applying) "${row.label} · Applying…" else row.label,
+            label = if (row.applying) "${row.label} · $applying" else row.label,
             detail = unsupportedFormat.takeIf { row.unplayable },
             enabled = !row.unplayable,
         )
@@ -3379,7 +3436,7 @@ private fun TvQuickSubtitlePicker(
     ) {
         HudPickerDialog(
             presentation = HudPickerPresentation(
-                title = "Subtitles",
+                title = stringResource(CommonR.string.player_hud_subtitles),
                 options = options,
                 selectedId = checkedRow?.stableId
                     ?: presentation.rows.firstOrNull()?.stableId.orEmpty(),
@@ -3420,13 +3477,13 @@ private fun TvRoomIndicator(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         androidx.tv.material3.Text(
-            text = "Watch Party · $memberCount watching",
+            text = pluralStringResource(CommonR.plurals.player_watchParty_watching, memberCount, memberCount),
             color = Color.White,
             style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
         )
         if (joinCode != null) {
             androidx.tv.material3.Text(
-                text = "Party code $joinCode",
+                text = stringResource(CommonR.string.player_watchParty_partyCode, joinCode),
                 color = Color.White.copy(alpha = 0.80f),
                 style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
             )
@@ -3594,21 +3651,27 @@ private fun TvPlayerNextUpOverlay(
                                     modifier = Modifier.size(16.dp),
                                 )
                                 androidx.tv.material3.Text(
-                                    text = "Shuffling $scope",
+                                    text = stringResourceWithNames(CommonR.string.upNext_shuffling, scope),
                                     color = Color.White.copy(alpha = 0.75f),
                                     style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
                                     maxLines = 1,
                                 )
                             }
                         }
-                        val eyebrow = when {
-                            nextEpisode == null -> if (videoEnded) "Finished" else "More To Watch"
-                            shuffle != null -> "Up Next at Random"
-                            videoEnded -> "Playing Next"
-                            else -> "Up Next"
-                        }
+                        val eyebrow = stringResource(
+                            when {
+                                nextEpisode == null -> if (videoEnded) {
+                                    CommonR.string.upNext_headingFinished
+                                } else {
+                                    CommonR.string.upNext_headingNothing
+                                }
+                                shuffle != null -> CommonR.string.upNext_headingShuffle
+                                videoEnded -> CommonR.string.upNext_headingEnded
+                                else -> CommonR.string.upNext_heading
+                            },
+                        )
                         androidx.tv.material3.Text(
-                            text = eyebrow.uppercase(),
+                            text = eyebrow.displayUppercase(),
                             color = Color.White.copy(alpha = 0.52f),
                             style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
                         )
@@ -3628,12 +3691,16 @@ private fun TvPlayerNextUpOverlay(
                                 }
                                 if (nextEpisode.isEpisode) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     androidx.tv.material3.Text(
-                                        text = "S${nextEpisode.seasonNumber}·E${nextEpisode.episodeNumber}",
+                                        text = stringResource(
+                                            CommonR.string.upNext_episodeCode,
+                                            LocaleFormat.codeNumber(nextEpisode.seasonNumber),
+                                            LocaleFormat.codeNumber(nextEpisode.episodeNumber),
+                                        ),
                                         color = Color.White.copy(alpha = 0.62f),
                                         style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
                                     )
                                     androidx.tv.material3.Text(
-                                        text = nextEpisode.title ?: "Next Episode",
+                                        text = nextEpisode.title ?: stringResource(CommonR.string.upNext_nextEpisode),
                                         color = Color.White,
                                         style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
                                         maxLines = 1,
@@ -3642,7 +3709,13 @@ private fun TvPlayerNextUpOverlay(
                                     // Runtime shares the episode line to keep the panel short.
                                     if (nextEpisode.runtimeMinutes > 0) {
                                         androidx.tv.material3.Text(
-                                            text = "· ${nextEpisode.runtimeMinutes} min",
+                                            text = "· ${
+                                                pluralStringResource(
+                                                    CommonR.plurals.upNext_runtime,
+                                                    nextEpisode.runtimeMinutes,
+                                                    nextEpisode.runtimeMinutes,
+                                                )
+                                            }",
                                             color = Color.White.copy(alpha = 0.46f),
                                             style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
                                         )
@@ -3650,7 +3723,11 @@ private fun TvPlayerNextUpOverlay(
                                 }
                                 if (!nextEpisode.isEpisode && nextEpisode.runtimeMinutes > 0) {
                                     androidx.tv.material3.Text(
-                                        text = "${nextEpisode.runtimeMinutes} min",
+                                        text = pluralStringResource(
+                                            CommonR.plurals.upNext_runtime,
+                                            nextEpisode.runtimeMinutes,
+                                            nextEpisode.runtimeMinutes,
+                                        ),
                                         color = Color.White.copy(alpha = 0.46f),
                                         style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
                                     )
@@ -3672,7 +3749,7 @@ private fun TvPlayerNextUpOverlay(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 TvDialogActionRow(
-                                    title = "Play Now",
+                                    title = stringResource(CommonR.string.upNext_playNow),
                                     onClick = onPlayNow,
                                     modifier = Modifier
                                         .width(220.dp)
@@ -3688,7 +3765,7 @@ private fun TvPlayerNextUpOverlay(
 
                             if (shuffle != null) {
                                 TvDialogActionRow(
-                                    title = "Pick Another",
+                                    title = stringResource(CommonR.string.upNext_pickAnother),
                                     onClick = onPickAnother,
                                     enabled = !shuffle.pickingAnother,
                                     modifier = Modifier.width(260.dp),
@@ -3697,20 +3774,20 @@ private fun TvPlayerNextUpOverlay(
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                 if (!videoEnded) {
                                     TvDialogActionRow(
-                                        title = "Keep Watching",
+                                        title = stringResource(CommonR.string.upNext_keepWatching),
                                         onClick = onKeepWatching,
                                         modifier = Modifier.width(220.dp),
                                     )
                                 }
                                 TvDialogActionRow(
-                                    title = "Back",
+                                    title = stringResource(CommonR.string.common_back),
                                     onClick = onBack,
                                     modifier = Modifier.width(140.dp),
                                 )
                             }
                             shuffle?.message?.let { message ->
                                 androidx.tv.material3.Text(
-                                    text = message,
+                                    text = tvPlayerMessageText(message),
                                     color = Color(0xFFFFB4AB),
                                     style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
                                 )
@@ -3721,7 +3798,9 @@ private fun TvPlayerNextUpOverlay(
                             var autoPlayToggleFocused by remember { mutableStateOf(false) }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 androidx.tv.material3.Text(
-                                    text = "Auto-play is ${if (autoPlayEnabled) "On" else "Off"}",
+                                    text = stringResource(
+                                        if (autoPlayEnabled) CommonR.string.upNext_autoPlayOn else CommonR.string.upNext_autoPlayOff,
+                                    ),
                                     color = if (autoPlayToggleFocused) Color.Black else Color.White.copy(alpha = 0.54f),
                                     style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
                                     modifier = Modifier
@@ -3739,7 +3818,7 @@ private fun TvPlayerNextUpOverlay(
                                         style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
                                     )
                                     androidx.tv.material3.Text(
-                                        text = "Stop shuffling",
+                                        text = stringResource(CommonR.string.upNext_stopShuffling),
                                         color = if (stopFocused) Color.Black else Color.White.copy(alpha = 0.54f),
                                         style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
                                         modifier = Modifier
@@ -3754,31 +3833,35 @@ private fun TvPlayerNextUpOverlay(
                         } else {
                             // Finished / no-next-episode state.
                             androidx.tv.material3.Text(
-                                text = if (videoEnded) "End of playback" else "Almost finished",
+                                text = stringResource(
+                                    if (videoEnded) CommonR.string.upNext_endOfPlayback else CommonR.string.upNext_almostFinished,
+                                ),
                                 color = Color.White,
                                 style = androidx.tv.material3.MaterialTheme.typography.headlineSmall,
                             )
                             androidx.tv.material3.Text(
-                                text = if (shuffle != null) "Nothing else in this shuffle can play." else "No next episode is available.",
+                                text = stringResource(
+                                    if (shuffle != null) CommonR.string.upNext_shuffleDone else CommonR.string.upNext_noNext,
+                                ),
                                 color = Color.White.copy(alpha = 0.62f),
                                 style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
                             )
                             if (!videoEnded) {
                                 TvDialogActionRow(
-                                    title = "Keep Watching",
+                                    title = stringResource(CommonR.string.upNext_keepWatching),
                                     onClick = onKeepWatching,
                                     modifier = Modifier
                                         .width(260.dp)
                                         .focusRequester(primaryFocus),
                                 )
                                 TvDialogActionRow(
-                                    title = "Back",
+                                    title = stringResource(CommonR.string.common_back),
                                     onClick = onBack,
                                     modifier = Modifier.width(160.dp),
                                 )
                             } else {
                                 TvDialogActionRow(
-                                    title = "Back",
+                                    title = stringResource(CommonR.string.common_back),
                                     onClick = onBack,
                                     modifier = Modifier
                                         .width(160.dp)
@@ -3879,7 +3962,7 @@ private fun TvNextUpOnDeckRow(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         androidx.tv.material3.Text(
-            text = "On Deck",
+            text = stringResource(CommonR.string.upNext_onDeck),
             color = Color.White.copy(alpha = 0.86f),
             style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 80.dp),
@@ -3905,7 +3988,7 @@ private fun TvNextUpOnDeckRow(
                             artworkAspectRatio = 16f / 9f,
                             width = cardWidth,
                         )
-                        item.subtitle?.let { subtitle ->
+                        tvOnDeckSubtitle(item)?.let { subtitle ->
                             androidx.tv.material3.Text(
                                 text = subtitle,
                                 color = Color.White.copy(alpha = 0.52f),
@@ -3952,7 +4035,7 @@ private fun TvCountdownRing(seconds: Int, totalSeconds: Int) {
             )
         }
         androidx.tv.material3.Text(
-            text = "$seconds",
+            text = LocaleFormat.integer(seconds, currentNumberLocale()),
             color = Color.White,
             style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
         )
@@ -4235,6 +4318,36 @@ private fun TvPlayerClockScope(
 }
 
 /**
+ * Remembers whether a pill held focus and, when it hides while holding it,
+ * calls [refocus]: the focus leaves with the pill. Returns the pill's focus
+ * callback (true while it, or something in it, has focus).
+ */
+@Composable
+private fun rememberRefocusWhenPillHides(
+    visible: Boolean,
+    refocus: suspend () -> Unit,
+): (Boolean) -> Unit {
+    val latestVisible by rememberUpdatedState(visible)
+    val latestRefocus by rememberUpdatedState(refocus)
+    var heldFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(visible) {
+        if (visible || !heldFocus) return@LaunchedEffect
+        heldFocus = false
+        latestRefocus()
+    }
+    return remember {
+        { focused ->
+            if (focused) {
+                heldFocus = true
+            } else if (latestVisible) {
+                // Focus moved off a pill that stays up (or a menu covered it).
+                heldFocus = false
+            }
+        }
+    }
+}
+
+/**
  * The overlay layer stacked above the player surface: lifecycle notice, remote
  * message toast, Watch Party indicator, the Up Next
  * surface, the intro auto-skip banner, and the loading spinner.
@@ -4265,6 +4378,11 @@ private fun TvPlayerOverlays(
     introSkipState: IntroAutoSkipState,
     manualSkipTarget: MarkerSkipTarget?,
     onManualMarkerSelect: () -> Unit,
+    /** Left/Right on a focused skip pill; see [TvIntroAutoSkipBanner]'s onSeek. */
+    onSkipPillSeek: (direction: Int, hold: Boolean) -> Unit,
+    /** Whether each skip pill holds focus, so focus can be placed when it hides. */
+    onIntroPillFocusChanged: (Boolean) -> Unit,
+    onMarkerPillFocusChanged: (Boolean) -> Unit,
     /** Bumps when the pill's timer (re)starts, so its fill re-anchors. */
     introSkipCountdownRun: Int,
     /** False while the pill is up but its timer is frozen by a pause. */
@@ -4361,7 +4479,7 @@ private fun TvPlayerOverlays(
                         .padding(horizontal = 24.dp, vertical = 14.dp),
                 ) {
                     Text(
-                        text = message.text,
+                        text = message.textRes?.let { stringResource(it) } ?: tvPlayerMessageText(message.text),
                         color = Color.White,
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -4471,13 +4589,17 @@ private fun TvPlayerOverlays(
                 ) {
                     if (manualSkipTarget != null) {
                         TvMarkerSkipPill(
-                            label = stringResource(if (manualSkipTarget.kind == ManualMarkerKind.Recap) R.string.marker_skip_recap else R.string.marker_skip_credits),
+                            modifier = Modifier.onFocusChanged { onMarkerPillFocusChanged(it.hasFocus) },
+                            label = stringResource(if (manualSkipTarget.kind == ManualMarkerKind.Recap) CommonR.string.marker_skipRecap else CommonR.string.marker_skipCredits),
                             onSelect = onManualMarkerSelect,
+                            onSeek = onSkipPillSeek,
                         )
                     }
                     TvIntroAutoSkipBanner(
+                        modifier = Modifier.onFocusChanged { onIntroPillFocusChanged(it.hasFocus) },
                         state = introSkipState,
                         onSelect = onIntroPromptSelect,
+                        onSeek = onSkipPillSeek,
                         totalSeconds = introSkipTotalSeconds,
                         countdownRun = introSkipCountdownRun,
                         timerRunning = introSkipTimerRunning,
@@ -4506,7 +4628,7 @@ private fun TvPlayerOverlays(
                         .padding(horizontal = 20.dp, vertical = 10.dp),
                 ) {
                     Text(
-                        text = "Keeps buffering? Press OK to switch to $qualityOfferLabel.",
+                        text = stringResource(CommonR.string.buffering_watchPartyOffer, qualityOfferLabel),
                         color = Color.White,
                         style = MaterialTheme.typography.labelLarge,
                     )
@@ -4535,13 +4657,49 @@ private fun TvPlayerOverlays(
 /** The player's one loading indicator: a plain spinner with no label. Screen readers hear "Loading". */
 @Composable
 private fun TvPlayerLoadingSpinner() {
+    val loading = stringResource(CommonR.string.common_loading)
     CircularProgressIndicator(
         color = TvPlayerChrome.Paper,
         strokeWidth = 4.dp,
         modifier = Modifier
             .size(64.dp)
-            .semantics { contentDescription = "Loading" },
+            .semantics { contentDescription = loading },
     )
+}
+
+/**
+ * A player error or notice in the interface language when the player wrote it
+ * ([TvPlayerErrors]); text from the server or the shared module as it is.
+ */
+@Composable
+internal fun tvPlayerMessageText(message: String): String {
+    return LocalResources.current.tvPlayerMessage(message)
+}
+
+/** [tvPlayerMessageText] outside composition, for a toast. */
+internal fun android.content.res.Resources.tvPlayerMessage(message: String): String {
+    TvPlayerErrors.res(message)?.let { return getString(it) }
+    TvSubtitleFailure.messageFor(message)?.let { return getString(it) }
+    val (id, detail) = TvPlayerErrors.prefixed(message) ?: return message
+    return getString(id, TvPlayerErrors.res(detail)?.let { getString(it) } ?: detail)
+}
+
+/**
+ * The error screen's text: the catalog string a shared producer named for
+ * exactly this [error] ([errorRes]), else [tvPlayerMessageText].
+ */
+@Composable
+private fun tvPlayerErrorText(error: String, errorRes: TvPlayerErrorRes?): String =
+    if (errorRes != null && errorRes.message == error) stringResource(errorRes.res) else tvPlayerMessageText(error)
+
+/** An On Deck card's second line: "S2·E5 — Title" for an episode, else the year. */
+@Composable
+private fun tvOnDeckSubtitle(item: TvOnDeckItem): String? {
+    val season = item.seasonNumber
+    val episode = item.episodeNumber
+    if (season == null || episode == null) return item.year?.let { LocaleFormat.integer(it, currentNumberLocale()) } ?: item.subtitle
+    val code = stringResource(CommonR.string.upNext_episodeCode, LocaleFormat.codeNumber(season), LocaleFormat.codeNumber(episode))
+    return code + (item.subtitle?.let { " — ${bidiIsolated(it, isRightToLeftText())}" } ?: "")
 }
 
 /**

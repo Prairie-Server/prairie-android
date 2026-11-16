@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.search
 
+import org.prairieserver.prairie.common.i18n.UiText
+import org.prairieserver.prairie.common.i18n.errorText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.prairieserver.prairie.model.catalog.BrowseItem
@@ -9,7 +11,6 @@ import org.prairieserver.prairie.model.navigation.MediaMode
 import org.prairieserver.prairie.model.navigation.mobileMediaModeForLibraryType
 import org.prairieserver.prairie.network.ApiResult
 import org.prairieserver.prairie.network.apiv2.CatalogContinuationV2
-import org.prairieserver.prairie.network.errorMessage
 import org.prairieserver.prairie.repository.CatalogRepository
 import org.prairieserver.prairie.repository.searchPeopleForQuery
 import kotlinx.coroutines.FlowPreview
@@ -26,16 +27,18 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import androidx.annotation.StringRes
+import org.prairieserver.prairie.common.R as CommonR
 
 /**
  * Media type filter for mobile search. Video intentionally maps to null
  * until the server supports a single movie-or-series query filter.
  */
-enum class MobileSearchMediaType(val label: String, val wire: String?) {
-    All("All", null),
-    Video("Video", null),
-    Audio("Audio", "audio"),
-    Reading("Reading", null);
+enum class MobileSearchMediaType(@StringRes val label: Int, val wire: String?) {
+    All(CommonR.string.search_filter_all, null),
+    Video(CommonR.string.search_filter_video, null),
+    Audio(CommonR.string.search_filter_audio, "audio"),
+    Reading(CommonR.string.search_filter_reading, null);
 
     companion object {
         fun fromRouteValue(value: String?): MobileSearchMediaType? =
@@ -123,7 +126,7 @@ data class SearchUiState(
     val total: Int = 0,
     val totalExact: Boolean = false,
     val searchDiagnostics: org.prairieserver.prairie.network.apiv2.CatalogSearchDiagnosticsV2? = null,
-    val error: String? = null,
+    val error: UiText? = null,
     val hasSearched: Boolean = false,
     val nextOffset: Int = 0,
 )
@@ -423,7 +426,7 @@ class SearchViewModel(
                         _uiState.update {
                             it.copy(
                                 isSearching = false,
-                                error = result.message.ifBlank { "Search failed" },
+                                error = result.errorText(CommonR.string.search_failed),
                                 hasSearched = true,
                             )
                         }
@@ -433,7 +436,7 @@ class SearchViewModel(
                         _uiState.update {
                             it.copy(
                                 isSearching = false,
-                                error = result.errorMessage("Search failed"),
+                                error = result.errorText(CommonR.string.search_failed),
                                 hasSearched = true,
                             )
                         }

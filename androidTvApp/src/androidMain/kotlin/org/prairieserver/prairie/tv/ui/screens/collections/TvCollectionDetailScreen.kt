@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.ui.screens.collections
 
+import org.prairieserver.prairie.common.i18n.text
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.ui.focus.FocusRequester
 import org.prairieserver.prairie.tv.ui.focus.rememberTvFlatReturnRestoration
@@ -30,6 +32,7 @@ import org.prairieserver.prairie.tv.ui.components.TvErrorScreen
 import org.prairieserver.prairie.tv.ui.components.TvLoadingScreen
 import org.prairieserver.prairie.tv.ui.theme.Spacing
 import org.prairieserver.prairie.tv.ui.theme.tvPresetGridColumns
+import org.prairieserver.prairie.common.R as CommonR
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -69,7 +72,7 @@ fun TvCollectionDetailScreen(
         itemIds = state.items.map { it.contentId },
         hasMore = state.hasMore,
         isLoadingMore = state.isLoadingMore,
-        errorMessage = state.error,
+        errorMessage = state.error?.text(),
         surfaceKey = collectionId,
         onLoadMore = viewModel::loadMore,
         scrollToItem = { itemIndex -> gridState.scrollToItem(itemIndex) },
@@ -112,7 +115,7 @@ fun TvCollectionDetailScreen(
         when {
             state.isLoading && state.items.isEmpty() -> TvLoadingScreen()
             state.error != null -> TvErrorScreen(
-                message = state.error!!,
+                message = state.error!!.text(),
                 onRetry = viewModel::retry,
             )
             else -> TvCatalogGrid(
@@ -152,7 +155,7 @@ fun TvCollectionDetailScreen(
                 }
                 },
                 emptyState = {
-                    TvCatalogEmptyState(message = "This collection is empty.")
+                    TvCatalogEmptyState(message = stringResource(CommonR.string.collections_emptyGrid))
                 },
             )
         }

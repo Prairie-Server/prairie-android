@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.navigation
 
+import org.prairieserver.prairie.common.R as CommonR
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -30,6 +32,7 @@ import org.prairieserver.prairie.common.network.ServerReachabilityMonitor
 import org.prairieserver.prairie.common.network.ServerReachabilityStatus
 import org.prairieserver.prairie.common.profiles.ProfileAwayTracker
 import org.prairieserver.prairie.common.profiles.ProfileLaunchPreferences
+import org.prairieserver.prairie.common.profiles.profileSelectionPrompt
 import org.prairieserver.prairie.model.profile.ActiveProfileStore
 import org.prairieserver.prairie.android.ui.components.rememberVideoSeekIntervals
 import org.prairieserver.prairie.android.cast.GOOGLE_CAST_LEGACY_SEEK_INTERVALS
@@ -76,6 +79,10 @@ import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastLaunchHaptic
 import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastMiniBar
 import org.prairieserver.prairie.android.ui.screens.cast.PrairieCastRemoteScreen
 import org.prairieserver.prairie.android.ui.screens.MainScreen
+import org.prairieserver.prairie.android.ui.screens.audiobook.AudiobookPlaybackBridge
+import org.prairieserver.prairie.android.ui.screens.audiobook.AudiobookPlaybackRequest
+import org.prairieserver.prairie.android.ui.screens.audiobook.AudiobookSessionViewModel
+import org.prairieserver.prairie.android.ui.screens.audiobook.LocalAudiobookSession
 import org.prairieserver.prairie.android.ui.screens.auth.LoginScreen
 import org.prairieserver.prairie.android.ui.screens.auth.PasswordChangeScreen
 import org.prairieserver.prairie.android.ui.screens.auth.DevicePairingScreen
@@ -117,6 +124,9 @@ import org.prairieserver.prairie.android.ui.screens.profiles.EditProfileScreen
 import org.prairieserver.prairie.android.ui.screens.profiles.ProfileSelectionScreen
 import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvPlayerScreen
 import org.prairieserver.prairie.android.ui.screens.livetv.LiveTvScreen
+import org.prairieserver.prairie.android.ui.screens.profiles.toProfile
+import org.prairieserver.prairie.model.profile.householdPrimary
+import org.prairieserver.prairie.viewmodel.MenuAddProfileSession
 import org.prairieserver.prairie.android.ui.screens.requests.MyRequestsScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDiscoverRowScreen
 import org.prairieserver.prairie.android.ui.screens.requests.RequestDetailScreen
@@ -124,6 +134,9 @@ import org.prairieserver.prairie.android.ui.screens.requests.RequestsScreen
 import org.prairieserver.prairie.android.ui.screens.search.MobileSearchMediaType
 import org.prairieserver.prairie.android.ui.screens.search.SearchScreen
 import org.prairieserver.prairie.android.ui.screens.search.SearchViewModel
+import org.prairieserver.prairie.android.ui.screens.servers.AccountDetailScreen
+import org.prairieserver.prairie.android.ui.screens.servers.AccountsScreen
+import org.prairieserver.prairie.android.ui.screens.servers.ChangeAccountScreen
 import org.prairieserver.prairie.android.ui.screens.servers.ServerListScreen
 import org.prairieserver.prairie.android.ui.screens.servers.ServerSwitchDestination
 import org.prairieserver.prairie.android.ui.screens.settings.SettingsDownloadsScreen
@@ -187,10 +200,30 @@ private val ProfilePromptDeferredRoutes: Set<String> = setOf(
     Route.ServerSetup.route,
     Route.ServerSetupPrefilled.ROUTE,
     Route.ServerList.route,
+    Route.AccountDetail.ROUTE,
+    Route.ChangeAccount.ROUTE,
     Route.Setup.route,
     Route.Signup.route,
     Route.PairDevice.ROUTE,
     Route.InviteClaim.ROUTE,
+    Route.PasswordChange.route,
+)
+
+/**
+ * Destinations that end a running audiobook session when they open. The video
+ * player takes over the one playback engine; the sign-in chain and Who's
+ * Watching leave the signed-in profile the book was playing for. Server,
+ * account and profile switches that skip these screens end the session
+ * through [AudiobookSessionViewModel]'s identity check instead.
+ */
+private val AudiobookSessionEndingRoutes: Set<String> = setOf(
+    Route.Player.ROUTE,
+    Route.Login.route,
+    Route.ServerSetup.route,
+    Route.ServerSetupPrefilled.ROUTE,
+    Route.Setup.route,
+    Route.Signup.route,
+    Route.ProfileSelection.route,
     Route.PasswordChange.route,
 )
 
@@ -201,7 +234,8 @@ private const val PageFadeDurationMs = 200
 private const val PROFILE_COVER_MAX_MS = 2_000L
 
 /** Screens that show no profile: sign-in, server setup, and the profile picker itself. */
-private val ProfileFreeRoutes: Set<String> get() = MarqueeRoutes + ProfilePromptPickerRoutes + Route.ServerList.route
+private val ProfileFreeRoutes: Set<String> get() =
+    MarqueeRoutes + ProfilePromptPickerRoutes + Route.ServerList.route + Route.AccountDetail.ROUTE
 
 internal class PlayerTargetProviderRegistration(
     val backStackEntryId: String,
@@ -227,6 +261,7 @@ private val MarqueeRoutes = setOf(
     Route.Signup.route,
     Route.InviteClaim.ROUTE,
     Route.ProfileSelection.route,
+    Route.ChangeAccount.ROUTE,
     Route.PasswordChange.route,
 )
 
@@ -254,8 +289,12 @@ fun AppNavigation(
     val seekIntervalStore: org.prairieserver.prairie.common.settings.SeekIntervalStore = koinInject()
     val titleArtStore: TitleArtStore = koinInject()
     val signOutTeardown: org.prairieserver.prairie.android.auth.SignOutTeardown = koinInject()
+    val nativeSignInCoordinator: org.prairieserver.prairie.android.auth.NativeSignInCoordinator = koinInject()
     val profileSwitchTeardown: org.prairieserver.prairie.android.auth.ProfileSwitchTeardown = koinInject()
     val siloCastController: PrairieCastController = koinInject()
+    // Activity-scoped: the audiobook session outlives its player route, so a
+    // minimized book keeps playing under the mini player.
+    val audiobookSession: AudiobookSessionViewModel = koinViewModel()
     // Lives as long as the nav host, so work started from a destination that is
     // popped in the same gesture (re-hydrating after a profile switch) is not
     // cancelled with that destination's own scope.
@@ -321,12 +360,14 @@ fun AppNavigation(
     PrairieCastLaunchHaptics(siloCastController)
 
     // Graceful handling of server-side session invalidation (refresh 401'd).
-    // The TokenManager has already wiped the active server's tokens by the
-    // time this fires; we just route the user back to Login so they can
-    // re-authenticate against the same server.
+    // The TokenManager has already wiped the active account's tokens (the
+    // account stays, needing to sign in again) by the time this fires: Change
+    // Account while another account has a session, so the expired one shows
+    // "Sign in again" beside it; otherwise Login for the same account.
     LaunchedEffect(Unit) {
         tokenManager.sessionExpired.collect {
-            navController.navigate(Route.Login.route) {
+            val route = if (serverRegistry.hasOtherSession()) Route.ChangeAccount().route else Route.Login.route
+            navController.navigate(route) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
@@ -383,23 +424,58 @@ fun AppNavigation(
             }
     }
 
+    // The server can turn Requests off while a Requests screen is open (seen
+    // when the app returns to the foreground, or when it refuses a requests
+    // call). Leave the Requests screens for whatever opened them, as the TV
+    // shell does. A screen opened from Requests (an item detail) stays; Back
+    // into Requests then closes it here.
+    val requestsFeatureStore: org.prairieserver.prairie.model.feature.RequestsFeatureStore = koinInject()
+    LaunchedEffect(navController, requestsFeatureStore) {
+        kotlinx.coroutines.flow.combine(
+            requestsFeatureStore.isKnownUnavailable,
+            navController.currentBackStackEntryFlow,
+        ) { _, entry -> entry }.collect { entry ->
+            val leave = shouldLeaveRequests(
+                currentRoute = entry.destination.route,
+                requestsKnownUnavailable = requestsFeatureStore.isKnownUnavailable.value,
+            )
+            if (!leave || navController.currentBackStackEntry != entry) return@collect
+            // Pop the run of Requests screens on top one at a time; public
+            // NavController calls only (currentBackStack is restricted API).
+            while (isRequestsRoute(navController.currentBackStackEntry?.destination?.route) &&
+                navController.previousBackStackEntry != null
+            ) {
+                if (!navController.popBackStack()) break
+            }
+            if (isRequestsRoute(navController.currentBackStackEntry?.destination?.route)) {
+                navController.navigate(Tab.Home.route) {
+                    popUpTo(0) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+
     // Android can restore Prairie's previous back stack over the start route
     // MainActivity chose: after its process was killed in the background.
     // When Profile Selection has already cleared the profile at launch, that
     // brings back the previous profile's screens with no profile behind them,
-    // so go to Who's Watching instead. Look beneath the top too: Manage
+    // so go to Who's Watching instead, or to Change Account when that is the
+    // start route MainActivity chose. Look beneath the top too: Manage
     // Servers over Home would otherwise let Back reach Home with no profile
     // chosen, and every stack of profile screens has a tab at its root.
     LaunchedEffect(navController) {
         val restoredRoute = navController.currentBackStackEntryFlow.first().destination.route
         val restoresProfileScreens = (restoredRoute != null && restoredRoute !in ProfileFreeRoutes) ||
             Tab.entries.any { tab -> runCatching { navController.getBackStackEntry(tab.route) }.isSuccess }
-        if (startDestination == Route.ProfileSelection.route &&
+        val startsOnChangeAccount = startDestination == Route.ChangeAccount.ROUTE
+        if ((startDestination == Route.ProfileSelection.route || startsOnChangeAccount) &&
             restoresProfileScreens &&
             !tokenManager.getAccessToken().isNullOrBlank() &&
             tokenManager.getProfileId().isNullOrBlank()
         ) {
-            navController.navigate(Route.ProfileSelection.route) {
+            val target = if (startsOnChangeAccount) Route.ChangeAccount().route else Route.ProfileSelection.route
+            navController.navigate(target) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
@@ -408,8 +484,9 @@ fun AppNavigation(
 
     // Profile Selection's return rule (prairie-apple `applyProfileReturnPolicy`):
     // when Prairie comes back from the background and the setting asks, Who's
-    // Watching replaces whatever was on screen. Playback that kept going in
-    // the background never raises the request (see ProfileAwayTracker).
+    // Watching replaces whatever was on screen; with several accounts saved,
+    // Change Account does. Playback that kept going in the background never
+    // raises the request (see ProfileAwayTracker).
     val profileAwayTracker: ProfileAwayTracker = koinInject()
     val profileLaunchPreferences: ProfileLaunchPreferences = koinInject()
     val activeProfileReset: ActiveProfileReset = koinInject()
@@ -433,23 +510,36 @@ fun AppNavigation(
                 return@collect
             }
             val serverId = serverRegistry.activeEntry.value?.id
+            val accountId = serverRegistry.activeEntry.value?.accountId
             val offlineWithDownloads = withContext(Dispatchers.IO) {
-                hasLocalDownloadsForScope(downloadStorage, serverId, profileId) &&
+                hasLocalDownloadsForScope(downloadStorage, serverId, accountId, profileId) &&
                     !reachabilityMonitor.retryNow().canUseServer
             }
             // Re-check after the wait, as prairie-apple's return policy does.
             val action = profileLaunchAction(
-                requiresSelection = profileLaunchPreferences.requiresSelectionAfterBackground(),
+                // With one account saved, one tile with no PIN never asks
+                // (multi-account spec §4.2).
+                prompt = profileSelectionPrompt(
+                    selectionRequired = profileLaunchPreferences.requiresSelectionAfterBackground(),
+                    savedAccounts = serverRegistry.accounts.value.size,
+                    onlyProfileNeedsNoChoice = serverRegistry.hasSingleOpenTile(),
+                ),
                 startsOfflineOnDownloads = offlineWithDownloads,
             )
-            if (action != ProfileLaunchAction.AskWhoIsWatching) {
+            if (action != ProfileLaunchAction.AskWhoIsWatching && action != ProfileLaunchAction.AskWhichAccount) {
                 profileAwayTracker.onSelectionHandled()
                 return@collect
             }
             // Leave the profile's screens before clearing its state, as
             // Switch Profile does. The reset pushes pending device-setting
-            // writes under this profile before it drops it.
-            navController.navigate(Route.ProfileSelection.route) {
+            // writes under this profile before it drops it. Several accounts
+            // are saved: Change Account asks whose account first.
+            val target = if (action == ProfileLaunchAction.AskWhichAccount) {
+                Route.ChangeAccount().route
+            } else {
+                Route.ProfileSelection.route
+            }
+            navController.navigate(target) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
@@ -557,11 +647,83 @@ fun AppNavigation(
         }
     }
 
+    val profileRepository: org.prairieserver.prairie.repository.ProfileRepository = koinInject()
+    val playerSettingsStore: org.prairieserver.prairie.common.settings.PlayerSettingsStore = koinInject()
+
+    // The profile menu's "Add Profile", offered while the open account has
+    // one profile. Household management acts as the account's primary
+    // profile, as the picker's Add does, and asks for its PIN first when it
+    // has one (HouseholdReverifyHost shows the prompt). The new-profile form
+    // then opens over the screen the menu was on. With no primary known, the
+    // picker opens instead, where Add runs the same steps.
+    val addProfileJob = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val addProfile: () -> Unit = remember(navController, profileRepository, switchProfile) {
+        {
+            if (addProfileJob.value?.isActive != true) {
+                addProfileJob.value = navScope.launch {
+                    val primary = serverRegistry.activeAccount.value?.cachedProfiles.orEmpty()
+                        .map { it.toProfile() }
+                        .householdPrimary()
+                    if (primary == null) {
+                        switchProfile()
+                        return@launch
+                    }
+                    val scope = profileRepository.captureIdentityScope()
+                    if (profileRepository.householdManagement.beginVerified(primary, scope)) {
+                        navController.navigate(Route.CreateProfile.route) { launchSingleTop = true }
+                    }
+                }
+            }
+        }
+    }
+    val notificationTileSwitch = remember {
+        org.prairieserver.prairie.android.push.NotificationTileSwitch(
+            authRepository, serverRegistry, tokenManager, profileRepository, activeProfileReset, playerSettingsStore,
+        )
+    }
+
+    // The server switch's per-profile teardown: the previous identity's
+    // overlays, active profile and card presentation must not render under
+    // the next one.
+    fun clearSwitchedIdentityCaches() {
+        overlayPrefsStore.clear()
+        activeProfileStore.reset()
+        cardPresentationStore.clear()
+    }
+
+    // For a profile opened without the picker, which would otherwise re-hydrate.
+    suspend fun hydrateProfileStores() {
+        overlayPrefsStore.hydrateIfNeeded()
+        cardPresentationStore.hydrateIfNeeded()
+        seekIntervalStore.hydrateIfNeeded()
+        episodeSpoilerStore.hydrateIfNeeded()
+        titleArtStore.hydrateIfNeeded()
+    }
+
     // Keyed on request identity, not route text, so delivering the same deep
     // link again after Back still restarts the wait. The back-stack flow emits
     // the current entry immediately, covering both "request arrives on Main"
     // and "Main arrives with a request queued". Delivery itself is one-shot.
     LaunchedEffect(pendingExternalRoute?.generation) {
+        // A notification opens its tile first; the route then waits below for
+        // that tile's screens, and is checked against it as any other.
+        val tile = (pendingExternalRoute?.scope as? ExternalRouteScope.Identity)?.takeIf { it.switchesToTile }
+        val tileServerId = tile?.serverId
+        val tileAccountId = tile?.accountId
+        val tileProfileId = tile?.profileId
+        if (tileServerId != null && tileAccountId != null && tileProfileId != null) {
+            val destination = notificationTileSwitch.switchTo(tileServerId, tileAccountId, tileProfileId)
+            if (destination != null) {
+                clearSwitchedIdentityCaches()
+                navController.navigate(destination) {
+                    popUpTo(0) { inclusive = true }
+                    launchSingleTop = true
+                }
+                if (destination == Route.OnboardingTour.route) {
+                    navScope.launch { hydrateProfileStores() }
+                }
+            }
+        }
         consumeExternalRouteOnce(
             pendingExternalRoute = pendingExternalRoute,
             // While Profile Selection is replacing the previous profile's
@@ -606,6 +768,7 @@ fun AppNavigation(
                             serverId = live?.serverId,
                             profileId = live?.profileId,
                             identityGeneration = live?.identityGeneration,
+                            accountId = live?.accountId,
                         )
                     }
                 }
@@ -645,6 +808,8 @@ fun AppNavigation(
         LocalSharedTransitionScope provides this,
         LocalHeroSourceHandoff provides heroSourceHandoff,
         LocalProfileSwitch provides switchProfile,
+        LocalAddProfile provides addProfile,
+        LocalAudiobookSession provides audiobookSession,
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
     // The first-run screens draw over one shared brand-light backdrop that
@@ -721,13 +886,25 @@ fun AppNavigation(
                     navController.navigate(Route.Signup.route)
                 },
                 onNavigateToProfiles = {
+                    // A fresh Who's watching for the account just signed in to:
+                    // whatever was below belonged to the account before it.
                     navController.navigate(Route.ProfileSelection.route) {
-                        popUpTo(Route.Login.route) { inclusive = true }
+                        popUpTo(0) { inclusive = true }
                     }
                 },
                 onChangeServer = {
-                    navController.navigate(Route.ServerSetup.route) {
-                        popUpTo(Route.Login.route) { inclusive = true }
+                    // Back to the screen this sign-in was opened from (Change
+                    // Account, server setup); at the root, Change Account
+                    // while other accounts or servers are saved, else server
+                    // setup.
+                    when {
+                        navController.previousBackStackEntry != null -> navController.popBackStack()
+                        serverRegistry.hasOtherAccountsOrServers() -> navController.navigate(Route.ChangeAccount().route) {
+                            popUpTo(Route.Login.route) { inclusive = true }
+                        }
+                        else -> navController.navigate(Route.ServerSetup.route) {
+                            popUpTo(Route.Login.route) { inclusive = true }
+                        }
                     }
                 },
             )
@@ -881,32 +1058,54 @@ fun AppNavigation(
              * Sign in on [serverId]'s server (the active one when null), then
              * come back to [pendingCode]: signing in ends at profile selection,
              * whose popUpTo(0) wipes this destination, so the request is
-             * re-queued. [signOutFirst] is "Not you? Switch account": sign out
-             * of that server's account so a different one can sign in, and
-             * have its next provider sign-in ask the provider to offer
-             * another account (`prompt=select_account`); [startSignIn] (a
-             * provider that takes it) has the login screen start that
-             * sign-in by itself, as on prairie-apple. Sign-in
-             * runs on the active server, so a different server becomes active.
-             * Runs in the nav host's scope: it outlives this destination.
+             * re-queued. Sign-in runs on the active server, so a different
+             * server becomes active. Runs in the nav host's scope: it
+             * outlives this destination.
              */
-            fun signInThenReturn(serverId: String?, pendingCode: String?, signOutFirst: Boolean, startSignIn: Boolean = false) {
+            fun signInThenReturn(serverId: String?, pendingCode: String?) {
                 navScope.launch {
                     val switchTo = serverId?.takeIf { it != serverRegistry.activeServerId.value }
-                    // Settings still waiting to sync go to the server they were
-                    // made on, before the switch.
-                    if (signOutFirst) signOutTeardown.flushPendingSettings()
                     if (switchTo != null) authRepository.switchToServer(switchTo)
-                    val switching = switchTo != null
-                    // Same teardown as every other sign-out, which also has
-                    // the next provider sign-in offer another account.
-                    // Nobody was signed out (another server or login became active
-                    // meanwhile): don't open the sign-in this was preparing.
-                    if (signOutFirst && !signOutTeardown.signOut(flushFirst = false, startSignIn = startSignIn)) return@launch
                     onRequeueExternalRoute(pairDeviceRoute(pendingCode ?: code))
                     navController.navigate(Route.Login.route) {
-                        if (switching || signOutFirst) popUpTo(0) { inclusive = true }
+                        if (switchTo != null) popUpTo(0) { inclusive = true }
                     }
+                }
+            }
+
+            /**
+             * "Not you? Switch account" (multi-account spec §4.6): approve
+             * with another saved account on [serverId]'s server instead of
+             * signing out of this one. [accountId] null is "Add an account":
+             * the server becomes active with no account and sign-in follows,
+             * its provider asked to offer another account; [startSignIn] (a
+             * provider that takes it) has the login screen start that
+             * sign-in by itself, as on prairie-apple. Either way the request is
+             * re-queued and comes back once that account has a profile.
+             */
+            fun switchAccountThenReturn(serverId: String?, pendingCode: String?, accountId: String?, startSignIn: Boolean) {
+                navScope.launch {
+                    val target = serverId ?: serverRegistry.activeServerId.value ?: return@launch
+                    // Settings still waiting to sync go to the account they
+                    // were made on, before the switch.
+                    signOutTeardown.flushPendingSettings()
+                    authRepository.switchToAccount(target, accountId)
+                    if (serverRegistry.activeServerId.value != target || serverRegistry.activeAccountId.value != accountId) {
+                        return@launch
+                    }
+                    clearSwitchedIdentityCaches()
+                    if (accountId == null) nativeSignInCoordinator.requestAccountChoice(target, autoStart = startSignIn)
+                    onRequeueExternalRoute(pairDeviceRoute(pendingCode ?: code))
+                    val destination = when {
+                        tokenManager.getAccessToken().isNullOrBlank() -> Route.Login.route
+                        serverRegistry.activeEntry.value?.profileId.isNullOrBlank() -> Route.ProfileSelection.route
+                        activeProfileReset.clearIfSelectionRequired() -> Route.ProfileSelection.route
+                        else -> Route.OnboardingTour.route
+                    }
+                    navController.navigate(destination) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                    if (destination == Route.OnboardingTour.route) hydrateProfileStores()
                 }
             }
             when (val resolved = match) {
@@ -928,10 +1127,10 @@ fun AppNavigation(
                             lockServer = true,
                             onDone = pairingDone,
                             onSignIn = { selectedServerId, typedCode ->
-                                signInThenReturn(selectedServerId ?: inPlace.id, typedCode, signOutFirst = false)
+                                signInThenReturn(selectedServerId ?: inPlace.id, typedCode)
                             },
-                            onSwitchAccount = { selectedServerId, typedCode, startSignIn ->
-                                signInThenReturn(selectedServerId ?: inPlace.id, typedCode, signOutFirst = true, startSignIn)
+                            onSwitchAccount = { selectedServerId, typedCode, accountId, startSignIn ->
+                                switchAccountThenReturn(selectedServerId ?: inPlace.id, typedCode, accountId, startSignIn)
                             },
                         )
                     } else {
@@ -1016,69 +1215,158 @@ fun AppNavigation(
                     // "Sign in" after a 401 on the chosen server: sign in there
                     // (it becomes active) and come back to the typed code.
                     onSignIn = { selectedServerId, typedCode ->
-                        signInThenReturn(selectedServerId, typedCode, signOutFirst = false)
+                        signInThenReturn(selectedServerId, typedCode)
                     },
-                    onSwitchAccount = { selectedServerId, typedCode, startSignIn ->
-                        // "Not you? Switch account": sign out of the server the
-                        // card names, then sign in again and come back to this code.
-                        signInThenReturn(selectedServerId, typedCode, signOutFirst = true, startSignIn)
+                    onSwitchAccount = { selectedServerId, typedCode, accountId, startSignIn ->
+                        // "Not you? Switch account": another saved account on
+                        // the server the card names, or a new one; then back
+                        // to this code.
+                        switchAccountThenReturn(selectedServerId, typedCode, accountId, startSignIn)
                     },
                 )
             }
         }
 
-        // ---- Server list (multi-server management) ----
+        // ---- Settings › Accounts (servers and their accounts) ----
+        val onAccountsSwitched: (ServerSwitchDestination) -> Unit = { destination ->
+            // Route to whichever screen the new server's stored
+            // credentials can support — Home if a token+profile
+            // already exist (so the user stays signed in), else
+            // ProfileSelection or Login as appropriate.
+            val target = when (destination) {
+                // Through the tour gate, not straight to Home — the
+                // switched-to server's profile may not have seen the
+                // tour; the gate short-circuits when it has.
+                ServerSwitchDestination.Home -> Route.OnboardingTour.route
+                ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
+                ServerSwitchDestination.ChangeAccount -> Route.ChangeAccount().route
+                ServerSwitchDestination.Login -> Route.Login.route
+                ServerSwitchDestination.ServerSetup -> Route.ServerSetup.route
+                ServerSwitchDestination.Setup -> Route.Setup.route
+            }
+            // Overlays and card presentation are cached per profile on
+            // the old server. Drop them so the new server's shell can't
+            // render — or write back — the previous identity's values;
+            // the providers above re-hydrate for the new session.
+            // Parity with the TV shell's server-switch path.
+            clearSwitchedIdentityCaches()
+            // Not seekIntervalStore.clear() or episodeSpoilerStore.clear():
+            // the registry switch has already reset them and started
+            // hydrating the new server's profile through their identity
+            // flow, and a clear here would discard that load.
+            navController.navigate(target) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
         composable(Route.ServerList.route) {
             val canGoBack = navController.previousBackStackEntry != null
-            ServerListScreen(
-                onAddServer = {
-                    navController.navigate(Route.ServerSetup.route) {
-                        // Prairie: on first run this list is the graph root. Hand
-                        // the root to setup so the auth chain's
-                        // popUpTo(ServerSetup) clears it, and Back from Home
-                        // cannot land on the connect list.
-                        if (!canGoBack) popUpTo(Route.ServerList.route) { inclusive = true }
-                    }
-                },
-                onSwitched = { destination ->
-                    // Route to whichever screen the new server's stored
-                    // credentials can support — Home if a token+profile
-                    // already exist (so the user stays signed in), else
-                    // ProfileSelection or Login as appropriate.
-                    val target = when (destination) {
-                        // Through the tour gate, not straight to Home — the
-                        // switched-to server's profile may not have seen the
-                        // tour; the gate short-circuits when it has.
-                        ServerSwitchDestination.Home -> Route.OnboardingTour.route
-                        ServerSwitchDestination.ProfileSelection -> Route.ProfileSelection.route
-                        ServerSwitchDestination.Login -> Route.Login.route
-                        ServerSwitchDestination.Setup -> Route.Setup.route
-                    }
-                    // Overlays and card presentation are cached per profile on
-                    // the old server. Drop them so the new server's shell can't
-                    // render — or write back — the previous identity's values;
-                    // the providers above re-hydrate for the new session.
-                    // Parity with the TV shell's server-switch path.
-                    overlayPrefsStore.clear()
-                    activeProfileStore.reset()
-                    cardPresentationStore.clear()
-                    // Not seekIntervalStore.clear() or episodeSpoilerStore.clear():
-                    // the registry switch has already reset them and started
-                    // hydrating the new server's profile through their identity
-                    // flow, and a clear here would discard that load.
-                    navController.navigate(target) {
-                        popUpTo(0) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
+            if (!canGoBack) {
                 // Prairie: as the start destination (empty registry) this is the
-                // first-run connect screen — no Back, and scan the LAN once.
-                onBack = if (canGoBack) {
-                    { navController.popBackStack() }
+                // first-run connect screen: no Back, and scan the LAN once.
+                ServerListScreen(
+                    onAddServer = {
+                        navController.navigate(Route.ServerSetup.route) {
+                            // Prairie: on first run this list is the graph root. Hand
+                            // the root to setup so the auth chain's
+                            // popUpTo(ServerSetup) clears it, and Back from Home
+                            // cannot land on the connect list.
+                            if (!canGoBack) popUpTo(Route.ServerList.route) { inclusive = true }
+                        }
+                    },
+                    onSwitched = onAccountsSwitched,
+                    onBack = null,
+                    autoScan = !canGoBack,
+                )
+            } else {
+                AccountsScreen(
+                    onAddServer = { navController.navigate(Route.ServerSetup.route) },
+                    onOpenAccount = { accountId -> navController.navigate(Route.AccountDetail(accountId).route) },
+                    onSwitched = onAccountsSwitched,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+        }
+        composable(
+            route = Route.AccountDetail.ROUTE,
+            arguments = listOf(navArgument("accountId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            AccountDetailScreen(
+                accountId = backStackEntry.arguments?.getString("accountId").orEmpty(),
+                onSwitched = onAccountsSwitched,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        // ---- Change Account (every saved server's accounts) ----
+        composable(
+            route = Route.ChangeAccount.ROUTE,
+            arguments = listOf(
+                navArgument("addOn") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { backStackEntry ->
+            val changeActivity = androidx.activity.compose.LocalActivity.current
+            // The account open when this screen came up. Back returns to the
+            // screen below only while that account is still the one open;
+            // after a sign-in was started elsewhere (the active account
+            // changed) the screens below belong to another account.
+            val openedWith = remember {
+                serverRegistry.activeServerId.value to serverRegistry.activeAccountId.value
+            }
+            val canReturn = navController.previousBackStackEntry != null
+            ChangeAccountScreen(
+                addAccountOn = backStackEntry.arguments?.getString("addOn"),
+                onOpenPicker = {
+                    navController.navigate(Route.ProfileSelection.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onReturnToPicker = {
+                    if (navController.previousBackStackEntry?.destination?.route == Route.ProfileSelection.route) {
+                        navController.popBackStack()
+                    } else {
+                        // From the avatar menu: the open account's picker, as
+                        // Switch profile shows it, with the shell below.
+                        navScope.launch {
+                            profileSwitchTeardown.switchProfile {
+                                navController.navigate(Route.ProfileSelection.route) {
+                                    popUpTo(Route.ChangeAccount.ROUTE) { inclusive = true }
+                                }
+                            }
+                        }
+                    }
+                },
+                onSignIn = {
+                    // Another account (or none) is active now, so nothing
+                    // below this screen applies; Back from sign-in returns
+                    // here.
+                    navController.navigate(Route.ChangeAccount().route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                    navController.navigate(Route.Login.route)
+                },
+                onAddServer = { navController.navigate(Route.ServerSetup.route) },
+                onBack = if (canReturn) {
+                    {
+                        val current = serverRegistry.activeServerId.value to serverRegistry.activeAccountId.value
+                        val open = serverRegistry.activeAccount.value?.takeIf { !it.needsSignIn }
+                        when {
+                            current == openedWith -> navController.popBackStack()
+                            // Another account is open: its picker.
+                            open != null -> navController.navigate(Route.ProfileSelection.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                            // None is open: this is the root now.
+                            else -> changeActivity?.finish()
+                        }
+                    }
                 } else {
                     null
                 },
-                autoScan = !canGoBack,
             )
         }
 
@@ -1132,11 +1420,27 @@ fun AppNavigation(
                 onNavigateToEditProfile = { profileId ->
                     navController.navigate(Route.EditProfile(profileId).route)
                 },
-                onChangeServer = { navController.navigate(Route.ServerList.route) },
-                onSignOut = {
+                onChangeAccount = {
+                    navController.navigate(Route.ChangeAccount().route) { launchSingleTop = true }
+                },
+                onAddAccount = {
+                    val serverId = serverRegistry.activeServerId.value
+                    navController.navigate(Route.ChangeAccount(addAccountOn = serverId).route) { launchSingleTop = true }
+                },
+                onAddServer = { navController.navigate(Route.ServerSetup.route) },
+                onSignInAgain = {
+                    // As Change Account's Sign in again: Back from sign-in
+                    // returns to Change Account, not to a picker with no session.
+                    navController.navigate(Route.ChangeAccount().route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                    navController.navigate(Route.Login.route)
+                },
+                onSignOut = { removeServer ->
                     navScope.launch {
-                        if (!signOutTeardown.signOut()) return@launch
-                        navController.navigate(Route.Login.route) {
+                        val signedOut = if (removeServer) signOutTeardown.signOutAndRemoveServer() else signOutTeardown.signOut()
+                        if (!signedOut) return@launch
+                        navController.navigate(serverRegistry.routeAfterSignOut()) {
                             popUpTo(0) { inclusive = true }
                         }
                     }
@@ -1162,7 +1466,8 @@ fun AppNavigation(
                 onSignOut = {
                     navScope.launch {
                         if (!signOutTeardown.signOut()) return@launch
-                        navController.navigate(Route.Login.route) {
+                        // As the picker's Sign out: another signed-in account opens Change Account.
+                        navController.navigate(serverRegistry.routeAfterSignOut()) {
                             popUpTo(0) { inclusive = true }
                         }
                     }
@@ -1170,13 +1475,34 @@ fun AppNavigation(
             )
         }
         composable(Route.CreateProfile.route) {
+            // Opened from the picker, or by the profile menu's Add Profile
+            // over the profile's screens. From the menu, a new profile leads
+            // to the picker as Switch profile opens it, Back returns to the
+            // screen the menu was on, and the management session the menu
+            // started ends once this entry leaves the back stack.
+            val fromPicker = remember {
+                navController.previousBackStackEntry?.destination?.route == Route.ProfileSelection.route
+            }
+            if (!fromPicker) {
+                androidx.lifecycle.viewmodel.compose.viewModel { MenuAddProfileSession(profileRepository) }
+            }
             CreateProfileScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onProfileCreated = {
-                    navController.popBackStack(
-                        route = Route.ProfileSelection.route,
-                        inclusive = false,
-                    )
+                    if (fromPicker) {
+                        navController.popBackStack(
+                            route = Route.ProfileSelection.route,
+                            inclusive = false,
+                        )
+                    } else {
+                        navScope.launch {
+                            profileSwitchTeardown.switchProfile {
+                                navController.navigate(Route.ProfileSelection.route) {
+                                    popUpTo(Route.CreateProfile.route) { inclusive = true }
+                                }
+                            }
+                        }
+                    }
                 },
             )
         }
@@ -1301,7 +1627,7 @@ fun AppNavigation(
                     navController.navigate(Route.Diagnostics.route)
                 },
                 onLoggedOut = {
-                    navController.navigate(Route.Login.route) {
+                    navController.navigate(serverRegistry.routeAfterSignOut()) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
@@ -1880,9 +2206,29 @@ fun AppNavigation(
                     defaultValue = null
                 },
             ),
-        ) {
+        ) { entry ->
+            // Opening the book that is already playing shows its session;
+            // anything else starts a new one (see AudiobookPlaybackRequest).
+            // The entry id keeps a recreated activity on the same session.
+            val player = remember(entry.id) {
+                audiobookSession.open(AudiobookPlaybackRequest.from(entry.arguments), entry.id)
+            }
+            val activeSession by audiobookSession.active.collectAsState()
+            // The session ended under the full player (an account or profile
+            // change): close the player rather than show a dead session.
+            LaunchedEffect(activeSession, player) {
+                if (activeSession?.player !== player &&
+                    navController.currentBackStackEntry?.id == entry.id
+                ) {
+                    navController.popBackStack()
+                }
+            }
             org.prairieserver.prairie.android.ui.screens.audiobook.AudiobookPlayerScreen(
-                onBackClick = { navController.popBackStack() },
+                viewModel = player,
+                // Back and the chevron minimize: the book keeps playing.
+                onMinimize = { navController.popBackStack() },
+                // The effect above closes the route once the session ends.
+                onStop = { audiobookSession.stop() },
             )
         }
 
@@ -2077,10 +2423,26 @@ fun AppNavigation(
 
     }
     val membershipRepository: org.prairieserver.prairie.repository.PersonalDataRepository = koinInject()
-    org.prairieserver.prairie.common.ui.MembershipStatusBanner(
-        membershipRepository.memberships,
-        Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth(),
-    )
+    org.prairieserver.prairie.common.ui.MembershipNoticeHost(
+        actions = membershipRepository.memberships,
+        deferred = currentEntry?.destination?.route == Route.Player.ROUTE ||
+            currentEntry?.destination?.route == Route.AudiobookPlayer.ROUTE,
+        legacyModifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth(),
+    ) { notice ->
+        org.prairieserver.prairie.android.ui.components.PrairieDialog(
+            title = notice.title,
+            message = notice.message,
+            onDismissRequest = notice.onDismiss,
+            actions = listOf(
+                org.prairieserver.prairie.android.ui.components.PrairieDialogAction(
+                    label = notice.actionLabel,
+                    onClick = notice.onAction,
+                    style = org.prairieserver.prairie.android.ui.components.PrairieDialogActionStyle.Primary,
+                ),
+                org.prairieserver.prairie.android.ui.components.PrairieDialogAction(label = stringResource(CommonR.string.shell_notice_ok), onClick = notice.onDismiss),
+            ),
+        )
+    }
         diagnosticsState.prompt
             ?.takeIf {
                 currentEntry?.destination?.route != Route.Diagnostics.route &&
@@ -2152,6 +2514,22 @@ fun AppNavigation(
         }
 
         WatchPartySoloGuardDialog(externalSoloGuard)
+
+        // Runs the audiobook session's engine wiring while one is active,
+        // whichever screen shows it (the full player, the mini player, or
+        // none). Keyed so each session gets its own controller.
+        val activeAudiobook by audiobookSession.active.collectAsState()
+        activeAudiobook?.let { session ->
+            key(session) {
+                AudiobookPlaybackBridge(session)
+            }
+        }
+        // The video player shares the one playback engine, and the sign-in
+        // chain and profile picker leave the signed-in session: each ends the
+        // audiobook first (iOS closes its players at the same boundaries).
+        LaunchedEffect(currentRoute) {
+            if (currentRoute in AudiobookSessionEndingRoutes) audiobookSession.stop()
+        }
 
         // Nearby-TV offer, app-wide once signed in (iOS parity). Not over the
         // sign-in chain, where the phone has no session to approve with, nor

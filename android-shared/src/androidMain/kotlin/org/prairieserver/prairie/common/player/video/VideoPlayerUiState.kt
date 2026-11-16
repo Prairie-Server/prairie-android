@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.common.player.video
 
+import androidx.annotation.StringRes
 import org.prairieserver.prairie.model.catalog.MarkerSegment
 import org.prairieserver.prairie.model.catalog.TimeRange
 import org.prairieserver.prairie.model.catalog.VersionChapter
@@ -26,6 +27,11 @@ sealed interface VideoPlayerUiState {
         val diagnosticsCode: PlaybackDiagnosticsCode? = null,
         /** The server's terminal refusal reason, when there was one. */
         val terminalReason: String? = null,
+        /**
+         * When set, show this catalog string instead of [message], which keeps
+         * the English (or server) text for logs and diagnostics.
+         */
+        @StringRes val messageRes: Int? = null,
     ) : VideoPlayerUiState {
         override val hasPlayableMedia: Boolean = false
     }

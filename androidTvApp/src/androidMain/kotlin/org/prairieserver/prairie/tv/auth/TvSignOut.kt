@@ -1,5 +1,6 @@
 package org.prairieserver.prairie.tv.auth
 
+import androidx.annotation.StringRes
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -9,20 +10,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.network.ServerRegistry
 import org.prairieserver.prairie.network.TokenManager
 import org.prairieserver.prairie.repository.AuthRepository
+import org.prairieserver.prairie.tv.profiles.noAccountOpenButAnotherSignedIn
 import org.prairieserver.prairie.tv.ui.screens.servers.TV_REMOVE_SERVER_FAILED
 import org.prairieserver.prairie.tv.ui.screens.servers.TvServerResolver
 import org.prairieserver.prairie.tv.ui.screens.servers.TvServerSwitchDestination
 
 /** How a sign-out ended. Each one is handed to the navigator once. */
 sealed interface TvSignOutResult {
-    /** Go to [destination]; [notice] says what didn't work, when something didn't. */
-    data class SignedOut(val destination: TvServerSwitchDestination, val notice: String? = null) : TvSignOutResult
+    /** Go to [destination]; [notice] (a string resource) says what didn't work, when something didn't. */
+    data class SignedOut(val destination: TvServerSwitchDestination, @StringRes val notice: Int? = null) : TvSignOutResult
 
-    /** Nobody was signed out; stay where you are and show [message]. */
-    data class Refused(val message: String) : TvSignOutResult
+    /** Nobody was signed out; stay where you are and show [message], a string resource. */
+    data class Refused(@StringRes val message: Int) : TvSignOutResult
 }
 
 /**
@@ -139,7 +142,16 @@ class TvSignOut(
             // Stale caches for a signed-out profile; the next sign-in replaces them.
         }
 
-        if (!removeServer) return TvSignOutResult.SignedOut(TvServerSwitchDestination.Login)
+        // The server stays (multi-account spec §4.4). With another account's
+        // session to go to, Change Account shows; otherwise sign-in.
+        if (!removeServer) {
+            val next = if (serverRegistry.noAccountOpenButAnotherSignedIn()) {
+                TvServerSwitchDestination.ChangeAccount
+            } else {
+                TvServerSwitchDestination.Login
+            }
+            return TvSignOutResult.SignedOut(next)
+        }
         val removal = try {
             resolver.remove(serverId)
         } catch (e: CancellationException) {
@@ -173,10 +185,9 @@ class TvSignOut(
 
     companion object {
         // Apple's wording (prairie-apple `AppRouter.requestSignOut`).
-        const val SESSION_CHANGED = "The active session changed. Try signing out again."
-        const val REMOTE_PLAYBACK_NOT_ENDED = "Couldn't end remote playback. Try signing out again."
-        const val LOCAL_SIGN_OUT_FAILED =
-            "Prairie couldn't clear the saved sign-in on this device. Please try signing out again."
+        val SESSION_CHANGED = CommonR.string.tvSignIn_signOut_sessionChanged
+        val REMOTE_PLAYBACK_NOT_ENDED = CommonR.string.tvSignIn_signOut_remotePlaybackNotEnded
+        val LOCAL_SIGN_OUT_FAILED = CommonR.string.tvSignIn_signOut_localFailed
 
         // As the profile return rule waits for a phone-launched title's teardown.
         const val PLAYBACK_STOP_TIMEOUT_MS = 15_000L

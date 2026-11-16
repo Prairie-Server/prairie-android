@@ -56,12 +56,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.player.NoticeTone
 import org.prairieserver.prairie.common.player.PlayerNotice
+import org.prairieserver.prairie.common.player.text
 import org.prairieserver.prairie.common.ui.components.rememberNoticeCountdownFill
 import org.prairieserver.prairie.domain.player.BufferingQualityController
 import org.prairieserver.prairie.domain.player.BufferingQualityPill
-import org.prairieserver.prairie.tv.R
 import org.prairieserver.prairie.tv.ui.focus.rememberTvContentInitialFocus
 
 /** The buffering-pill action that has focus, so the screen's root Select can act on it. */
@@ -165,7 +166,7 @@ private fun TvNoticePill(notice: PlayerNotice) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = notice.message,
+                text = notice.text(),
                 color = Color.White,
                 fontSize = 18.sp,
                 lineHeight = 24.sp,
@@ -215,12 +216,12 @@ private fun TvBufferingQualityPill(
         when (currentSlot) {
             0 -> Spacer(Modifier.size(0.dp))
             1 -> TvBufferingPillCard(
-                title = stringResource(R.string.buffering_quality_prompt_title),
+                title = stringResource(CommonR.string.bufferingQuality_prompt_title),
                 caption = null,
-                primaryLabel = stringResource(R.string.buffering_quality_prompt_lower),
+                primaryLabel = stringResource(CommonR.string.bufferingQuality_prompt_lower),
                 primaryAction = TvBufferingPillAction.Lower,
                 onPrimary = onLower,
-                secondaryLabel = stringResource(R.string.buffering_quality_prompt_keep),
+                secondaryLabel = stringResource(CommonR.string.bufferingQuality_prompt_keep),
                 secondaryAction = TvBufferingPillAction.Keep,
                 onSecondary = onKeep,
                 progress = fill.floatValue,
@@ -229,8 +230,8 @@ private fun TvBufferingQualityPill(
             )
             else -> TvBufferingPillCard(
                 title = null,
-                caption = stringResource(R.string.buffering_quality_lowered),
-                primaryLabel = stringResource(R.string.buffering_quality_restore),
+                caption = stringResource(CommonR.string.bufferingQuality_lowered),
+                primaryLabel = stringResource(CommonR.string.bufferingQuality_restore),
                 primaryAction = TvBufferingPillAction.Restore,
                 onPrimary = onRestore,
                 secondaryLabel = null,

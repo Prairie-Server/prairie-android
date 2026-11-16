@@ -1,5 +1,7 @@
 package org.prairieserver.prairie.android.ui.screens.detail
 
+import android.content.res.Resources
+import androidx.compose.ui.res.stringResource
 import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenuItem
 import org.prairieserver.prairie.android.ui.components.PrairieDropdownMenu
 import androidx.compose.foundation.background
@@ -30,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,7 +57,10 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.prairieserver.prairie.android.ui.util.formatCardDate
 import org.prairieserver.prairie.android.ui.util.playbackResumePosition
+import org.prairieserver.prairie.common.R as CommonR
 import org.prairieserver.prairie.common.cards.LocalEpisodeSpoilerPrefs
+import org.prairieserver.prairie.common.i18n.currentFormatLocale
+import org.prairieserver.prairie.common.overlays.wideCardOverlayScale
 import org.prairieserver.prairie.common.ui.components.SpoilerImage
 import org.prairieserver.prairie.common.ui.components.DefaultArtworkKind
 import org.prairieserver.prairie.common.ui.components.ThumbhashImage
@@ -65,6 +69,9 @@ import org.prairieserver.prairie.model.catalog.EpisodeListItem
 import org.prairieserver.prairie.model.catalog.hasMachineTranslatedOverview
 import org.prairieserver.prairie.model.settings.EpisodeSpoilers
 import kotlin.math.abs
+import org.prairieserver.prairie.common.i18n.LocaleFormat
+import org.prairieserver.prairie.common.i18n.text
+import org.prairieserver.prairie.common.ui.components.WatchProgressBar
 
 /**
  * PR #212's phone episode carousel: a 240dp card settles in the centre and,
@@ -221,6 +228,8 @@ private fun EpisodeRailCard(
             )
 
             if (episode.userData?.played == true) {
+                // At the wide cards' overlay scale, like their badges.
+                val checkScale = wideCardOverlayScale()
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -229,17 +238,17 @@ private fun EpisodeRailCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(22.dp)
+                        .padding(8.dp * checkScale)
+                        .size(22.dp * checkScale)
                         .clip(CircleShape)
                         .background(Color.White),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Check,
-                        contentDescription = "Watched",
+                        contentDescription = stringResource(CommonR.string.detail_watched),
                         tint = Color.Black,
-                        modifier = Modifier.size(12.dp),
+                        modifier = Modifier.size(12.dp * checkScale),
                     )
                 }
             }
@@ -256,24 +265,18 @@ private fun EpisodeRailCard(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = "Play Season ${episode.seasonNumber}, Episode ${episode.episodeNumber}",
+                        contentDescription = stringResource(
+                            CommonR.string.detail_playSeasonEpisode,
+                            LocaleFormat.integer(episode.seasonNumber),
+                            LocaleFormat.integer(episode.episodeNumber),
+                        ),
                         tint = Color.Black,
                         modifier = Modifier.size(24.dp),
                     )
                 }
             }
 
-            progress?.takeIf { it > 0f }?.let {
-                LinearProgressIndicator(
-                    progress = { it },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(3.dp),
-                    color = Color.White,
-                    trackColor = Color.Black.copy(alpha = 0.60f),
-                )
-            }
+            if (progress != null) WatchProgressBar(progress)
         }
 
         // The iOS card's caption: NOW VIEWING, "S01E02 · Title", air date and
@@ -286,7 +289,7 @@ private fun EpisodeRailCard(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (isCurrent || reservesNowViewing) {
                 Text(
-                    text = "NOW VIEWING",
+                    text = stringResource(CommonR.string.detail_nowViewing),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 0.8.sp,
@@ -299,7 +302,7 @@ private fun EpisodeRailCard(
                 )
             }
             Text(
-                text = EpisodeCardCaption.title(episode),
+                text = EpisodeCardCaption.title(episode).text(),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = DetailPrimaryText,
@@ -307,9 +310,9 @@ private fun EpisodeRailCard(
                 overflow = TextOverflow.Ellipsis,
             )
             val metadata = EpisodeCardCaption.metadata(
-                airDate = formatCardDate(episode.airDate) ?: episode.airDate,
+                airDate = formatCardDate(episode.airDate, currentFormatLocale()) ?: episode.airDate,
                 runtimeMinutes = episode.runtime,
-            )
+            )?.text()
             val showsTranslationLabel = visibleOverview != null &&
                 hasMachineTranslatedOverview(episode.machineTranslatedFields)
             if (metadata != null || showsTranslationLabel || reservesLines) {
@@ -350,7 +353,13 @@ private fun EpisodeRailCard(
             onDismissRequest = { menuExpanded = false },
         ) {
             PrairieDropdownMenuItem(
-                text = { Text(if (isWatched) "Mark as Unwatched" else "Mark as Watched") },
+                text = {
+                    Text(
+                        stringResource(
+                            if (isWatched) CommonR.string.detail_more_markUnwatched else CommonR.string.detail_more_markWatched,
+                        ),
+                    )
+                },
                 onClick = {
                     menuExpanded = false
                     onWatchedChange?.invoke(!isWatched)
@@ -414,5 +423,5 @@ private fun EpisodeSkeletonLine(width: Dp, height: Dp) {
     )
 }
 
-internal fun episodeNumberText(episode: EpisodeListItem): String =
-    "S${episode.seasonNumber}·E${episode.episodeNumber}"
+internal fun episodeNumberText(resources: Resources, episode: EpisodeListItem): String =
+    episodeCode(resources, episode.seasonNumber, episode.episodeNumber)
