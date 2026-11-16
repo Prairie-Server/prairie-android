@@ -550,7 +550,6 @@ fun TvAppNavigation(
     val authRepository: org.prairieserver.prairie.repository.AuthRepository = koinInject()
     val remotePlaybackIdentityManager: RemotePlaybackIdentityManager = koinInject()
     val tvSignOut: TvSignOut = koinInject()
-    val serverRegistry: org.prairieserver.prairie.network.ServerRegistry = koinInject()
     val playbackLifecycle: PlaybackSessionLifecycle = koinInject()
     /** The profile menu's Add Profile in progress; a second press waits for it. */
     val addProfileJob = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }

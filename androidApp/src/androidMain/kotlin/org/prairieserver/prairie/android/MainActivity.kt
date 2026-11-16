@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
          * Stands in for an active server whose identity could not be read, so a
          * scope built from it matches nothing instead of everything.
          */
-        private const val UNRESOLVED_IDENTITY = "silo:unresolved-identity"
+        private const val UNRESOLVED_IDENTITY = "prairie:unresolved-identity"
 
         /** Saved-state key for [consumedExternalRoute]. */
         private const val STATE_CONSUMED_EXTERNAL_ROUTE =
@@ -674,7 +674,7 @@ class MainActivity : ComponentActivity() {
         )
 
         // Offline-with-downloads fast path: if local media exists and either
-        // the device has no network OR the configured Silo server fails the
+        // the device has no network OR the configured Prairie server fails the
         // authoritative health probe, land directly on Downloads instead of
         // greeting the user with a dead Home request.
         // Filesystem walk + health probe off the main dispatcher: this runs
